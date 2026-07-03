@@ -79,6 +79,9 @@ func (stubResourceStore) Read(context.Context, string, string) (*types.ResourceE
 func (stubResourceStore) Update(context.Context, *types.ResourceEnvelope) error { return nil }
 func (stubResourceStore) Delete(context.Context, string, string) error          { return nil }
 func (stubResourceStore) Exists(context.Context, string, string) (bool, error)  { return false, nil }
+func (stubResourceStore) ListIDs(context.Context, string, int, int) ([]string, error) {
+	return nil, nil
+}
 
 type stubHistoryStore struct{}
 

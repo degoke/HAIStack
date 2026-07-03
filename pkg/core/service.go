@@ -456,12 +456,12 @@ func (s *ResourceService) updateSearchIndex(
 	if err != nil {
 		return exceptionErr("build search index", err)
 	}
+	if err := session.SearchStore().RemoveIndex(ctx, envelope.ResourceType, envelope.ID); err != nil {
+		return exceptionErr("remove search index", err)
+	}
 	for _, entry := range entries {
 		entry.ResourceType = envelope.ResourceType
 		entry.ID = envelope.ID
-		if err := session.SearchStore().RemoveIndex(ctx, entry.ResourceType, entry.ID); err != nil {
-			return exceptionErr("remove search index", err)
-		}
 		if err := session.SearchStore().Index(ctx, entry); err != nil {
 			return exceptionErr("index resource", err)
 		}

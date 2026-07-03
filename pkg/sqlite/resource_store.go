@@ -24,6 +24,7 @@ func newResourceStoreTx(tx *sql.Tx) *ResourceStore {
 type queryExec interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func (s *ResourceStore) Create(ctx context.Context, res *types.ResourceEnvelope) error {
@@ -138,4 +139,33 @@ func (s *ResourceStore) Exists(ctx context.Context, resourceType, id string) (bo
 		return false, fmt.Errorf("exists resource: %w", err)
 	}
 	return count > 0, nil
+}
+
+// ListIDs returns resource IDs for one type in stable id order.
+func (s *ResourceStore) ListIDs(ctx context.Context, resourceType string, limit, offset int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.exec.QueryContext(ctx, `
+		SELECT id FROM resource
+		WHERE resource_type = ?
+		ORDER BY id
+		LIMIT ? OFFSET ?`, resourceType, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list resource ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan resource id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate resource ids: %w", err)
+	}
+	return ids, nil
 }

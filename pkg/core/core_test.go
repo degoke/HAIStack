@@ -595,6 +595,27 @@ func (m *memBackend) Exists(_ context.Context, resourceType, id string) (bool, e
 	return ok, nil
 }
 
+func (m *memBackend) ListIDs(_ context.Context, resourceType string, limit, offset int) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for key, res := range m.resources {
+		if res.ResourceType != resourceType {
+			continue
+		}
+		ids = append(ids, res.ID)
+		_ = key
+	}
+	if offset >= len(ids) {
+		return nil, nil
+	}
+	end := len(ids)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return ids[offset:end], nil
+}
+
 func (m *memBackend) AppendVersion(_ context.Context, version store.ResourceVersion) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

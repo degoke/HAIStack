@@ -21,6 +21,7 @@ var (
 	_ store.ResourceStore         = (*postgres.ResourceStore)(nil)
 	_ store.HistoryStore          = (*postgres.HistoryStore)(nil)
 	_ store.SearchStore           = (*postgres.SearchStore)(nil)
+	_ store.SearchQueryExecutor   = (*postgres.SearchStore)(nil)
 	_ store.EventStore            = (*postgres.EventStore)(nil)
 	_ store.CursorStore           = (*postgres.CursorStore)(nil)
 	_ store.ConflictStore         = (*postgres.ConflictStore)(nil)

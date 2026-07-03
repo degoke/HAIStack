@@ -63,8 +63,8 @@ Early-stage, under active development.
 | | |
 |---|---|
 | **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog |
-| **Partial** | `sync` (outbox contracts), `search` (indexer contract) |
-| **Next (Stage 1)** | `http`, `cli`, `testkit`, basic search on existing storage/core layers |
+| **Partial** | `sync` (outbox contracts) |
+| **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
 Audit and job persistence are available via `pkg/postgres` today. See [Roadmap](#roadmap) for the full plan.
 
@@ -135,7 +135,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-registry | `pkg/registry` | Done | Bundled R4 definitions, enablement overlay, compiled snapshot, capability metadata |
 | haistack-core | `pkg/core` | Done | FHIR runtime kernel — CRUD, history, transaction bundles, ID policy, errors |
 | haistack-sync | `pkg/sync` | Partial | Outbox contracts and session helpers; full sync protocol planned |
-| haistack-search | `pkg/search` | Partial | `Indexer` contract; search parser/executor planned |
+| haistack-search | `pkg/search` | Done | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
 | haistack-conflict | `pkg/conflict` | Planned | FHIR-aware conflict detection and merge |
@@ -245,7 +245,7 @@ Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip 
 | Stage | Packages | Goal |
 |-------|----------|------|
 | **1 ← current** | types, store, sqlite, core → http, cli, testkit | Local SQLite FHIR runtime; CRUD; history; sync events |
-| **2** | search, validate | Search by name/phone/date/status; basic validation (`fhirpath`, `validate` done) |
+| **2** | search, validate | Search by name/phone/date/status (`search` MVP done; `validate` done) |
 | **3** | sync (full), postgres integration, conflict | Offline create → push → pull → conflict detection |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
 | **5** | auth, ai | Safe AI tools with permission checks |
@@ -253,7 +253,7 @@ Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip 
 
 ### Planned package notes
 
-- **search** — incremental FHIR search parser/executor; MVP params: `_id`, `identifier`, `name`, `phone`, `birthdate`, `patient`, `status`, `date`, `code`, `_lastUpdated`
+- **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs; deferred: chained search, `_include`, OpenSearch, HTTP `_search`
 - **sync** — push/pull protocol, idempotency, tombstone deletes, global sequence (outbox contracts exist today)
 - **conflict** — stale-base detection, auto-merge for safe fields, human-review for clinical fields
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions

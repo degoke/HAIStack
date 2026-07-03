@@ -95,6 +95,27 @@ func (s *memResourceStore) Exists(_ context.Context, resourceType, id string) (b
 	return ok, nil
 }
 
+func (s *memResourceStore) ListIDs(_ context.Context, resourceType string, limit, offset int) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []string
+	for key, res := range s.data {
+		if res.ResourceType != resourceType {
+			continue
+		}
+		ids = append(ids, res.ID)
+		_ = key
+	}
+	if offset >= len(ids) {
+		return nil, nil
+	}
+	end := len(ids)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return ids[offset:end], nil
+}
+
 type memHistoryStore struct {
 	mu   sync.Mutex
 	data map[string][]store.ResourceVersion

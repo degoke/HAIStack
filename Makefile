@@ -1,7 +1,12 @@
 .PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all
 
 GO ?= go
+GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
+ifneq ($(wildcard $(GOPATH_BIN)/golangci-lint),)
+GOLANGCI_LINT ?= $(GOPATH_BIN)/golangci-lint
+else
 GOLANGCI_LINT ?= golangci-lint
+endif
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -20,7 +25,11 @@ fmt-check format-check: ## Verify Go files are formatted
 vet: ## Run go vet
 	$(GO) vet ./...
 
+install-lint: ## Install golangci-lint (matches CI version)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
 lint: ## Run golangci-lint
+	@test -x "$(GOLANGCI_LINT)" || { echo "golangci-lint not found. Run 'make install-lint' or add $(GOPATH_BIN) to PATH."; exit 1; }
 	$(GOLANGCI_LINT) run ./...
 
 test: ## Run unit and integration tests

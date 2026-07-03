@@ -14,4 +14,5 @@ type ResourceStore interface {
 	Update(ctx context.Context, res *types.ResourceEnvelope) error
 	Delete(ctx context.Context, resourceType, id string) error
 	Exists(ctx context.Context, resourceType, id string) (bool, error)
+	ListIDs(ctx context.Context, resourceType string, limit, offset int) ([]string, error)
 }

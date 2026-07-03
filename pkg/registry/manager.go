@@ -11,19 +11,21 @@ const defaultFHIRVersion = "4.0.1"
 
 // Config configures a registry Manager.
 type Config struct {
-	Definitions store.DefinitionStore
-	Installs    store.RegistryInstallStore
-	FHIRVersion string
-	Now         func() time.Time
+	Definitions   store.DefinitionStore
+	Installs      store.RegistryInstallStore
+	FHIRVersion   string
+	Now           func() time.Time
+	SearchReindex SearchReindexNotifier
 }
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
 type Manager struct {
-	definitions store.DefinitionStore
-	installs    store.RegistryInstallStore
-	fhirVersion string
-	now         func() time.Time
-	snapshot    *Snapshot
+	definitions   store.DefinitionStore
+	installs      store.RegistryInstallStore
+	fhirVersion   string
+	now           func() time.Time
+	searchReindex SearchReindexNotifier
+	snapshot      *Snapshot
 }
 
 // NewManager constructs a registry manager from persistence stores.
@@ -37,10 +39,11 @@ func NewManager(cfg Config) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		definitions: cfg.Definitions,
-		installs:    cfg.Installs,
-		fhirVersion: fhirVersion,
-		now:         now,
+		definitions:   cfg.Definitions,
+		installs:      cfg.Installs,
+		fhirVersion:   fhirVersion,
+		now:           now,
+		searchReindex: cfg.SearchReindex,
 	}
 }
 
@@ -54,7 +57,7 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 		if err := m.ingestDefinition(ctx, raw, InstallProvenance{
 			PackageName:    "hl7.fhir.r4.core",
 			PackageVersion: m.fhirVersion,
-		}); err != nil {
+		}, false); err != nil {
 			return err
 		}
 	}
@@ -63,10 +66,10 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 
 // InstallDefinition ingests one additional definition resource with provenance.
 func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, provenance InstallProvenance) error {
-	return m.ingestDefinition(ctx, jsonData, provenance)
+	return m.ingestDefinition(ctx, jsonData, provenance, true)
 }
 
-func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provenance InstallProvenance) error {
+func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provenance InstallProvenance, scheduleReindex bool) error {
 	parsed, targets, err := ParseDefinition(jsonData)
 	if err != nil {
 		return err
@@ -87,6 +90,11 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 	}
 	if err := m.definitions.Upsert(ctx, record, targets); err != nil {
 		return err
+	}
+	if scheduleReindex && parsed.DefinitionKind == store.DefinitionKindSearchParameter && m.searchReindex != nil {
+		if err := m.scheduleSearchReindex(ctx, searchBaseResourceTypes(targets)...); err != nil {
+			return err
+		}
 	}
 	if provenance.SourceModule != "" {
 		install := store.RegistryInstallRecord{
@@ -136,14 +144,17 @@ func (m *Manager) EnableResource(ctx context.Context, resourceType string) error
 	if base == nil {
 		return ErrMissingDefinition
 	}
-	return m.installs.SetEnabled(ctx, store.RegistryInstallRecord{
+	if err := m.installs.SetEnabled(ctx, store.RegistryInstallRecord{
 		DefinitionKind:     store.DefinitionKindStructureDefinition,
 		CanonicalURL:       base.CanonicalURL,
 		Version:            base.Version,
 		TargetResourceType: resourceType,
 		Enabled:            true,
 		InstalledAt:        m.now().UTC(),
-	})
+	}); err != nil {
+		return err
+	}
+	return m.scheduleSearchReindex(ctx, resourceType)
 }
 
 // DisableResource marks a resource type as disabled in the install overlay.
@@ -180,4 +191,30 @@ func (m *Manager) Snapshot() *Snapshot {
 
 func structureDefinitionURL(resourceType string) string {
 	return "http://hl7.org/fhir/StructureDefinition/" + resourceType
+}
+
+func searchBaseResourceTypes(targets []store.DefinitionTargetRecord) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, target := range targets {
+		if target.TargetResourceType == "" {
+			continue
+		}
+		if target.TargetRole != "" && target.TargetRole != targetRoleSearchBase {
+			continue
+		}
+		if _, ok := seen[target.TargetResourceType]; ok {
+			continue
+		}
+		seen[target.TargetResourceType] = struct{}{}
+		out = append(out, target.TargetResourceType)
+	}
+	return out
+}
+
+func (m *Manager) scheduleSearchReindex(ctx context.Context, resourceTypes ...string) error {
+	if m.searchReindex == nil || len(resourceTypes) == 0 {
+		return nil
+	}
+	return m.searchReindex.ScheduleReindex(ctx, resourceTypes...)
 }

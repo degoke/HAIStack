@@ -12,7 +12,7 @@ import (
 
 // ResourceStore persists current resource state in Postgres.
 type ResourceStore struct {
-	exec     execer
+	exec     querier
 	tenantID string
 }
 
@@ -126,4 +126,33 @@ func (s *ResourceStore) Exists(ctx context.Context, resourceType, id string) (bo
 		return false, fmt.Errorf("exists resource: %w", err)
 	}
 	return count > 0, nil
+}
+
+// ListIDs returns resource IDs for one type in stable id order.
+func (s *ResourceStore) ListIDs(ctx context.Context, resourceType string, limit, offset int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.exec.Query(ctx, `
+		SELECT id FROM resource
+		WHERE tenant_id = $1 AND resource_type = $2
+		ORDER BY id
+		LIMIT $3 OFFSET $4`, s.tenantID, resourceType, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list resource ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan resource id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate resource ids: %w", err)
+	}
+	return ids, nil
 }

@@ -447,3 +447,62 @@ func TestDefinitionKindFromResourceType(t *testing.T) {
 		t.Fatalf("StructureDefinition kind = %q", got)
 	}
 }
+
+type recordingReindexNotifier struct {
+	calls [][]string
+}
+
+func (r *recordingReindexNotifier) ScheduleReindex(_ context.Context, resourceTypes ...string) error {
+	r.calls = append(r.calls, append([]string(nil), resourceTypes...))
+	return nil
+}
+
+func TestEnableResourceSchedulesReindex(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	notifier := &recordingReindexNotifier{}
+	manager := registry.NewManager(registry.Config{
+		Definitions:   definitions,
+		Installs:      installs,
+		SearchReindex: notifier,
+	})
+	if err := manager.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	if err := manager.EnableResource(ctx, "Patient"); err != nil {
+		t.Fatalf("EnableResource: %v", err)
+	}
+	if len(notifier.calls) != 1 || len(notifier.calls[0]) != 1 || notifier.calls[0][0] != "Patient" {
+		t.Fatalf("reindex calls = %#v", notifier.calls)
+	}
+}
+
+func TestInstallSearchParameterSchedulesReindex(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	notifier := &recordingReindexNotifier{}
+	manager := registry.NewManager(registry.Config{
+		Definitions:   definitions,
+		Installs:      installs,
+		SearchReindex: notifier,
+	})
+	raw := []byte(`{
+		"resourceType":"SearchParameter",
+		"url":"http://example.org/SearchParameter/custom-tag",
+		"version":"1.0.0",
+		"name":"CustomTag",
+		"status":"active",
+		"code":"custom-tag",
+		"base":["Patient"],
+		"type":"token",
+		"expression":"Patient.meta.tag"
+	}`)
+	if err := manager.InstallDefinition(ctx, raw, registry.InstallProvenance{}); err != nil {
+		t.Fatalf("InstallDefinition: %v", err)
+	}
+	if len(notifier.calls) != 1 || len(notifier.calls[0]) != 1 || notifier.calls[0][0] != "Patient" {
+		t.Fatalf("reindex calls = %#v", notifier.calls)
+	}
+}

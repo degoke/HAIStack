@@ -16,6 +16,20 @@ type PreparedQuery struct {
 	Name string `json:"name"`
 }
 
+// SearchMatch identifies one typed equality predicate scoped to a resource type.
+type SearchMatch struct {
+	ResourceType string
+	FieldKey     string
+	Value        string
+}
+
+// SearchQueryExecutor executes typed index lookups for FHIR search.
+// Postgres implements this interface; SQLite supports index writes and simple lookups only.
+type SearchQueryExecutor interface {
+	LookupMatch(ctx context.Context, match SearchMatch) ([]string, error)
+	FieldValues(ctx context.Context, resourceType, fieldKey string, resourceIDs []string) (map[string]string, error)
+}
+
 // SearchStore persists search-index records and returns candidate resource IDs.
 // It is index-oriented only; callers prepare lookup keys or queries outside this package.
 type SearchStore interface {
