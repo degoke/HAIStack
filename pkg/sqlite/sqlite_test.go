@@ -27,6 +27,7 @@ var (
 	_ store.RegistryInstallStore = (*sqlite.RegistryInstallStore)(nil)
 	_ store.WriteSession         = (*sqlite.Session)(nil)
 	_ store.WriteSessionProvider = (*sqlite.DB)(nil)
+	_ store.InboxStore           = (*sqlite.InboxStore)(nil)
 )
 
 func openTestDB(t *testing.T, path string) *sqlite.DB {

@@ -104,6 +104,11 @@ func (tdb *TenantDB) NodeRegistry() *NodeRegistry {
 	return newNodeRegistry(tdb.pool, tdb.tenantID)
 }
 
+// InboxStore returns a tenant-scoped inbox idempotency store.
+func (tdb *TenantDB) InboxStore() *InboxStore {
+	return newInboxStore(tdb.pool, tdb.tenantID)
+}
+
 // RegistryInstallStore returns a tenant-scoped registry install overlay store.
 func (tdb *TenantDB) RegistryInstallStore() *RegistryInstallStore {
 	return newRegistryInstallStore(tdb.pool, tdb.tenantID)

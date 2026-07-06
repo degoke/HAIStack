@@ -1,0 +1,92 @@
+package sync
+
+import (
+	"context"
+	"time"
+
+	"github.com/degoke/health-ai-stack/pkg/store"
+)
+
+// Hub is the protocol boundary used by Engine to push local events and pull canonical events.
+type Hub interface {
+	Push(ctx context.Context, events []LocalEvent) ([]PushResult, error)
+	Pull(ctx context.Context, afterSequence int64, limit int) ([]CanonicalEvent, error)
+}
+
+// PushServer accepts proposed local events from device nodes.
+type PushServer interface {
+	Push(ctx context.Context, events []LocalEvent) ([]PushResult, error)
+}
+
+// PullServer returns canonical events after a sequence checkpoint.
+type PullServer interface {
+	Pull(ctx context.Context, afterSequence int64, limit int) ([]CanonicalEvent, error)
+}
+
+// HubServer combines push and pull handlers for a canonical postgres hub.
+type HubServer interface {
+	PushServer
+	PullServer
+}
+
+// Clock returns the current time; tests may inject a deterministic clock.
+type Clock func() time.Time
+
+// DefaultClock returns UTC now.
+func DefaultClock() time.Time {
+	return time.Now().UTC()
+}
+
+// Cursor names used by the sync engine.
+const (
+	CursorPush = "sync.push"
+	CursorPull = "sync.pull"
+)
+
+// Config wires local stores and the hub adapter for one device node.
+type Config struct {
+	NodeID   string
+	TenantID string
+
+	Events    store.EventStore
+	Cursors   store.CursorStore
+	Inbox     store.InboxStore
+	Resources store.ResourceStore
+	History   store.HistoryStore
+	Conflicts store.ConflictStore
+	Jobs      store.JobStore
+	Audit     store.AuditStore
+	Search    store.SearchStore
+
+	Hub Hub
+
+	// SearchIndexer optionally builds search rows when applying canonical events locally.
+	SearchIndexer SearchIndexer
+
+	Clock Clock
+
+	PushCursorName string
+	PullCursorName string
+	PushBatchSize  int
+	PullBatchSize  int
+}
+
+// normalized fills defaults on Config.
+func (c Config) normalized() Config {
+	if c.Clock == nil {
+		c.Clock = DefaultClock
+	}
+	if c.PushCursorName == "" {
+		c.PushCursorName = CursorPush
+	}
+	if c.PullCursorName == "" {
+		c.PullCursorName = CursorPull
+	}
+	if c.PushBatchSize <= 0 {
+		c.PushBatchSize = 100
+	}
+	if c.PullBatchSize <= 0 {
+		c.PullBatchSize = 100
+	}
+	return c
+}

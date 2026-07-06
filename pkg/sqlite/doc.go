@@ -55,8 +55,7 @@
 //
 // These adapters persist data correctly but intentionally omit higher-level orchestration:
 //
-//   - InboxStore     — idempotency via sync_inbox_applied (MarkApplied, IsApplied, AppliedAt).
-//     Full remote-apply inbox pipeline not implemented here.
+//   - InboxStore     → store.InboxStore — sync_inbox_applied idempotency for pull/apply.
 //   - ConflictStore  → store.ConflictStore — sync_conflict append/list/resolve.
 //     Conflict detection and reconciliation policy live in pkg/core and sync layers.
 //   - BinaryStore    → store.BinaryStore   — small inline binary_object payloads.

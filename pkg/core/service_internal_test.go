@@ -51,6 +51,10 @@ func (r *recordingEventStore) ReadSince(context.Context, int64, int) ([]store.Re
 	return nil, nil
 }
 
+func (r *recordingEventStore) LatestForResource(context.Context, string, string) (*store.ResourceEvent, error) {
+	return nil, nil
+}
+
 type stubWriteSession struct {
 	events *recordingEventStore
 }

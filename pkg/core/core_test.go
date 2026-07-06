@@ -706,6 +706,17 @@ func (e *memEventStore) ReadSince(_ context.Context, afterSequence int64, limit 
 	return out, nil
 }
 
+func (e *memEventStore) LatestForResource(_ context.Context, resourceType, id string) (*store.ResourceEvent, error) {
+	for i := len(e.events) - 1; i >= 0; i-- {
+		ev := e.events[i]
+		if ev.ResourceType == resourceType && ev.ID == id {
+			copy := ev
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *memBackend) Index(_ context.Context, entry store.SearchIndexEntry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

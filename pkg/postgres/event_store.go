@@ -49,9 +49,9 @@ func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit i
 	query := `
 		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
 		FROM event_log
-		WHERE sequence > $1
+		WHERE tenant_id = $1 AND sequence > $2
 		ORDER BY sequence ASC`
-	args := []any{afterSequence}
+	args := []any{s.tenantID, afterSequence}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -90,4 +90,38 @@ func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit i
 		return nil, fmt.Errorf("iterate events: %w", err)
 	}
 	return out, nil
+}
+
+func (s *EventStore) LatestForResource(ctx context.Context, resourceType, id string) (*store.ResourceEvent, error) {
+	var (
+		event     store.ResourceEvent
+		timestamp time.Time
+		hash      *string
+	)
+	err := s.exec.QueryRow(ctx, `
+		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
+		FROM event_log
+		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3
+		ORDER BY sequence DESC
+		LIMIT 1`, s.tenantID, resourceType, id,
+	).Scan(
+		&event.Sequence,
+		&event.ResourceType,
+		&event.ID,
+		&event.VersionID,
+		&event.Action,
+		&timestamp,
+		&hash,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest event for %s/%s: %w", resourceType, id, err)
+	}
+	event.Timestamp = timestamp
+	if hash != nil {
+		event.Hash = *hash
+	}
+	return &event, nil
 }

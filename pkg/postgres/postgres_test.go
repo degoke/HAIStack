@@ -40,6 +40,7 @@ var (
 	_ store.RegistryInstallStore  = (*postgres.RegistryInstallStore)(nil)
 	_ store.WriteSession          = (*postgres.Session)(nil)
 	_ store.WriteSessionProvider  = (*postgres.TenantDB)(nil)
+	_ store.InboxStore            = (*postgres.InboxStore)(nil)
 )
 
 func initDockerHost() {
@@ -135,7 +136,7 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"resource_id_registry", "node_registry", "sync_conflict",
 		"search_token", "search_string", "search_date", "search_number", "search_reference",
 		"search_text", "search_composite",
-		"sync_cursor", "binary_object", "audit_log", "module_registry",
+		"sync_cursor", "sync_inbox_applied", "binary_object", "audit_log", "module_registry",
 		"materialized_view", "analytics_event", "background_job", "schema_migrations",
 	}
 	ctx := context.Background()
@@ -574,6 +575,35 @@ func TestCursorStoreUpsertGetDelete(t *testing.T) {
 
 	if err := cursors.DeleteCursor(ctx, "sync-worker"); err != nil {
 		t.Fatalf("DeleteCursor: %v", err)
+	}
+}
+
+func TestInboxStoreMarkApplied(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "inbox")
+	inbox := tdb.InboxStore()
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	applied, err := inbox.IsApplied(ctx, "remote-op-1")
+	if err != nil {
+		t.Fatalf("IsApplied: %v", err)
+	}
+	if applied {
+		t.Fatal("expected not applied")
+	}
+
+	if err := inbox.MarkApplied(ctx, "remote-op-1", now); err != nil {
+		t.Fatalf("MarkApplied: %v", err)
+	}
+	applied, err = inbox.IsApplied(ctx, "remote-op-1")
+	if err != nil || !applied {
+		t.Fatalf("IsApplied after mark = %v, %v", applied, err)
+	}
+	ts, err := inbox.AppliedAt(ctx, "remote-op-1")
+	if err != nil || ts == nil {
+		t.Fatalf("AppliedAt = %v, %v", ts, err)
 	}
 }
 

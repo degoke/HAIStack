@@ -100,3 +100,41 @@ func (s *OutboxStore) ReadSince(ctx context.Context, afterSequence int64, limit 
 	}
 	return out, nil
 }
+
+func (s *OutboxStore) LatestForResource(ctx context.Context, resourceType, id string) (*store.ResourceEvent, error) {
+	var (
+		event     store.ResourceEvent
+		timestamp string
+		hash      sql.NullString
+	)
+	err := s.exec.QueryRowContext(ctx, `
+		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
+		FROM sync_outbox
+		WHERE resource_type = ? AND resource_id = ?
+		ORDER BY sequence DESC
+		LIMIT 1`, resourceType, id,
+	).Scan(
+		&event.Sequence,
+		&event.ResourceType,
+		&event.ID,
+		&event.VersionID,
+		&event.Action,
+		&timestamp,
+		&hash,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest outbox event for %s/%s: %w", resourceType, id, err)
+	}
+	ts, err := parseTime(timestamp)
+	if err != nil {
+		return nil, err
+	}
+	event.Timestamp = ts
+	if hash.Valid {
+		event.Hash = hash.String
+	}
+	return &event, nil
+}

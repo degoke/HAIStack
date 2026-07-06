@@ -111,8 +111,33 @@ func (s *SearchStore) RemoveIndex(ctx context.Context, resourceType, id string) 
 }
 
 func (s *SearchStore) Lookup(ctx context.Context, key, value string) ([]string, error) {
-	match := store.SearchMatch{FieldKey: key, Value: value, Operator: "eq"}
-	return s.LookupMatch(ctx, match)
+	table, fieldKey, err := parseSearchFieldKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT resource_id FROM %s
+		WHERE tenant_id = $1 AND field_key = $2 AND value = $3
+		ORDER BY resource_id`, table)
+	rows, err := s.exec.Query(ctx, query, s.tenantID, fieldKey, value)
+	if err != nil {
+		return nil, fmt.Errorf("lookup search index: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan search lookup: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate search lookup: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *SearchStore) QueryPrepared(ctx context.Context, query store.PreparedQuery, args map[string]string) ([]string, error) {

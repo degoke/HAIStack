@@ -64,6 +64,7 @@
 //   - SearchStore           → store.SearchStore           — typed search_* index tables
 //   - EventStore            → store.EventStore            — append-only event_log with global sequence
 //   - CursorStore           → store.CursorStore           — named sync_cursor checkpoints
+//   - InboxStore            → store.InboxStore            — sync_inbox_applied push/pull dedupe
 //   - ConflictStore         → store.ConflictStore         — sync_conflict append/list/resolve
 //   - IDRegistry            → store.IDRegistryStore       — resource_id_registry reserve/check/register
 //   - BinaryStore           → store.BinaryStore           — inline binary_object payloads

@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/degoke/health-ai-stack/pkg/store"
 )
+
+var _ store.InboxStore = (*InboxStore)(nil)
 
 // InboxStore tracks applied remote sync operations for idempotency.
 //
-// MarkApplied, IsApplied, and AppliedAt are available. The full remote-apply inbox
-// pipeline (fetch, validate, merge, atomic commit) is not implemented in this package.
+// MarkApplied, IsApplied, and AppliedAt implement store.InboxStore.
 type InboxStore struct {
 	exec queryExec
 }

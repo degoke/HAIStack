@@ -22,6 +22,7 @@ var (
 	_ store.BinaryStore           = (*memBinaryStore)(nil)
 	_ store.BlobStore             = (*memBlobStore)(nil)
 	_ store.CursorStore           = (*memCursorStore)(nil)
+	_ store.InboxStore            = (*memInboxStore)(nil)
 	_ store.ConflictStore         = (*memConflictStore)(nil)
 	_ store.AnalyticsStore        = (*memAnalyticsStore)(nil)
 	_ store.AuditStore            = (*memAuditStore)(nil)
@@ -175,6 +176,19 @@ func (s *memEventStore) ReadSince(_ context.Context, afterSequence int64, limit 
 		}
 	}
 	return out, nil
+}
+
+func (s *memEventStore) LatestForResource(_ context.Context, resourceType, id string) (*store.ResourceEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.events) - 1; i >= 0; i-- {
+		event := s.events[i]
+		if event.ResourceType == resourceType && event.ID == id {
+			copy := event
+			return &copy, nil
+		}
+	}
+	return nil, nil
 }
 
 type memSearchStore struct {
@@ -516,6 +530,40 @@ func (s *memCursorStore) DeleteCursor(_ context.Context, name string) error {
 	defer s.mu.Unlock()
 	delete(s.cursors, name)
 	return nil
+}
+
+type memInboxStore struct {
+	mu   sync.Mutex
+	data map[string]time.Time
+}
+
+func newMemInboxStore() *memInboxStore {
+	return &memInboxStore{data: make(map[string]time.Time)}
+}
+
+func (s *memInboxStore) MarkApplied(_ context.Context, id string, appliedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[id] = appliedAt
+	return nil
+}
+
+func (s *memInboxStore) IsApplied(_ context.Context, id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.data[id]
+	return ok, nil
+}
+
+func (s *memInboxStore) AppliedAt(_ context.Context, id string) (*time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ts, ok := s.data[id]
+	if !ok {
+		return nil, nil
+	}
+	copy := ts
+	return &copy, nil
 }
 
 type memConflictStore struct {

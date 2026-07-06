@@ -48,6 +48,10 @@ func (r *recordingEvents) ReadSince(context.Context, int64, int) ([]store.Resour
 	return nil, nil
 }
 
+func (r *recordingEvents) LatestForResource(context.Context, string, string) (*store.ResourceEvent, error) {
+	return nil, nil
+}
+
 type noopEvents struct{}
 
 func (noopEvents) Append(context.Context, store.ResourceEvent) (store.ResourceEvent, error) {
@@ -55,6 +59,10 @@ func (noopEvents) Append(context.Context, store.ResourceEvent) (store.ResourceEv
 }
 
 func (noopEvents) ReadSince(context.Context, int64, int) ([]store.ResourceEvent, error) {
+	return nil, nil
+}
+
+func (noopEvents) LatestForResource(context.Context, string, string) (*store.ResourceEvent, error) {
 	return nil, nil
 }
 

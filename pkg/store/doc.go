@@ -32,6 +32,7 @@
 //
 //   - EventStore is append-only local change events for replay, sync, and projections.
 //   - CursorStore persists consumer checkpoints independently so workers can resume safely.
+//   - InboxStore records applied remote operation ids for idempotent sync replay.
 //
 // Transactions:
 //
@@ -259,6 +260,7 @@
 //   - binary.go — BinaryStore, BinaryObject.
 //   - blob.go — BlobStore, BlobObject.
 //   - cursor.go — CursorStore, Cursor.
+//   - inbox.go — InboxStore for sync idempotency.
 //   - conflict.go — ConflictStore, ConflictRecord.
 //   - materialized_view.go — MaterializedViewStore, MaterializedViewRecord.
 //   - analytics.go — AnalyticsStore, AnalyticsEvent.

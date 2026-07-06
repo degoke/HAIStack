@@ -30,4 +30,5 @@ type ResourceEvent struct {
 type EventStore interface {
 	Append(ctx context.Context, event ResourceEvent) (ResourceEvent, error)
 	ReadSince(ctx context.Context, afterSequence int64, limit int) ([]ResourceEvent, error)
+	LatestForResource(ctx context.Context, resourceType, id string) (*ResourceEvent, error)
 }
