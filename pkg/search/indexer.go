@@ -60,6 +60,19 @@ func (i *RegistryIndexer) Build(ctx context.Context, resource *types.ResourceEnv
 		if param.Code == "_id" || param.Code == "_lastUpdated" {
 			continue
 		}
+		switch param.Type {
+		case "composite":
+			values, err := i.indexComposite(ctx, resource, param)
+			if err != nil {
+				return nil, err
+			}
+			if len(values) > 0 {
+				key := compositeFieldKey(param.Code)
+				fieldValues[key] = append(fieldValues[key], values...)
+			}
+			continue
+		}
+
 		key := fieldKeyForParam(param.Code, param.Type)
 		if key == "" {
 			continue
@@ -81,7 +94,76 @@ func (i *RegistryIndexer) Build(ctx context.Context, resource *types.ResourceEnv
 		fieldValues[key] = append(fieldValues[key], normalized...)
 	}
 
+	if doc := buildFullTextDocument(fieldValues); doc != "" {
+		fieldValues["text.document"] = []string{doc}
+	}
+
 	return flattenEntries(resource.ResourceType, resource.ID, fieldValues), nil
+}
+
+func (i *RegistryIndexer) indexComposite(ctx context.Context, resource *types.ResourceEnvelope, param ParameterInfo) ([]string, error) {
+	if len(param.Component) == 0 {
+		return nil, nil
+	}
+	var components []string
+	for _, comp := range param.Component {
+		expr := comp.Expression
+		if expr == "" && comp.Code != "" {
+			if info, ok := i.registry.SearchParameter(resource.ResourceType, comp.Code); ok {
+				expr = info.Expression
+			}
+		}
+		if expr == "" {
+			return nil, fmt.Errorf("search: composite component %q missing expression", comp.Code)
+		}
+		values, err := i.engine.Eval(ctx, expr, resource)
+		if err != nil {
+			if isSkippableEvalError(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("search: evaluate composite component %s: %w", comp.Code, err)
+		}
+		compType := comp.Type
+		if compType == "" {
+			compType = "string"
+		}
+		normalized := normalizeValues(comp.Code, compType, values)
+		if len(normalized) == 0 {
+			return nil, nil
+		}
+		components = append(components, normalized[0])
+	}
+	if len(components) != len(param.Component) {
+		return nil, nil
+	}
+	return []string{compositeIndexValue(components)}, nil
+}
+
+func buildFullTextDocument(fieldValues map[string][]string) string {
+	var parts []string
+	for key, values := range fieldValues {
+		if !strings.HasPrefix(key, "string.") {
+			continue
+		}
+		parts = append(parts, values...)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	seen := make(map[string]struct{})
+	var unique []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		unique = append(unique, p)
+	}
+	return strings.Join(unique, " ")
 }
 
 func flattenEntries(resourceType, id string, fieldValues map[string][]string) []store.SearchIndexEntry {

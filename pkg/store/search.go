@@ -16,11 +16,39 @@ type PreparedQuery struct {
 	Name string `json:"name"`
 }
 
-// SearchMatch identifies one typed equality predicate scoped to a resource type.
+// SearchMatch identifies one typed predicate scoped to a resource type.
 type SearchMatch struct {
 	ResourceType string
 	FieldKey     string
 	Value        string
+	Operator     string
+}
+
+// ReferenceLink is one indexed reference from a source resource.
+type ReferenceLink struct {
+	TargetType string
+	TargetID   string
+	Literal    string
+}
+
+// FullTextMatch holds ranked full-text search matches.
+type FullTextMatch struct {
+	IDs    []string
+	Scores map[string]float64
+}
+
+// SearchAdvancedExecutor extends typed lookups with advanced FHIR search operations.
+// Postgres implements this interface; SQLite supports basic LookupMatch only.
+type SearchAdvancedExecutor interface {
+	SearchQueryExecutor
+	LookupReferences(ctx context.Context, resourceType, fieldKey string, sourceIDs []string) (map[string][]ReferenceLink, error)
+	LookupReferencing(ctx context.Context, sourceType, fieldKey, targetType, targetID string) ([]string, error)
+	LookupFullText(ctx context.Context, resourceType, query string) (FullTextMatch, error)
+}
+
+// SearchIndexMaintainer supports reindex orphan cleanup.
+type SearchIndexMaintainer interface {
+	ListIndexedResourceIDs(ctx context.Context, resourceType string) ([]string, error)
 }
 
 // SearchQueryExecutor executes typed index lookups for FHIR search.

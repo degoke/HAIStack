@@ -60,6 +60,9 @@ func parseSearchFieldKey(key string) (searchTable, string, error) {
 
 func (s *SearchStore) Index(ctx context.Context, entry store.SearchIndexEntry) error {
 	for fieldKey, value := range entry.Fields {
+		if strings.HasPrefix(fieldKey, "composite.") || strings.HasPrefix(fieldKey, "text.") {
+			return fmt.Errorf("sqlite search store does not support advanced index key %q", fieldKey)
+		}
 		table, normalizedKey, err := parseSearchFieldKey(fieldKey)
 		if err != nil {
 			return err
@@ -125,7 +128,7 @@ func (s *SearchStore) QueryPrepared(ctx context.Context, query store.PreparedQue
 	if query.Name == "by-field" {
 		return s.Lookup(ctx, args["key"], args["value"])
 	}
-	return nil, nil
+	return nil, fmt.Errorf("unknown prepared search query %q", query.Name)
 }
 
 // LookupMatch returns resource IDs matching one typed predicate within a resource type.

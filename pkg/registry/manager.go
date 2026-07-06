@@ -92,7 +92,12 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		return err
 	}
 	if scheduleReindex && parsed.DefinitionKind == store.DefinitionKindSearchParameter && m.searchReindex != nil {
-		if err := m.scheduleSearchReindex(ctx, searchBaseResourceTypes(targets)...); err != nil {
+		types := searchBaseResourceTypes(targets)
+		if spNotifier, ok := m.searchReindex.(SearchParameterReindexNotifier); ok {
+			if err := spNotifier.ScheduleSearchParameterReindex(ctx, parsed.CanonicalURL, parsed.Version, types...); err != nil {
+				return err
+			}
+		} else if err := m.scheduleSearchReindex(ctx, types...); err != nil {
 			return err
 		}
 	}

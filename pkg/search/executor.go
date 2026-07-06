@@ -10,22 +10,32 @@ import (
 
 // Executor executes a search plan against a typed index backend.
 type Executor interface {
-	Execute(ctx context.Context, plan *Plan) ([]string, error)
+	Execute(ctx context.Context, plan *Plan) (*ExecuteResult, error)
+}
+
+// ExecuteResult holds primary match IDs, total count, optional full-text scores, and includes.
+type ExecuteResult struct {
+	IDs      []string
+	Total    int
+	Scores   map[string]float64
+	Included []IncludedResource
 }
 
 // StoreExecutor executes search plans using store.SearchQueryExecutor.
 type StoreExecutor struct {
 	Backend   store.SearchQueryExecutor
+	Advanced  store.SearchAdvancedExecutor
 	Resources store.ResourceStore
 }
 
 // NewStoreExecutor constructs an executor backed by SearchQueryExecutor.
 func NewStoreExecutor(backend store.SearchQueryExecutor, resources store.ResourceStore) *StoreExecutor {
-	return &StoreExecutor{Backend: backend, Resources: resources}
+	adv, _ := backend.(store.SearchAdvancedExecutor)
+	return &StoreExecutor{Backend: backend, Advanced: adv, Resources: resources}
 }
 
 // Execute runs the plan and returns matching resource IDs in deterministic order.
-func (e *StoreExecutor) Execute(ctx context.Context, plan *Plan) ([]string, error) {
+func (e *StoreExecutor) Execute(ctx context.Context, plan *Plan) (*ExecuteResult, error) {
 	if e == nil || e.Backend == nil {
 		return nil, fmt.Errorf("search: executor backend is required")
 	}
@@ -40,9 +50,36 @@ func (e *StoreExecutor) Execute(ctx context.Context, plan *Plan) ([]string, erro
 			return nil, err
 		}
 		if len(ids) == 0 {
-			return nil, nil
+			return &ExecuteResult{}, nil
 		}
 		candidateSets = append(candidateSets, ids)
+	}
+
+	for _, chainPlan := range plan.ChainPlans {
+		ids, err := e.executeChainPlan(ctx, plan.ResourceType, chainPlan)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return &ExecuteResult{}, nil
+		}
+		candidateSets = append(candidateSets, ids)
+	}
+
+	var scores map[string]float64
+	if plan.FullText != "" {
+		if e.Advanced == nil {
+			return nil, fmt.Errorf("%w: full-text search", ErrUnsupportedFeature)
+		}
+		ft, err := e.Advanced.LookupFullText(ctx, plan.ResourceType, plan.FullText)
+		if err != nil {
+			return nil, err
+		}
+		if len(ft.IDs) == 0 {
+			return &ExecuteResult{}, nil
+		}
+		scores = ft.Scores
+		candidateSets = append(candidateSets, ft.IDs)
 	}
 
 	var ids []string
@@ -56,20 +93,60 @@ func (e *StoreExecutor) Execute(ctx context.Context, plan *Plan) ([]string, erro
 		ids = intersectSorted(candidateSets)
 	}
 
-	ids, err = e.sortResourceIDs(ctx, plan.ResourceType, ids, plan.Sort)
-	if err != nil {
-		return nil, err
+	if plan.FullText != "" && shouldRankByFullText(plan.Sort) && len(scores) > 0 {
+		ids = sortByFullTextRank(ids, scores)
+	} else {
+		ids, err = e.sortResourceIDs(ctx, plan.ResourceType, ids, plan.Sort)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	total := len(ids)
 	start := plan.Offset
 	if start > len(ids) {
-		return nil, nil
+		return &ExecuteResult{Total: total, Scores: scores}, nil
 	}
 	end := start + plan.Count
 	if end > len(ids) {
 		end = len(ids)
 	}
-	return ids[start:end], nil
+	pageIDs := ids[start:end]
+
+	included, err := e.expandIncludes(ctx, plan, pageIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExecuteResult{
+		IDs:      pageIDs,
+		Total:    total,
+		Scores:   scores,
+		Included: included,
+	}, nil
+}
+
+func shouldRankByFullText(sortFields []SortField) bool {
+	if len(sortFields) == 0 {
+		return true
+	}
+	if len(sortFields) == 1 && sortFields[0].Code == "_id" {
+		return true
+	}
+	return false
+}
+
+func sortByFullTextRank(ids []string, scores map[string]float64) []string {
+	out := append([]string(nil), ids...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := scores[out[i]]
+		right := scores[out[j]]
+		if left == right {
+			return out[i] < out[j]
+		}
+		return left > right
+	})
+	return out
 }
 
 func (e *StoreExecutor) listAllResourceIDs(ctx context.Context, resourceType string) ([]string, error) {
@@ -101,7 +178,7 @@ func (e *StoreExecutor) sortResourceIDs(ctx context.Context, resourceType string
 		return nil, nil
 	}
 	if len(sortFields) == 0 {
-		sortFields = []SortField{{Code: "_id", Direction: SortAsc}}
+		sortFields = []SortField{{Code: "_id", FieldKey: "token._id", Direction: SortAsc}}
 	}
 
 	type row struct {
@@ -120,7 +197,10 @@ func (e *StoreExecutor) sortResourceIDs(ctx context.Context, resourceType string
 			}
 			valueMaps[i] = m
 		default:
-			fieldKey := fieldKeyForSort(field.Code)
+			fieldKey := field.FieldKey
+			if fieldKey == "" {
+				fieldKey = fieldKeyForSort(field.Code)
+			}
 			if fieldKey == "" {
 				return nil, fmt.Errorf("%w: sort on %q", ErrUnsupportedFeature, field.Code)
 			}
@@ -173,6 +253,7 @@ func (e *StoreExecutor) executeParamPlan(ctx context.Context, resourceType strin
 			ResourceType: resourceType,
 			FieldKey:     pred.FieldKey,
 			Value:        pred.Value,
+			Operator:     string(pred.Operator),
 		})
 		if err != nil {
 			return nil, err
@@ -187,6 +268,113 @@ func (e *StoreExecutor) executeParamPlan(ctx context.Context, resourceType strin
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func (e *StoreExecutor) executeChainPlan(ctx context.Context, resourceType string, chain ChainPlan) ([]string, error) {
+	targetIDs, err := e.executeParamPlan(ctx, chain.TargetType, chain.ParamPlan)
+	if err != nil {
+		return nil, err
+	}
+	if len(targetIDs) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, targetID := range targetIDs {
+		for _, value := range referenceLookupValues(chain.TargetType, targetID) {
+			matches, err := e.Backend.LookupMatch(ctx, store.SearchMatch{
+				ResourceType: resourceType,
+				FieldKey:     chain.RefFieldKey,
+				Value:        value,
+				Operator:     string(OpEqual),
+			})
+			if err != nil {
+				return nil, err
+			}
+			for _, id := range matches {
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func referenceLookupValues(targetType, targetID string) []string {
+	typed := targetType + "/" + targetID
+	canonical := targetType + "|" + targetID
+	if typed == targetID {
+		return []string{targetID}
+	}
+	return []string{typed, targetID, canonical}
+}
+
+func (e *StoreExecutor) expandIncludes(ctx context.Context, plan *Plan, primaryIDs []string) ([]IncludedResource, error) {
+	if len(plan.Includes) == 0 && len(plan.RevIncludes) == 0 {
+		return nil, nil
+	}
+	if e.Advanced == nil {
+		return nil, fmt.Errorf("%w: include/revinclude", ErrUnsupportedFeature)
+	}
+	seen := make(map[string]struct{})
+	var out []IncludedResource
+
+	for _, inc := range plan.Includes {
+		refs, err := e.Advanced.LookupReferences(ctx, plan.ResourceType, inc.RefFieldKey, primaryIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, links := range refs {
+			for _, link := range links {
+				if inc.TargetType != "" && link.TargetType != inc.TargetType {
+					continue
+				}
+				if link.TargetID == "" {
+					continue
+				}
+				targetType := link.TargetType
+				if targetType == "" {
+					targetType = inc.TargetType
+				}
+				key := targetType + "/" + link.TargetID
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				out = append(out, IncludedResource{ResourceType: targetType, ID: link.TargetID, Mode: "include"})
+			}
+		}
+	}
+
+	for _, rev := range plan.RevIncludes {
+		for _, primaryID := range primaryIDs {
+			sourceIDs, err := e.Advanced.LookupReferencing(ctx, rev.SourceType, rev.RefFieldKey, rev.TargetType, primaryID)
+			if err != nil {
+				return nil, err
+			}
+			for _, sourceID := range sourceIDs {
+				key := rev.SourceType + "/" + sourceID
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				out = append(out, IncludedResource{ResourceType: rev.SourceType, ID: sourceID, Mode: "include"})
+			}
+		}
+	}
+	return out, nil
+}
+
+// IncludedResource identifies one included or revincluded resource.
+type IncludedResource struct {
+	ResourceType string
+	ID           string
+	Mode         string
 }
 
 func intersectSorted(sets [][]string) []string {

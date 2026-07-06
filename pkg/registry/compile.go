@@ -193,16 +193,28 @@ func CompileSnapshot(
 
 func parseSearchParameterInfo(jsonData []byte, canonicalURL, version string) (SearchParameterInfo, error) {
 	var sp struct {
-		Code       string `json:"code"`
-		Name       string `json:"name"`
-		Type       string `json:"type"`
-		Expression string `json:"expression"`
+		Code       string   `json:"code"`
+		Name       string   `json:"name"`
+		Type       string   `json:"type"`
+		Expression string   `json:"expression"`
+		Target     []string `json:"target"`
+		Component  []struct {
+			Definition string `json:"definition"`
+			Expression string `json:"expression"`
+		} `json:"component"`
 	}
 	if err := json.Unmarshal(jsonData, &sp); err != nil {
 		return SearchParameterInfo{}, err
 	}
 	if sp.Code == "" {
 		return SearchParameterInfo{}, fmt.Errorf("missing code")
+	}
+	components := make([]CompositeComponent, 0, len(sp.Component))
+	for _, c := range sp.Component {
+		components = append(components, CompositeComponent{
+			Definition: c.Definition,
+			Expression: c.Expression,
+		})
 	}
 	return SearchParameterInfo{
 		CanonicalURL: canonicalURL,
@@ -211,6 +223,8 @@ func parseSearchParameterInfo(jsonData []byte, canonicalURL, version string) (Se
 		Name:         sp.Name,
 		Type:         sp.Type,
 		Expression:   sp.Expression,
+		Target:       append([]string(nil), sp.Target...),
+		Component:    components,
 	}, nil
 }
 

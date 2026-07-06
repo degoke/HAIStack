@@ -2,14 +2,22 @@ package registry
 
 import "time"
 
+// CompositeComponent describes one component of a composite SearchParameter.
+type CompositeComponent struct {
+	Definition string `json:"definition"`
+	Expression string `json:"expression"`
+}
+
 // SearchParameterInfo is compiled search parameter metadata for one resource type.
 type SearchParameterInfo struct {
-	CanonicalURL string `json:"canonicalUrl"`
-	Version      string `json:"version"`
-	Code         string `json:"code"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Expression   string `json:"expression"`
+	CanonicalURL string               `json:"canonicalUrl"`
+	Version      string               `json:"version"`
+	Code         string               `json:"code"`
+	Name         string               `json:"name"`
+	Type         string               `json:"type"`
+	Expression   string               `json:"expression"`
+	Target       []string             `json:"target,omitempty"`
+	Component    []CompositeComponent `json:"component,omitempty"`
 }
 
 // ResourceCapability describes one enabled resource type in the compiled registry.

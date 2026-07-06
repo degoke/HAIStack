@@ -457,6 +457,11 @@ func (r *recordingReindexNotifier) ScheduleReindex(_ context.Context, resourceTy
 	return nil
 }
 
+func (r *recordingReindexNotifier) ScheduleSearchParameterReindex(_ context.Context, _, _ string, resourceTypes ...string) error {
+	r.calls = append(r.calls, append([]string(nil), resourceTypes...))
+	return nil
+}
+
 func TestEnableResourceSchedulesReindex(t *testing.T) {
 	ctx := context.Background()
 	definitions := newMemDefinitionStore()

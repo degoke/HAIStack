@@ -24,13 +24,14 @@ func TestStoreExecutorSortByLastUpdated(t *testing.T) {
 	plan := &search.Plan{
 		ResourceType: "Patient",
 		Count:        10,
-		Sort:         []search.SortField{{Code: "_lastUpdated", Direction: search.SortDesc}},
+		Sort:         []search.SortField{{Code: "_lastUpdated", FieldKey: "date._lastUpdated", Direction: search.SortDesc}},
 	}
 
-	ids, err := executor.Execute(ctx, plan)
+	result, err := executor.Execute(ctx, plan)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
+	ids := result.IDs
 	if len(ids) != 2 || ids[0] != "pat-2" || ids[1] != "pat-1" {
 		t.Fatalf("sorted ids = %v", ids)
 	}
@@ -52,13 +53,14 @@ func TestStoreExecutorSortByIDAscending(t *testing.T) {
 	plan := &search.Plan{
 		ResourceType: "Patient",
 		Count:        10,
-		Sort:         []search.SortField{{Code: "_id", Direction: search.SortAsc}},
+		Sort:         []search.SortField{{Code: "_id", FieldKey: "token._id", Direction: search.SortAsc}},
 	}
 
-	ids, err := executor.Execute(ctx, plan)
+	result, err := executor.Execute(ctx, plan)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
+	ids := result.IDs
 	if len(ids) != 2 || ids[0] != "pat-a" || ids[1] != "pat-b" {
 		t.Fatalf("sorted ids = %v", ids)
 	}

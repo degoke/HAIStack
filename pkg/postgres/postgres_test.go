@@ -22,6 +22,8 @@ var (
 	_ store.HistoryStore          = (*postgres.HistoryStore)(nil)
 	_ store.SearchStore           = (*postgres.SearchStore)(nil)
 	_ store.SearchQueryExecutor   = (*postgres.SearchStore)(nil)
+	_ store.SearchAdvancedExecutor = (*postgres.SearchStore)(nil)
+	_ store.SearchIndexMaintainer  = (*postgres.SearchStore)(nil)
 	_ store.EventStore            = (*postgres.EventStore)(nil)
 	_ store.CursorStore           = (*postgres.CursorStore)(nil)
 	_ store.ConflictStore         = (*postgres.ConflictStore)(nil)
@@ -132,6 +134,7 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"tenant", "resource", "resource_history", "event_log",
 		"resource_id_registry", "node_registry", "sync_conflict",
 		"search_token", "search_string", "search_date", "search_number", "search_reference",
+		"search_text", "search_composite",
 		"sync_cursor", "binary_object", "audit_log", "module_registry",
 		"materialized_view", "analytics_event", "background_job", "schema_migrations",
 	}

@@ -485,6 +485,260 @@ func TestPostgresEnableResourceSchedulesReindex(t *testing.T) {
 	}
 }
 
+func TestPostgresChainedSearch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, patientResource(t, "pat-2", "Smith", "556")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Observation", mustValues(t, map[string]string{"subject.name": "Doe"}))
+	if err != nil {
+		t.Fatalf("Chained search: %v", err)
+	}
+	if len(result.Resources) != 1 || result.Resources[0].ID != "obs-1" {
+		t.Fatalf("chained search = %#v", result.Resources)
+	}
+}
+
+func TestPostgresIncludePatient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:subject",
+	}))
+	if err != nil {
+		t.Fatalf("Include search: %v", err)
+	}
+	if len(result.Resources) != 1 {
+		t.Fatalf("primary matches = %d", len(result.Resources))
+	}
+	if len(result.Included) != 1 || result.Included[0].ID != "pat-1" {
+		t.Fatalf("included = %#v", result.Included)
+	}
+}
+
+func TestPostgresStringContainsModifier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "McDoe", "555")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{"name:contains": "Doe"}))
+	if err != nil {
+		t.Fatalf("Search contains: %v", err)
+	}
+	if len(result.Resources) != 1 {
+		t.Fatalf("contains search = %d matches", len(result.Resources))
+	}
+}
+
+func TestPostgresBirthdatePrefix(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{"birthdate": "gt1980"}))
+	if err != nil {
+		t.Fatalf("Search birthdate prefix: %v", err)
+	}
+	if len(result.Resources) != 1 {
+		t.Fatalf("birthdate prefix search = %d matches", len(result.Resources))
+	}
+}
+
+func TestPostgresSummaryElements(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{
+		"_id":       "pat-1",
+		"_summary":  "true",
+		"_elements": "name",
+	}))
+	if err != nil {
+		t.Fatalf("Search summary/elements: %v", err)
+	}
+	if len(result.Resources) != 1 {
+		t.Fatalf("expected one resource")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(result.Resources[0].JSON, &payload); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, ok := payload["name"]; !ok {
+		t.Fatalf("expected name element, got keys %#v", payload)
+	}
+	if _, ok := payload["telecom"]; ok {
+		t.Fatal("telecom should be trimmed by _elements")
+	}
+}
+
+func TestPostgresSummaryCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		id := fmt.Sprintf("pat-%d", i)
+		if _, err := svc.Create(ctx, patientResource(t, id, "Family", "555")); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{"_summary": "count"}))
+	if err != nil {
+		t.Fatalf("Search summary count: %v", err)
+	}
+	if result.Total == nil || *result.Total != 3 {
+		t.Fatalf("total = %#v", result.Total)
+	}
+	if len(result.Resources) != 0 {
+		t.Fatalf("expected no resources for summary count")
+	}
+}
+
+func TestPostgresFullTextSearch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Uniquename", "555")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create(ctx, patientResource(t, "pat-2", "Other", "556")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{"_text": "Uniquename"}))
+	if err != nil {
+		t.Fatalf("Full text search: %v", err)
+	}
+	if len(result.Resources) != 1 || result.Resources[0].ID != "pat-1" {
+		t.Fatalf("full text result = %#v", result.Resources)
+	}
+}
+
+func TestPostgresRevIncludeObservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{
+		"_id":         "pat-1",
+		"_revinclude": "Observation:subject",
+	}))
+	if err != nil {
+		t.Fatalf("Revinclude search: %v", err)
+	}
+	if len(result.Resources) != 1 {
+		t.Fatalf("primary matches = %d", len(result.Resources))
+	}
+	if len(result.Included) != 1 || result.Included[0].ID != "obs-1" {
+		t.Fatalf("revincluded = %#v", result.Included)
+	}
+}
+
+func TestPostgresReindexPurgesOrphanRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	_, _, snapshot, tdb, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if err := tdb.SearchStore().Index(ctx, store.SearchIndexEntry{
+		ResourceType: "Patient",
+		ID:           "orphan-pat",
+		Fields:       map[string]string{"token._id": "orphan-pat"},
+	}); err != nil {
+		t.Fatalf("Index orphan: %v", err)
+	}
+
+	reg := search.NewSnapshotRegistry(snapshot)
+	worker := &search.ReindexWorker{
+		Registry:  reg,
+		Indexer:   mustIndexer(t, reg),
+		Resources: tdb.ResourceStore(),
+		Search:    tdb.SearchStore(),
+	}
+	if err := worker.ReindexAll(ctx, "Patient"); err != nil {
+		t.Fatalf("ReindexAll: %v", err)
+	}
+
+	var maintainer store.SearchIndexMaintainer = tdb.SearchStore()
+	ids, err := maintainer.ListIndexedResourceIDs(ctx, "Patient")
+	if err != nil {
+		t.Fatalf("ListIndexedResourceIDs: %v", err)
+	}
+	for _, id := range ids {
+		if id == "orphan-pat" {
+			t.Fatalf("orphan index row was not purged: %v", ids)
+		}
+	}
+}
+
 func mustIndexer(t *testing.T, reg *search.SnapshotRegistry) search.Indexer {
 	t.Helper()
 	indexer, err := search.NewRegistryIndexer(search.RegistryIndexerConfig{

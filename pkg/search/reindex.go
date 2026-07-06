@@ -15,7 +15,16 @@ const ReindexJobType = "reindex"
 
 // ReindexPayload is the background job payload for search reindexing.
 type ReindexPayload struct {
-	ResourceType string `json:"resourceType,omitempty"`
+	ResourceType           string `json:"resourceType,omitempty"`
+	SearchParameterURL     string `json:"searchParameterUrl,omitempty"`
+	SearchParameterVersion string `json:"searchParameterVersion,omitempty"`
+}
+
+// Reindexer rebuilds search index rows using registry-driven extraction.
+type Reindexer interface {
+	ReindexAll(ctx context.Context, resourceType string) error
+	ReindexResource(ctx context.Context, resource *types.ResourceEnvelope) error
+	HandleJob(ctx context.Context, job store.JobRecord) error
 }
 
 // ReindexWorker rebuilds search index rows using the same registry-driven indexer as writes.
@@ -52,15 +61,79 @@ func (w *ReindexWorker) HandleJob(ctx context.Context, job store.JobRecord) erro
 			return fmt.Errorf("search: decode reindex payload: %w", err)
 		}
 	}
+	if payload.SearchParameterURL != "" {
+		return w.reindexForSearchParameter(ctx, payload)
+	}
 	return w.ReindexAll(ctx, payload.ResourceType)
 }
 
-// EnqueueReindex schedules a reindex job.
+func (w *ReindexWorker) reindexForSearchParameter(ctx context.Context, payload ReindexPayload) error {
+	if w.Registry == nil {
+		return fmt.Errorf("search: registry is required")
+	}
+	typesToReindex, err := w.resourceTypesForSearchParameter(payload)
+	if err != nil {
+		return err
+	}
+	for _, rt := range typesToReindex {
+		if err := w.reindexType(ctx, rt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *ReindexWorker) resourceTypesForSearchParameter(payload ReindexPayload) ([]string, error) {
+	if payload.ResourceType != "" {
+		if w.Registry == nil || !w.Registry.IsResourceEnabled(payload.ResourceType) {
+			return nil, ErrResourceTypeDisabled
+		}
+		return []string{payload.ResourceType}, nil
+	}
+	if payload.SearchParameterURL == "" {
+		return w.resourceTypes("")
+	}
+	var out []string
+	for _, rt := range w.Registry.EnabledResourceTypes() {
+		params := w.Registry.SearchParametersFor(rt)
+		for _, p := range params {
+			if p.CanonicalURL == payload.SearchParameterURL {
+				if payload.SearchParameterVersion != "" && p.Version != payload.SearchParameterVersion {
+					continue
+				}
+				out = append(out, rt)
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return w.Registry.EnabledResourceTypes(), nil
+	}
+	return out, nil
+}
+
+// EnqueueReindex schedules a reindex job for one resource type or all types when resourceType is empty.
 func EnqueueReindex(ctx context.Context, jobs store.JobStore, resourceType string) (string, error) {
+	return enqueueReindex(ctx, jobs, ReindexPayload{ResourceType: resourceType})
+}
+
+// EnqueueSearchParameterReindex schedules a reindex job for one SearchParameter definition.
+func EnqueueSearchParameterReindex(ctx context.Context, jobs store.JobStore, canonicalURL, version string, resourceTypes ...string) (string, error) {
+	payload := ReindexPayload{
+		SearchParameterURL:     canonicalURL,
+		SearchParameterVersion: version,
+	}
+	if len(resourceTypes) == 1 {
+		payload.ResourceType = resourceTypes[0]
+	}
+	return enqueueReindex(ctx, jobs, payload)
+}
+
+func enqueueReindex(ctx context.Context, jobs store.JobStore, payload ReindexPayload) (string, error) {
 	if jobs == nil {
 		return "", fmt.Errorf("search: job store is required")
 	}
-	payload, err := json.Marshal(ReindexPayload{ResourceType: resourceType})
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +142,7 @@ func EnqueueReindex(ctx context.Context, jobs store.JobStore, resourceType strin
 	job := store.JobRecord{
 		ID:        id,
 		Type:      ReindexJobType,
-		Payload:   payload,
+		Payload:   body,
 		Status:    store.JobStatusPending,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -105,6 +178,7 @@ func (w *ReindexWorker) reindexType(ctx context.Context, resourceType string) er
 	if batch <= 0 {
 		batch = 100
 	}
+	liveIDs := make(map[string]struct{})
 	offset := 0
 	for {
 		ids, err := w.Resources.ListIDs(ctx, resourceType, batch, offset)
@@ -112,18 +186,40 @@ func (w *ReindexWorker) reindexType(ctx context.Context, resourceType string) er
 			return err
 		}
 		if len(ids) == 0 {
-			return nil
+			break
 		}
 		for _, id := range ids {
+			liveIDs[id] = struct{}{}
 			if err := w.reindexOne(ctx, resourceType, id); err != nil {
 				return err
 			}
 		}
 		if len(ids) < batch {
-			return nil
+			break
 		}
 		offset += len(ids)
 	}
+	return w.purgeOrphanedIndexRows(ctx, resourceType, liveIDs)
+}
+
+func (w *ReindexWorker) purgeOrphanedIndexRows(ctx context.Context, resourceType string, liveIDs map[string]struct{}) error {
+	maintainer, ok := w.Search.(store.SearchIndexMaintainer)
+	if !ok {
+		return nil
+	}
+	indexed, err := maintainer.ListIndexedResourceIDs(ctx, resourceType)
+	if err != nil {
+		return err
+	}
+	for _, id := range indexed {
+		if _, ok := liveIDs[id]; ok {
+			continue
+		}
+		if err := w.Search.RemoveIndex(ctx, resourceType, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (w *ReindexWorker) reindexOne(ctx context.Context, resourceType, id string) error {
@@ -187,10 +283,21 @@ func (n *ReindexNotifier) ScheduleReindex(ctx context.Context, resourceTypes ...
 	return nil
 }
 
+// ScheduleSearchParameterReindex implements registry.SearchParameterReindexNotifier.
+func (n *ReindexNotifier) ScheduleSearchParameterReindex(ctx context.Context, canonicalURL, version string, resourceTypes ...string) error {
+	if n == nil || n.Jobs == nil {
+		return fmt.Errorf("search: reindex notifier is not configured")
+	}
+	if _, err := EnqueueSearchParameterReindex(ctx, n.Jobs, canonicalURL, version, resourceTypes...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ReindexJobRunner claims and executes background reindex jobs.
 type ReindexJobRunner struct {
 	Jobs   store.JobStore
-	Worker *ReindexWorker
+	Worker Reindexer
 	Now    func() time.Time
 }
 

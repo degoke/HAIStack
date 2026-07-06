@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -109,4 +110,43 @@ func TestReindexNotifierScheduleReindex(t *testing.T) {
 		}
 	}
 	_ = time.Now()
+}
+
+func TestEnqueueSearchParameterReindexPayload(t *testing.T) {
+	ctx := context.Background()
+	jobs := &memJobStore{}
+	id, err := search.EnqueueSearchParameterReindex(ctx, jobs,
+		"http://example.org/SearchParameter/custom-tag", "1.0.0", "Patient")
+	if err != nil {
+		t.Fatalf("EnqueueSearchParameterReindex: %v", err)
+	}
+	job, err := jobs.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var payload search.ReindexPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if payload.SearchParameterURL != "http://example.org/SearchParameter/custom-tag" {
+		t.Fatalf("url = %q", payload.SearchParameterURL)
+	}
+	if payload.SearchParameterVersion != "1.0.0" {
+		t.Fatalf("version = %q", payload.SearchParameterVersion)
+	}
+	if payload.ResourceType != "Patient" {
+		t.Fatalf("resourceType = %q", payload.ResourceType)
+	}
+}
+
+func TestReindexNotifierScheduleSearchParameterReindex(t *testing.T) {
+	ctx := context.Background()
+	jobs := &memJobStore{}
+	notifier := search.NewReindexNotifier(jobs)
+	if err := notifier.ScheduleSearchParameterReindex(ctx, "http://example.org/sp", "1.0.0", "Patient"); err != nil {
+		t.Fatalf("ScheduleSearchParameterReindex: %v", err)
+	}
+	if len(jobs.jobs) != 1 {
+		t.Fatalf("jobs = %d", len(jobs.jobs))
+	}
 }

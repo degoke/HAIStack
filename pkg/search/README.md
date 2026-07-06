@@ -17,7 +17,7 @@ Main components:
 
 | Component | Role |
 |-----------|------|
-| `SnapshotRegistry` | Wraps a registry snapshot; exposes only supported search parameters |
+| `SnapshotRegistry` | Wraps a registry snapshot; exposes all registry-backed search parameters |
 | `RegistryIndexer` | `search.Indexer` for `pkg/core` write-path indexing |
 | `ParseQuery` / `ResolveQuery` / `BuildPlan` | Parse FHIR params and plan typed index lookups |
 | `StoreExecutor` | Execute plans via `store.SearchQueryExecutor` + sort/pagination |
@@ -118,29 +118,33 @@ processed, err := runner.RunOnce(ctx) // claim and run one "reindex" job
 
 `EnableResource` and `InstallDefinition` on the registry manager enqueue reindex jobs when `SearchReindex` is configured.
 
-## Supported search parameters
+## Supported search features
 
-These parameter codes are implemented end-to-end:
+Postgres-first advanced FHIR search:
 
-| Code | Typical use |
-|------|-------------|
-| `_id` | Resource identity |
-| `_lastUpdated` | Version timestamp |
-| `identifier` | Business identifiers |
-| `name`, `phone`, `birthdate` | Demographics (Patient) |
-| `patient`, `subject`, `encounter` | References |
-| `status`, `date`, `code` | Clinical/event filters |
+| Feature | Status |
+|---------|--------|
+| Registry-backed parameters | All installed SearchParameters for enabled resource types |
+| `_count` / `_offset` | Paging with max `_count` of 100 |
+| `_sort` | Registry-backed fields plus `_id` and `_lastUpdated` |
+| Modifiers | `string:exact`, `string:contains`; token/reference modifiers per type |
+| Prefixes | Date/number comparators: `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `sa`, `eb`, `ap` |
+| Chained search | Single-hop only (e.g. `subject.name`) |
+| `_include` / `_revinclude` | Direct includes; wildcards deferred |
+| Composite search | Declared composite SearchParameters from registry |
+| `_summary` / `_elements` | Response projection at assembly time |
+| Full text | Postgres native FTS via indexed text documents |
+| Reindexing | Background jobs on registry SearchParameter changes |
 
-Parameters defined in the registry but outside this set are ignored for indexing and rejected at query time with `ErrUnsupportedParam`.
+Unsupported semantics return explicit errors (`ErrUnsupportedFeature`, `ErrInvalidQuery`).
 
 ## Query semantics
 
 - Repeated parameters **AND** together (`?name=Smith&birthdate=1980-01-01`)
 - Comma-separated values **OR** within one occurrence (`?name=Smith,Jones`)
-- `_count` and `_offset` provide offset paging
-- `_sort` supports `_id` and `_lastUpdated`
-
-Explicitly rejected today: chained search, modifiers, prefixes, `_include`, `_revinclude`, `_summary`, `_elements`, full text, and composite search.
+- `_count` and `_offset` apply to primary matches only (not included resources)
+- `_sort` uses registry metadata; tiebreak on resource id
+- Chain depth limited to 1; wildcard includes and recursive includes are rejected
 
 ## Index field keys
 
@@ -151,7 +155,9 @@ Explicitly rejected today: chained search, modifiers, prefixes, `_include`, `_re
 | `token.*` | `token.status` | Code/system/value tokens |
 | `string.*` | `string.family` | Normalized strings |
 | `date.*` | `date.birthdate` | Comparable date strings |
-| `reference.*` | `reference.patient` | Reference targets |
+| `reference.*` | `reference.patient` | Reference targets (typed/id/canonical forms) |
+| `composite.*` | `composite.context-type-value` | Composite component values |
+| `text.*` | `text.document` | Postgres full-text document |
 
 See [`pkg/sqlite`](../sqlite/README.md#search-index-field-keys) and [`pkg/postgres`](../postgres/README.md) for how backends route keys to tables.
 
@@ -193,10 +199,10 @@ url.Values  →  ParseQuery  →  ResolveQuery  →  BuildPlan  →  StoreExecut
 
 ## Current limits
 
-- Postgres is the primary complete execution backend; SQLite stores indexes and supports lookups but is not required to run full FHIR search in embedded deployments
-- Only the supported parameter set above is indexed and queryable
+- Postgres is the primary complete execution backend; SQLite stores indexes and supports basic lookups but not advanced execution
+- Chain depth is limited to 1; wildcard/recursive includes are deferred
+- OpenSearch adapter seam is preserved via `SearchAdvancedExecutor`; not implemented yet
 - No HTTP `_search` endpoint in this package
-- OpenSearch / full-text search is out of scope
-- Chained, composite, modifier, and `_include` features are rejected explicitly rather than silently ignored
+- Custom SearchParameters become searchable after snapshot rebuild and reindex completion
 
 See [doc.go](./doc.go) for the full API, error types, and file layout.

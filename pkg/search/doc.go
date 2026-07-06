@@ -5,7 +5,7 @@
 //
 // haistack-search is the FHIR search library for Health AI Stack. It keeps reusable
 // lower-level components in this package while exposing search.Service as the main
-// entrypoint for v1 search execution.
+// entrypoint for advanced search execution.
 //
 //   - Registry / SnapshotRegistry — resolve enabled SearchParameters from haistack-registry
 //   - RegistryIndexer — search.Indexer implementation for pkg/core write-path indexing
@@ -14,35 +14,39 @@
 //   - Service — high-level search execution returning bundle-ready Result values
 //   - ReindexWorker / ReindexJobRunner / ReindexNotifier — rebuild index rows and enqueue on registry changes
 //
-// # MVP search parameters
+// # Advanced search features
 //
-// Supported parameter codes:
+// Postgres-first execution supports:
 //
-//   - _id, _lastUpdated
-//   - identifier, name, phone, birthdate
-//   - patient, subject, encounter
-//   - status, date, code
+//   - _include and _revinclude (direct, non-wildcard)
+//   - single-hop chained search (e.g. subject.name)
+//   - composite SearchParameters from the registry
+//   - modifiers (:exact, :contains on string; date/number prefixes)
+//   - _sort on registry-backed parameters plus _id / _lastUpdated
+//   - _count / _offset paging with deterministic ordering
+//   - _summary and _elements response projection
+//   - Postgres full-text search via indexed text documents
 //
-// Unsupported in MVP (rejected explicitly): chained search, modifiers, prefixes,
-// _include, _revinclude, _summary, _elements, full text, composite search.
+// Unsupported semantics are rejected explicitly (ErrUnsupportedFeature, ErrInvalidQuery).
 //
 // # Indexing
 //
 // RegistryIndexer evaluates each installed SearchParameter expression with pkg/fhirpath,
 // normalizes extracted values into typed field keys (token.*, string.*, date.*,
-// reference.*), and emits store.SearchIndexEntry rows consumed by store.SearchStore.
+// reference.*, composite.*, text.*), and emits store.SearchIndexEntry rows consumed
+// by store.SearchStore.
 //
 // # Query semantics
 //
 //   - Repeated parameters AND together
 //   - Comma-separated values OR within one parameter occurrence
-//   - _count and _offset provide offset paging; _sort supports _id and _lastUpdated
+//   - _count and _offset provide offset paging; _sort supports registry-backed fields
 //
 // # Backends
 //
-// Postgres is the first complete execution backend via store.SearchQueryExecutor.
-// SQLite supports typed index persistence and LookupMatch for tests and embedded nodes,
-// but full FHIR search execution is not required on SQLite in the MVP.
+// Postgres is the first complete execution backend via store.SearchAdvancedExecutor.
+// SQLite supports typed index persistence and basic LookupMatch for tests and embedded
+// nodes, but not the full advanced query feature set.
 //
 // # Integration
 //

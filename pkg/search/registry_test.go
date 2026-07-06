@@ -22,22 +22,19 @@ func TestSnapshotRegistryEnabledParams(t *testing.T) {
 	for _, p := range params {
 		codes[p.Code] = struct{}{}
 	}
-	for _, want := range []string{"name", "identifier", "birthdate", "phone"} {
+	for _, want := range []string{"name", "identifier", "birthdate", "phone", "gender"} {
 		if _, ok := codes[want]; !ok {
-			t.Fatalf("missing supported param %q", want)
+			t.Fatalf("missing param %q", want)
 		}
-	}
-	if _, ok := codes["gender"]; ok {
-		t.Fatal("gender should not be exposed as a supported param")
 	}
 }
 
 func TestSnapshotRegistryUnknownParamRejected(t *testing.T) {
 	snapshot := testSnapshot(t, "Patient")
 	reg := search.NewSnapshotRegistry(snapshot)
-	_, ok := reg.SearchParameter("Patient", "gender")
+	_, ok := reg.SearchParameter("Patient", "not-a-real-param")
 	if ok {
-		t.Fatal("gender should not be available through the supported-param registry wrapper")
+		t.Fatal("unknown param should not resolve")
 	}
 }
 
@@ -49,5 +46,17 @@ func TestSnapshotRegistryDisabledType(t *testing.T) {
 	}
 	if params := reg.SearchParametersFor("Patient"); params != nil {
 		t.Fatalf("expected nil params, got %d", len(params))
+	}
+}
+
+func TestSnapshotRegistryReferenceTargets(t *testing.T) {
+	snapshot := testSnapshot(t, "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	info, ok := reg.SearchParameter("Observation", "subject")
+	if !ok {
+		t.Fatal("expected subject param")
+	}
+	if len(info.Target) == 0 {
+		t.Fatal("expected reference targets")
 	}
 }

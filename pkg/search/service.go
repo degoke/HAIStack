@@ -13,6 +13,7 @@ import (
 type ServiceConfig struct {
 	Registry  Registry
 	Executor  Executor
+	Planner   Planner
 	Resources store.ResourceStore
 	BaseURL   string
 }
@@ -21,6 +22,7 @@ type ServiceConfig struct {
 type Service struct {
 	registry  Registry
 	executor  Executor
+	planner   Planner
 	resources store.ResourceStore
 	baseURL   string
 }
@@ -36,9 +38,14 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.Resources == nil {
 		return nil, fmt.Errorf("search: resource store is required")
 	}
+	planner := cfg.Planner
+	if planner == nil {
+		planner = NewPlanner()
+	}
 	return &Service{
 		registry:  cfg.Registry,
 		executor:  cfg.Executor,
+		planner:   planner,
 		resources: cfg.Resources,
 		baseURL:   cfg.BaseURL,
 	}, nil
@@ -46,62 +53,74 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 
 // Search executes a FHIR search for one resource type and returns bundle-ready results.
 func (s *Service) Search(ctx context.Context, resourceType string, params url.Values) (*Result, error) {
-	parsed, err := ParseQuery(resourceType, params)
-	if err != nil {
-		return nil, err
-	}
-	resolved, err := ResolveQuery(s.registry, parsed)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := BuildPlan(resolved)
+	return s.SearchRequest(ctx, Request{ResourceType: resourceType, Params: params})
+}
+
+// SearchRequest executes a FHIR search from a structured request.
+func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, error) {
+	plan, err := s.planner.PlanSearch(s.registry, req.ResourceType, req.Params)
 	if err != nil {
 		return nil, err
 	}
 
-	allIDs, err := s.executor.Execute(ctx, planWithoutPaging(plan))
-	if err != nil {
-		return nil, err
-	}
-	total := len(allIDs)
-
-	pageIDs, err := s.executor.Execute(ctx, plan)
+	execResult, err := s.executor.Execute(ctx, plan)
 	if err != nil {
 		return nil, err
 	}
 
-	resources := make([]*types.ResourceEnvelope, 0, len(pageIDs))
-	for _, id := range pageIDs {
-		res, err := s.resources.Read(ctx, resourceType, id)
+	if plan.Summary == SummaryCount {
+		total := execResult.Total
+		return &Result{
+			ResourceType: req.ResourceType,
+			Total:        &total,
+			Count:        0,
+			Summary:      plan.Summary,
+		}, nil
+	}
+
+	resources := make([]*types.ResourceEnvelope, 0, len(execResult.IDs))
+	for _, id := range execResult.IDs {
+		res, err := s.resources.Read(ctx, req.ResourceType, id)
 		if err != nil {
-			return nil, fmt.Errorf("search: read %s/%s: %w", resourceType, id, err)
+			return nil, fmt.Errorf("search: read %s/%s: %w", req.ResourceType, id, err)
 		}
-		resources = append(resources, res)
+		resources = append(resources, applyProjection(res, plan.Summary, plan.Elements))
+	}
+
+	var included []IncludedEntry
+	for _, ref := range execResult.Included {
+		res, err := s.resources.Read(ctx, ref.ResourceType, ref.ID)
+		if err != nil {
+			return nil, fmt.Errorf("search: read included %s/%s: %w", ref.ResourceType, ref.ID, err)
+		}
+		mode := ref.Mode
+		if mode == "" {
+			mode = "include"
+		}
+		included = append(included, IncludedEntry{
+			ResourceType: ref.ResourceType,
+			ID:           ref.ID,
+			Resource:     applyProjection(res, plan.Summary, plan.Elements),
+			Mode:         mode,
+		})
 	}
 
 	baseURL := s.baseURL
 	if baseURL == "" {
-		baseURL = resourceType
+		baseURL = req.ResourceType
 	}
-	totalCopy := total
+	totalCopy := execResult.Total
 	return &Result{
-		ResourceType: resourceType,
+		ResourceType: req.ResourceType,
 		Resources:    resources,
+		Included:     included,
 		Total:        &totalCopy,
 		Offset:       plan.Offset,
 		Count:        len(resources),
-		Links:        BuildPagingLinks(baseURL, plan.Offset, len(resources), plan.Count, &totalCopy),
+		Summary:      plan.Summary,
+		Elements:     append([]string(nil), plan.Elements...),
+		Links:        BuildPagingLinks(baseURL, req.Params, plan.Offset, len(resources), plan.Count, &totalCopy),
 	}, nil
-}
-
-func planWithoutPaging(plan *Plan) *Plan {
-	if plan == nil {
-		return nil
-	}
-	copyPlan := *plan
-	copyPlan.Offset = 0
-	copyPlan.Count = 1_000_000
-	return &copyPlan
 }
 
 // SearchBundle executes search and returns a bundle-ready payload.

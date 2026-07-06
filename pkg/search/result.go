@@ -11,16 +11,28 @@ import (
 type Result struct {
 	ResourceType string
 	Resources    []*types.ResourceEnvelope
+	Included     []IncludedEntry
 	Total        *int
 	Offset       int
 	Count        int
+	Summary      SummaryMode
+	Elements     []string
 	Links        map[string]string
+}
+
+// IncludedEntry is one included or revincluded resource.
+type IncludedEntry struct {
+	ResourceType string
+	ID           string
+	Resource     *types.ResourceEnvelope
+	Mode         string
 }
 
 // BundleEntry is one searchset bundle entry.
 type BundleEntry struct {
 	FullURL  string
 	Resource *types.ResourceEnvelope
+	Mode     string
 }
 
 // SearchBundle is a bundle-ready searchset payload.
@@ -49,16 +61,30 @@ func AssembleBundle(result *Result) *SearchBundle {
 		bundle.Entries = append(bundle.Entries, BundleEntry{
 			FullURL:  fmt.Sprintf("%s/%s", res.ResourceType, res.ID),
 			Resource: res,
+			Mode:     "match",
+		})
+	}
+	for _, inc := range result.Included {
+		mode := inc.Mode
+		if mode == "" {
+			mode = "include"
+		}
+		bundle.Entries = append(bundle.Entries, BundleEntry{
+			FullURL:  fmt.Sprintf("%s/%s", inc.ResourceType, inc.ID),
+			Resource: inc.Resource,
+			Mode:     mode,
 		})
 	}
 	return bundle
 }
 
-// BuildPagingLinks constructs self and next links for offset-based paging.
-// total is the number of matches before pagination; when nil, total behavior is partial/unknown.
-func BuildPagingLinks(baseURL string, offset, count, pageSize int, total *int) map[string]string {
+// BuildPagingLinks constructs self and next links preserving the original query parameters.
+func BuildPagingLinks(baseURL string, params url.Values, offset, count, pageSize int, total *int) map[string]string {
+	query := cloneValues(params)
+	query.Set("_offset", fmt.Sprintf("%d", offset))
+	query.Set("_count", fmt.Sprintf("%d", pageSize))
 	links := map[string]string{
-		"self": fmt.Sprintf("%s?_offset=%d&_count=%d", baseURL, offset, pageSize),
+		"self": baseURL + "?" + query.Encode(),
 	}
 	hasNext := false
 	if total != nil {
@@ -67,9 +93,25 @@ func BuildPagingLinks(baseURL string, offset, count, pageSize int, total *int) m
 		hasNext = true
 	}
 	if hasNext {
-		links["next"] = fmt.Sprintf("%s?_offset=%d&_count=%d", baseURL, offset+count, pageSize)
+		nextQuery := cloneValues(params)
+		nextQuery.Set("_offset", fmt.Sprintf("%d", offset+count))
+		nextQuery.Set("_count", fmt.Sprintf("%d", pageSize))
+		links["next"] = baseURL + "?" + nextQuery.Encode()
 	}
 	return links
+}
+
+func cloneValues(in url.Values) url.Values {
+	out := url.Values{}
+	for k, vs := range in {
+		for _, v := range vs {
+			if k == "_offset" || k == "_count" {
+				continue
+			}
+			out.Add(k, v)
+		}
+	}
+	return out
 }
 
 func cloneLinks(in map[string]string) map[string]string {

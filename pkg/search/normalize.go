@@ -31,8 +31,10 @@ func fieldKeyForParam(code, paramType string) string {
 		return "date." + code
 	case "reference":
 		return "reference." + code
-	case "number":
+	case "number", "quantity":
 		return "number." + code
+	case "composite":
+		return "composite." + code
 	default:
 		return ""
 	}
@@ -77,7 +79,7 @@ func normalizeValue(code, paramType string, v fhirpath.Value) []string {
 		return normalizeDateValue(v)
 	case "reference":
 		return normalizeReferenceValue(v)
-	case "number":
+	case "number", "quantity":
 		return normalizeNumberValue(v)
 	default:
 		return nil
@@ -315,7 +317,8 @@ func referenceTokens(ref *dtpb.Reference) []string {
 	}
 	if rt := candidate.getType(); rt != "" {
 		typed := rt + "/" + idVal
-		return []string{typed, idVal}
+		canonical := rt + "|" + idVal
+		return []string{typed, idVal, canonical}
 	}
 	return []string{idVal}
 }
