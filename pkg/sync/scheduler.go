@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/conflict"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/google/uuid"
 )
 
@@ -78,9 +80,131 @@ func (p *JobProcessor) processConflictJob(ctx context.Context, job store.JobReco
 			return fmt.Errorf("decode conflict job payload: %w", err)
 		}
 	}
-	_ = payload
-	// Detailed merge policy belongs in haistack-conflict; v1 records are already persisted.
+	if p.Engine == nil || p.Engine.Config.ConflictEngine == nil {
+		// Conflict engine is optional; when absent, the record remains for manual review.
+		return nil
+	}
+
+	local, err := localEventFromPayload(payload)
+	if err != nil {
+		return err
+	}
+
+	cfg := p.Engine.Config.normalized()
+	base, current, err := resolveBaseAndCurrent(ctx, cfg, local)
+	if err != nil {
+		return err
+	}
+
+	mergeResult := p.Engine.Config.ConflictEngine.Merge(local, base, current)
+	if !mergeResult.AutoMergeable {
+		p.appendConflictAudit(ctx, cfg, payload, AuditConflictNeedsReview, map[string]string{
+			"classification": string(mergeResult.Result.Classification),
+			"risk":           string(mergeResult.Result.Risk),
+			"reason":         mergeResult.Result.ReviewReason,
+		})
+		p.notifyResolutionHandler(ctx, cfg, payload, mergeResult)
+		return nil
+	}
+
+	p.appendConflictAudit(ctx, cfg, payload, AuditConflictAutoMerged, map[string]string{
+		"resolution": string(mergeResult.Resolution),
+	})
+	p.notifyResolutionHandler(ctx, cfg, payload, mergeResult)
+
+	if cfg.Conflicts != nil && payload.ConflictID != "" {
+		_ = cfg.Conflicts.Resolve(ctx, payload.ConflictID, p.now())
+	}
 	return nil
+}
+
+func (p *JobProcessor) notifyResolutionHandler(
+	ctx context.Context,
+	cfg Config,
+	payload ConflictJobPayload,
+	result conflict.MergeResult,
+) {
+	if cfg.ConflictResolutionHandler == nil {
+		return
+	}
+	_ = cfg.ConflictResolutionHandler.OnConflictResolution(ctx, payload, result)
+}
+
+func localEventFromPayload(payload ConflictJobPayload) (conflict.LocalEvent, error) {
+	if len(payload.LocalEvent) > 0 {
+		var syncEvent LocalEvent
+		if err := json.Unmarshal(payload.LocalEvent, &syncEvent); err != nil {
+			return conflict.LocalEvent{}, fmt.Errorf("decode embedded local event: %w", err)
+		}
+		return conflict.LocalEvent{
+			EventID:          syncEvent.EventID,
+			ResourceType:     syncEvent.ResourceType,
+			ResourceID:       syncEvent.ResourceID,
+			Operation:        string(syncEvent.Operation),
+			BaseCloudVersion: syncEvent.BaseCloudVersion,
+			LocalVersion:     syncEvent.LocalVersion,
+			ChangedPaths:     syncEvent.ChangedPaths,
+			Patch:            syncEvent.Patch,
+			ResourceAfter:    syncEvent.ResourceAfter,
+			ResourceHash:     syncEvent.ResourceHash,
+		}, nil
+	}
+	return conflict.LocalEvent{
+		ResourceType: payload.ResourceType,
+		ResourceID:   payload.ResourceID,
+		Operation:    string(EventTypeResourceUpdated),
+		LocalVersion: payload.LocalVersionID,
+	}, nil
+}
+
+func resolveBaseAndCurrent(
+	ctx context.Context,
+	cfg Config,
+	local conflict.LocalEvent,
+) (*types.ResourceEnvelope, *types.ResourceEnvelope, error) {
+	if cfg.Resources == nil {
+		return nil, nil, fmt.Errorf("resource store required for conflict processing")
+	}
+	current, err := cfg.Resources.Read(ctx, local.ResourceType, local.ResourceID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read current resource: %w", err)
+	}
+	if cfg.History == nil || local.BaseCloudVersion == "" {
+		return nil, current, nil
+	}
+	versions, err := cfg.History.GetHistory(ctx, local.ResourceType, local.ResourceID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read history: %w", err)
+	}
+	for _, v := range versions {
+		if v.VersionID == local.BaseCloudVersion && v.Resource != nil {
+			base := *v.Resource
+			return &base, current, nil
+		}
+	}
+	return nil, current, nil
+}
+
+func (p *JobProcessor) appendConflictAudit(
+	ctx context.Context,
+	cfg Config,
+	payload ConflictJobPayload,
+	action string,
+	details map[string]string,
+) {
+	if cfg.Audit == nil {
+		return
+	}
+	_ = cfg.Audit.Append(ctx, store.AuditRecord{
+		ID:           uuid.NewString(),
+		Timestamp:    p.now(),
+		Actor:        payload.NodeID,
+		Action:       action,
+		ResourceType: payload.ResourceType,
+		ResourceID:   payload.ResourceID,
+		Outcome:      action,
+		Details:      details,
+	})
 }
 
 func (p *JobProcessor) processReplayJob(ctx context.Context, job store.JobRecord) error {

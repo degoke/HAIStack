@@ -187,6 +187,7 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 		}
 	}
 	if cfg.Jobs != nil {
+		localEventJSON, _ := json.Marshal(event)
 		payload, _ := json.Marshal(ConflictJobPayload{
 			NodeID:          cfg.NodeID,
 			TenantID:        cfg.TenantID,
@@ -197,6 +198,7 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 			LocalVersionID:  event.LocalVersion,
 			RemoteVersionID: result.ConflictRemoteVersionID,
 			Reason:          result.ConflictReason,
+			LocalEvent:      localEventJSON,
 		})
 		_ = cfg.Jobs.Enqueue(ctx, store.JobRecord{
 			ID:        uuid.NewString(),

@@ -87,6 +87,10 @@ Audit and job persistence are available via `pkg/postgres` today. See [Roadmap](
   pkg/validate           pkg/search              pkg/sync
   (optional)             (optional)              (optional)
          │                      │                      │
+         │                      │                      ▼
+         │                      │              pkg/conflict
+         │                      │              (optional)
+         │                      │                      │
          └──────────────────────┼──────────────────────┘
                                 │
                     ┌───────────▼───────────┐
@@ -138,7 +142,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-search | `pkg/search` | Done | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
-| haistack-conflict | `pkg/conflict` | Planned | FHIR-aware conflict detection and merge |
+| haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
 | haistack-modules | `pkg/modules` | Planned | Installable capability modules |
 | haistack-view | `pkg/view` | Planned | ViewDefinition execution |
 | haistack-ai | `pkg/ai` | Planned | Safe, typed AI tool harness |
@@ -246,7 +250,7 @@ Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip 
 |-------|----------|------|
 | **1 ← current** | types, store, sqlite, core → http, cli, testkit | Local SQLite FHIR runtime; CRUD; history; sync events |
 | **2** | search, validate | Search by name/phone/date/status (`search` MVP done; `validate` done) |
-| **3** | conflict (merge policy), runtime | Offline create → push → pull → conflict detection (sync engine done) |
+| **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
 | **5** | auth, ai | Safe AI tools with permission checks |
 | **6** | binary, subscriptions, analytics, smart | Documents, workflows, exports, external SMART apps |
@@ -254,8 +258,8 @@ Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip 
 ### Planned package notes
 
 - **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs; deferred: chained search, `_include`, OpenSearch, HTTP `_search`
-- **sync** — merge policy and human-resolution workflows (`haistack-conflict`; push/pull engine done)
-- **conflict** — stale-base detection, auto-merge for safe fields, human-review for clinical fields
+- **sync** — push/pull engine, stale-base detection, conflict job hooks, and audit side effects; merge policy lives in `pkg/conflict`
+- **conflict** — Done in v1: `Engine.Detect`, `CanAutoMerge`, and `Merge`; built-in strict safe-list policy; FHIR Patch rebase artifacts; sync integration via `ConflictResolutionHandler`
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions
 - **view** — SQL-on-FHIR-style ViewDefinitions → structured rows for AI and analytics
 - **ai** — typed tool registry; LLMs call tools, not arbitrary FHIR commands

@@ -149,6 +149,7 @@ func (h *PostgresHub) recordPushConflict(ctx context.Context, event LocalEvent, 
 		}
 	}
 	if jobs := h.Tenant.JobStore(); jobs != nil {
+		localEventJSON, _ := json.Marshal(event)
 		payload, _ := json.Marshal(ConflictJobPayload{
 			NodeID:          event.OriginNodeID,
 			TenantID:        event.TenantID,
@@ -159,6 +160,7 @@ func (h *PostgresHub) recordPushConflict(ctx context.Context, event LocalEvent, 
 			LocalVersionID:  event.LocalVersion,
 			RemoteVersionID: result.ConflictRemoteVersionID,
 			Reason:          result.ConflictReason,
+			LocalEvent:      localEventJSON,
 		})
 		_ = jobs.Enqueue(ctx, store.JobRecord{
 			ID:        uuid.NewString(),

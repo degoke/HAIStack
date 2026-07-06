@@ -4,8 +4,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/conflict"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
+
+// ConflictResolutionHandler receives the result of a conflict-processing job so the
+// sync runtime can replay or resubmit an auto-merge, or surface review metadata.
+type ConflictResolutionHandler interface {
+	OnConflictResolution(ctx context.Context, payload ConflictJobPayload, result conflict.MergeResult) error
+}
 
 // Hub is the protocol boundary used by Engine to push local events and pull canonical events.
 type Hub interface {
@@ -60,6 +67,12 @@ type Config struct {
 
 	Hub Hub
 
+	// ConflictEngine evaluates persisted conflicts and produces merge/rebase artifacts.
+	ConflictEngine *conflict.Engine
+
+	// ConflictResolutionHandler receives the merge/review result so the runtime can replay/resubmit.
+	ConflictResolutionHandler ConflictResolutionHandler
+
 	// SearchIndexer optionally builds search rows when applying canonical events locally.
 	SearchIndexer SearchIndexer
 
@@ -87,6 +100,9 @@ func (c Config) normalized() Config {
 	}
 	if c.PullBatchSize <= 0 {
 		c.PullBatchSize = 100
+	}
+	if c.ConflictEngine == nil {
+		c.ConflictEngine = conflict.NewDefaultEngine()
 	}
 	return c
 }
