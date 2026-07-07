@@ -62,7 +62,7 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
@@ -239,6 +239,19 @@ if err != nil {
 Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip Docker.
 
 ---
+
+## Modules
+
+`pkg/modules` provides `haistack-modules`, a manifest-driven installer that turns a local module directory into runtime capabilities by driving the existing registry catalog, `store.ModuleStore`, and `store.RegistryInstallStore`.
+
+A module is a directory containing a `module.json` manifest and optional `definitions/*.json` files:
+
+- `resources` — base FHIR resources to enable.
+- `definitionFiles` — FHIR definitions (profiles, search parameters) to ingest.
+- `dependencies` — exact module name and minimum semver version.
+- `views`, `aiTools`, `permissions`, `syncPolicies`, `subscriptions`, `migrations` — declaration-only arrays stored in metadata for future subsystems.
+
+The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `Inspect`, and `PlanInstall`. v1 is registry-first: views, AI tools, permissions, sync, subscriptions, and migrations are persisted but not executed yet. Example modules live under `modules/`.
 
 ## Roadmap
 

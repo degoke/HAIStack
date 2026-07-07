@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "Patient-identifier-custom",
+  "url": "http://haistack.example.org/SearchParameter/Patient-identifier-custom",
+  "version": "1.0.0",
+  "name": "identifier-custom",
+  "status": "draft",
+  "code": "identifier-custom",
+  "base": ["Patient"],
+  "type": "token",
+  "expression": "Patient.identifier"
+}

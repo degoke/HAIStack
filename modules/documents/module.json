@@ -1,0 +1,14 @@
+{
+  "name": "documents",
+  "version": "1.0.0",
+  "description": "Document management resources for clinical attachments and binaries.",
+  "dependencies": [{"name": "core", "version": "1.0.0"}],
+  "resources": ["DocumentReference", "Binary"],
+  "definitionFiles": [],
+  "views": ["DocumentInbox"],
+  "aiTools": [],
+  "permissions": ["read-document"],
+  "syncPolicies": ["sync-documents"],
+  "subscriptions": [],
+  "migrations": []
+}

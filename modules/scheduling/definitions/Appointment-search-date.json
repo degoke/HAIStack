@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "Appointment-date-custom",
+  "url": "http://haistack.example.org/SearchParameter/Appointment-date-custom",
+  "version": "1.0.0",
+  "name": "date-custom",
+  "status": "draft",
+  "code": "date-custom",
+  "base": ["Appointment"],
+  "type": "date",
+  "expression": "Appointment.start"
+}

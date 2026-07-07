@@ -1,0 +1,14 @@
+{
+  "name": "clinical-lite",
+  "version": "1.0.0",
+  "description": "Lightweight clinical resources for observations, conditions, and encounters.",
+  "dependencies": [{"name": "core", "version": "1.0.0"}],
+  "resources": ["Observation", "Condition", "Encounter"],
+  "definitionFiles": ["definitions/Observation-search-category.json"],
+  "views": ["EncounterSummary"],
+  "aiTools": ["TriageAssistant"],
+  "permissions": ["read-condition"],
+  "syncPolicies": [],
+  "subscriptions": [],
+  "migrations": []
+}

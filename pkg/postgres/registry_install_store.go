@@ -59,6 +59,37 @@ func (s *RegistryInstallStore) ListInstalled(ctx context.Context, filter store.R
 	return s.queryInstallRows(ctx, filter)
 }
 
+func (s *RegistryInstallStore) Delete(ctx context.Context, filter store.RegistryInstallFilter) error {
+	query := `DELETE FROM registry_install WHERE tenant_id = $1`
+	args := []any{s.tenantID}
+	argN := 2
+
+	if filter.TargetResourceType != "" {
+		query += fmt.Sprintf(" AND target_resource_type = $%d", argN)
+		args = append(args, filter.TargetResourceType)
+		argN++
+	}
+	if filter.DefinitionKind != "" {
+		query += fmt.Sprintf(" AND definition_kind = $%d", argN)
+		args = append(args, string(filter.DefinitionKind))
+		argN++
+	}
+	if filter.CanonicalURL != "" {
+		query += fmt.Sprintf(" AND canonical_url = $%d", argN)
+		args = append(args, filter.CanonicalURL)
+		argN++
+	}
+	if filter.Version != "" {
+		query += fmt.Sprintf(" AND version = $%d", argN)
+		args = append(args, filter.Version)
+		argN++
+	}
+	if _, err := s.exec.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("delete registry installs: %w", err)
+	}
+	return nil
+}
+
 func (s *RegistryInstallStore) queryInstallRows(ctx context.Context, filter store.RegistryInstallFilter) ([]store.RegistryInstallRecord, error) {
 	query := `
 		SELECT definition_kind, canonical_url, version, target_resource_type,

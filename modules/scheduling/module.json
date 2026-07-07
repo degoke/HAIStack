@@ -1,0 +1,14 @@
+{
+  "name": "scheduling",
+  "version": "1.0.0",
+  "description": "Scheduling resources and search parameters for appointments and slots.",
+  "dependencies": [{"name": "core", "version": "1.0.0"}],
+  "resources": ["Appointment", "Schedule", "Slot"],
+  "definitionFiles": ["definitions/Appointment-search-date.json"],
+  "views": ["AppointmentCalendar"],
+  "aiTools": [],
+  "permissions": ["read-appointment"],
+  "syncPolicies": [],
+  "subscriptions": [],
+  "migrations": []
+}

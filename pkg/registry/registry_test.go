@@ -48,6 +48,18 @@ func (s *memDefinitionStore) Get(_ context.Context, canonicalURL, version string
 	return &copyRecord, nil
 }
 
+func (s *memDefinitionStore) Delete(_ context.Context, canonicalURL, version string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := defKey(canonicalURL, version)
+	if _, ok := s.records[key]; !ok {
+		return errors.New("not found")
+	}
+	delete(s.records, key)
+	delete(s.targets, key)
+	return nil
+}
+
 func (s *memDefinitionStore) List(_ context.Context, filter store.DefinitionFilter) ([]store.DefinitionResourceRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,6 +138,32 @@ func (s *memInstallStore) ListEnabled(ctx context.Context) ([]store.RegistryInst
 		}
 	}
 	return out, nil
+}
+
+func (s *memInstallStore) Delete(_ context.Context, filter store.RegistryInstallFilter) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []store.RegistryInstallRecord
+	for _, row := range s.rows {
+		if filter.TargetResourceType != "" && row.TargetResourceType != filter.TargetResourceType {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.DefinitionKind != "" && row.DefinitionKind != filter.DefinitionKind {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.CanonicalURL != "" && row.CanonicalURL != filter.CanonicalURL {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.Version != "" && row.Version != filter.Version {
+			kept = append(kept, row)
+			continue
+		}
+	}
+	s.rows = kept
+	return nil
 }
 
 func (s *memInstallStore) ListInstalled(_ context.Context, filter store.RegistryInstallFilter) ([]store.RegistryInstallRecord, error) {

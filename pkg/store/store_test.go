@@ -31,6 +31,8 @@ var (
 	_ store.MaterializedViewStore = (*memMaterializedViewStore)(nil)
 	_ store.WriteSessionProvider  = (*memWriteSessionProvider)(nil)
 	_ store.IDRegistryStore       = (*memIDRegistryStore)(nil)
+	_ store.DefinitionStore       = (*memDefinitionStore)(nil)
+	_ store.RegistryInstallStore  = (*memRegistryInstallStore)(nil)
 )
 
 type memResourceStore struct {
@@ -364,6 +366,179 @@ func (s *memModuleStore) Unregister(_ context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.modules, name)
+	return nil
+}
+
+type memDefinitionStore struct {
+	mu   sync.Mutex
+	data map[string]store.DefinitionResourceRecord
+	targets map[string][]store.DefinitionTargetRecord
+}
+
+func newMemDefinitionStore() *memDefinitionStore {
+	return &memDefinitionStore{
+		data:    make(map[string]store.DefinitionResourceRecord),
+		targets: make(map[string][]store.DefinitionTargetRecord),
+	}
+}
+
+func definitionKey(canonicalURL, version string) string {
+	return canonicalURL + "|" + version
+}
+
+func (s *memDefinitionStore) Upsert(_ context.Context, record store.DefinitionResourceRecord, targets []store.DefinitionTargetRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := definitionKey(record.CanonicalURL, record.Version)
+	s.data[key] = record
+	s.targets[key] = append([]store.DefinitionTargetRecord(nil), targets...)
+	return nil
+}
+
+func (s *memDefinitionStore) Get(_ context.Context, canonicalURL, version string) (*store.DefinitionResourceRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.data[definitionKey(canonicalURL, version)]
+	if !ok {
+		return nil, fmt.Errorf("definition not found: %s|%s", canonicalURL, version)
+	}
+	copy := record
+	return &copy, nil
+}
+
+func (s *memDefinitionStore) List(_ context.Context, filter store.DefinitionFilter) ([]store.DefinitionResourceRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.DefinitionResourceRecord
+	for _, record := range s.data {
+		if filter.FHIRVersion != "" && record.FHIRVersion != filter.FHIRVersion {
+			continue
+		}
+		if filter.DefinitionKind != "" && record.DefinitionKind != filter.DefinitionKind {
+			continue
+		}
+		if filter.CanonicalURL != "" && record.CanonicalURL != filter.CanonicalURL {
+			continue
+		}
+		if filter.PackageName != "" && record.PackageName != filter.PackageName {
+			continue
+		}
+		if filter.ModuleName != "" && record.ModuleName != filter.ModuleName {
+			continue
+		}
+		if filter.TargetResourceType != "" {
+			key := definitionKey(record.CanonicalURL, record.Version)
+			found := false
+			for _, target := range s.targets[key] {
+				if target.TargetResourceType == filter.TargetResourceType {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		copy := record
+		out = append(out, copy)
+	}
+	return out, nil
+}
+
+func (s *memDefinitionStore) Delete(_ context.Context, canonicalURL, version string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := definitionKey(canonicalURL, version)
+	if _, ok := s.data[key]; !ok {
+		return fmt.Errorf("definition not found: %s|%s", canonicalURL, version)
+	}
+	delete(s.data, key)
+	delete(s.targets, key)
+	return nil
+}
+
+type memRegistryInstallStore struct {
+	mu   sync.Mutex
+	rows []store.RegistryInstallRecord
+}
+
+func newMemRegistryInstallStore() *memRegistryInstallStore {
+	return &memRegistryInstallStore{}
+}
+
+func (s *memRegistryInstallStore) SetEnabled(_ context.Context, record store.RegistryInstallRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, row := range s.rows {
+		if row.DefinitionKind == record.DefinitionKind &&
+			row.CanonicalURL == record.CanonicalURL &&
+			row.Version == record.Version &&
+			row.TargetResourceType == record.TargetResourceType {
+			s.rows[i] = record
+			return nil
+		}
+	}
+	s.rows = append(s.rows, record)
+	return nil
+}
+
+func (s *memRegistryInstallStore) UpsertInstall(_ context.Context, record store.RegistryInstallRecord) error {
+	return s.SetEnabled(context.Background(), record)
+}
+
+func (s *memRegistryInstallStore) ListEnabled(_ context.Context) ([]store.RegistryInstallRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.RegistryInstallRecord
+	for _, row := range s.rows {
+		if row.Enabled {
+			copy := row
+			out = append(out, copy)
+		}
+	}
+	return out, nil
+}
+
+func (s *memRegistryInstallStore) ListInstalled(_ context.Context, filter store.RegistryInstallFilter) ([]store.RegistryInstallRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.RegistryInstallRecord
+	for _, row := range s.rows {
+		if filter.TargetResourceType != "" && row.TargetResourceType != filter.TargetResourceType {
+			continue
+		}
+		if filter.DefinitionKind != "" && row.DefinitionKind != filter.DefinitionKind {
+			continue
+		}
+		copy := row
+		out = append(out, copy)
+	}
+	return out, nil
+}
+
+func (s *memRegistryInstallStore) Delete(_ context.Context, filter store.RegistryInstallFilter) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []store.RegistryInstallRecord
+	for _, row := range s.rows {
+		if filter.TargetResourceType != "" && row.TargetResourceType != filter.TargetResourceType {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.DefinitionKind != "" && row.DefinitionKind != filter.DefinitionKind {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.CanonicalURL != "" && row.CanonicalURL != filter.CanonicalURL {
+			kept = append(kept, row)
+			continue
+		}
+		if filter.Version != "" && row.Version != filter.Version {
+			kept = append(kept, row)
+			continue
+		}
+	}
+	s.rows = kept
 	return nil
 }
 

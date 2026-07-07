@@ -68,6 +68,37 @@ func (s *RegistryInstallStore) ListInstalled(ctx context.Context, filter store.R
 	return s.queryInstallRows(ctx, filter)
 }
 
+func (s *RegistryInstallStore) Delete(ctx context.Context, filter store.RegistryInstallFilter) error {
+	query := `DELETE FROM registry_install`
+	var where []string
+	var args []any
+
+	if filter.TargetResourceType != "" {
+		where = append(where, "target_resource_type = ?")
+		args = append(args, filter.TargetResourceType)
+	}
+	if filter.DefinitionKind != "" {
+		where = append(where, "definition_kind = ?")
+		args = append(args, string(filter.DefinitionKind))
+	}
+	if filter.CanonicalURL != "" {
+		where = append(where, "canonical_url = ?")
+		args = append(args, filter.CanonicalURL)
+	}
+	if filter.Version != "" {
+		where = append(where, "version = ?")
+		args = append(args, filter.Version)
+	}
+
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	if _, err := s.exec.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("delete registry installs: %w", err)
+	}
+	return nil
+}
+
 func (s *RegistryInstallStore) queryInstallRows(ctx context.Context, filter store.RegistryInstallFilter) ([]store.RegistryInstallRecord, error) {
 	query := `
 		SELECT definition_kind, canonical_url, version, target_resource_type,

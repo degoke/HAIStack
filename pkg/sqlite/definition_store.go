@@ -108,6 +108,36 @@ func (s *DefinitionStore) Get(ctx context.Context, canonicalURL, version string)
 	return &record, nil
 }
 
+func (s *DefinitionStore) Delete(ctx context.Context, canonicalURL, version string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin definition delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM definition_target WHERE canonical_url = ? AND version = ?`,
+		canonicalURL, version,
+	); err != nil {
+		return fmt.Errorf("delete definition targets: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM definition_resource WHERE canonical_url = ? AND version = ?`,
+		canonicalURL, version,
+	)
+	if err != nil {
+		return fmt.Errorf("delete definition resource: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit definition delete: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("definition not found: %s|%s", canonicalURL, version)
+	}
+	return nil
+}
+
 func (s *DefinitionStore) List(ctx context.Context, filter store.DefinitionFilter) ([]store.DefinitionResourceRecord, error) {
 	query := `
 		SELECT DISTINCT dr.canonical_url, dr.version, dr.fhir_version, dr.fhir_resource_type,

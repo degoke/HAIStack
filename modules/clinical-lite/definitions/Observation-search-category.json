@@ -1,0 +1,12 @@
+{
+  "resourceType": "SearchParameter",
+  "id": "Observation-category-custom",
+  "url": "http://haistack.example.org/SearchParameter/Observation-category-custom",
+  "version": "1.0.0",
+  "name": "category-custom",
+  "status": "draft",
+  "code": "category-custom",
+  "base": ["Observation"],
+  "type": "token",
+  "expression": "Observation.category"
+}

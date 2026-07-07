@@ -91,6 +91,8 @@ type DefinitionFilter struct {
 type RegistryInstallFilter struct {
 	TargetResourceType string
 	DefinitionKind     DefinitionKind
+	CanonicalURL       string
+	Version            string
 }
 
 // DefinitionStore persists raw FHIR definition resources and their target mappings.
@@ -98,6 +100,7 @@ type DefinitionStore interface {
 	Upsert(ctx context.Context, record DefinitionResourceRecord, targets []DefinitionTargetRecord) error
 	Get(ctx context.Context, canonicalURL, version string) (*DefinitionResourceRecord, error)
 	List(ctx context.Context, filter DefinitionFilter) ([]DefinitionResourceRecord, error)
+	Delete(ctx context.Context, canonicalURL, version string) error
 }
 
 // RegistryInstallStore persists resource enablement and installed definition references.
@@ -106,4 +109,5 @@ type RegistryInstallStore interface {
 	UpsertInstall(ctx context.Context, record RegistryInstallRecord) error
 	ListEnabled(ctx context.Context) ([]RegistryInstallRecord, error)
 	ListInstalled(ctx context.Context, filter RegistryInstallFilter) ([]RegistryInstallRecord, error)
+	Delete(ctx context.Context, filter RegistryInstallFilter) error
 }
