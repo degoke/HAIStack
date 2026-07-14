@@ -83,6 +83,8 @@
 //     (transport stays in pkg/sync).
 //   - haistack-audit: AuditingEngine emits decision events; storage stays in
 //     store.AuditStore adapters (postgres/sqlite).
+//   - haistack-smart: optional SMART scopes/tokens/launch adapt into auth via
+//     smart.AuthAdapter; SMART logic stays in pkg/smart.
 //   - haistack-postgres: tenant scoping stays in adapters; auth only decides
 //     whether a principal may act in a tenant.
 package auth

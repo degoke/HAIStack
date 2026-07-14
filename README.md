@@ -62,7 +62,7 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters) |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
@@ -149,7 +149,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, view/AI adapters |
 | haistack-jobs | `pkg/jobs` | Done | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
 | haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
-| haistack-smart | `pkg/smart` | Planned | Optional SMART on FHIR |
+| haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
 | haistack-binary | `pkg/binary` | Planned | Blob/file sync and Binary resources |
 | haistack-subscriptions | `pkg/subscriptions` | Planned | Change-triggered workflows |
 | haistack-analytics | `pkg/analytics` | Planned | View export and warehouse sinks |
@@ -268,7 +268,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 | **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
 | **5** | auth ✓, ai ✓, jobs ✓, audit ✓ | Safe AI tools with permission checks; shared job/audit libraries |
-| **6** | binary, subscriptions, analytics, smart | Documents, workflows, exports, external SMART apps |
+| **6** | binary, subscriptions, analytics, smart ✓ | Documents, workflows, exports; SMART scope/token/auth adapters |
 
 ### Planned package notes
 
@@ -281,6 +281,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 - **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; patient-scope stub; optional decision emit via `AuditingEngine` + `pkg/audit` (auth does not own audit storage); SMART stays in `smart`
 - **jobs** — Done in v1: handler/runner, retry/backoff, enqueue helpers, `InMemoryJobStore`; SQLite + Postgres `JobStore` backends
 - **audit** — Done in v1: canonical events, emit helpers, `StoreAdapter`; SQLite + Postgres `AuditStore` backends
+- **smart** — Done in v1: SMART scope parsing/matching, launch context, token claim validation, backend-service assertions, `AuthAdapter` into `pkg/auth`; no EHR/standalone launch runtime, dynamic registration, or refresh-token lifecycle
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
 - **cli** — `serve`, `validate`, `import`, `search`, sync status, `fhirpath eval`

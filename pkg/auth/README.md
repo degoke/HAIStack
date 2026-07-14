@@ -170,11 +170,11 @@ Permissions treat `appointment.read` and `read-appointment` as equivalent.
 | **ai** | Consumes `AIPolicyAdapter` |
 | **modules** | Asks `CanInstallModule` before install |
 | **sync** | Asks `CanPushDeviceEvent` for device trust |
-| **smart** | Future OAuth/SMART (out of scope here) |
+| **smart** | Optional SMART scopes/tokens/launch via `pkg/smart` adapters (out of scope here) |
 
 ## MVP limits
 
-- No OAuth2/OIDC or SMART scopes
+- No OAuth2/OIDC or SMART scopes (see `pkg/smart`)
 - No consent engine or security labels
 - No break-glass workflow
 - No full ABAC attribute language
