@@ -24,11 +24,37 @@ func newBlobMetadataStoreTx(tx querier, tenantID string) *BlobMetadataStore {
 }
 
 func (s *BlobMetadataStore) PutManifest(ctx context.Context, manifest binary.BlobManifest) error {
+	var (
+		encryptionAlgorithm *string
+		encryptionKeyID     *string
+		encryptionNonce     *string
+		retentionMode       *string
+		retainUntil         *time.Time
+	)
+	if manifest.Descriptor.Encryption != nil {
+		alg := string(manifest.Descriptor.Encryption.Algorithm)
+		encryptionAlgorithm = &alg
+		if manifest.Descriptor.Encryption.KeyID != "" {
+			keyID := manifest.Descriptor.Encryption.KeyID
+			encryptionKeyID = &keyID
+		}
+		if manifest.Descriptor.Encryption.Nonce != "" {
+			nonce := manifest.Descriptor.Encryption.Nonce
+			encryptionNonce = &nonce
+		}
+	}
+	if manifest.Descriptor.Retention != nil {
+		mode := string(manifest.Descriptor.Retention.Mode)
+		retentionMode = &mode
+		retainUntil = &manifest.Descriptor.Retention.RetainUntil
+	}
 	_, err := s.exec.Exec(ctx, `
 		INSERT INTO blob_manifest (
 			tenant_id, blob_id, sha256, size, content_type, backend_kind, storage_ref,
-			chunk_size, chunk_count, created_at, finalized_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			chunk_size, chunk_count, created_at, finalized_at,
+			encryption_algorithm, encryption_key_id, encryption_nonce,
+			retention_mode, retain_until
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (tenant_id, blob_id) DO UPDATE SET
 			sha256 = EXCLUDED.sha256,
 			size = EXCLUDED.size,
@@ -38,7 +64,12 @@ func (s *BlobMetadataStore) PutManifest(ctx context.Context, manifest binary.Blo
 			chunk_size = EXCLUDED.chunk_size,
 			chunk_count = EXCLUDED.chunk_count,
 			created_at = EXCLUDED.created_at,
-			finalized_at = EXCLUDED.finalized_at`,
+			finalized_at = EXCLUDED.finalized_at,
+			encryption_algorithm = EXCLUDED.encryption_algorithm,
+			encryption_key_id = EXCLUDED.encryption_key_id,
+			encryption_nonce = EXCLUDED.encryption_nonce,
+			retention_mode = EXCLUDED.retention_mode,
+			retain_until = EXCLUDED.retain_until`,
 		s.tenantID,
 		manifest.Descriptor.BlobID,
 		manifest.Descriptor.SHA256,
@@ -50,6 +81,11 @@ func (s *BlobMetadataStore) PutManifest(ctx context.Context, manifest binary.Blo
 		manifest.ChunkCount,
 		manifest.CreatedAt,
 		nullTimePtr(manifest.FinalizedAt),
+		encryptionAlgorithm,
+		encryptionKeyID,
+		encryptionNonce,
+		retentionMode,
+		retainUntil,
 	)
 	if err != nil {
 		return fmt.Errorf("put blob manifest: %w", err)
@@ -60,14 +96,18 @@ func (s *BlobMetadataStore) PutManifest(ctx context.Context, manifest binary.Blo
 func (s *BlobMetadataStore) GetManifest(ctx context.Context, blobID string) (*binary.BlobManifest, error) {
 	return s.scanManifest(ctx, `
 		SELECT blob_id, sha256, size, content_type, backend_kind, storage_ref,
-			chunk_size, chunk_count, created_at, finalized_at
+			chunk_size, chunk_count, created_at, finalized_at,
+			encryption_algorithm, encryption_key_id, encryption_nonce,
+			retention_mode, retain_until
 		FROM blob_manifest WHERE tenant_id = $1 AND blob_id = $2`, blobID)
 }
 
 func (s *BlobMetadataStore) GetManifestByHash(ctx context.Context, sha256 string) (*binary.BlobManifest, error) {
 	return s.scanManifest(ctx, `
 		SELECT blob_id, sha256, size, content_type, backend_kind, storage_ref,
-			chunk_size, chunk_count, created_at, finalized_at
+			chunk_size, chunk_count, created_at, finalized_at,
+			encryption_algorithm, encryption_key_id, encryption_nonce,
+			retention_mode, retain_until
 		FROM blob_manifest WHERE tenant_id = $1 AND sha256 = $2 LIMIT 1`, sha256)
 }
 
@@ -227,13 +267,20 @@ func (s *BlobMetadataStore) CreateUploadSession(ctx context.Context, session bin
 		INSERT INTO blob_transfer_session (
 			tenant_id, session_id, session_kind, blob_id, sha256, size, content_type,
 			chunk_size, transferred_bytes, transferred_chunks, expected_chunks,
-			status, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			status, created_at, updated_at,
+			encryption_algorithm, encryption_key_id, encryption_nonce,
+			retention_mode, retain_until
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		s.tenantID, session.ID, string(binary.TransferUpload), session.BlobID,
 		nullString(session.SHA256), session.Size, nullString(session.ContentType),
 		session.ChunkSize, session.UploadedBytes, session.UploadedChunks,
 		nullInt32(session.ExpectedChunks), string(session.Status),
 		session.CreatedAt, session.UpdatedAt,
+		nullString(uploadEncryptionAlgorithmPG(session)),
+		nullString(uploadEncryptionKeyIDPG(session)),
+		nullString(uploadEncryptionNoncePG(session)),
+		nullString(uploadRetentionModePG(session)),
+		nullTimePtr(uploadRetainUntilPG(session)),
 	)
 	if err != nil {
 		return fmt.Errorf("create upload session: %w", err)
@@ -245,9 +292,12 @@ func (s *BlobMetadataStore) GetUploadSession(ctx context.Context, id string) (*b
 	var session binary.UploadSession
 	var sha256, contentType *string
 	var expectedChunks *int32
+	var encAlgorithm, encKeyID, encNonce, retentionMode *string
+	var retainUntil *time.Time
 	err := s.exec.QueryRow(ctx, `
 		SELECT session_id, blob_id, sha256, size, content_type, chunk_size,
-			transferred_bytes, transferred_chunks, expected_chunks, status, created_at, updated_at
+			transferred_bytes, transferred_chunks, expected_chunks, status, created_at, updated_at,
+			encryption_algorithm, encryption_key_id, encryption_nonce, retention_mode, retain_until
 		FROM blob_transfer_session
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $3`,
 		s.tenantID, id, string(binary.TransferUpload),
@@ -255,6 +305,7 @@ func (s *BlobMetadataStore) GetUploadSession(ctx context.Context, id string) (*b
 		&session.ID, &session.BlobID, &sha256, &session.Size, &contentType,
 		&session.ChunkSize, &session.UploadedBytes, &session.UploadedChunks,
 		&expectedChunks, &session.Status, &session.CreatedAt, &session.UpdatedAt,
+		&encAlgorithm, &encKeyID, &encNonce, &retentionMode, &retainUntil,
 	)
 	if isNoRows(err) {
 		return nil, binary.ErrNotFound
@@ -271,6 +322,7 @@ func (s *BlobMetadataStore) GetUploadSession(ctx context.Context, id string) (*b
 	if expectedChunks != nil {
 		session.ExpectedChunks = int(*expectedChunks)
 	}
+	applyUploadPolicyFieldsPG(&session, encAlgorithm, encKeyID, encNonce, retentionMode, retainUntil)
 	return &session, nil
 }
 
@@ -279,12 +331,20 @@ func (s *BlobMetadataStore) UpdateUploadSession(ctx context.Context, session bin
 		UPDATE blob_transfer_session SET
 			blob_id = $3, sha256 = $4, size = $5, content_type = $6,
 			chunk_size = $7, transferred_bytes = $8, transferred_chunks = $9,
-			expected_chunks = $10, status = $11, updated_at = $12
-		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $13`,
+			expected_chunks = $10, status = $11, updated_at = $12,
+			encryption_algorithm = $13, encryption_key_id = $14, encryption_nonce = $15,
+			retention_mode = $16, retain_until = $17
+		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $18`,
 		s.tenantID, session.ID, session.BlobID, nullString(session.SHA256),
 		session.Size, nullString(session.ContentType), session.ChunkSize,
 		session.UploadedBytes, session.UploadedChunks, nullInt32(session.ExpectedChunks),
-		string(session.Status), session.UpdatedAt, string(binary.TransferUpload),
+		string(session.Status), session.UpdatedAt,
+		nullString(uploadEncryptionAlgorithmPG(session)),
+		nullString(uploadEncryptionKeyIDPG(session)),
+		nullString(uploadEncryptionNoncePG(session)),
+		nullString(uploadRetentionModePG(session)),
+		nullTimePtr(uploadRetainUntilPG(session)),
+		string(binary.TransferUpload),
 	)
 	if err != nil {
 		return fmt.Errorf("update upload session: %w", err)
@@ -390,17 +450,24 @@ func (s *BlobMetadataStore) DeleteDownloadSession(ctx context.Context, id string
 
 func (s *BlobMetadataStore) scanManifest(ctx context.Context, query string, arg string) (*binary.BlobManifest, error) {
 	var (
-		m           binary.BlobManifest
-		contentType *string
-		chunkSize   *int64
-		backendKind string
-		storageRef  string
-		finalizedAt *time.Time
+		m                   binary.BlobManifest
+		contentType         *string
+		chunkSize           *int64
+		backendKind         string
+		storageRef          string
+		finalizedAt         *time.Time
+		encryptionAlgorithm *string
+		encryptionKeyID     *string
+		encryptionNonce     *string
+		retentionMode       *string
+		retainUntil         *time.Time
 	)
 	err := s.exec.QueryRow(ctx, query, s.tenantID, arg).Scan(
 		&m.Descriptor.BlobID, &m.Descriptor.SHA256, &m.Descriptor.Size,
 		&contentType, &backendKind, &storageRef,
 		&chunkSize, &m.ChunkCount, &m.CreatedAt, &finalizedAt,
+		&encryptionAlgorithm, &encryptionKeyID, &encryptionNonce,
+		&retentionMode, &retainUntil,
 	)
 	if isNoRows(err) {
 		return nil, binary.ErrNotFound
@@ -418,6 +485,19 @@ func (s *BlobMetadataStore) scanManifest(ctx context.Context, query string, arg 
 	}
 	if chunkSize != nil {
 		m.ChunkSize = *chunkSize
+	}
+	if encryptionAlgorithm != nil {
+		m.Descriptor.Encryption = &binary.BlobEncryption{
+			Algorithm: binary.EncryptionAlgorithm(*encryptionAlgorithm),
+			KeyID:     derefString(encryptionKeyID),
+			Nonce:     derefString(encryptionNonce),
+		}
+	}
+	if retentionMode != nil && retainUntil != nil {
+		m.Descriptor.Retention = &binary.BlobRetention{
+			Mode:        binary.RetentionMode(*retentionMode),
+			RetainUntil: *retainUntil,
+		}
 	}
 	m.FinalizedAt = finalizedAt
 	return &m, nil
@@ -443,4 +523,66 @@ func nullTimePtr(t *time.Time) *time.Time {
 		return nil
 	}
 	return t
+}
+
+func uploadEncryptionAlgorithmPG(session binary.UploadSession) string {
+	if session.Encryption == nil {
+		return ""
+	}
+	return string(session.Encryption.Algorithm)
+}
+
+func uploadEncryptionKeyIDPG(session binary.UploadSession) string {
+	if session.Encryption == nil {
+		return ""
+	}
+	return session.Encryption.KeyID
+}
+
+func uploadEncryptionNoncePG(session binary.UploadSession) string {
+	if session.Encryption == nil {
+		return ""
+	}
+	return session.Encryption.Nonce
+}
+
+func uploadRetentionModePG(session binary.UploadSession) string {
+	if session.Retention == nil {
+		return ""
+	}
+	return string(session.Retention.Mode)
+}
+
+func uploadRetainUntilPG(session binary.UploadSession) *time.Time {
+	if session.Retention == nil || session.Retention.RetainUntil.IsZero() {
+		return nil
+	}
+	return &session.Retention.RetainUntil
+}
+
+func applyUploadPolicyFieldsPG(
+	session *binary.UploadSession,
+	encAlgorithm, encKeyID, encNonce, retentionMode *string,
+	retainUntil *time.Time,
+) {
+	if encAlgorithm != nil {
+		session.Encryption = &binary.BlobEncryption{
+			Algorithm: binary.EncryptionAlgorithm(*encAlgorithm),
+			KeyID:     derefString(encKeyID),
+			Nonce:     derefString(encNonce),
+		}
+	}
+	if retentionMode != nil && retainUntil != nil {
+		session.Retention = &binary.BlobRetention{
+			Mode:        binary.RetentionMode(*retentionMode),
+			RetainUntil: *retainUntil,
+		}
+	}
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

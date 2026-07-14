@@ -17,4 +17,10 @@ var (
 
 	// ErrSessionClosed is returned when a transfer session is no longer active.
 	ErrSessionClosed = errors.New("binary: session closed")
+
+	// ErrRetentionLocked is returned when retention policy forbids deletion.
+	ErrRetentionLocked = errors.New("binary: retention locked")
+
+	// ErrUnsupported is returned when a backend or algorithm is unsupported.
+	ErrUnsupported = errors.New("binary: unsupported")
 )

@@ -23,6 +23,9 @@
 //     attachment entry and a blob descriptor.
 //   - BlobSyncStatus: pending, uploading, uploaded, downloading, complete, failed.
 //   - UploadSession / DownloadSession: resumable transfer state.
+//   - BlobEncryption / BlobRetention: per-blob policy metadata.
+//   - SignedAccessURL: direct object-storage access URLs.
+//   - ChunkSyncPlan / SyncChunk: explicit chunk-based blob sync payloads.
 //
 // # Store interfaces
 //
@@ -38,6 +41,7 @@
 //   - LocalFileBlobStore: hash-addressed files on disk.
 //   - SQLiteBlobStore: full blob bytes in SQLite via chunk and manifest tables.
 //   - PostgresBlobStore: full blob bytes in Postgres via chunk and manifest tables.
+//   - S3BlobStore: S3-compatible object storage with signed URL support.
 //
 // Legacy store.BinaryStore and store.BlobStore remain for simple inline storage;
 // pkg/binary is the richer public API for new blob work.
@@ -54,4 +58,8 @@
 // Metadata carried in normal sync/resource paths is limited to blob hash,
 // content type, size, and storage pointer. No raw payload bytes go into
 // store.ResourceEvent, sync.LocalEvent, or FHIR resource JSON.
+//
+// Blob transfer capabilities include resumable upload/download, chunk-sync import/export,
+// hash-based deduplication, optional per-blob AES-256-GCM encryption, signed access URLs,
+// and retention-aware lifecycle deletion.
 package binary

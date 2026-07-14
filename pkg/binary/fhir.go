@@ -17,7 +17,7 @@ func BuildBinaryMetadataJSON(id, contentType string, ref BlobReference) ([]byte,
 		"contentType":  contentType,
 		"extension": []map[string]interface{}{
 			{
-				"url": extensionURLBlobRef,
+				"url":         extensionURLBlobRef,
 				"valueString": mustMarshalRef(ref),
 			},
 		},
@@ -31,10 +31,10 @@ func BuildBinaryMetadataJSON(id, contentType string, ref BlobReference) ([]byte,
 // BuildAttachmentMetadata builds DocumentReference.content[].attachment metadata without payload bytes.
 func BuildAttachmentMetadata(contentType string, ref BlobReference) (map[string]interface{}, error) {
 	attachment := map[string]interface{}{
-		"contentType": contentType,
-		"size":        ref.Size,
-		"hash":        ref.SHA256,
-		"url":         fmt.Sprintf("blob:%s", ref.BlobID),
+		"contentType":    contentType,
+		"size":           ref.Size,
+		"hash":           ref.SHA256,
+		"url":            fmt.Sprintf("blob:%s", ref.BlobID),
 		attachmentExtKey: ref,
 	}
 	return attachment, nil

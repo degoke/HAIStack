@@ -1,6 +1,9 @@
 package binary
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // BlobStore stores and retrieves finalized blob payloads.
 type BlobStore interface {
@@ -8,6 +11,12 @@ type BlobStore interface {
 	Get(ctx context.Context, blobID string) ([]byte, *BlobDescriptor, error)
 	Head(ctx context.Context, blobID string) (*BlobDescriptor, error)
 	Delete(ctx context.Context, blobID string) error
+}
+
+// BlobStoreWithOptions stores blobs with additional backend-specific options.
+type BlobStoreWithOptions interface {
+	BlobStore
+	PutWithOptions(ctx context.Context, blobID string, data []byte, opts BlobWriteOptions) (*BlobDescriptor, error)
 }
 
 // ChunkStore supports chunked append/read and finalization for resumable transfer.
@@ -49,4 +58,10 @@ type TransferStore interface {
 	GetDownloadSession(ctx context.Context, id string) (*DownloadSession, error)
 	UpdateDownloadSession(ctx context.Context, session DownloadSession) error
 	DeleteDownloadSession(ctx context.Context, id string) error
+}
+
+// SignedURLProvider creates direct object-storage access URLs.
+type SignedURLProvider interface {
+	SignedGetURL(ctx context.Context, blobID string, ttl time.Duration) (*SignedAccessURL, error)
+	SignedPutURL(ctx context.Context, blobID string, ttl time.Duration, contentType string) (*SignedAccessURL, error)
 }

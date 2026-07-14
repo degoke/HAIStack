@@ -11,10 +11,10 @@ import (
 
 // Compile-time interface checks for memory test doubles.
 var (
-	_ binary.BlobStore      = (*memBlobStore)(nil)
-	_ binary.ChunkStore     = (*memChunkStore)(nil)
-	_ binary.MetadataStore  = (*memMetadataStore)(nil)
-	_ binary.TransferStore  = (*memTransferStore)(nil)
+	_ binary.BlobStore     = (*memBlobStore)(nil)
+	_ binary.ChunkStore    = (*memChunkStore)(nil)
+	_ binary.MetadataStore = (*memMetadataStore)(nil)
+	_ binary.TransferStore = (*memTransferStore)(nil)
 )
 
 type memBlobStore struct {

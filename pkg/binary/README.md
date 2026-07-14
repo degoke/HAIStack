@@ -203,16 +203,16 @@ New blob tables (separate from legacy `binary_object`):
 | `blob_sync_status` | Transfer progress per blob |
 | `blob_transfer_session` | Resumable upload/download session state |
 
-Migrations: `pkg/sqlite/migrations/0005_blob.sql`, `pkg/postgres/migrations/0006_blob.sql`.
+Migrations: `pkg/sqlite/migrations/0005_blob.sql`, `pkg/sqlite/migrations/0006_blob_policy.sql`, `pkg/postgres/migrations/0006_blob.sql`, `pkg/postgres/migrations/0007_blob_policy.sql`.
 
 ## Mental model
 
 ```
 pkg/types   → canonical FHIR JSON (ResourceEnvelope)
 pkg/core    → resource CRUD; metadata-only sync path
-pkg/binary  → blob payloads, manifests, transfer, FHIR linkage
-pkg/sqlite  → ChunkBlobStore + BlobMetadataStore adapters
-pkg/postgres → BlobChunkStore + BlobMetadataStore adapters (tenant-scoped)
+pkg/binary  → blob payloads, manifests, transfer, FHIR linkage, S3 URLs, retention
+pkg/sqlite  → SQLiteBlobStore + BlobMetadataStore adapters
+pkg/postgres → PostgresBlobStore + BlobMetadataStore adapters (tenant-scoped)
 ```
 
 **One line:** `pkg/binary` is the **file cabinet for clinical attachments** — payloads stay out of FHIR JSON and resource events; metadata travels through normal sync; bytes move through a dedicated blob path.
@@ -227,11 +227,11 @@ pkg/postgres → BlobChunkStore + BlobMetadataStore adapters (tenant-scoped)
 | **core** | Resource-focused; integrates via JSON helpers and optional shared sessions |
 | **sync** | Resource metadata events unchanged; blob sync invoked separately |
 
-## MVP limits
+## Current limits
 
 - Hash-based deduplication at the manifest layer; cross-backend garbage collection deferred
-- `S3BlobStore`, signed URLs, per-blob encryption, and retention policies are out of scope
 - Blob sync is not wired into `pkg/sync` engine yet — application code invokes blob transfer after resource metadata sync
 - `LocalFileBlobStore` does not persist manifests unless paired with a `MetadataStore`
+- S3 support is HTTP/presign based; multipart upload orchestration is not implemented yet
 
 See [doc.go](./doc.go) for the full API and design boundaries.
