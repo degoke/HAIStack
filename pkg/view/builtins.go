@@ -23,12 +23,12 @@ func PatientSummaryView() []byte {
 	}`)
 }
 
-// UpcomingAppointmentsView returns an example FHIR ViewDefinition for booked
+// AppointmentView returns an example FHIR ViewDefinition for booked
 // appointments with a status/date filter.
-func UpcomingAppointmentsView() []byte {
+func AppointmentView() []byte {
 	return []byte(`{
 		"resourceType": "ViewDefinition",
-		"name": "upcoming_appointments_view",
+		"name": "appointment_view",
 		"version": "1.0.0",
 		"status": "active",
 		"description": "Booked appointments after a reference date",
@@ -48,12 +48,12 @@ func UpcomingAppointmentsView() []byte {
 	}`)
 }
 
-// RecentObservationsView returns an example FHIR ViewDefinition for final
+// ObservationView returns an example FHIR ViewDefinition for final
 // observations with scalar quantity extraction.
-func RecentObservationsView() []byte {
+func ObservationView() []byte {
 	return []byte(`{
 		"resourceType": "ViewDefinition",
-		"name": "recent_observations_view",
+		"name": "observation_view",
 		"version": "1.0.0",
 		"status": "active",
 		"description": "Final observations with code and quantity",

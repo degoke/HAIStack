@@ -123,6 +123,7 @@ All hang off the same `TenantDB`:
 | `BlobStore()` / `BinaryStore()` | Inline or referenced binary payloads |
 | `ModuleStore()` | Runtime module registration metadata |
 | `MaterializedViewStore()` | Named read-optimized projections |
+| `ReportingTableStore()` | Analytics reporting table snapshots for view refreshes |
 | `AnalyticsStore()` | Append-only analytics events |
 
 For manual multi-step writes in one transaction, use `BeginWrite` / `Session` and commit when done.

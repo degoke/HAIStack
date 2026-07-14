@@ -476,7 +476,7 @@ func TestConvenienceTool_GetUpcomingAppointments(t *testing.T) {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
 	data := dataMap(t, res.Data)
-	if data["viewName"] != "upcoming_appointments_view" {
+	if data["viewName"] != "appointment_view" {
 		t.Fatalf("viewName = %v", data["viewName"])
 	}
 }

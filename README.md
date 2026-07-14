@@ -152,7 +152,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
 | haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
 | haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
-| haistack-analytics | `pkg/analytics` | Planned | View export and warehouse sinks |
+| haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV export, future sink interfaces |
 | haistack-http | `pkg/http` | Planned | FHIR REST API adapter |
 | haistack-client | `pkg/client` | Planned | Go SDK |
 | haistack-runtime | `pkg/runtime` | Planned | Composition and lifecycle glue |

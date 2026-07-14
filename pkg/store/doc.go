@@ -142,6 +142,14 @@
 //   - MaterializedViewRecord holds ViewName, Key, Payload, Version, and UpdatedAt.
 //   - Projection logic and refresh policy remain outside this package.
 //
+// ReportingTableStore — tenant-scoped analytics reporting table snapshots:
+//
+//   - Refresh(ctx, meta, rows) atomically replaces all rows for one view/version snapshot.
+//   - QueryRows(ctx, viewName, viewVersion) reads the stored row set in refresh order.
+//   - GetMeta(ctx, viewName, viewVersion) returns schema and refresh metadata.
+//   - Distinct from MaterializedViewStore: rows remain query-oriented JSON objects instead of
+//     per-key opaque payload records.
+//
 // AnalyticsStore — operational or product analytics events:
 //
 //   - Append(ctx, event) stores an AnalyticsEvent.
@@ -236,8 +244,9 @@
 // transaction-scoped Session for atomic offline writes.
 //
 // pkg/postgres — tenant-scoped edge/cloud implementation covering the broader contract surface
-// (including BlobStore, MaterializedViewStore, AnalyticsStore, JobStore, AuditStore,
-// ModuleStore, NodeRegistryStore, IDRegistryStore, and WriteSession-style pipelines).
+// (including BlobStore, MaterializedViewStore, ReportingTableStore, AnalyticsStore, JobStore,
+// AuditStore, ModuleStore, NodeRegistryStore, IDRegistryStore, and WriteSession-style
+// pipelines).
 //
 // pkg/core — orchestrates business rules, version assignment, and write pipelines on top of
 // store interfaces without importing backend packages directly in hot paths where possible.
@@ -264,6 +273,7 @@
 //   - inbox.go — InboxStore for sync idempotency.
 //   - conflict.go — ConflictStore, ConflictRecord.
 //   - materialized_view.go — MaterializedViewStore, MaterializedViewRecord.
+//   - reporting_table.go — ReportingTableStore, ReportingTableMeta, ReportingColumn.
 //   - analytics.go — AnalyticsStore, AnalyticsEvent.
 //   - audit.go — AuditStore, AuditRecord, AuditQuery.
 //   - job.go — JobStore, JobRecord, JobStatus.

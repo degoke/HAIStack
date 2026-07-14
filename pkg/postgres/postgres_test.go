@@ -37,6 +37,7 @@ var (
 	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
 	_ store.ModuleStore            = (*postgres.ModuleStore)(nil)
 	_ store.MaterializedViewStore  = (*postgres.MaterializedViewStore)(nil)
+	_ store.ReportingTableStore    = (*postgres.ReportingTableStore)(nil)
 	_ store.AnalyticsStore         = (*postgres.AnalyticsStore)(nil)
 	_ store.JobStore               = (*postgres.JobStore)(nil)
 	_ store.NodeRegistryStore      = (*postgres.NodeRegistry)(nil)
@@ -148,7 +149,8 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"search_text", "search_composite",
 		"sync_cursor", "sync_inbox_applied", "binary_object", "audit_log", "module_registry",
 		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
-		"materialized_view", "analytics_event", "background_job", "schema_migrations",
+		"materialized_view", "analytics_reporting_meta", "analytics_reporting_row",
+		"analytics_event", "background_job", "schema_migrations",
 	}
 	ctx := context.Background()
 	for _, table := range tables {

@@ -52,11 +52,11 @@ func (r *Registry) registerBuiltins() {
 	})
 	_ = r.register(&ToolSpec{
 		Name:        ToolGetUpcomingAppointments,
-		Description: "Upcoming appointments via upcoming_appointments_view",
+		Description: "Appointments via appointment_view",
 		Delegate:    ToolRunView,
 		MapInput: func(input map[string]any) (map[string]any, error) {
 			out := map[string]any{
-				"viewName": "upcoming_appointments_view",
+				"viewName": "appointment_view",
 				"version":  "1.0.0",
 			}
 			if limit, ok := input["limit"]; ok {

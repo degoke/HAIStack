@@ -123,6 +123,7 @@ On delete: remove from `ResourceStore`, append a tombstone to history, emit a de
 | `BinaryStore` | Small inline binary payloads |
 | `BlobStore` | Larger blobs or external storage references |
 | `MaterializedViewStore` | Read-optimized projections |
+| `ReportingTableStore` | Tenant-scoped analytics reporting table snapshots |
 | `AnalyticsStore` | Operational/product analytics events |
 | `AuditStore` | Security/compliance audit trail |
 | `JobStore` | Background task queue |

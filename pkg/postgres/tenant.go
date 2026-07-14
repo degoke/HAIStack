@@ -109,6 +109,11 @@ func (tdb *TenantDB) AnalyticsStore() *AnalyticsStore {
 	return newAnalyticsStore(tdb.pool, tdb.tenantID)
 }
 
+// ReportingTableStore returns a tenant-scoped analytics reporting table store.
+func (tdb *TenantDB) ReportingTableStore() *ReportingTableStore {
+	return newReportingTableStore(tdb.pool, tdb.tenantID)
+}
+
 // JobStore returns a tenant-scoped job store.
 func (tdb *TenantDB) JobStore() *JobStore {
 	return newJobStore(tdb.pool, tdb.tenantID)

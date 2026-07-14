@@ -72,6 +72,7 @@
 //   - AuditStore            → store.AuditStore            — append-only audit_log
 //   - ModuleStore           → store.ModuleStore           — module_registry metadata
 //   - MaterializedViewStore → store.MaterializedViewStore — materialized_view projections
+//   - ReportingTableStore   → store.ReportingTableStore   — analytics reporting snapshots
 //   - AnalyticsStore        → store.AnalyticsStore        — analytics_event append/query
 //   - JobStore              → store.JobStore              — background_job enqueue/claim/update
 //   - NodeRegistry          → store.NodeRegistryStore     — node_registry for edge/cloud nodes
@@ -172,6 +173,7 @@
 //   - audit_log             — append-only audit entries
 //   - module_registry       — tenant module registration metadata
 //   - materialized_view     — named projection entries
+//   - analytics_reporting_meta / analytics_reporting_row — analytics reporting table snapshots
 //   - analytics_event       — append-only analytics records
 //   - background_job        — durable job queue with claim semantics (FOR UPDATE SKIP LOCKED)
 //
@@ -206,6 +208,7 @@
 //   - module_store.go      — ModuleStore
 //   - node_registry.go     — NodeRegistry
 //   - materialized_views.go — MaterializedViewStore
+//   - reporting_table_store.go — ReportingTableStore
 //   - analytics_store.go   — AnalyticsStore
 //   - job_store.go         — JobStore
 //   - migrations/*.sql     — embedded schema migrations

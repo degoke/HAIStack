@@ -97,7 +97,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		if _, err := viewReg.Register(view.PatientSummaryView(), engine); err != nil {
 			t.Fatalf("register patient view: %v", err)
 		}
-		if _, err := viewReg.Register(view.UpcomingAppointmentsView(), engine); err != nil {
+		if _, err := viewReg.Register(view.AppointmentView(), engine); err != nil {
 			t.Fatalf("register appointments view: %v", err)
 		}
 		var err error
@@ -153,7 +153,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		policy.Views["patient_summary_view"] = ai.ViewTypePolicy{}
 	}
 	if opts.allowAppointmentsView {
-		policy.Views["upcoming_appointments_view"] = ai.ViewTypePolicy{}
+		policy.Views["appointment_view"] = ai.ViewTypePolicy{}
 	}
 	if opts.allowPatientWrite {
 		policy.Write["Patient"] = ai.WriteTypePolicy{

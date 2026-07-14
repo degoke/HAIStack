@@ -36,4 +36,9 @@ const (
 
 	// TypeSubscriptionsDeliver schedules subscription notification delivery.
 	TypeSubscriptionsDeliver = TypePrefixSubscriptions + "deliver"
+
+	// TypeAnalyticsRefresh schedules a full analytics reporting table refresh.
+	TypeAnalyticsRefresh = TypePrefixAnalytics + "refresh"
+	// TypeExportCSV schedules a CSV export run.
+	TypeExportCSV = TypePrefixExport + "csv"
 )

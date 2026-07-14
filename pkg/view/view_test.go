@@ -83,10 +83,10 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 	if _, err := reg.Register(view.PatientSummaryView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if _, err := reg.Register(view.UpcomingAppointmentsView(), defaultEngine(t)); err != nil {
+	if _, err := reg.Register(view.AppointmentView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if _, err := reg.Register(view.RecentObservationsView(), defaultEngine(t)); err != nil {
+	if _, err := reg.Register(view.ObservationView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -175,12 +175,12 @@ func TestExecutor_PatientSummaryView(t *testing.T) {
 	}
 }
 
-func TestExecutor_UpcomingAppointmentsView(t *testing.T) {
+func TestExecutor_AppointmentView(t *testing.T) {
 	ctx := context.Background()
 	store := newMemResourceStore()
 	store.Seed(t, appointmentBooked(t), appointmentFulfilled(t))
 	reg := view.NewRegistry()
-	if _, err := reg.Register(view.UpcomingAppointmentsView(), defaultEngine(t)); err != nil {
+	if _, err := reg.Register(view.AppointmentView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	exec, err := view.NewExecutor(view.Config{
@@ -192,7 +192,7 @@ func TestExecutor_UpcomingAppointmentsView(t *testing.T) {
 		t.Fatalf("NewExecutor: %v", err)
 	}
 
-	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "upcoming_appointments_view"})
+	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "appointment_view"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -213,12 +213,12 @@ func TestExecutor_UpcomingAppointmentsView(t *testing.T) {
 	}
 }
 
-func TestExecutor_RecentObservationsView(t *testing.T) {
+func TestExecutor_ObservationView(t *testing.T) {
 	ctx := context.Background()
 	store := newMemResourceStore()
 	store.Seed(t, observationHeartRate(t), observationDraft(t))
 	reg := view.NewRegistry()
-	if _, err := reg.Register(view.RecentObservationsView(), defaultEngine(t)); err != nil {
+	if _, err := reg.Register(view.ObservationView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	exec, err := view.NewExecutor(view.Config{
@@ -230,7 +230,7 @@ func TestExecutor_RecentObservationsView(t *testing.T) {
 		t.Fatalf("NewExecutor: %v", err)
 	}
 
-	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "recent_observations_view"})
+	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "observation_view"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestExecutor_StandaloneWithoutModulesOrAuth(t *testing.T) {
 	store := newMemResourceStore()
 	store.Seed(t, observationHeartRate(t))
 	reg := view.NewRegistry()
-	if _, err := reg.Register(view.RecentObservationsView(), defaultEngine(t)); err != nil {
+	if _, err := reg.Register(view.ObservationView(), defaultEngine(t)); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	exec, err := view.NewExecutor(view.Config{
@@ -461,7 +461,7 @@ func TestExecutor_StandaloneWithoutModulesOrAuth(t *testing.T) {
 		t.Fatalf("NewExecutor: %v", err)
 	}
 
-	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "recent_observations_view"})
+	res, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: "observation_view"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
