@@ -1,11 +1,14 @@
 package sync
 
+import "github.com/degoke/health-ai-stack/pkg/jobs"
+
 // Job type identifiers enqueued by the sync engine.
+// Canonical names live in pkg/jobs; re-exported here for callers.
 const (
-	JobTypeRetryPush          = "sync.retry_push"
-	JobTypeScheduledPull      = "sync.scheduled_pull"
-	JobTypeConflictProcessing = "sync.conflict_processing"
-	JobTypeEventReplay        = "sync.event_replay"
+	JobTypeRetryPush          = jobs.TypeSyncRetryPush
+	JobTypeScheduledPull      = jobs.TypeSyncScheduledPull
+	JobTypeConflictProcessing = jobs.TypeSyncConflictProcessing
+	JobTypeEventReplay        = jobs.TypeSyncEventReplay
 )
 
 // ReplayJobPayload schedules a push or pull replay attempt.

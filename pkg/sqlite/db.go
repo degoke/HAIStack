@@ -120,6 +120,16 @@ func (db *DB) AuthStore(tenantID string) *AuthStore {
 	return newAuthStore(db.sql, tenantID)
 }
 
+// JobStore returns a connection-scoped background job store.
+func (db *DB) JobStore() *JobStore {
+	return newJobStore(db.sql)
+}
+
+// AuditStore returns a connection-scoped audit store.
+func (db *DB) AuditStore() *AuditStore {
+	return newAuditStore(db.sql)
+}
+
 // LocalWrite bundles the inputs for one atomic local write pipeline.
 type LocalWrite struct {
 	Resource      *types.ResourceEnvelope

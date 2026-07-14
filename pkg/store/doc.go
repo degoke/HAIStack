@@ -46,10 +46,11 @@
 // Policy stays upstream:
 //
 //   - ConflictStore records conflicts; reconciliation rules live in pkg/core or sync layers.
-//   - JobStore persists job state; retry, scheduling, and worker execution live elsewhere.
+//   - JobStore persists job state; retry, scheduling, and worker execution live in
+//     pkg/jobs (and package-specific workers such as search reindex / sync jobs).
 //   - ModuleStore registers module metadata; activation and code loading live elsewhere.
-//   - AnalyticsStore and AuditStore append records; reporting and compliance workflows live
-//     elsewhere.
+//   - AnalyticsStore and AuditStore append records; shared event shaping and emit
+//     helpers live in pkg/audit; reporting and compliance workflows live elsewhere.
 //
 // # Core resource contracts
 //

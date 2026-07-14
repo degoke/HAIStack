@@ -1,12 +1,15 @@
 package sync
 
+import "github.com/degoke/health-ai-stack/pkg/audit"
+
 // Audit action identifiers written by the sync engine.
+// Canonical definitions live in pkg/audit; re-exported here for callers.
 const (
-	AuditSyncAccepted        = "sync.accepted"
-	AuditSyncRejected        = "sync.rejected"
-	AuditSyncConflicted      = "sync.conflicted"
-	AuditDevicePushed        = "sync.device_pushed"
-	AuditDevicePulled        = "sync.device_pulled"
-	AuditConflictAutoMerged  = "conflict.auto_merged"
-	AuditConflictNeedsReview = "conflict.needs_review"
+	AuditSyncAccepted        = audit.ActionSyncAccepted
+	AuditSyncRejected        = audit.ActionSyncRejected
+	AuditSyncConflicted      = audit.ActionSyncConflicted
+	AuditDevicePushed        = audit.ActionDevicePushed
+	AuditDevicePulled        = audit.ActionDevicePulled
+	AuditConflictAutoMerged  = audit.ActionConflictAutoMerged
+	AuditConflictNeedsReview = audit.ActionConflictNeedsReview
 )

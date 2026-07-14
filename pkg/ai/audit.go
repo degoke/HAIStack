@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -34,40 +35,27 @@ func (f AuditLoggerFunc) LogToolAccess(ctx context.Context, rec AuditRecord) err
 	return f(ctx, rec)
 }
 
-// AuditStoreAdapter writes AI audit records to a store.AuditStore.
+// AuditStoreAdapter writes AI audit records through pkg/audit into a
+// store.AuditStore. Action naming is owned by pkg/audit (execute-tool).
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
 }
 
-// LogToolAccess converts an ai.AuditRecord to a store.AuditRecord and appends
-// it. The action is always "execute-tool".
+// LogToolAccess converts an ai.AuditRecord to a canonical audit event and
+// appends it.
 func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) error {
-	if a.Store == nil {
+	if a == nil || a.Store == nil {
 		return nil
 	}
-	now := a.Now
-	if now == nil {
-		now = time.Now
-	}
-	details := make(map[string]string, len(rec.Details)+2)
-	for k, v := range rec.Details {
-		details[k] = v
-	}
-	details["toolName"] = rec.ToolName
-	if rec.Subject != "" {
-		details["subject"] = rec.Subject
-	}
-	if rec.ConversationID != "" {
-		details["conversationId"] = rec.ConversationID
-	}
-	return a.Store.Append(ctx, store.AuditRecord{
-		ID:        "audit-ai-" + now().Format(time.RFC3339Nano),
-		Timestamp: rec.Timestamp,
-		Actor:     rec.Actor,
-		Action:    "execute-tool",
-		Outcome:   rec.Outcome,
-		Details:   details,
+	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.AIToolCallEvent{
+		Actor:          rec.Actor,
+		Subject:        rec.Subject,
+		ToolName:       rec.ToolName,
+		Outcome:        rec.Outcome,
+		ConversationID: rec.ConversationID,
+		Details:        rec.Details,
+		Timestamp:      rec.Timestamp,
 	})
 }
 

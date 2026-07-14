@@ -164,7 +164,8 @@ Outcomes include `success`, `denied`, `validation-failed`, and
 | **search** | Parameterized lookup for `search_fhir_resources` |
 | **core** | Validated writes for `write_fhir_resource` |
 | **validate** | Structural validation on write path |
-| **auth** | `AIPolicyAdapter` implements `PolicyEngine` with principal/tenant decisions |
+| **auth** | `AIPolicyAdapter` implements `PolicyEngine` with principal/tenant decisions; optional decision audit via `pkg/audit` |
+| **audit** | Shared audit event library used by AI `AuditStoreAdapter` |
 
 ## MVP limits
 

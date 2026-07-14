@@ -20,6 +20,7 @@ Adapters wire into existing seams:
 
 - `ViewAuthorizer` → `view.Authorizer`
 - `AIPolicyAdapter` → `ai.PolicyEngine`
+- `AuditingEngine` → optional emit of allow/deny through `pkg/audit` (auth does not own audit storage)
 
 ## Usage
 
@@ -164,6 +165,7 @@ Permissions treat `appointment.read` and `read-appointment` as equivalent.
 | Layer | Role |
 |-------|------|
 | **auth** | Identity and policy decisions (this package) |
+| **audit** | Shared audit event library; auth may emit via `AuditingEngine` |
 | **view** | Consumes `ViewAuthorizer` |
 | **ai** | Consumes `AIPolicyAdapter` |
 | **modules** | Asks `CanInstallModule` before install |

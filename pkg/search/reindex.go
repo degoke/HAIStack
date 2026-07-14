@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/google/uuid"
 )
 
-const ReindexJobType = "reindex"
+const ReindexJobType = jobs.TypeReindex
 
 // ReindexPayload is the background job payload for search reindexing.
 type ReindexPayload struct {
@@ -129,28 +129,15 @@ func EnqueueSearchParameterReindex(ctx context.Context, jobs store.JobStore, can
 	return enqueueReindex(ctx, jobs, payload)
 }
 
-func enqueueReindex(ctx context.Context, jobs store.JobStore, payload ReindexPayload) (string, error) {
-	if jobs == nil {
+func enqueueReindex(ctx context.Context, jobStore store.JobStore, payload ReindexPayload) (string, error) {
+	if jobStore == nil {
 		return "", fmt.Errorf("search: job store is required")
 	}
-	body, err := json.Marshal(payload)
+	job, err := jobs.Enqueue(ctx, jobStore, ReindexJobType, payload, jobs.EnqueueOptions{})
 	if err != nil {
 		return "", err
 	}
-	now := time.Now().UTC()
-	id := uuid.NewString()
-	job := store.JobRecord{
-		ID:        id,
-		Type:      ReindexJobType,
-		Payload:   body,
-		Status:    store.JobStatusPending,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := jobs.Enqueue(ctx, job); err != nil {
-		return "", err
-	}
-	return id, nil
+	return job.ID, nil
 }
 
 func (w *ReindexWorker) resourceTypes(resourceType string) ([]string, error) {
@@ -294,7 +281,8 @@ func (n *ReindexNotifier) ScheduleSearchParameterReindex(ctx context.Context, ca
 	return nil
 }
 
-// ReindexJobRunner claims and executes background reindex jobs.
+// ReindexJobRunner claims and executes background reindex jobs through the
+// shared jobs.Runner runtime.
 type ReindexJobRunner struct {
 	Jobs   store.JobStore
 	Worker Reindexer
@@ -306,30 +294,11 @@ func (r *ReindexJobRunner) RunOnce(ctx context.Context) (processed bool, err err
 	if r == nil || r.Jobs == nil || r.Worker == nil {
 		return false, fmt.Errorf("search: reindex job runner is not configured")
 	}
-	job, err := r.Jobs.ClaimNext(ctx, ReindexJobType)
-	if err != nil {
+	runner := jobs.NewRunner(r.Jobs)
+	runner.MaxAttempts = 1
+	runner.Now = r.Now
+	if err := runner.Register(ReindexJobType, jobs.HandlerFunc(r.Worker.HandleJob)); err != nil {
 		return false, err
 	}
-	if job == nil {
-		return false, nil
-	}
-
-	now := time.Now().UTC()
-	if r.Now != nil {
-		now = r.Now()
-	}
-
-	handleErr := r.Worker.HandleJob(ctx, *job)
-	job.UpdatedAt = now
-	if handleErr != nil {
-		job.Status = store.JobStatusFailed
-		job.LastError = handleErr.Error()
-	} else {
-		job.Status = store.JobStatusCompleted
-		job.LastError = ""
-	}
-	if updateErr := r.Jobs.Update(ctx, *job); updateErr != nil {
-		return true, updateErr
-	}
-	return true, handleErr
+	return runner.RunOnce(ctx)
 }

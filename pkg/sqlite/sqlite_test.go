@@ -27,6 +27,8 @@ var (
 	_ store.DefinitionStore      = (*sqlite.DefinitionStore)(nil)
 	_ store.RegistryInstallStore = (*sqlite.RegistryInstallStore)(nil)
 	_ store.AuthStore            = (*sqlite.AuthStore)(nil)
+	_ store.JobStore             = (*sqlite.JobStore)(nil)
+	_ store.AuditStore           = (*sqlite.AuditStore)(nil)
 	_ store.WriteSession         = (*sqlite.Session)(nil)
 	_ store.WriteSessionProvider = (*sqlite.DB)(nil)
 	_ store.InboxStore           = (*sqlite.InboxStore)(nil)

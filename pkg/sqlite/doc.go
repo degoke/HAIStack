@@ -62,6 +62,10 @@
 //     Large blob offload and deduplication are out of scope for embedded SQLite.
 //   - ModuleStore    → store.ModuleStore   — module_registry metadata.
 //     Code loading and activation policy live elsewhere.
+//   - JobStore       → store.JobStore — background_job enqueue/claim/update.
+//     Scheduling and worker loops live in pkg/jobs.
+//   - AuditStore     → store.AuditStore — append-only audit_log.
+//     Event shaping and emit helpers live in pkg/audit.
 //
 // # Out of scope (not in haistack-sqlite MVP)
 //
@@ -74,7 +78,7 @@
 //   - multiple database profiles per device
 //   - store.BlobStore with external blob references
 //   - store.IDRegistryStore
-//   - analytics, audit, and job queue stores
+//   - analytics store
 //   - materialized projection store
 //
 // # Atomic local write path
@@ -158,6 +162,8 @@
 //   - conflict_store.go   — ConflictStore (scaffold)
 //   - binary_store.go     — BinaryStore (scaffold)
 //   - module_store.go     — ModuleStore (scaffold)
+//   - job_store.go        — JobStore
+//   - audit_store.go      — AuditStore
 //   - timeutil.go         — RFC3339Nano timestamp helpers
 //   - migrations/*.sql    — embedded schema migrations
 //

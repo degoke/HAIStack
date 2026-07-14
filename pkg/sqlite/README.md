@@ -18,9 +18,11 @@ When you save a resource, SQLite keeps several things in sync:
 | **Outbox** | A log of local changes, for sync later |
 | **Cursors** | “Where did the sync worker leave off?” checkpoints |
 
-It also has tables for conflicts, small binaries, module metadata, and inbox idempotency. The main job is **local FHIR persistence + sync prep**.
+It also has tables for conflicts, small binaries, module metadata, inbox
+idempotency, background jobs, and audit logs. The main job is **local FHIR
+persistence + sync prep**.
 
-It implements the **`pkg/store` interfaces** on top of SQLite. Other code depends on `store.ResourceStore`, not on SQLite directly.
+It implements the **`pkg/store` interfaces** on top of SQLite. Other code depends on `store.ResourceStore`, not on SQLite directly. Background workers use `DB.JobStore()` with `pkg/jobs`; audit emitters use `DB.AuditStore()` with `pkg/audit`.
 
 It does **not**:
 

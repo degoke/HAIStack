@@ -16,9 +16,11 @@
 //   - Module install checks
 //   - Core policy DSL (JSON/YAML)
 //   - Adapters for view.Authorizer and ai.PolicyEngine
+//   - Optional AuditingEngine wrapper that emits decisions via pkg/audit
 //
 // Out of v1: OAuth2/OIDC, SMART scopes, consent enforcement, security labels,
 // break-glass workflows, full ABAC, and DB-specific user schemas.
+// Auth does not own audit storage; use pkg/audit (and AuditingEngine) to emit.
 //
 // # Public API
 //
@@ -32,6 +34,7 @@
 //   - ViewAuthorizer: adapts Engine to view.Authorizer.
 //   - AIPolicyAdapter: adapts Engine to ai.PolicyEngine; optional AIConstraints
 //     keep field/param/de-identify/approval narrowing in the AI layer.
+//   - AuditingEngine: wraps PolicyEngine and emits allow/deny via pkg/audit.
 //
 // # Typical usage
 //
@@ -78,6 +81,8 @@
 //     policy before install (execution stays in pkg/modules).
 //   - haistack-sync: CanPushDeviceEvent evaluates device trust for a tenant
 //     (transport stays in pkg/sync).
+//   - haistack-audit: AuditingEngine emits decision events; storage stays in
+//     store.AuditStore adapters (postgres/sqlite).
 //   - haistack-postgres: tenant scoping stays in adapters; auth only decides
 //     whether a principal may act in a tenant.
 package auth

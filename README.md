@@ -62,11 +62,11 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
-Audit and job persistence are available via `pkg/postgres` today. See [Roadmap](#roadmap) for the full plan.
+Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlite`. Shared runtime helpers live in `pkg/jobs` and `pkg/audit`. See [Roadmap](#roadmap) for the full plan.
 
 ---
 
@@ -147,6 +147,8 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-view | `pkg/view` | Done | ViewDefinition execution |
 | haistack-ai | `pkg/ai` | Done | Policy-governed AI tool harness |
 | haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, view/AI adapters |
+| haistack-jobs | `pkg/jobs` | Done | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
+| haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
 | haistack-smart | `pkg/smart` | Planned | Optional SMART on FHIR |
 | haistack-binary | `pkg/binary` | Planned | Blob/file sync and Binary resources |
 | haistack-subscriptions | `pkg/subscriptions` | Planned | Change-triggered workflows |
@@ -265,18 +267,20 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 | **2** | search, validate | Search by name/phone/date/status (`search` MVP done; `validate` done) |
 | **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
-| **5** | auth ✓, ai ✓ | Safe AI tools with permission checks |
+| **5** | auth ✓, ai ✓, jobs ✓, audit ✓ | Safe AI tools with permission checks; shared job/audit libraries |
 | **6** | binary, subscriptions, analytics, smart | Documents, workflows, exports, external SMART apps |
 
 ### Planned package notes
 
-- **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs; deferred: chained search, `_include`, OpenSearch, HTTP `_search`
-- **sync** — push/pull engine, stale-base detection, conflict job hooks, and audit side effects; merge policy lives in `pkg/conflict`
+- **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs via `pkg/jobs`; deferred: chained search, `_include`, OpenSearch, HTTP `_search`
+- **sync** — push/pull engine, stale-base detection, conflict job hooks via `pkg/jobs`, and audit via `pkg/audit`; merge policy lives in `pkg/conflict`
 - **conflict** — Done in v1: `Engine.Detect`, `CanAutoMerge`, and `Merge`; built-in strict safe-list policy; FHIR Patch rebase artifacts; sync integration via `ConflictResolutionHandler`
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions
 - **view** — SQL-on-FHIR-style ViewDefinitions → structured rows for AI and analytics
-- **ai** — typed tool registry; LLMs call tools, not arbitrary FHIR commands
-- **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; patient-scope stub; SMART stays in `smart`
+- **ai** — typed tool registry; LLMs call tools, not arbitrary FHIR commands; audit via `pkg/audit`
+- **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; patient-scope stub; optional decision emit via `AuditingEngine` + `pkg/audit` (auth does not own audit storage); SMART stays in `smart`
+- **jobs** — Done in v1: handler/runner, retry/backoff, enqueue helpers, `InMemoryJobStore`; SQLite + Postgres `JobStore` backends
+- **audit** — Done in v1: canonical events, emit helpers, `StoreAdapter`; SQLite + Postgres `AuditStore` backends
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
 - **cli** — `serve`, `validate`, `import`, `search`, sync status, `fhirpath eval`

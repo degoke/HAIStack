@@ -28,8 +28,8 @@
 //   - store.CursorStore — push and pull checkpoints
 //   - store.InboxStore — pull/apply idempotency (and hub push dedupe)
 //   - store.ConflictStore — stale-base and sync conflicts
-//   - store.JobStore — retry and conflict follow-up jobs
-//   - store.AuditStore — sync audit trail
+//   - store.JobStore — retry and conflict follow-up jobs (processed via pkg/jobs)
+//   - store.AuditStore — sync audit trail (actions via pkg/audit)
 //
 // # Typical device wiring
 //

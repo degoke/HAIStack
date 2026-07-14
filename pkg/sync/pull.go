@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/google/uuid"
 )
 
 // Puller fetches canonical events and applies them locally.
 type Puller struct {
-	Config   Config
-	Applier  *Applier
+	Config  Config
+	Applier *Applier
 }
 
 // PullResultSummary aggregates one pull pass.
@@ -78,21 +78,19 @@ func (p *Puller) Pull(ctx context.Context) (*PullResultSummary, error) {
 			summary.Skipped++
 		}
 
-		if cfg.Audit != nil {
-			now := cfg.Clock()
-			_ = cfg.Audit.Append(ctx, store.AuditRecord{
-				ID:           uuid.NewString(),
-				Timestamp:    now,
-				Actor:        cfg.NodeID,
-				Action:       AuditDevicePulled,
-				ResourceType: event.ResourceType,
-				ResourceID:   event.ResourceID,
-				Outcome:      string(event.Status),
-				Details: map[string]string{
-					"canonicalSequence": formatSequence(event.CanonicalSequence),
-				},
-			})
-		}
+		appendAudit(ctx, cfg.Audit, audit.SyncEvent{
+			ID:           uuid.NewString(),
+			Timestamp:    cfg.Clock(),
+			Actor:        cfg.NodeID,
+			Tenant:       cfg.TenantID,
+			Action:       AuditDevicePulled,
+			ResourceType: event.ResourceType,
+			ResourceID:   event.ResourceID,
+			Outcome:      string(event.Status),
+			Details: map[string]string{
+				"canonicalSequence": formatSequence(event.CanonicalSequence),
+			},
+		})
 
 		if event.CanonicalSequence > lastAppliedSeq {
 			lastAppliedSeq = event.CanonicalSequence

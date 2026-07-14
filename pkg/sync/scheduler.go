@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/conflict"
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/google/uuid"
@@ -19,58 +21,30 @@ type JobProcessor struct {
 	Clock  Clock
 }
 
-// ProcessNext claims and runs one pending sync job of any supported type.
+// ProcessNext claims and runs one pending sync job of any supported type using
+// the shared jobs.Runner runtime.
 func (p *JobProcessor) ProcessNext(ctx context.Context) (bool, error) {
 	if p == nil || p.Engine == nil || p.Jobs == nil {
 		return false, fmt.Errorf("job processor requires engine and job store")
 	}
-
-	for _, jobType := range []string{
-		JobTypeRetryPush,
-		JobTypeScheduledPull,
-		JobTypeConflictProcessing,
-		JobTypeEventReplay,
-	} {
-		job, err := p.Jobs.ClaimNext(ctx, jobType)
-		if err != nil {
-			return false, err
-		}
-		if job == nil {
-			continue
-		}
-		if err := p.runJob(ctx, *job); err != nil {
-			job.Status = store.JobStatusFailed
-			job.LastError = err.Error()
-			job.Attempts++
-			job.UpdatedAt = p.now()
-			_ = p.Jobs.Update(ctx, *job)
-			return true, err
-		}
-		job.Status = store.JobStatusCompleted
-		job.UpdatedAt = p.now()
-		if err := p.Jobs.Update(ctx, *job); err != nil {
-			return true, err
-		}
-		return true, nil
-	}
-	return false, nil
+	return p.runner().RunOnce(ctx)
 }
 
-func (p *JobProcessor) runJob(ctx context.Context, job store.JobRecord) error {
-	switch job.Type {
-	case JobTypeRetryPush:
+func (p *JobProcessor) runner() *jobs.Runner {
+	r := jobs.NewRunner(p.Jobs)
+	r.MaxAttempts = 1
+	r.Now = p.now
+	_ = r.Register(JobTypeRetryPush, jobs.HandlerFunc(func(ctx context.Context, _ store.JobRecord) error {
 		_, err := p.Engine.Push(ctx)
 		return err
-	case JobTypeScheduledPull:
+	}))
+	_ = r.Register(JobTypeScheduledPull, jobs.HandlerFunc(func(ctx context.Context, _ store.JobRecord) error {
 		_, err := p.Engine.Pull(ctx)
 		return err
-	case JobTypeConflictProcessing:
-		return p.processConflictJob(ctx, job)
-	case JobTypeEventReplay:
-		return p.processReplayJob(ctx, job)
-	default:
-		return fmt.Errorf("unsupported sync job type %q", job.Type)
-	}
+	}))
+	_ = r.Register(JobTypeConflictProcessing, jobs.HandlerFunc(p.processConflictJob))
+	_ = r.Register(JobTypeEventReplay, jobs.HandlerFunc(p.processReplayJob))
+	return r
 }
 
 func (p *JobProcessor) processConflictJob(ctx context.Context, job store.JobRecord) error {
@@ -192,13 +166,11 @@ func (p *JobProcessor) appendConflictAudit(
 	action string,
 	details map[string]string,
 ) {
-	if cfg.Audit == nil {
-		return
-	}
-	_ = cfg.Audit.Append(ctx, store.AuditRecord{
+	appendAudit(ctx, cfg.Audit, audit.SyncEvent{
 		ID:           uuid.NewString(),
 		Timestamp:    p.now(),
 		Actor:        payload.NodeID,
+		Tenant:       payload.TenantID,
 		Action:       action,
 		ResourceType: payload.ResourceType,
 		ResourceID:   payload.ResourceID,
@@ -223,25 +195,16 @@ func (p *JobProcessor) processReplayJob(ctx context.Context, job store.JobRecord
 }
 
 // EnqueueScheduledPull schedules a future pull attempt.
-func EnqueueScheduledPull(ctx context.Context, jobs store.JobStore, nodeID, tenantID string, runAfter time.Time) error {
-	if jobs == nil {
+func EnqueueScheduledPull(ctx context.Context, jobStore store.JobStore, nodeID, tenantID string, runAfter time.Time) error {
+	if jobStore == nil {
 		return nil
 	}
-	now := time.Now().UTC()
-	payload, _ := json.Marshal(ReplayJobPayload{
+	_, err := jobs.Enqueue(ctx, jobStore, JobTypeScheduledPull, ReplayJobPayload{
 		NodeID:   nodeID,
 		TenantID: tenantID,
 		Reason:   "scheduled pull",
-	})
-	return jobs.Enqueue(ctx, store.JobRecord{
-		ID:        uuid.NewString(),
-		Type:      JobTypeScheduledPull,
-		Payload:   payload,
-		Status:    store.JobStatusPending,
-		CreatedAt: now,
-		UpdatedAt: now,
-		RunAfter:  runAfter,
-	})
+	}, jobs.EnqueueOptions{RunAfter: runAfter})
+	return err
 }
 
 func (p *JobProcessor) now() time.Time {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/google/uuid"
 )
@@ -96,55 +97,52 @@ func (p *Pusher) Push(ctx context.Context) (*PushResultSummary, error) {
 func (p *Pusher) handlePushResult(ctx context.Context, cfg Config, event LocalEvent, result PushResult) error {
 	now := cfg.Clock()
 
-	if cfg.Audit != nil {
-		_ = cfg.Audit.Append(ctx, store.AuditRecord{
+	appendAudit(ctx, cfg.Audit, audit.SyncEvent{
+		ID:           uuid.NewString(),
+		Timestamp:    now,
+		Actor:        cfg.NodeID,
+		Tenant:       cfg.TenantID,
+		Action:       AuditDevicePushed,
+		ResourceType: event.ResourceType,
+		ResourceID:   event.ResourceID,
+		Outcome:      string(result.State),
+		Details: map[string]string{
+			"eventId": event.EventID,
+		},
+	})
+
+	switch result.State {
+	case AckAccepted:
+		appendAudit(ctx, cfg.Audit, audit.SyncEvent{
 			ID:           uuid.NewString(),
 			Timestamp:    now,
 			Actor:        cfg.NodeID,
-			Action:       AuditDevicePushed,
+			Tenant:       cfg.TenantID,
+			Action:       AuditSyncAccepted,
 			ResourceType: event.ResourceType,
 			ResourceID:   event.ResourceID,
 			Outcome:      string(result.State),
 			Details: map[string]string{
-				"eventId": event.EventID,
+				"canonicalVersionId": result.CanonicalVersionID,
 			},
 		})
-	}
-
-	switch result.State {
-	case AckAccepted:
-		if cfg.Audit != nil {
-			_ = cfg.Audit.Append(ctx, store.AuditRecord{
-				ID:           uuid.NewString(),
-				Timestamp:    now,
-				Actor:        cfg.NodeID,
-				Action:       AuditSyncAccepted,
-				ResourceType: event.ResourceType,
-				ResourceID:   event.ResourceID,
-				Outcome:      string(result.State),
-				Details: map[string]string{
-					"canonicalVersionId": result.CanonicalVersionID,
-				},
-			})
-		}
 		if cfg.Jobs != nil {
 			_ = EnqueueScheduledPull(ctx, cfg.Jobs, cfg.NodeID, cfg.TenantID, now)
 		}
 	case AckRejected:
-		if cfg.Audit != nil {
-			_ = cfg.Audit.Append(ctx, store.AuditRecord{
-				ID:           uuid.NewString(),
-				Timestamp:    now,
-				Actor:        cfg.NodeID,
-				Action:       AuditSyncRejected,
-				ResourceType: event.ResourceType,
-				ResourceID:   event.ResourceID,
-				Outcome:      string(result.State),
-				Details: map[string]string{
-					"reason": result.RejectionReason,
-				},
-			})
-		}
+		appendAudit(ctx, cfg.Audit, audit.SyncEvent{
+			ID:           uuid.NewString(),
+			Timestamp:    now,
+			Actor:        cfg.NodeID,
+			Tenant:       cfg.TenantID,
+			Action:       AuditSyncRejected,
+			ResourceType: event.ResourceType,
+			ResourceID:   event.ResourceID,
+			Outcome:      string(result.State),
+			Details: map[string]string{
+				"reason": result.RejectionReason,
+			},
+		})
 	case AckConflicted:
 		if err := p.recordConflict(ctx, cfg, event, result, now); err != nil {
 			return err
@@ -209,20 +207,19 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 			UpdatedAt: now,
 		})
 	}
-	if cfg.Audit != nil {
-		_ = cfg.Audit.Append(ctx, store.AuditRecord{
-			ID:           uuid.NewString(),
-			Timestamp:    now,
-			Actor:        cfg.NodeID,
-			Action:       AuditSyncConflicted,
-			ResourceType: event.ResourceType,
-			ResourceID:   event.ResourceID,
-			Outcome:      string(AckConflicted),
-			Details: map[string]string{
-				"reason": result.ConflictReason,
-			},
-		})
-	}
+	appendAudit(ctx, cfg.Audit, audit.SyncEvent{
+		ID:           uuid.NewString(),
+		Timestamp:    now,
+		Actor:        cfg.NodeID,
+		Tenant:       cfg.TenantID,
+		Action:       AuditSyncConflicted,
+		ResourceType: event.ResourceType,
+		ResourceID:   event.ResourceID,
+		Outcome:      string(AckConflicted),
+		Details: map[string]string{
+			"reason": result.ConflictReason,
+		},
+	})
 	return nil
 }
 

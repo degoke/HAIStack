@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -178,16 +179,12 @@ func (h *PostgresHub) recordPushConflict(ctx context.Context, event LocalEvent, 
 }
 
 func (h *PostgresHub) recordRejectedPush(ctx context.Context, event LocalEvent, result PushResult, now time.Time) error {
-	audit := h.Tenant.AuditStore()
-	if audit == nil {
-		return nil
-	}
 	action := AuditSyncRejected
 	outcome := string(result.State)
 	if result.State == AckConflicted {
 		action = AuditSyncConflicted
 	}
-	return audit.Append(ctx, store.AuditRecord{
+	appendAudit(ctx, h.Tenant.AuditStore(), audit.SyncEvent{
 		ID:           event.EventID,
 		Timestamp:    now,
 		Actor:        event.OriginNodeID,
@@ -199,6 +196,7 @@ func (h *PostgresHub) recordRejectedPush(ctx context.Context, event LocalEvent, 
 			"reason": firstNonEmpty(result.RejectionReason, result.ConflictReason),
 		},
 	})
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

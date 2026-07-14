@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -36,46 +37,38 @@ func (f AuditLoggerFunc) LogViewAccess(ctx context.Context, rec AuditRecord) err
 	return f(ctx, rec)
 }
 
-// AuditStoreAdapter writes view audit records to a store.AuditStore. It is a
-// convenience adapter that lets the view package use the existing persistence
-// contract without requiring it.
+// AuditStoreAdapter writes view audit records through pkg/audit into a
+// store.AuditStore. Action naming is owned by pkg/audit (execute-view).
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
 }
 
-// LogViewAccess converts a view.AuditRecord to a store.AuditRecord and appends
-// it. The action is always "execute-view".
+// LogViewAccess converts a view.AuditRecord to a canonical audit event and
+// appends it.
 func (a *AuditStoreAdapter) LogViewAccess(ctx context.Context, rec AuditRecord) error {
-	if a.Store == nil {
+	if a == nil || a.Store == nil {
 		return nil
 	}
-	now := a.Now
-	if now == nil {
-		now = time.Now
-	}
-	return a.Store.Append(ctx, store.AuditRecord{
-		ID:        newAuditID(now()),
-		Timestamp: rec.Timestamp,
+	details := auditDetails(rec)
+	return audit.LogViewAccess(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.ViewAccessEvent{
 		Actor:     rec.Actor,
-		Action:    "execute-view",
+		Subject:   rec.Subject,
+		ViewName:  rec.ViewName,
+		Version:   rec.Version,
 		Outcome:   rec.Outcome,
-		Details:   auditDetails(rec),
+		Details:   details,
+		Timestamp: rec.Timestamp,
 	})
 }
 
 func auditDetails(rec AuditRecord) map[string]string {
-	details := make(map[string]string, len(rec.Details)+len(rec.Parameters)+4)
+	details := make(map[string]string, len(rec.Details)+len(rec.Parameters)+1)
 	for k, v := range rec.Details {
 		details[k] = v
 	}
 	for k, v := range rec.Parameters {
 		details[k] = paramString(v)
-	}
-	details["viewName"] = rec.ViewName
-	details["viewVersion"] = rec.Version
-	if rec.Subject != "" {
-		details["subject"] = rec.Subject
 	}
 	return details
 }
@@ -92,8 +85,4 @@ func paramString(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(data)
-}
-
-func newAuditID(now time.Time) string {
-	return "audit-view-" + now.Format(time.RFC3339Nano)
 }
