@@ -50,11 +50,12 @@ func (a *AuditStoreAdapter) LogViewAccess(ctx context.Context, rec AuditRecord) 
 	if a.Store == nil {
 		return nil
 	}
-	if a.Now == nil {
-		a.Now = time.Now
+	now := a.Now
+	if now == nil {
+		now = time.Now
 	}
 	return a.Store.Append(ctx, store.AuditRecord{
-		ID:        newAuditID(a.Now()),
+		ID:        newAuditID(now()),
 		Timestamp: rec.Timestamp,
 		Actor:     rec.Actor,
 		Action:    "execute-view",
