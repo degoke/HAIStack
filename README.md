@@ -62,7 +62,7 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters) |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), and change-triggered workflows with webhook/local delivery |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
@@ -151,7 +151,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
 | haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
 | haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
-| haistack-subscriptions | `pkg/subscriptions` | Planned | Change-triggered workflows |
+| haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
 | haistack-analytics | `pkg/analytics` | Planned | View export and warehouse sinks |
 | haistack-http | `pkg/http` | Planned | FHIR REST API adapter |
 | haistack-client | `pkg/client` | Planned | Go SDK |
@@ -268,7 +268,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 | **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
 | **5** | auth ✓, ai ✓, jobs ✓, audit ✓ | Safe AI tools with permission checks; shared job/audit libraries |
-| **6** | binary, subscriptions, analytics, smart ✓ | Documents, workflows, exports; SMART scope/token/auth adapters |
+| **6** | binary, subscriptions ✓, analytics, smart ✓ | Documents, workflows, exports; SMART scope/token/auth adapters |
 
 ### Planned package notes
 

@@ -145,6 +145,16 @@ func (db *DB) AuditStore() *AuditStore {
 	return newAuditStore(db.sql)
 }
 
+// SubscriptionStore returns a connection-scoped subscription registry store.
+func (db *DB) SubscriptionStore() *SubscriptionStore {
+	return newSubscriptionStore(db.sql)
+}
+
+// SubscriptionDeliveryStore returns a connection-scoped delivery log store.
+func (db *DB) SubscriptionDeliveryStore() *SubscriptionDeliveryStore {
+	return newSubscriptionDeliveryStore(db.sql)
+}
+
 // LocalWrite bundles the inputs for one atomic local write pipeline.
 type LocalWrite struct {
 	Resource      *types.ResourceEnvelope

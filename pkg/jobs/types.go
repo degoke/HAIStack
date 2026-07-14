@@ -33,4 +33,7 @@ const (
 	TypeSyncConflictProcessing = "sync.conflict_processing"
 	// TypeSyncEventReplay schedules push/pull replay.
 	TypeSyncEventReplay = "sync.event_replay"
+
+	// TypeSubscriptionsDeliver schedules subscription notification delivery.
+	TypeSubscriptionsDeliver = TypePrefixSubscriptions + "deliver"
 )

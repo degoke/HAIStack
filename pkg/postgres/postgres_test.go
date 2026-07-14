@@ -33,6 +33,8 @@ var (
 	_ store.BinaryStore            = (*postgres.BinaryStore)(nil)
 	_ store.BlobStore              = (*postgres.BlobStore)(nil)
 	_ store.AuditStore             = (*postgres.AuditStore)(nil)
+	_ store.SubscriptionStore      = (*postgres.SubscriptionStore)(nil)
+	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
 	_ store.ModuleStore            = (*postgres.ModuleStore)(nil)
 	_ store.MaterializedViewStore  = (*postgres.MaterializedViewStore)(nil)
 	_ store.AnalyticsStore         = (*postgres.AnalyticsStore)(nil)

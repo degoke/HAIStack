@@ -134,6 +134,16 @@ func (tdb *TenantDB) AuthStore() *AuthStore {
 	return newAuthStore(tdb.pool, tdb.tenantID)
 }
 
+// SubscriptionStore returns a tenant-scoped subscription registry store.
+func (tdb *TenantDB) SubscriptionStore() *SubscriptionStore {
+	return newSubscriptionStore(tdb.pool, tdb.tenantID)
+}
+
+// SubscriptionDeliveryStore returns a tenant-scoped delivery log store.
+func (tdb *TenantDB) SubscriptionDeliveryStore() *SubscriptionDeliveryStore {
+	return newSubscriptionDeliveryStore(tdb.pool, tdb.tenantID)
+}
+
 // BeginWrite starts a tenant-scoped atomic write session.
 func (tdb *TenantDB) BeginWrite(ctx context.Context) (store.WriteSession, error) {
 	return tdb.BeginSession(ctx)
