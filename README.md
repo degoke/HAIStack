@@ -62,7 +62,7 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
@@ -144,7 +144,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
 | haistack-modules | `pkg/modules` | Planned | Installable capability modules |
-| haistack-view | `pkg/view` | Planned | ViewDefinition execution |
+| haistack-view | `pkg/view` | Done | ViewDefinition execution |
 | haistack-ai | `pkg/ai` | Planned | Safe, typed AI tool harness |
 | haistack-auth | `pkg/auth` | Planned | Authorization and policy |
 | haistack-smart | `pkg/smart` | Planned | Optional SMART on FHIR |
