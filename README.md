@@ -150,7 +150,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-jobs | `pkg/jobs` | Done | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
 | haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
 | haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
-| haistack-binary | `pkg/binary` | Planned | Blob/file sync and Binary resources |
+| haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
 | haistack-subscriptions | `pkg/subscriptions` | Planned | Change-triggered workflows |
 | haistack-analytics | `pkg/analytics` | Planned | View export and warehouse sinks |
 | haistack-http | `pkg/http` | Planned | FHIR REST API adapter |

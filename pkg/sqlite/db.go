@@ -100,6 +100,21 @@ func (db *DB) BinaryStore() *BinaryStore {
 	return newBinaryStore(db.sql)
 }
 
+// BlobMetadataStore returns a connection-scoped blob metadata store.
+func (db *DB) BlobMetadataStore() *BlobMetadataStore {
+	return newBlobMetadataStore(db.sql)
+}
+
+// SQLiteBlobStore returns a connection-scoped chunked blob store.
+func (db *DB) SQLiteBlobStore() *SQLiteBlobStore {
+	return newSQLiteBlobStore(db.sql)
+}
+
+// ChunkBlobStore returns a connection-scoped chunked blob store.
+func (db *DB) ChunkBlobStore() *ChunkBlobStore {
+	return db.SQLiteBlobStore()
+}
+
 // ModuleStore returns a connection-scoped module registry store.
 func (db *DB) ModuleStore() *ModuleStore {
 	return newModuleStore(db.sql)

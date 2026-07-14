@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -102,6 +103,11 @@ func (s *Session) EventStore() store.EventStore {
 // CursorStore returns the transaction-scoped cursor store.
 func (s *Session) CursorStore() store.CursorStore {
 	return s.cursor
+}
+
+// BinaryMetadataStore returns the transaction-scoped blob metadata store.
+func (s *Session) BinaryMetadataStore() binary.MetadataStore {
+	return newBlobMetadataStoreTx(s.tx)
 }
 
 func (s *Session) applyLocalWrite(ctx context.Context, input LocalWrite) (*LocalWriteResult, error) {

@@ -74,6 +74,21 @@ func (tdb *TenantDB) BlobStore() *BlobStore {
 	return newBlobStore(tdb.pool, tdb.tenantID)
 }
 
+// BlobMetadataStore returns a tenant-scoped blob metadata store.
+func (tdb *TenantDB) BlobMetadataStore() *BlobMetadataStore {
+	return newBlobMetadataStore(tdb.pool, tdb.tenantID)
+}
+
+// PostgresBlobStore returns a tenant-scoped chunked blob store.
+func (tdb *TenantDB) PostgresBlobStore() *PostgresBlobStore {
+	return newPostgresBlobStore(tdb.pool, tdb.tenantID)
+}
+
+// ChunkBlobStore returns a tenant-scoped chunked blob store.
+func (tdb *TenantDB) ChunkBlobStore() *BlobChunkStore {
+	return tdb.PostgresBlobStore()
+}
+
 // AuditStore returns a tenant-scoped audit store.
 func (tdb *TenantDB) AuditStore() *AuditStore {
 	return newAuditStore(tdb.pool, tdb.tenantID)

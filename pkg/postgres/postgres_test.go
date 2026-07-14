@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -43,6 +44,11 @@ var (
 	_ store.WriteSession           = (*postgres.Session)(nil)
 	_ store.WriteSessionProvider   = (*postgres.TenantDB)(nil)
 	_ store.InboxStore             = (*postgres.InboxStore)(nil)
+	_ binary.MetadataStore         = (*postgres.BlobMetadataStore)(nil)
+	_ binary.TransferStore         = (*postgres.BlobMetadataStore)(nil)
+	_ binary.BlobStore             = (*postgres.BlobChunkStore)(nil)
+	_ binary.ChunkStore            = (*postgres.BlobChunkStore)(nil)
+	_ binary.WriteSessionExtension = (*postgres.Session)(nil)
 )
 
 func initDockerHost() {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -32,6 +33,11 @@ var (
 	_ store.WriteSession         = (*sqlite.Session)(nil)
 	_ store.WriteSessionProvider = (*sqlite.DB)(nil)
 	_ store.InboxStore           = (*sqlite.InboxStore)(nil)
+	_ binary.MetadataStore       = (*sqlite.BlobMetadataStore)(nil)
+	_ binary.TransferStore       = (*sqlite.BlobMetadataStore)(nil)
+	_ binary.BlobStore             = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.ChunkStore            = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.WriteSessionExtension = (*sqlite.Session)(nil)
 )
 
 func openTestDB(t *testing.T, path string) *sqlite.DB {
@@ -61,6 +67,8 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"search_token", "search_string", "search_date", "search_number", "search_reference",
 		"sync_outbox", "sync_inbox_applied", "sync_cursor", "sync_conflict",
 		"binary_object", "module_registry",
+		"blob_manifest", "blob_chunk", "blob_binary_link",
+		"blob_document_link", "blob_sync_status", "blob_transfer_session",
 		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
 		"definition_resource", "definition_target", "registry_install",
 		"schema_migrations",

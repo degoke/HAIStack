@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/google/uuid"
@@ -144,6 +145,11 @@ func (s *Session) ConflictStore() store.ConflictStore {
 // AuditStore returns the transaction-scoped audit store.
 func (s *Session) AuditStore() store.AuditStore {
 	return s.audit
+}
+
+// BinaryMetadataStore returns the transaction-scoped blob metadata store.
+func (s *Session) BinaryMetadataStore() binary.MetadataStore {
+	return newBlobMetadataStoreTx(s.tx, s.tenantID)
 }
 
 func (s *Session) applyWrite(ctx context.Context, input Write) (*WriteResult, error) {
