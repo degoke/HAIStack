@@ -73,6 +73,11 @@ type PolicyEngine interface {
 	CheckWrite(ctx context.Context, req WritePolicyRequest) (*WritePolicyDecision, error)
 }
 
+// SearchCountPolicy optionally exposes per-resource search count caps.
+type SearchCountPolicy interface {
+	MaxSearchCount(resourceType string) (int, bool)
+}
+
 // ReadTypePolicy configures read access for one resource type.
 type ReadTypePolicy struct {
 	AllowedFields []string
@@ -93,10 +98,10 @@ type ViewTypePolicy struct {
 
 // WriteTypePolicy configures write access for one resource type.
 type WriteTypePolicy struct {
-	CreateFields     []string
-	UpdateFields     []string
-	CreateApproval   bool
-	UpdateApproval   bool
+	CreateFields   []string
+	UpdateFields   []string
+	CreateApproval bool
+	UpdateApproval bool
 }
 
 // AllowListPolicy is a v1 policy engine backed by explicit allow-lists. When a
@@ -170,6 +175,12 @@ type ViewPolicyDecision struct {
 	Deidentify bool
 }
 
+// ViewDecisionPolicy optionally exposes structured view decisions to callers
+// that need AI-layer de-identification hints.
+type ViewDecisionPolicy interface {
+	CheckViewDecision(req ViewPolicyRequest) (*ViewPolicyDecision, error)
+}
+
 // CheckView implements PolicyEngine.
 func (p *AllowListPolicy) CheckView(_ context.Context, req ViewPolicyRequest) error {
 	_, err := p.CheckViewDecision(req)
@@ -191,6 +202,15 @@ func (p *AllowListPolicy) CheckViewDecision(req ViewPolicyRequest) (*ViewPolicyD
 		return &ViewPolicyDecision{Allowed: true, Deidentify: cfg.Deidentify}, nil
 	}
 	return nil, fmt.Errorf("%w: view %q not allowed", ErrPolicyDenied, req.ViewName)
+}
+
+// MaxSearchCount implements SearchCountPolicy.
+func (p *AllowListPolicy) MaxSearchCount(resourceType string) (int, bool) {
+	cfg, ok := p.Search[resourceType]
+	if !ok || cfg.MaxCount <= 0 {
+		return 0, false
+	}
+	return cfg.MaxCount, true
 }
 
 // CheckWrite implements PolicyEngine.

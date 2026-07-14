@@ -62,7 +62,7 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library |
 | **Partial** | — |
 | **Next (Stage 1)** | `http`, `cli`, `testkit` |
 
@@ -146,7 +146,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-modules | `pkg/modules` | Planned | Installable capability modules |
 | haistack-view | `pkg/view` | Done | ViewDefinition execution |
 | haistack-ai | `pkg/ai` | Done | Policy-governed AI tool harness |
-| haistack-auth | `pkg/auth` | Planned | Authorization and policy |
+| haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, view/AI adapters |
 | haistack-smart | `pkg/smart` | Planned | Optional SMART on FHIR |
 | haistack-binary | `pkg/binary` | Planned | Blob/file sync and Binary resources |
 | haistack-subscriptions | `pkg/subscriptions` | Planned | Change-triggered workflows |
@@ -265,7 +265,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 | **2** | search, validate | Search by name/phone/date/status (`search` MVP done; `validate` done) |
 | **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
-| **5** | auth, ai | Safe AI tools with permission checks |
+| **5** | auth ✓, ai ✓ | Safe AI tools with permission checks |
 | **6** | binary, subscriptions, analytics, smart | Documents, workflows, exports, external SMART apps |
 
 ### Planned package notes
@@ -276,7 +276,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions
 - **view** — SQL-on-FHIR-style ViewDefinitions → structured rows for AI and analytics
 - **ai** — typed tool registry; LLMs call tools, not arbitrary FHIR commands
-- **auth** — roles, permissions, tenant context, patient compartment; SMART stays in `smart`
+- **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; patient-scope stub; SMART stays in `smart`
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
 - **cli** — `serve`, `validate`, `import`, `search`, sync status, `fhirpath eval`

@@ -114,12 +114,12 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 	}
 
 	var (
-		data      any
-		citations []Citation
-		outcome   string
-		approval  bool
+		data       any
+		citations  []Citation
+		outcome    string
+		approval   bool
 		redactions []string
-		err       error
+		err        error
 	)
 
 	switch toolName {
@@ -534,15 +534,11 @@ func auditDetailsForTool(toolName string, input map[string]any, data any) map[st
 }
 
 func policyMaxCount(policy PolicyEngine, resourceType string) (int, bool) {
-	allow, ok := policy.(*AllowListPolicy)
+	capped, ok := policy.(SearchCountPolicy)
 	if !ok {
 		return 0, false
 	}
-	cfg, ok := allow.Search[resourceType]
-	if !ok || cfg.MaxCount <= 0 {
-		return 0, false
-	}
-	return cfg.MaxCount, true
+	return capped.MaxSearchCount(resourceType)
 }
 
 func defaultSearchCount(policy PolicyEngine, resourceType string) int {
@@ -554,11 +550,11 @@ func defaultSearchCount(policy PolicyEngine, resourceType string) int {
 }
 
 func viewPolicyDecision(policy PolicyEngine, req ViewPolicyRequest) *ViewPolicyDecision {
-	allow, ok := policy.(*AllowListPolicy)
+	decisionProvider, ok := policy.(ViewDecisionPolicy)
 	if !ok {
 		return nil
 	}
-	decision, err := allow.CheckViewDecision(req)
+	decision, err := decisionProvider.CheckViewDecision(req)
 	if err != nil {
 		return nil
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -25,6 +26,7 @@ var (
 	_ store.ModuleStore          = (*sqlite.ModuleStore)(nil)
 	_ store.DefinitionStore      = (*sqlite.DefinitionStore)(nil)
 	_ store.RegistryInstallStore = (*sqlite.RegistryInstallStore)(nil)
+	_ store.AuthStore            = (*sqlite.AuthStore)(nil)
 	_ store.WriteSession         = (*sqlite.Session)(nil)
 	_ store.WriteSessionProvider = (*sqlite.DB)(nil)
 	_ store.InboxStore           = (*sqlite.InboxStore)(nil)
@@ -57,6 +59,7 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"search_token", "search_string", "search_date", "search_number", "search_reference",
 		"sync_outbox", "sync_inbox_applied", "sync_cursor", "sync_conflict",
 		"binary_object", "module_registry",
+		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
 		"definition_resource", "definition_target", "registry_install",
 		"schema_migrations",
 	}
@@ -188,6 +191,91 @@ func TestHistoryStoreAppendAndGet(t *testing.T) {
 	}
 	if last.Resource != nil {
 		t.Error("delete tombstone should not carry resource payload")
+	}
+}
+
+func TestAuthStoreSnapshotHydratesEngine(t *testing.T) {
+	db := openTestDB(t, tempDBPath(t))
+	ctx := context.Background()
+	authStore := db.AuthStore("tenant-a")
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := authStore.UpsertPrincipal(ctx, store.AuthPrincipalRecord{
+		ID:          "user-1",
+		Kind:        string(auth.KindUser),
+		DisplayName: "Clinician",
+		Attributes:  map[string]string{"department": "ward-a"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertPrincipal: %v", err)
+	}
+	if err := authStore.UpsertRole(ctx, store.AuthRoleRecord{
+		Name:        "clinician",
+		Permissions: []string{"appointment.read"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertRole: %v", err)
+	}
+	if err := authStore.UpsertTenantBinding(ctx, store.AuthTenantBindingRecord{
+		PrincipalID: "user-1",
+		Roles:       []string{"clinician"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertTenantBinding: %v", err)
+	}
+	if err := authStore.UpsertDevice(ctx, store.AuthDeviceRecord{
+		DeviceID:  "device-1",
+		Status:    auth.DeviceStatusActive,
+		Trusted:   true,
+		Metadata:  map[string]string{"model": "tablet"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+	if err := authStore.UpsertPolicy(ctx, store.AuthPolicyRecord{
+		Name:      "default",
+		Format:    string(auth.PolicyFormatJSON),
+		Version:   "1",
+		Body:      []byte(`{"version":"1","rules":[{"name":"allow-appt-read","effect":"allow","match":{"actions":["read"],"resourceTypes":["Appointment"],"anyPermissions":["appointment.read"]},"reason":"allow appointment read"},{"name":"allow-device-push","effect":"allow","match":{"actions":["push-device-event"],"deviceTrusted":true,"deviceStatuses":["active"]},"reason":"allow device push"}]}`),
+		Active:    true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertPolicy: %v", err)
+	}
+
+	engine, err := auth.NewEngineFromStore(ctx, authStore)
+	if err != nil {
+		t.Fatalf("NewEngineFromStore: %v", err)
+	}
+	principal, err := engine.Catalog().GetPrincipal("user-1")
+	if err != nil {
+		t.Fatalf("GetPrincipal: %v", err)
+	}
+	decision, err := engine.CanReadResource(ctx, auth.ReadRequest{
+		Principal:    principal,
+		Tenant:       auth.TenantContext{TenantID: "tenant-a"},
+		ResourceType: "Appointment",
+	})
+	if err != nil {
+		t.Fatalf("CanReadResource: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("decision = %#v, want allowed", decision)
+	}
+	deviceDecision, err := engine.CanPushDeviceEvent(ctx, auth.DevicePushRequest{
+		DeviceID: "device-1",
+		TenantID: "tenant-a",
+	})
+	if err != nil {
+		t.Fatalf("CanPushDeviceEvent: %v", err)
+	}
+	if !deviceDecision.Allowed {
+		t.Fatalf("device decision = %#v, want allowed", deviceDecision)
 	}
 }
 

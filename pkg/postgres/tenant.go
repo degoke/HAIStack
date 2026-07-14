@@ -114,6 +114,11 @@ func (tdb *TenantDB) RegistryInstallStore() *RegistryInstallStore {
 	return newRegistryInstallStore(tdb.pool, tdb.tenantID)
 }
 
+// AuthStore returns a tenant-scoped auth persistence adapter.
+func (tdb *TenantDB) AuthStore() *AuthStore {
+	return newAuthStore(tdb.pool, tdb.tenantID)
+}
+
 // BeginWrite starts a tenant-scoped atomic write session.
 func (tdb *TenantDB) BeginWrite(ctx context.Context) (store.WriteSession, error) {
 	return tdb.BeginSession(ctx)

@@ -185,6 +185,10 @@ func (s *memRegistryInstallStore) Delete(_ context.Context, filter store.Registr
 }
 
 func newTestManager() *modules.Manager {
+	return newTestManagerWithAuthorizer(nil)
+}
+
+func newTestManagerWithAuthorizer(authorizer modules.InstallAuthorizer) *modules.Manager {
 	modulesStore := newMemModuleStore()
 	defsStore := newMemDefinitionStore()
 	installsStore := newMemRegistryInstallStore()
@@ -197,6 +201,7 @@ func newTestManager() *modules.Manager {
 		DefinitionStore:      defsStore,
 		RegistryInstallStore: installsStore,
 		RegistryManager:      reg,
+		Authorizer:           authorizer,
 		Now:                  func() time.Time { return time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC) },
 	})
 }
@@ -329,6 +334,44 @@ func TestManagerPlanInstall(t *testing.T) {
 	}
 	if plan.Deferred.Views[0] != "PatientDashboard" {
 		t.Errorf("deferred view = %v, want PatientDashboard", plan.Deferred.Views)
+	}
+}
+
+func TestManagerInstallCallsAuthorizer(t *testing.T) {
+	calls := 0
+	var got modules.InstallAuthRequest
+	mgr := newTestManagerWithAuthorizer(modules.InstallAuthorizerFunc(func(_ context.Context, req modules.InstallAuthRequest) error {
+		calls++
+		got = req
+		return nil
+	}))
+	ctx := context.Background()
+	if _, err := mgr.Install(ctx, filepath.Join("..", "..", "modules", "core")); err != nil {
+		t.Fatalf("Install core: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("authorizer calls = %d, want 1", calls)
+	}
+	if got.Action != "install" || got.Module.Manifest.Name != "core" || got.Plan == nil {
+		t.Fatalf("request = %+v, want install core with plan", got)
+	}
+}
+
+func TestManagerInstallDeniedByAuthorizer(t *testing.T) {
+	wantErr := fmt.Errorf("denied")
+	mgr := newTestManagerWithAuthorizer(modules.InstallAuthorizerFunc(func(_ context.Context, req modules.InstallAuthRequest) error {
+		if req.Module.Manifest.Name != "core" {
+			t.Fatalf("module name = %q, want core", req.Module.Manifest.Name)
+		}
+		return wantErr
+	}))
+	ctx := context.Background()
+	_, err := mgr.Install(ctx, filepath.Join("..", "..", "modules", "core"))
+	if err == nil {
+		t.Fatal("expected authorization error")
+	}
+	if err != wantErr {
+		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 }
 

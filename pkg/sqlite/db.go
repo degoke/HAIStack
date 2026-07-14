@@ -115,6 +115,11 @@ func (db *DB) RegistryInstallStore() *RegistryInstallStore {
 	return newRegistryInstallStore(db.sql)
 }
 
+// AuthStore returns a tenant-scoped auth persistence adapter.
+func (db *DB) AuthStore(tenantID string) *AuthStore {
+	return newAuthStore(db.sql, tenantID)
+}
+
 // LocalWrite bundles the inputs for one atomic local write pipeline.
 type LocalWrite struct {
 	Resource      *types.ResourceEnvelope

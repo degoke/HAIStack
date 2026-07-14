@@ -106,6 +106,7 @@
 //   - haistack-search: search_fhir_resources delegates to search.Service.
 //   - haistack-core: write_fhir_resource commits through core.ResourceService.
 //   - haistack-validate: optional Validator on the write path.
-//   - haistack-auth: future auth subsystem can replace or augment PolicyEngine.
+//   - haistack-auth: auth.AIPolicyAdapter implements PolicyEngine with
+//     principal/tenant decisions and optional AIConstraints for field narrowing.
 //   - haistack-modules: future installers can register tools and views by name.
 package ai

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -18,29 +19,30 @@ import (
 )
 
 var (
-	_ store.ResourceStore         = (*postgres.ResourceStore)(nil)
-	_ store.HistoryStore          = (*postgres.HistoryStore)(nil)
-	_ store.SearchStore           = (*postgres.SearchStore)(nil)
-	_ store.SearchQueryExecutor   = (*postgres.SearchStore)(nil)
+	_ store.ResourceStore          = (*postgres.ResourceStore)(nil)
+	_ store.HistoryStore           = (*postgres.HistoryStore)(nil)
+	_ store.SearchStore            = (*postgres.SearchStore)(nil)
+	_ store.SearchQueryExecutor    = (*postgres.SearchStore)(nil)
 	_ store.SearchAdvancedExecutor = (*postgres.SearchStore)(nil)
 	_ store.SearchIndexMaintainer  = (*postgres.SearchStore)(nil)
-	_ store.EventStore            = (*postgres.EventStore)(nil)
-	_ store.CursorStore           = (*postgres.CursorStore)(nil)
-	_ store.ConflictStore         = (*postgres.ConflictStore)(nil)
-	_ store.IDRegistryStore       = (*postgres.IDRegistry)(nil)
-	_ store.BinaryStore           = (*postgres.BinaryStore)(nil)
-	_ store.BlobStore             = (*postgres.BlobStore)(nil)
-	_ store.AuditStore            = (*postgres.AuditStore)(nil)
-	_ store.ModuleStore           = (*postgres.ModuleStore)(nil)
-	_ store.MaterializedViewStore = (*postgres.MaterializedViewStore)(nil)
-	_ store.AnalyticsStore        = (*postgres.AnalyticsStore)(nil)
-	_ store.JobStore              = (*postgres.JobStore)(nil)
-	_ store.NodeRegistryStore     = (*postgres.NodeRegistry)(nil)
-	_ store.DefinitionStore       = (*postgres.DefinitionStore)(nil)
-	_ store.RegistryInstallStore  = (*postgres.RegistryInstallStore)(nil)
-	_ store.WriteSession          = (*postgres.Session)(nil)
-	_ store.WriteSessionProvider  = (*postgres.TenantDB)(nil)
-	_ store.InboxStore            = (*postgres.InboxStore)(nil)
+	_ store.EventStore             = (*postgres.EventStore)(nil)
+	_ store.CursorStore            = (*postgres.CursorStore)(nil)
+	_ store.ConflictStore          = (*postgres.ConflictStore)(nil)
+	_ store.IDRegistryStore        = (*postgres.IDRegistry)(nil)
+	_ store.BinaryStore            = (*postgres.BinaryStore)(nil)
+	_ store.BlobStore              = (*postgres.BlobStore)(nil)
+	_ store.AuditStore             = (*postgres.AuditStore)(nil)
+	_ store.ModuleStore            = (*postgres.ModuleStore)(nil)
+	_ store.MaterializedViewStore  = (*postgres.MaterializedViewStore)(nil)
+	_ store.AnalyticsStore         = (*postgres.AnalyticsStore)(nil)
+	_ store.JobStore               = (*postgres.JobStore)(nil)
+	_ store.NodeRegistryStore      = (*postgres.NodeRegistry)(nil)
+	_ store.DefinitionStore        = (*postgres.DefinitionStore)(nil)
+	_ store.RegistryInstallStore   = (*postgres.RegistryInstallStore)(nil)
+	_ store.AuthStore              = (*postgres.AuthStore)(nil)
+	_ store.WriteSession           = (*postgres.Session)(nil)
+	_ store.WriteSessionProvider   = (*postgres.TenantDB)(nil)
+	_ store.InboxStore             = (*postgres.InboxStore)(nil)
 )
 
 func initDockerHost() {
@@ -137,6 +139,7 @@ func TestMigrationCreatesSchema(t *testing.T) {
 		"search_token", "search_string", "search_date", "search_number", "search_reference",
 		"search_text", "search_composite",
 		"sync_cursor", "sync_inbox_applied", "binary_object", "audit_log", "module_registry",
+		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
 		"materialized_view", "analytics_event", "background_job", "schema_migrations",
 	}
 	ctx := context.Background()
@@ -238,6 +241,83 @@ func TestResourceStoreCRUD(t *testing.T) {
 	exists, err := resources.Exists(ctx, "Patient", "pat-1")
 	if err != nil || exists {
 		t.Fatalf("Exists after delete = %v, %v", exists, err)
+	}
+}
+
+func TestAuthStoreSnapshotHydratesEngine(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "auth")
+	authStore := tdb.AuthStore()
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := authStore.UpsertPrincipal(ctx, store.AuthPrincipalRecord{
+		ID:          "user-1",
+		Kind:        string(auth.KindUser),
+		DisplayName: "Clinician",
+		Attributes:  map[string]string{"department": "ward-a"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertPrincipal: %v", err)
+	}
+	if err := authStore.UpsertRole(ctx, store.AuthRoleRecord{
+		Name:        "clinician",
+		Permissions: []string{"appointment.read"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertRole: %v", err)
+	}
+	if err := authStore.UpsertTenantBinding(ctx, store.AuthTenantBindingRecord{
+		PrincipalID: "user-1",
+		Roles:       []string{"clinician"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertTenantBinding: %v", err)
+	}
+	if err := authStore.UpsertDevice(ctx, store.AuthDeviceRecord{
+		DeviceID:  "device-1",
+		Status:    auth.DeviceStatusActive,
+		Trusted:   true,
+		Metadata:  map[string]string{"model": "tablet"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+	if err := authStore.UpsertPolicy(ctx, store.AuthPolicyRecord{
+		Name:      "default",
+		Format:    string(auth.PolicyFormatJSON),
+		Version:   "1",
+		Body:      []byte(`{"version":"1","rules":[{"name":"allow-appt-read","effect":"allow","match":{"actions":["read"],"resourceTypes":["Appointment"],"anyPermissions":["appointment.read"]},"reason":"allow appointment read"},{"name":"allow-device-push","effect":"allow","match":{"actions":["push-device-event"],"deviceTrusted":true,"deviceStatuses":["active"]},"reason":"allow device push"}]}`),
+		Active:    true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertPolicy: %v", err)
+	}
+
+	engine, err := auth.NewEngineFromStore(ctx, authStore)
+	if err != nil {
+		t.Fatalf("NewEngineFromStore: %v", err)
+	}
+	principal, err := engine.Catalog().GetPrincipal("user-1")
+	if err != nil {
+		t.Fatalf("GetPrincipal: %v", err)
+	}
+	decision, err := engine.CanReadResource(ctx, auth.ReadRequest{
+		Principal:    principal,
+		Tenant:       auth.TenantContext{TenantID: tdb.TenantID()},
+		ResourceType: "Appointment",
+	})
+	if err != nil {
+		t.Fatalf("CanReadResource: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("decision = %#v, want allowed", decision)
 	}
 }
 

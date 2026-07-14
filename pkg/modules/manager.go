@@ -16,6 +16,7 @@ type Config struct {
 	DefinitionStore      store.DefinitionStore
 	RegistryInstallStore store.RegistryInstallStore
 	RegistryManager      *registry.Manager
+	Authorizer           InstallAuthorizer
 	Now                  func() time.Time
 }
 
@@ -53,6 +54,13 @@ func (m *Manager) Install(ctx context.Context, path string) (InstallResult, erro
 	if err := m.resolver.Resolve(ctx, mod); err != nil {
 		return InstallResult{}, err
 	}
+	plan, err := m.installer.PlanInstall(ctx, mod)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if err := m.authorizeInstall(ctx, path, mod, plan); err != nil {
+		return InstallResult{}, err
+	}
 	result, err := m.installer.Install(ctx, mod)
 	if err != nil {
 		return InstallResult{}, err
@@ -68,6 +76,13 @@ func (m *Manager) Upgrade(ctx context.Context, path string) (UpgradeResult, erro
 		return UpgradeResult{}, err
 	}
 	if err := m.resolver.Resolve(ctx, mod); err != nil {
+		return UpgradeResult{}, err
+	}
+	plan, err := m.installer.PlanInstall(ctx, mod)
+	if err != nil {
+		return UpgradeResult{}, err
+	}
+	if err := m.authorizeInstall(ctx, path, mod, plan); err != nil {
 		return UpgradeResult{}, err
 	}
 	result, err := m.installer.Upgrade(ctx, mod)
@@ -113,4 +128,16 @@ func (m *Manager) PlanInstall(ctx context.Context, path string) (*Plan, error) {
 		return nil, err
 	}
 	return m.installer.PlanInstall(ctx, mod)
+}
+
+func (m *Manager) authorizeInstall(ctx context.Context, path string, mod *Module, plan *Plan) error {
+	if m.cfg.Authorizer == nil {
+		return nil
+	}
+	return m.cfg.Authorizer.AuthorizeModuleInstall(ctx, InstallAuthRequest{
+		Path:   path,
+		Module: *mod,
+		Plan:   plan,
+		Action: plan.Action,
+	})
 }

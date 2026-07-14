@@ -24,7 +24,7 @@
 //   - Each column has a stable output name and a FHIRPath expression.
 //   - Optional root filters expressed as FHIRPath predicates in "where" clauses.
 //   - Declared permissions as a top-level "permissions" array; this is a v1
-//     extension until a formal auth subsystem exists.
+//     extension used by Authorizer; auth.ViewAuthorizer is the stack adapter.
 //   - Unsupported constructs such as nested selects, forEach, forEachOrNull,
 //     unionAll, and materialization directives are rejected at parse time.
 //
@@ -83,6 +83,7 @@
 //     future installers can register packaged ViewDefinition resources into a
 //     view registry.
 //   - haistack-ai: consumes Result.Rows directly as structured context.
+//   - haistack-auth: auth.ViewAuthorizer implements Authorizer.
 //   - haistack-analytics: can reuse the same Executor before materialization
 //     exists.
 //   - store.MaterializedViewStore: v1 does not refresh materialized views, but
