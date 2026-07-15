@@ -1,4 +1,3 @@
-// Package app wires haistack CLI commands to pkg/runtime and related services.
 package app
 
 import (

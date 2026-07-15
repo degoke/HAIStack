@@ -1,4 +1,3 @@
-// Package config defines the haistack CLI configuration schema and loading rules.
 package config
 
 import (

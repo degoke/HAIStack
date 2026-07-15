@@ -156,7 +156,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-http | `pkg/http` | Done | FHIR REST API adapter |
 | haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
 | haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
-| haistack-cli | `cmd/haistack` | MVP | Developer/operator CLI (`init`, `serve`, `validate`, `import`, `search`, `fhirpath eval`, `sync`, `module install`, `reindex`) |
+| haistack-cli | `cmd/haistack` | MVP | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |
 | haistack-testkit | `pkg/testkit` | Planned | Fixtures, fakes, scenario runners |
 
 ---
@@ -242,61 +242,13 @@ Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip 
 
 ### haistack CLI
 
-Build and install the operator CLI:
+See **[cmd/haistack/README.md](cmd/haistack/README.md)** for the full command reference, configuration schema, environment variables, and package layout.
 
 ```bash
 go build -o bin/haistack ./cmd/haistack
-```
-
-Initialize a local workspace (writes `haistack.yaml` and `.haistack/`):
-
-```bash
 haistack init
-```
-
-Default config (`haistack.yaml`):
-
-```yaml
-storage:
-  driver: sqlite
-  sqlitePath: .haistack/haistack.db
-runtime:
-  httpAddr: 127.0.0.1:8080
-  enableSearch: true
-  modulePaths:
-    - modules/core
-sync:
-  hubURL: ""
-  nodeID: runtime-node
-```
-
-Override storage, tenant, HTTP address, search, sync hub URL, sync node ID, and module paths via flags (`--config`, `--sqlite-path`, `--postgres-dsn`, `--tenant-id`, `--http-addr`, `--enable-search`, `--sync-hub-url`, `--module-path`) or env vars (`HAISTACK_*`).
-
-Common flows:
-
-```bash
-# Validate and import a resource
-haistack validate patient.json
-haistack import patient.json
-
-# Search and evaluate FHIRPath
-haistack search Patient name=Smith
-haistack fhirpath eval patient.json 'Patient.name.family'
-
-# Start local server
 haistack serve
-
-# Sync (requires sync.hubURL)
-haistack sync status
-haistack sync push
-haistack sync pull
-
-# Modules and search maintenance
-haistack module install modules/core
-haistack reindex Patient
 ```
-
-Use `--output json` on non-server commands for machine-readable output. Postgres mode: set `storage.driver: postgres`, `storage.postgresDSN`, and `storage.tenantID` in config.
 
 ---
 

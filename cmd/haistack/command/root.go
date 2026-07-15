@@ -1,4 +1,3 @@
-// Package command implements haistack CLI subcommands.
 package command
 
 import (
