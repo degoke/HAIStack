@@ -62,9 +62,9 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), and change-triggered workflows with webhook/local delivery |
-| **Partial** | — |
-| **Next (Stage 1)** | `http`, `cli`, `testkit` |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions`, `http`, `runtime`, `client` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), change-triggered workflows with webhook/local delivery, FHIR REST HTTP adapter, runtime composition, and Go client SDK |
+| **Partial** | `cli` (MVP usable) |
+| **Next (Stage 1)** | `testkit`, CLI polish (export, audit inspection, backup/restore) |
 
 Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlite`. Shared runtime helpers live in `pkg/jobs` and `pkg/audit`. See [Roadmap](#roadmap) for the full plan.
 
@@ -153,10 +153,10 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
 | haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
 | haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV export, future sink interfaces |
-| haistack-http | `pkg/http` | Planned | FHIR REST API adapter |
+| haistack-http | `pkg/http` | Done | FHIR REST API adapter |
 | haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
-| haistack-runtime | `pkg/runtime` | Planned | Composition and lifecycle glue |
-| haistack-cli | `cmd/haistack` | Planned | Developer/operator CLI |
+| haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
+| haistack-cli | `cmd/haistack` | MVP | Developer/operator CLI (`init`, `serve`, `validate`, `import`, `search`, `fhirpath eval`, `sync`, `module install`, `reindex`) |
 | haistack-testkit | `pkg/testkit` | Planned | Fixtures, fakes, scenario runners |
 
 ---
@@ -240,6 +240,64 @@ if err != nil {
 
 Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip Docker.
 
+### haistack CLI
+
+Build and install the operator CLI:
+
+```bash
+go build -o bin/haistack ./cmd/haistack
+```
+
+Initialize a local workspace (writes `haistack.yaml` and `.haistack/`):
+
+```bash
+haistack init
+```
+
+Default config (`haistack.yaml`):
+
+```yaml
+storage:
+  driver: sqlite
+  sqlitePath: .haistack/haistack.db
+runtime:
+  httpAddr: 127.0.0.1:8080
+  enableSearch: true
+  modulePaths:
+    - modules/core
+sync:
+  hubURL: ""
+  nodeID: runtime-node
+```
+
+Override storage, tenant, HTTP address, search, sync hub URL, sync node ID, and module paths via flags (`--config`, `--sqlite-path`, `--postgres-dsn`, `--tenant-id`, `--http-addr`, `--enable-search`, `--sync-hub-url`, `--module-path`) or env vars (`HAISTACK_*`).
+
+Common flows:
+
+```bash
+# Validate and import a resource
+haistack validate patient.json
+haistack import patient.json
+
+# Search and evaluate FHIRPath
+haistack search Patient name=Smith
+haistack fhirpath eval patient.json 'Patient.name.family'
+
+# Start local server
+haistack serve
+
+# Sync (requires sync.hubURL)
+haistack sync status
+haistack sync push
+haistack sync pull
+
+# Modules and search maintenance
+haistack module install modules/core
+haistack reindex Patient
+```
+
+Use `--output json` on non-server commands for machine-readable output. Postgres mode: set `storage.driver: postgres`, `storage.postgresDSN`, and `storage.tenantID` in config.
+
 ---
 
 ## Modules
@@ -263,7 +321,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 
 | Stage | Packages | Goal |
 |-------|----------|------|
-| **1 ← current** | types, store, sqlite, core → http, cli, testkit | Local SQLite FHIR runtime; CRUD; history; sync events |
+| **1 ← current** | types, store, sqlite, core → http, cli (MVP), testkit | Local SQLite FHIR runtime; CRUD; history; sync events; haistack CLI |
 | **2** | search, validate | Search by name/phone/date/status (`search` MVP done; `validate` done) |
 | **3** | runtime | Offline create → push → pull → conflict resolution + runtime composition |
 | **4** | modules, view | Scheduling module; patient summary and appointment views |
@@ -284,7 +342,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 - **smart** — Done in v1: SMART scope parsing/matching, launch context, token claim validation, backend-service assertions, `AuthAdapter` into `pkg/auth`; no EHR/standalone launch runtime, dynamic registration, or refresh-token lifecycle
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
-- **cli** — `serve`, `validate`, `import`, `search`, sync status, `fhirpath eval`
+- **cli** — MVP: `init`, `serve`, `validate`, `import`, `search`, `fhirpath eval`, `sync push/pull/status`, `module install`, `reindex`; YAML config with flag/env overrides; SQLite-first with Postgres support
 
 Target layout when complete: `cmd/haistack*`, `pkg/*`, `modules/*`, `examples/*`.
 

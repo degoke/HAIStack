@@ -61,7 +61,7 @@ func parseSearchFieldKey(key string) (searchTable, string, error) {
 func (s *SearchStore) Index(ctx context.Context, entry store.SearchIndexEntry) error {
 	for fieldKey, value := range entry.Fields {
 		if strings.HasPrefix(fieldKey, "composite.") || strings.HasPrefix(fieldKey, "text.") {
-			return fmt.Errorf("sqlite search store does not support advanced index key %q", fieldKey)
+			continue
 		}
 		table, normalizedKey, err := parseSearchFieldKey(fieldKey)
 		if err != nil {

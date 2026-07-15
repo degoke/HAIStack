@@ -40,6 +40,7 @@ test-race: ## Run tests with the race detector
 
 build: ## Build all packages
 	$(GO) build ./...
+	$(GO) build -o bin/haistack ./cmd/haistack
 
 tidy: ## Tidy go.mod and go.sum
 	$(GO) mod tidy

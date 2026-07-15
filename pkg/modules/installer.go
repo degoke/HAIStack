@@ -70,6 +70,10 @@ func (i *Installer) PlanInstall(ctx context.Context, mod *Module) (*Plan, error)
 		if ok, err := isGreaterVersion(mod.Manifest.Version, oldVersion); err != nil {
 			return nil, fmt.Errorf("compare versions: %w", err)
 		} else if !ok {
+			if mod.Manifest.Version == oldVersion {
+				plan.Action = "noop"
+				return plan, nil
+			}
 			return nil, fmt.Errorf("%w: %s %s -> %s", ErrDowngradeNotAllowed, mod.Manifest.Name, oldVersion, mod.Manifest.Version)
 		}
 		oldManifest, err := manifestFromMetadata(existing.Metadata)
@@ -120,6 +124,18 @@ func (i *Installer) Install(ctx context.Context, mod *Module) (*InstallResult, e
 	plan, err := i.PlanInstall(ctx, mod)
 	if err != nil {
 		return nil, err
+	}
+	if plan.Action == "noop" {
+		snapshot, err := i.applier.RebuildSnapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &InstallResult{
+			Name:     plan.Name,
+			Version:  plan.Version,
+			Deferred: plan.Deferred,
+			Snapshot: snapshot,
+		}, nil
 	}
 
 	// Ensure base definitions are present before enabling anything.
