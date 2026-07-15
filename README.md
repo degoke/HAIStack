@@ -154,7 +154,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
 | haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV export, future sink interfaces |
 | haistack-http | `pkg/http` | Planned | FHIR REST API adapter |
-| haistack-client | `pkg/client` | Planned | Go SDK |
+| haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
 | haistack-runtime | `pkg/runtime` | Planned | Composition and lifecycle glue |
 | haistack-cli | `cmd/haistack` | Planned | Developer/operator CLI |
 | haistack-testkit | `pkg/testkit` | Planned | Fixtures, fakes, scenario runners |
