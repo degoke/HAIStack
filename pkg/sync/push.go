@@ -127,7 +127,9 @@ func (p *Pusher) handlePushResult(ctx context.Context, cfg Config, event LocalEv
 			},
 		})
 		if cfg.Jobs != nil {
-			_ = EnqueueScheduledPull(ctx, cfg.Jobs, cfg.NodeID, cfg.TenantID, now)
+			if err := EnqueueScheduledPull(ctx, cfg.Jobs, cfg.NodeID, cfg.TenantID, now); err != nil {
+				return fmt.Errorf("enqueue scheduled pull: %w", err)
+			}
 		}
 	case AckRejected:
 		appendAudit(ctx, cfg.Audit, audit.SyncEvent{
@@ -149,13 +151,16 @@ func (p *Pusher) handlePushResult(ctx context.Context, cfg Config, event LocalEv
 		}
 	case AckNeedsRetry:
 		if cfg.Jobs != nil {
-			payload, _ := json.Marshal(RetryPushJobPayload{
+			payload, err := json.Marshal(RetryPushJobPayload{
 				NodeID:   cfg.NodeID,
 				TenantID: cfg.TenantID,
 				EventID:  event.EventID,
 				Reason:   "hub requested retry",
 			})
-			_ = cfg.Jobs.Enqueue(ctx, store.JobRecord{
+			if err != nil {
+				return fmt.Errorf("marshal retry push job payload: %w", err)
+			}
+			if err := cfg.Jobs.Enqueue(ctx, store.JobRecord{
 				ID:        uuid.NewString(),
 				Type:      JobTypeRetryPush,
 				Payload:   payload,
@@ -163,7 +168,9 @@ func (p *Pusher) handlePushResult(ctx context.Context, cfg Config, event LocalEv
 				CreatedAt: now,
 				UpdatedAt: now,
 				RunAfter:  result.RetryAfter,
-			})
+			}); err != nil {
+				return fmt.Errorf("enqueue retry push job: %w", err)
+			}
 		}
 	}
 	return nil
@@ -185,8 +192,11 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 		}
 	}
 	if cfg.Jobs != nil {
-		localEventJSON, _ := json.Marshal(event)
-		payload, _ := json.Marshal(ConflictJobPayload{
+		localEventJSON, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("marshal conflict local event: %w", err)
+		}
+		payload, err := json.Marshal(ConflictJobPayload{
 			NodeID:          cfg.NodeID,
 			TenantID:        cfg.TenantID,
 			ConflictID:      conflictID,
@@ -198,14 +208,19 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 			Reason:          result.ConflictReason,
 			LocalEvent:      localEventJSON,
 		})
-		_ = cfg.Jobs.Enqueue(ctx, store.JobRecord{
+		if err != nil {
+			return fmt.Errorf("marshal conflict job payload: %w", err)
+		}
+		if err := cfg.Jobs.Enqueue(ctx, store.JobRecord{
 			ID:        uuid.NewString(),
 			Type:      JobTypeConflictProcessing,
 			Payload:   payload,
 			Status:    store.JobStatusPending,
 			CreatedAt: now,
 			UpdatedAt: now,
-		})
+		}); err != nil {
+			return fmt.Errorf("enqueue conflict job: %w", err)
+		}
 	}
 	appendAudit(ctx, cfg.Audit, audit.SyncEvent{
 		ID:           uuid.NewString(),

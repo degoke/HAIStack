@@ -45,6 +45,8 @@ type Runtime struct {
 	mu       sync.Mutex
 	started  bool
 	shutdown bool
+
+	backgroundErr error
 }
 
 // Build constructs a wired runtime from the builder configuration.
@@ -114,7 +116,9 @@ func (rt *Runtime) Start(ctx context.Context) error {
 		rt.jobWG.Add(1)
 		go func() {
 			defer rt.jobWG.Done()
-			_ = server.Serve(ln)
+			if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				rt.recordBackgroundError(fmt.Errorf("%w: http serve: %v", ErrBackgroundWorker, err))
+			}
 		}()
 	}
 
@@ -161,7 +165,7 @@ func (rt *Runtime) Shutdown(ctx context.Context) error {
 
 	rt.closeAdapters(ctx)
 	rt.cleanup.run()
-	return nil
+	return rt.BackgroundError()
 }
 
 func (rt *Runtime) rollbackStart() {
@@ -182,11 +186,17 @@ func (rt *Runtime) runJobLoop(ctx context.Context) {
 
 		processed := false
 		if rt.jobRunner != nil {
-			ok, _ := rt.jobRunner.RunOnce(ctx)
+			ok, err := rt.jobRunner.RunOnce(ctx)
+			if err != nil {
+				rt.recordBackgroundError(fmt.Errorf("%w: jobs: %v", ErrBackgroundWorker, err))
+			}
 			processed = processed || ok
 		}
 		if rt.syncProcessor != nil {
-			ok, _ := rt.syncProcessor.ProcessNext(ctx)
+			ok, err := rt.syncProcessor.ProcessNext(ctx)
+			if err != nil {
+				rt.recordBackgroundError(fmt.Errorf("%w: sync jobs: %v", ErrBackgroundWorker, err))
+			}
 			processed = processed || ok
 		}
 
@@ -199,6 +209,24 @@ func (rt *Runtime) runJobLoop(ctx context.Context) {
 			case <-timer.C:
 			}
 		}
+	}
+}
+
+// BackgroundError returns the first background worker or managed server error observed.
+func (rt *Runtime) BackgroundError() error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.backgroundErr
+}
+
+func (rt *Runtime) recordBackgroundError(err error) {
+	if err == nil {
+		return
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.backgroundErr == nil {
+		rt.backgroundErr = err
 	}
 }
 

@@ -178,6 +178,61 @@ func TestPushNeedsRetryDoesNotAdvanceCursor(t *testing.T) {
 	}
 }
 
+func TestPushConflictJobEnqueueFailureStopsCursorAdvance(t *testing.T) {
+	ctx := context.Background()
+	events := &memEventStore{}
+	history := newMemHistoryStore()
+	cursors := newMemCursorStore()
+	conflicts := &memConflictStore{}
+	jobs := &memJobStore{enqueueErr: errEnqueueFailed}
+	hub := newMemHub()
+	hub.staleOnMismatch = true
+	now := time.Now().UTC()
+
+	cloud := sampleResource("p1", "cloud-v1")
+	hub.resources[resourceKey(cloud.ResourceType, cloud.ID)] = sampleResource("p1", "cloud-v2")
+
+	local := sampleResource("p1", "local-v2")
+	_, _ = events.Append(ctx, store.ResourceEvent{
+		ResourceType: local.ResourceType,
+		ID:           local.ID,
+		VersionID:    local.VersionID,
+		Action:       store.EventActionUpdate,
+		Timestamp:    now,
+		Hash:         local.Hash,
+	})
+	_ = history.AppendVersion(ctx, store.ResourceVersion{
+		ResourceType: cloud.ResourceType,
+		ID:           cloud.ID,
+		VersionID:    cloud.VersionID,
+		Action:       store.VersionActionCreate,
+		Timestamp:    now,
+		Resource:     cloud,
+	})
+	_ = history.AppendVersion(ctx, store.ResourceVersion{
+		ResourceType: local.ResourceType,
+		ID:           local.ID,
+		VersionID:    local.VersionID,
+		Action:       store.VersionActionUpdate,
+		Timestamp:    now,
+		Resource:     local,
+	})
+
+	_, err := hasync.NewEngine(hasync.Config{
+		NodeID: "node-a", TenantID: "tenant-a",
+		Events: events, Cursors: cursors, History: history,
+		Hub: hub, Conflicts: conflicts, Jobs: jobs,
+		Clock: fixedClock(now),
+	}).Push(ctx)
+	if err == nil {
+		t.Fatal("expected enqueue failure")
+	}
+	cursor, _ := cursors.GetCursor(ctx, hasync.CursorPush)
+	if cursor != nil {
+		t.Fatalf("cursor advanced despite enqueue failure: %+v", cursor)
+	}
+}
+
 type retryHub struct {
 	inner *memHub
 }

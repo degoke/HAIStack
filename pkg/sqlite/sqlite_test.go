@@ -17,29 +17,29 @@ import (
 )
 
 var (
-	_ store.ResourceStore        = (*sqlite.ResourceStore)(nil)
-	_ store.HistoryStore         = (*sqlite.HistoryStore)(nil)
-	_ store.SearchStore          = (*sqlite.SearchStore)(nil)
-	_ store.EventStore           = (*sqlite.OutboxStore)(nil)
-	_ store.CursorStore          = (*sqlite.CursorStore)(nil)
-	_ store.ConflictStore        = (*sqlite.ConflictStore)(nil)
-	_ store.BinaryStore          = (*sqlite.BinaryStore)(nil)
-	_ store.ModuleStore          = (*sqlite.ModuleStore)(nil)
-	_ store.DefinitionStore      = (*sqlite.DefinitionStore)(nil)
-	_ store.RegistryInstallStore = (*sqlite.RegistryInstallStore)(nil)
-	_ store.AuthStore            = (*sqlite.AuthStore)(nil)
-	_ store.JobStore             = (*sqlite.JobStore)(nil)
-	_ store.AuditStore           = (*sqlite.AuditStore)(nil)
-	_ store.SubscriptionStore    = (*sqlite.SubscriptionStore)(nil)
+	_ store.ResourceStore             = (*sqlite.ResourceStore)(nil)
+	_ store.HistoryStore              = (*sqlite.HistoryStore)(nil)
+	_ store.SearchStore               = (*sqlite.SearchStore)(nil)
+	_ store.EventStore                = (*sqlite.OutboxStore)(nil)
+	_ store.CursorStore               = (*sqlite.CursorStore)(nil)
+	_ store.ConflictStore             = (*sqlite.ConflictStore)(nil)
+	_ store.BinaryStore               = (*sqlite.BinaryStore)(nil)
+	_ store.ModuleStore               = (*sqlite.ModuleStore)(nil)
+	_ store.DefinitionStore           = (*sqlite.DefinitionStore)(nil)
+	_ store.RegistryInstallStore      = (*sqlite.RegistryInstallStore)(nil)
+	_ store.AuthStore                 = (*sqlite.AuthStore)(nil)
+	_ store.JobStore                  = (*sqlite.JobStore)(nil)
+	_ store.AuditStore                = (*sqlite.AuditStore)(nil)
+	_ store.SubscriptionStore         = (*sqlite.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*sqlite.SubscriptionDeliveryStore)(nil)
-	_ store.WriteSession         = (*sqlite.Session)(nil)
-	_ store.WriteSessionProvider = (*sqlite.DB)(nil)
-	_ store.InboxStore           = (*sqlite.InboxStore)(nil)
-	_ binary.MetadataStore       = (*sqlite.BlobMetadataStore)(nil)
-	_ binary.TransferStore       = (*sqlite.BlobMetadataStore)(nil)
-	_ binary.BlobStore             = (*sqlite.ChunkBlobStore)(nil)
-	_ binary.ChunkStore            = (*sqlite.ChunkBlobStore)(nil)
-	_ binary.WriteSessionExtension = (*sqlite.Session)(nil)
+	_ store.WriteSession              = (*sqlite.Session)(nil)
+	_ store.WriteSessionProvider      = (*sqlite.DB)(nil)
+	_ store.InboxStore                = (*sqlite.InboxStore)(nil)
+	_ binary.MetadataStore            = (*sqlite.BlobMetadataStore)(nil)
+	_ binary.TransferStore            = (*sqlite.BlobMetadataStore)(nil)
+	_ binary.BlobStore                = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.ChunkStore               = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.WriteSessionExtension    = (*sqlite.Session)(nil)
 )
 
 func openTestDB(t *testing.T, path string) *sqlite.DB {
@@ -288,6 +288,42 @@ func TestAuthStoreSnapshotHydratesEngine(t *testing.T) {
 	}
 	if !deviceDecision.Allowed {
 		t.Fatalf("device decision = %#v, want allowed", deviceDecision)
+	}
+}
+
+func TestAuthStoreSnapshotWithoutActivePolicy(t *testing.T) {
+	db := openTestDB(t, tempDBPath(t))
+	ctx := context.Background()
+
+	snapshot, err := db.AuthStore("tenant-a").Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snapshot.Policy != nil {
+		t.Fatalf("snapshot policy = %#v, want nil", snapshot.Policy)
+	}
+}
+
+func TestAuthStoreCorruptPrincipalAttributesFailsRead(t *testing.T) {
+	db := openTestDB(t, tempDBPath(t))
+	ctx := context.Background()
+	authStore := db.AuthStore("tenant-a")
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := authStore.UpsertPrincipal(ctx, store.AuthPrincipalRecord{
+		ID:        "user-1",
+		Kind:      string(auth.KindUser),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertPrincipal: %v", err)
+	}
+	if _, err := db.SQL().ExecContext(ctx, `UPDATE auth_principal SET attributes = ? WHERE id = ?`, []byte(`{`), "user-1"); err != nil {
+		t.Fatalf("corrupt principal attributes: %v", err)
+	}
+
+	if _, err := authStore.GetPrincipal(ctx, "user-1"); err == nil {
+		t.Fatal("expected corrupt principal attributes to fail")
 	}
 }
 

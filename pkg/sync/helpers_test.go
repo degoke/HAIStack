@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -77,9 +78,9 @@ func (h *memHub) Push(_ context.Context, events []hasync.LocalEvent) ([]hasync.P
 	for _, event := range events {
 		if prior, ok := h.processed[event.EventID]; ok {
 			results = append(results, hasync.PushResult{
-				EventID: event.EventID,
-				State:   hasync.AckAlreadyProcessed,
-				CanonicalSequence: prior.CanonicalSequence,
+				EventID:            event.EventID,
+				State:              hasync.AckAlreadyProcessed,
+				CanonicalSequence:  prior.CanonicalSequence,
 				CanonicalVersionID: prior.CanonicalVersionID,
 			})
 			continue
@@ -372,11 +373,15 @@ func (s *memConflictStore) Resolve(context.Context, string, time.Time) error {
 }
 
 type memJobStore struct {
-	mu   sync.Mutex
-	jobs []store.JobRecord
+	mu         sync.Mutex
+	jobs       []store.JobRecord
+	enqueueErr error
 }
 
 func (s *memJobStore) Enqueue(_ context.Context, job store.JobRecord) error {
+	if s.enqueueErr != nil {
+		return s.enqueueErr
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jobs = append(s.jobs, job)
@@ -412,6 +417,8 @@ func (s *memJobStore) Update(_ context.Context, job store.JobRecord) error {
 func (s *memJobStore) Get(context.Context, string) (*store.JobRecord, error) {
 	return nil, nil
 }
+
+var errEnqueueFailed = errors.New("enqueue failed")
 
 type memAuditStore struct {
 	mu      sync.Mutex

@@ -376,7 +376,7 @@ func (s *AuthStore) GetActivePolicy(ctx context.Context) (*store.AuthPolicyRecor
 		LIMIT 1`, s.tenantID)
 	record, err := scanPostgresPolicy(row)
 	if isNoRows(err) {
-		return nil, fmt.Errorf("active policy not found for tenant: %s", s.tenantID)
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get active policy: %w", err)
@@ -488,7 +488,9 @@ func scanPostgresPrincipal(scanner postgresScanner) (*store.AuthPrincipalRecord,
 		return nil, err
 	}
 	if len(attrs) > 0 {
-		_ = json.Unmarshal(attrs, &record.Attributes)
+		if err := json.Unmarshal(attrs, &record.Attributes); err != nil {
+			return nil, fmt.Errorf("unmarshal principal attributes: %w", err)
+		}
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -506,7 +508,9 @@ func scanPostgresRole(scanner postgresScanner) (*store.AuthRoleRecord, error) {
 		return nil, err
 	}
 	if len(payload) > 0 {
-		_ = json.Unmarshal(payload, &record.Permissions)
+		if err := json.Unmarshal(payload, &record.Permissions); err != nil {
+			return nil, fmt.Errorf("unmarshal role permissions: %w", err)
+		}
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -524,7 +528,9 @@ func scanPostgresBinding(scanner postgresScanner) (*store.AuthTenantBindingRecor
 		return nil, err
 	}
 	if len(payload) > 0 {
-		_ = json.Unmarshal(payload, &record.Roles)
+		if err := json.Unmarshal(payload, &record.Roles); err != nil {
+			return nil, fmt.Errorf("unmarshal tenant binding roles: %w", err)
+		}
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -545,7 +551,9 @@ func scanPostgresDevice(scanner postgresScanner) (*store.AuthDeviceRecord, error
 		return nil, err
 	}
 	if len(payload) > 0 {
-		_ = json.Unmarshal(payload, &record.Metadata)
+		if err := json.Unmarshal(payload, &record.Metadata); err != nil {
+			return nil, fmt.Errorf("unmarshal device metadata: %w", err)
+		}
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt

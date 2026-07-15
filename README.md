@@ -250,6 +250,19 @@ haistack init
 haistack serve
 ```
 
+## Examples
+
+Runnable example applications live in [examples/README.md](examples/README.md).
+
+```bash
+go run ./examples/manual-sqlite
+go run ./examples/runtime-http
+go run ./examples/edge-postgres
+go run ./examples/cloud-postgres
+go run ./examples/sync-two-nodes
+go run ./examples/ai-authz
+```
+
 ---
 
 ## Modules

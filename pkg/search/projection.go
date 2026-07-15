@@ -2,25 +2,26 @@ package search
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 // applyProjection trims resource JSON according to _summary and _elements directives.
-func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements []string) *types.ResourceEnvelope {
+func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements []string) (*types.ResourceEnvelope, error) {
 	if res == nil {
-		return nil
+		return nil, nil
 	}
 	if summary == "" && len(elements) == 0 {
-		return res
+		return res, nil
 	}
 	if summary == SummaryCount {
-		return res
+		return res, nil
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(res.JSON, &payload); err != nil {
-		return res
+		return nil, fmt.Errorf("%w: decode %s/%s: %v", ErrProjectionFailed, res.ResourceType, res.ID, err)
 	}
 
 	switch summary {
@@ -38,11 +39,11 @@ func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements 
 
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return res
+		return nil, fmt.Errorf("%w: encode %s/%s: %v", ErrProjectionFailed, res.ResourceType, res.ID, err)
 	}
 	copyEnv := *res
 	copyEnv.JSON = raw
-	return &copyEnv
+	return &copyEnv, nil
 }
 
 func summaryTrueProjection(payload map[string]any) map[string]any {

@@ -20,38 +20,38 @@ import (
 )
 
 var (
-	_ store.ResourceStore          = (*postgres.ResourceStore)(nil)
-	_ store.HistoryStore           = (*postgres.HistoryStore)(nil)
-	_ store.SearchStore            = (*postgres.SearchStore)(nil)
-	_ store.SearchQueryExecutor    = (*postgres.SearchStore)(nil)
-	_ store.SearchAdvancedExecutor = (*postgres.SearchStore)(nil)
-	_ store.SearchIndexMaintainer  = (*postgres.SearchStore)(nil)
-	_ store.EventStore             = (*postgres.EventStore)(nil)
-	_ store.CursorStore            = (*postgres.CursorStore)(nil)
-	_ store.ConflictStore          = (*postgres.ConflictStore)(nil)
-	_ store.IDRegistryStore        = (*postgres.IDRegistry)(nil)
-	_ store.BinaryStore            = (*postgres.BinaryStore)(nil)
-	_ store.BlobStore              = (*postgres.BlobStore)(nil)
-	_ store.AuditStore             = (*postgres.AuditStore)(nil)
-	_ store.SubscriptionStore      = (*postgres.SubscriptionStore)(nil)
+	_ store.ResourceStore             = (*postgres.ResourceStore)(nil)
+	_ store.HistoryStore              = (*postgres.HistoryStore)(nil)
+	_ store.SearchStore               = (*postgres.SearchStore)(nil)
+	_ store.SearchQueryExecutor       = (*postgres.SearchStore)(nil)
+	_ store.SearchAdvancedExecutor    = (*postgres.SearchStore)(nil)
+	_ store.SearchIndexMaintainer     = (*postgres.SearchStore)(nil)
+	_ store.EventStore                = (*postgres.EventStore)(nil)
+	_ store.CursorStore               = (*postgres.CursorStore)(nil)
+	_ store.ConflictStore             = (*postgres.ConflictStore)(nil)
+	_ store.IDRegistryStore           = (*postgres.IDRegistry)(nil)
+	_ store.BinaryStore               = (*postgres.BinaryStore)(nil)
+	_ store.BlobStore                 = (*postgres.BlobStore)(nil)
+	_ store.AuditStore                = (*postgres.AuditStore)(nil)
+	_ store.SubscriptionStore         = (*postgres.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
-	_ store.ModuleStore            = (*postgres.ModuleStore)(nil)
-	_ store.MaterializedViewStore  = (*postgres.MaterializedViewStore)(nil)
-	_ store.ReportingTableStore    = (*postgres.ReportingTableStore)(nil)
-	_ store.AnalyticsStore         = (*postgres.AnalyticsStore)(nil)
-	_ store.JobStore               = (*postgres.JobStore)(nil)
-	_ store.NodeRegistryStore      = (*postgres.NodeRegistry)(nil)
-	_ store.DefinitionStore        = (*postgres.DefinitionStore)(nil)
-	_ store.RegistryInstallStore   = (*postgres.RegistryInstallStore)(nil)
-	_ store.AuthStore              = (*postgres.AuthStore)(nil)
-	_ store.WriteSession           = (*postgres.Session)(nil)
-	_ store.WriteSessionProvider   = (*postgres.TenantDB)(nil)
-	_ store.InboxStore             = (*postgres.InboxStore)(nil)
-	_ binary.MetadataStore         = (*postgres.BlobMetadataStore)(nil)
-	_ binary.TransferStore         = (*postgres.BlobMetadataStore)(nil)
-	_ binary.BlobStore             = (*postgres.BlobChunkStore)(nil)
-	_ binary.ChunkStore            = (*postgres.BlobChunkStore)(nil)
-	_ binary.WriteSessionExtension = (*postgres.Session)(nil)
+	_ store.ModuleStore               = (*postgres.ModuleStore)(nil)
+	_ store.MaterializedViewStore     = (*postgres.MaterializedViewStore)(nil)
+	_ store.ReportingTableStore       = (*postgres.ReportingTableStore)(nil)
+	_ store.AnalyticsStore            = (*postgres.AnalyticsStore)(nil)
+	_ store.JobStore                  = (*postgres.JobStore)(nil)
+	_ store.NodeRegistryStore         = (*postgres.NodeRegistry)(nil)
+	_ store.DefinitionStore           = (*postgres.DefinitionStore)(nil)
+	_ store.RegistryInstallStore      = (*postgres.RegistryInstallStore)(nil)
+	_ store.AuthStore                 = (*postgres.AuthStore)(nil)
+	_ store.WriteSession              = (*postgres.Session)(nil)
+	_ store.WriteSessionProvider      = (*postgres.TenantDB)(nil)
+	_ store.InboxStore                = (*postgres.InboxStore)(nil)
+	_ binary.MetadataStore            = (*postgres.BlobMetadataStore)(nil)
+	_ binary.TransferStore            = (*postgres.BlobMetadataStore)(nil)
+	_ binary.BlobStore                = (*postgres.BlobChunkStore)(nil)
+	_ binary.ChunkStore               = (*postgres.BlobChunkStore)(nil)
+	_ binary.WriteSessionExtension    = (*postgres.Session)(nil)
 )
 
 func initDockerHost() {
@@ -328,6 +328,46 @@ func TestAuthStoreSnapshotHydratesEngine(t *testing.T) {
 	}
 	if !decision.Allowed {
 		t.Fatalf("decision = %#v, want allowed", decision)
+	}
+}
+
+func TestAuthStoreSnapshotWithoutActivePolicy(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "auth-no-policy")
+
+	snapshot, err := tdb.AuthStore().Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snapshot.Policy != nil {
+		t.Fatalf("snapshot policy = %#v, want nil", snapshot.Policy)
+	}
+}
+
+func TestAuthStoreCorruptPrincipalAttributesFailsRead(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "auth-corrupt-principal")
+	authStore := tdb.AuthStore()
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := authStore.UpsertPrincipal(ctx, store.AuthPrincipalRecord{
+		ID:        "user-1",
+		Kind:      string(auth.KindUser),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertPrincipal: %v", err)
+	}
+	if _, err := db.Pool().Exec(ctx, `UPDATE auth_principal SET attributes = $1 WHERE id = $2`, []byte(`[]`), "user-1"); err != nil {
+		t.Fatalf("corrupt principal attributes: %v", err)
+	}
+
+	if _, err := authStore.GetPrincipal(ctx, "user-1"); err == nil {
+		t.Fatal("expected corrupt principal attributes to fail")
 	}
 }
 

@@ -84,7 +84,11 @@ func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, erro
 		if err != nil {
 			return nil, fmt.Errorf("search: read %s/%s: %w", req.ResourceType, id, err)
 		}
-		resources = append(resources, applyProjection(res, plan.Summary, plan.Elements))
+		projected, err := applyProjection(res, plan.Summary, plan.Elements)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, projected)
 	}
 
 	var included []IncludedEntry
@@ -93,6 +97,10 @@ func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, erro
 		if err != nil {
 			return nil, fmt.Errorf("search: read included %s/%s: %w", ref.ResourceType, ref.ID, err)
 		}
+		projected, err := applyProjection(res, plan.Summary, plan.Elements)
+		if err != nil {
+			return nil, err
+		}
 		mode := ref.Mode
 		if mode == "" {
 			mode = "include"
@@ -100,7 +108,7 @@ func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, erro
 		included = append(included, IncludedEntry{
 			ResourceType: ref.ResourceType,
 			ID:           ref.ID,
-			Resource:     applyProjection(res, plan.Summary, plan.Elements),
+			Resource:     projected,
 			Mode:         mode,
 		})
 	}

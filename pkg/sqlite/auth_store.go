@@ -382,7 +382,7 @@ func (s *AuthStore) GetActivePolicy(ctx context.Context) (*store.AuthPolicyRecor
 		LIMIT 1`, s.tenantID)
 	record, err := scanSQLitePolicy(row)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("active policy not found for tenant: %s", s.tenantID)
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get active policy: %w", err)
@@ -499,7 +499,9 @@ func scanSQLitePrincipal(scanner sqliteScanner) (*store.AuthPrincipalRecord, err
 		return nil, err
 	}
 	if len(attributesPayload) > 0 {
-		_ = json.Unmarshal(attributesPayload, &record.Attributes)
+		if err := json.Unmarshal(attributesPayload, &record.Attributes); err != nil {
+			return nil, fmt.Errorf("unmarshal principal attributes: %w", err)
+		}
 	}
 	var err error
 	record.CreatedAt, err = parseTime(createdAt)
@@ -524,7 +526,9 @@ func scanSQLiteRole(scanner sqliteScanner) (*store.AuthRoleRecord, error) {
 		return nil, err
 	}
 	if len(permissionsPayload) > 0 {
-		_ = json.Unmarshal(permissionsPayload, &record.Permissions)
+		if err := json.Unmarshal(permissionsPayload, &record.Permissions); err != nil {
+			return nil, fmt.Errorf("unmarshal role permissions: %w", err)
+		}
 	}
 	var err error
 	record.CreatedAt, err = parseTime(createdAt)
@@ -549,7 +553,9 @@ func scanSQLiteBinding(scanner sqliteScanner) (*store.AuthTenantBindingRecord, e
 		return nil, err
 	}
 	if len(rolesPayload) > 0 {
-		_ = json.Unmarshal(rolesPayload, &record.Roles)
+		if err := json.Unmarshal(rolesPayload, &record.Roles); err != nil {
+			return nil, fmt.Errorf("unmarshal tenant binding roles: %w", err)
+		}
 	}
 	var err error
 	record.CreatedAt, err = parseTime(createdAt)
@@ -581,7 +587,9 @@ func scanSQLiteDevice(scanner sqliteScanner) (*store.AuthDeviceRecord, error) {
 	record.Trusted = trusted != 0
 	record.LinkedPrincipalID = linkedPrincipal.String
 	if len(metadataPayload) > 0 {
-		_ = json.Unmarshal(metadataPayload, &record.Metadata)
+		if err := json.Unmarshal(metadataPayload, &record.Metadata); err != nil {
+			return nil, fmt.Errorf("unmarshal device metadata: %w", err)
+		}
 	}
 	var err error
 	record.CreatedAt, err = parseTime(createdAt)

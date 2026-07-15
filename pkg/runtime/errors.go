@@ -26,4 +26,7 @@ var (
 
 	// ErrNotStarted is returned when operations require a started runtime.
 	ErrNotStarted = errors.New("runtime: not started")
+
+	// ErrBackgroundWorker indicates a background worker or managed server failed.
+	ErrBackgroundWorker = errors.New("runtime: background worker failed")
 )

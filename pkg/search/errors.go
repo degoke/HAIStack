@@ -13,4 +13,6 @@ var (
 	ErrInvalidQuery = errors.New("search: invalid query")
 	// ErrResourceTypeDisabled indicates the resource type is not enabled in the registry.
 	ErrResourceTypeDisabled = errors.New("search: resource type not enabled")
+	// ErrProjectionFailed indicates response projection could not be applied safely.
+	ErrProjectionFailed = errors.New("search: projection failed")
 )

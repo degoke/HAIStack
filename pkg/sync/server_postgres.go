@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/audit"
@@ -100,6 +101,24 @@ func (h *PostgresHub) pushOne(
 
 	writeResult, err := h.Tenant.ApplyWrite(ctx, write)
 	if err != nil {
+		result := classifyApplyWriteError(event, err, now)
+		if result.State != AckNeedsRetry {
+			if result.State == AckConflicted {
+				if err := h.recordPushConflict(ctx, event, result, now); err != nil {
+					return PushResult{}, err
+				}
+			} else {
+				if err := h.recordRejectedPush(ctx, event, result, now); err != nil {
+					return PushResult{}, err
+				}
+			}
+			if inbox != nil {
+				if err := inbox.MarkApplied(ctx, event.EventID, now); err != nil {
+					return PushResult{}, err
+				}
+			}
+			return result, nil
+		}
 		return PushResult{
 			EventID:    event.EventID,
 			State:      AckNeedsRetry,
@@ -150,8 +169,11 @@ func (h *PostgresHub) recordPushConflict(ctx context.Context, event LocalEvent, 
 		}
 	}
 	if jobs := h.Tenant.JobStore(); jobs != nil {
-		localEventJSON, _ := json.Marshal(event)
-		payload, _ := json.Marshal(ConflictJobPayload{
+		localEventJSON, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("marshal conflict local event: %w", err)
+		}
+		payload, err := json.Marshal(ConflictJobPayload{
 			NodeID:          event.OriginNodeID,
 			TenantID:        event.TenantID,
 			ConflictID:      conflictID,
@@ -163,19 +185,58 @@ func (h *PostgresHub) recordPushConflict(ctx context.Context, event LocalEvent, 
 			Reason:          result.ConflictReason,
 			LocalEvent:      localEventJSON,
 		})
-		_ = jobs.Enqueue(ctx, store.JobRecord{
+		if err != nil {
+			return fmt.Errorf("marshal conflict job payload: %w", err)
+		}
+		if err := jobs.Enqueue(ctx, store.JobRecord{
 			ID:        uuid.NewString(),
 			Type:      JobTypeConflictProcessing,
 			Payload:   payload,
 			Status:    store.JobStatusPending,
 			CreatedAt: now,
 			UpdatedAt: now,
-		})
+		}); err != nil {
+			return fmt.Errorf("enqueue conflict job: %w", err)
+		}
 	}
 	if inbox := h.Tenant.InboxStore(); inbox != nil {
-		_ = inbox.MarkApplied(ctx, event.EventID, now)
+		if err := inbox.MarkApplied(ctx, event.EventID, now); err != nil {
+			return err
+		}
 	}
 	return h.recordRejectedPush(ctx, event, result, now)
+}
+
+func classifyApplyWriteError(event LocalEvent, err error, now time.Time) PushResult {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "resource already exists"):
+		return PushResult{
+			EventID:                 event.EventID,
+			State:                   AckConflicted,
+			ConflictReason:          "resource already exists",
+			ConflictRemoteVersionID: event.BaseCloudVersion,
+		}
+	case strings.Contains(msg, "resource not found"):
+		return PushResult{
+			EventID:                 event.EventID,
+			State:                   AckConflicted,
+			ConflictReason:          "resource not found",
+			ConflictRemoteVersionID: event.BaseCloudVersion,
+		}
+	case strings.Contains(msg, "unsupported version action"), strings.Contains(msg, "resource envelope is nil"):
+		return PushResult{
+			EventID:         event.EventID,
+			State:           AckRejected,
+			RejectionReason: msg,
+		}
+	default:
+		return PushResult{
+			EventID:    event.EventID,
+			State:      AckNeedsRetry,
+			RetryAfter: now.Add(30 * time.Second),
+		}
+	}
 }
 
 func (h *PostgresHub) recordRejectedPush(ctx context.Context, event LocalEvent, result PushResult, now time.Time) error {
