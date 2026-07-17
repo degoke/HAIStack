@@ -11,7 +11,7 @@ func TestPersistenceAccessorSQLite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rt, err := runtime.New().
-		WithSQLite(t.TempDir()+"/persistence.db").
+		WithSQLite(t.TempDir() + "/persistence.db").
 		Build(ctx)
 	if err != nil {
 		t.Fatalf("Build: %v", err)

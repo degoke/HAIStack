@@ -29,3 +29,22 @@ type SearchService interface {
 type CapabilitySource interface {
 	CapabilitySnapshot() registry.CapabilitySnapshot
 }
+
+// SDCRequest carries canonical FHIR operation inputs to the SDC adapter. The
+// adapter owns population, validation, assembly, extraction, and adaptive
+// policy; HTTP only performs envelope parsing and response translation.
+type SDCRequest struct {
+	Questionnaire         *types.ResourceEnvelope
+	QuestionnaireResponse *types.ResourceEnvelope
+	Parameters            *types.ResourceEnvelope
+	Body                  *types.ResourceEnvelope
+	Query                 url.Values
+}
+
+type SDCService interface {
+	Populate(context.Context, SDCRequest) (*types.ResourceEnvelope, error)
+	Validate(context.Context, SDCRequest) (*types.OperationOutcome, error)
+	Extract(context.Context, SDCRequest) (*types.ResourceEnvelope, error)
+	Assemble(context.Context, SDCRequest) (*types.ResourceEnvelope, error)
+	Adaptive(context.Context, string, SDCRequest) (*types.ResourceEnvelope, error)
+}

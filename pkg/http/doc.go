@@ -30,6 +30,8 @@
 //     ProcessTransactionBundle.
 //   - SearchService — SearchBundle.
 //   - CapabilitySource — CapabilitySnapshot for /metadata.
+//   - SDCService — optional SDC operation adapter for population, validation,
+//     assembly, extraction, and adaptive routes.
 //   - AuthChecker — AuthorizeRead, AuthorizeWrite, AuthorizeSearch.
 //
 // Concrete adapters (CoreResourceService, SearchServiceAdapter,
@@ -66,6 +68,9 @@
 //   - PUT    /fhir/{ResourceType}/{id}       — update
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
 //   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle
+//   - POST   /fhir/Questionnaire/$populate, $assemble
+//   - POST   /fhir/QuestionnaireResponse/$validate, $extract
+//   - POST   /fhir/Questionnaire/$next-question, $next, $answer (adaptive adapter)
 //
 // Routing uses the Go standard library net/http ServeHTTP pattern; no third-party
 // router is required.

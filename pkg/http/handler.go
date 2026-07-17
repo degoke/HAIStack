@@ -58,6 +58,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleHistory(w, r, route.resourceType, route.id)
+	case routeOperation:
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, r.Method)
+			return
+		}
+		h.handleSDCOperation(w, r, route)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}

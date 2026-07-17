@@ -21,12 +21,14 @@ const (
 	routeType
 	routeInstance
 	routeHistory
+	routeOperation
 )
 
 type parsedRoute struct {
 	kind         routeKind
 	resourceType string
 	id           string
+	operation    string
 }
 
 func parseRoute(basePath, requestPath string) (parsedRoute, error) {
@@ -49,6 +51,15 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 		}
 		return parsedRoute{kind: routeType, resourceType: parts[0]}, nil
 	case 2:
+		if strings.HasPrefix(parts[1], "$") {
+			if !validOperation(parts[1]) {
+				return parsedRoute{}, fmt.Errorf("invalid operation %q", parts[1])
+			}
+			if !validResourceType(parts[0]) {
+				return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
+			}
+			return parsedRoute{kind: routeOperation, resourceType: parts[0], operation: parts[1]}, nil
+		}
 		if !validResourceType(parts[0]) {
 			return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
 		}
@@ -57,6 +68,18 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 		}
 		return parsedRoute{kind: routeInstance, resourceType: parts[0], id: parts[1]}, nil
 	case 3:
+		if strings.HasPrefix(parts[2], "$") {
+			if !validOperation(parts[2]) {
+				return parsedRoute{}, fmt.Errorf("invalid operation %q", parts[2])
+			}
+			if !validResourceType(parts[0]) {
+				return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
+			}
+			if err := validateID(parts[1]); err != nil {
+				return parsedRoute{}, err
+			}
+			return parsedRoute{kind: routeOperation, resourceType: parts[0], id: parts[1], operation: parts[2]}, nil
+		}
 		if parts[2] != "_history" {
 			return parsedRoute{}, fmt.Errorf("unsupported path segment %q", parts[2])
 		}
@@ -70,6 +93,17 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 	default:
 		return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
 	}
+}
+func validOperation(op string) bool {
+	if len(op) < 2 || op[0] != '$' {
+		return false
+	}
+	for _, r := range op[1:] {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func relativePath(basePath, requestPath string) (string, error) {

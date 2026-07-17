@@ -1,0 +1,1 @@
+{"resourceType":"QuestionnaireResponse","questionnaire":"http://example.org/sdc/questionnaire/vitals|1.0.0","status":"in-progress","item":[{"linkId":"weight","answer":[{"valueDecimal":72.5}]}]}

@@ -1,0 +1,1 @@
+{"resourceType":"Questionnaire","url":"http://example.org/sdc/calculated","version":"1.0.0","status":"active","item":[{"linkId":"a","type":"integer"},{"linkId":"double","type":"integer","readOnly":true,"calculatedExpression":{"language":"text/fhirpath","expression":"2"}}]}

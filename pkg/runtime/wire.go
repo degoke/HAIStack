@@ -13,11 +13,12 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/health-ai-stack/pkg/sdc"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/validate"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 type wireState struct {
@@ -332,9 +333,14 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		httpSearchSvc = hahttp.SearchServiceAdapter{Svc: state.services.SearchService}
 	}
 
+	sdcService := b.sdcService
+	if sdcService == nil {
+		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:  hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:    httpSearchSvc,
+		SDCService:       sdcService,
 		CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",

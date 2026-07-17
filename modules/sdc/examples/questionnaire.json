@@ -1,0 +1,1 @@
+{"resourceType":"Questionnaire","url":"http://example.org/sdc/questionnaire/vitals","version":"1.0.0","status":"active","item":[{"linkId":"weight","text":"Weight","type":"decimal","required":true},{"linkId":"unit","text":"Unit","type":"choice","answerOption":[{"valueString":"kg","initialSelected":true}]}]}

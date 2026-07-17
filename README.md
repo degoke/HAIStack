@@ -48,6 +48,8 @@ The stack targets **on-device, offline-first, edge, on-premise, cloud, and AI-as
 
 **Local offline runtime:** `core`, `sqlite`, `registry`, `search`, `sync`, `fhirpath`, `http`
 
+**Questionnaire workflow runtime:** `sdc`, `core`, `store`, `fhirpath`, `http`, optionally `runtime`
+
 **Edge FHIR server:** `core`, `postgres`, `registry`, `search`, `sync`, `conflict`, `binary`, `view`, `auth`, `http`
 
 **AI health data tool:** `ai`, `view`, `fhirpath`, `auth`, `client`
@@ -142,6 +144,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-search | `pkg/search` | Done | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
+| haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
 | haistack-modules | `pkg/modules` | Planned | Installable capability modules |
 | haistack-view | `pkg/view` | Done | ViewDefinition execution |
@@ -237,6 +240,52 @@ if err != nil {
     outcome := core.OperationOutcomeFromError(err)
 }
 ```
+
+### Structured Data Capture (SDC)
+
+`pkg/sdc` adds FHIR R4 / SDC 3.0.0 questionnaire behavior on top of the
+existing resource, registry, proto, and FHIRPath packages. Canonical FHIR
+resources continue to flow through `*types.ResourceEnvelope`; SDC does not
+introduce replacement FHIR or Bundle models.
+
+```go
+import (
+    "context"
+
+    "github.com/degoke/health-ai-stack/pkg/runtime"
+)
+
+ctx := context.Background()
+rt, err := runtime.New().
+    WithSQLite("/path/to/haistack.db").
+    WithModules("modules/core", "modules/sdc").
+    WithHTTP(":8080").
+    Build(ctx)
+if err != nil { /* handle */ }
+if err := rt.Start(ctx); err != nil { /* handle */ }
+defer rt.Shutdown(ctx)
+```
+
+The runtime’s default SDC adapter supports questionnaire population,
+validation, and modular assembly using the existing core resource service,
+store-backed canonical resolution, and FHIRPath engine. The HTTP adapter
+exposes operation routes such as:
+
+```text
+POST /fhir/Questionnaire/{id}/$populate
+POST /fhir/QuestionnaireResponse/$validate
+POST /fhir/Questionnaire/{id}/$assemble
+POST /fhir/QuestionnaireResponse/$extract
+```
+
+Extraction mappings/templates and adaptive session policy are application
+specific. Inject an implementation with `runtime.Builder.WithSDC`; unsupported
+capabilities return FHIR `OperationOutcome` diagnostics. Extraction produces a
+transaction Bundle envelope without applying it, so callers explicitly decide
+whether to pass it to `core.ResourceService.ProcessTransactionBundle`.
+
+See [`pkg/sdc/README.md`](pkg/sdc/README.md) for the complete API boundary,
+adapter contracts, operation routes, and module details.
 
 Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip Docker.
 

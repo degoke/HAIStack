@@ -41,6 +41,8 @@
 //   - WithPostgresAllInOne(dsn, tenantID) — select single-tenant Postgres
 //   - WithExternalBlobStore, WithExternalSearch, WithExternalWarehouse — cloud adapter seams
 //   - WithFHIRPath(engine) — optional; a default engine is created when omitted
+//   - WithSDC(service) — optional SDC HTTP operation adapter; the default
+//     core/FHIRPath adapter is used when omitted
 //   - WithSearch — enable search indexing and query execution
 //   - WithSync(hubURL), WithSyncHub(hub), WithSyncNode(nodeID) — device sync
 //   - WithModules(paths...) — install modules from local filesystem directories

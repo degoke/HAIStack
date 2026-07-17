@@ -40,6 +40,10 @@ type Config struct {
 	// SearchService is optional; when nil, type-level GET search is unavailable.
 	SearchService SearchService
 
+	// SDCService is optional; when nil, SDC operation endpoints return
+	// OperationOutcome with a not-supported error.
+	SDCService SDCService
+
 	// CapabilitySource is optional; when nil, /metadata returns not-supported.
 	CapabilitySource CapabilitySource
 

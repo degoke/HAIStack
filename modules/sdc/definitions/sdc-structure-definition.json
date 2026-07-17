@@ -1,0 +1,7 @@
+{
+  "resourceType":"StructureDefinition",
+  "id":"sdc-questionnaire",
+  "url":"http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire",
+  "version":"3.0.0", "name":"SDCQuestionnaire", "status":"active",
+  "fhirVersion":"4.0.1", "kind":"resource", "type":"Questionnaire", "baseDefinition":"http://hl7.org/fhir/StructureDefinition/Questionnaire"
+}

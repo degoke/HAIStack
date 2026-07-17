@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
@@ -16,6 +17,7 @@ type Builder struct {
 	warehouse      WarehouseAdapter
 
 	fhirPathEngine fhirpath.Engine
+	sdcService     hahttp.SDCService
 	searchEnabled  bool
 
 	syncHubURL string
@@ -67,6 +69,11 @@ func (b *Builder) WithFHIRPath(engine fhirpath.Engine) *Builder {
 	b.fhirPathEngine = engine
 	return b
 }
+
+// WithSDC supplies the HTTP SDC operation adapter. When omitted, runtime
+// wires the default core/FHIRPath adapter; applications can inject extractors,
+// terminology, and adaptive session policy through this seam.
+func (b *Builder) WithSDC(service hahttp.SDCService) *Builder { b.sdcService = service; return b }
 
 // WithSearch enables search indexing and query execution.
 // On SQLite this wires embedded/basic search; advanced search remains Postgres-first.
