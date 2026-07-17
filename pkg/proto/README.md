@@ -34,7 +34,20 @@ You **do not** need it for basic JSON handling — that is what `pkg/types` is f
 
 ## Usage
 
-**Create a codec:**
+**Construct a typed resource and create an envelope:**
+
+```go
+import (
+	proto "github.com/degoke/health-ai-stack/pkg/proto"
+	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
+)
+
+patient := &protor4.Patient{}
+envelope, err := proto.ToEnvelope(patient)
+// envelope.JSON is canonical; envelope.Proto is the original patient.
+```
+
+For explicit resource-type control or JSON parsing, use a codec:
 
 ```go
 import "github.com/degoke/health-ai-stack/pkg/proto"
@@ -105,7 +118,7 @@ Patient JSON
 - Google FHIR Go R4 only (no R5 yet)
 - No proto blob storage in the database
 - No profile-aware validation or proto diffing
-- Public API uses `any` — Google message types stay inside this package
+- `pkg/proto/r4` aliases the pinned Google R4 message types, while JSON remains canonical
 - `envelope.Proto` is set on proto paths; JSON-only paths leave it nil
 
 See [doc.go](./doc.go) for the full API, conversion flows, and future extension points.

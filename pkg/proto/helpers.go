@@ -2,10 +2,13 @@ package proto
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"google.golang.org/protobuf/proto"
 )
+
+var defaultGoogleR4Codec = NewGoogleR4Codec()
 
 var (
 	errNilProto               = fmt.Errorf("proto value is nil")
@@ -15,7 +18,7 @@ var (
 
 // IsProtoResource reports whether v is a supported Google FHIR R4 protobuf resource.
 func IsProtoResource(v any) bool {
-	if v == nil {
+	if isNilValue(v) {
 		return false
 	}
 	msg, ok := v.(proto.Message)
@@ -27,7 +30,7 @@ func IsProtoResource(v any) bool {
 
 // ResourceTypeOfProto returns the FHIR resource type for a supported Google FHIR R4 proto value.
 func ResourceTypeOfProto(v any) (string, error) {
-	if v == nil {
+	if isNilValue(v) {
 		return "", errNilProto
 	}
 	msg, ok := v.(proto.Message)
@@ -35,6 +38,30 @@ func ResourceTypeOfProto(v any) (string, error) {
 		return "", errUnsupportedProto
 	}
 	return resourceTypeFromR4Message(msg.ProtoReflect())
+}
+
+// ToEnvelope converts a typed Google FHIR R4 resource to a canonical envelope.
+// The original protobuf value is retained in the returned envelope's Proto field.
+func ToEnvelope(resource any) (*types.ResourceEnvelope, error) {
+	resourceType, err := ResourceType(resource)
+	if err != nil {
+		return nil, err
+	}
+	return defaultGoogleR4Codec.ProtoToEnvelope(resourceType, resource)
+}
+
+// ToJSON converts a typed Google FHIR R4 resource to canonical FHIR JSON.
+func ToJSON(resource any) ([]byte, error) {
+	resourceType, err := ResourceType(resource)
+	if err != nil {
+		return nil, err
+	}
+	return defaultGoogleR4Codec.ProtoToJSON(resourceType, resource)
+}
+
+// ResourceType returns the FHIR resource type carried by a typed R4 resource.
+func ResourceType(resource any) (string, error) {
+	return ResourceTypeOfProto(resource)
 }
 
 func envelopeFromJSON(jsonCodec *types.JSONCodec, resourceType string, jsonBytes []byte, protoVal any) (*types.ResourceEnvelope, error) {
@@ -47,7 +74,7 @@ func envelopeFromJSON(jsonCodec *types.JSONCodec, resourceType string, jsonBytes
 }
 
 func asProtoMessage(v any) (proto.Message, error) {
-	if v == nil {
+	if isNilValue(v) {
 		return nil, errNilProto
 	}
 	msg, ok := v.(proto.Message)
@@ -58,6 +85,19 @@ func asProtoMessage(v any) (proto.Message, error) {
 		return nil, errUnsupportedProto
 	}
 	return msg, nil
+}
+
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func assertResourceTypeMatch(expected, actual string) error {

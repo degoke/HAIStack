@@ -73,11 +73,18 @@
 // Both helpers currently target R4 only. When additional providers or FHIR versions are
 // added, they will dispatch by message descriptor (see google_r5.go).
 //
+// ToEnvelope, ToJSON, and ResourceType are concise R4 helpers using the default
+// GoogleR4Codec. Applications can construct resources with aliases from
+// github.com/degoke/health-ai-stack/pkg/proto/r4, for example:
+//
+//	patient := &r4.Patient{}
+//	envelope, err := proto.ToEnvelope(patient)
+//
 // # Public API rules
 //
-// Exported signatures use any and *types.ResourceEnvelope only. Concrete Google message
-// types, fhirversion constants, and jsonformat types stay package-private. Callers must not
-// depend on github.com/google/fhir/go import paths outside pkg/proto.
+// Exported codec signatures use any and *types.ResourceEnvelope. The r4 subpackage exposes
+// aliases for the pinned Google-generated R4 messages; callers need not import the long
+// github.com/google/fhir/go paths directly.
 //
 // Storage APIs for proto blobs, profile-aware validation, and proto diffing are out of
 // MVP scope.
