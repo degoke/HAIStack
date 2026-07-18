@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/degoke/health-ai-stack/pkg/proto"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -34,7 +35,12 @@ type ValidateOptions struct {
 	RequireID            bool
 	ResourceTypeRegistry ResourceTypeRegistry
 	ReferencePolicy      ReferencePolicy
+	Terminology          terminology.Service
+	TerminologyEnabled   bool
+	TerminologyBindings  map[string]TerminologyBinding
 }
+
+type TerminologyBinding struct{ URL, Version, Strength string }
 
 // ValidationIssue is one structured validation finding.
 type ValidationIssue struct {

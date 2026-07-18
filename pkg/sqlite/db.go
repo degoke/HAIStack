@@ -124,6 +124,7 @@ func (db *DB) ModuleStore() *ModuleStore {
 func (db *DB) DefinitionStore() *DefinitionStore {
 	return newDefinitionStore(db.sql)
 }
+func (db *DB) TerminologyStore() *TerminologyStore { return newTerminologyStore(db.sql, "default") }
 
 // RegistryInstallStore returns a connection-scoped registry install overlay store.
 func (db *DB) RegistryInstallStore() *RegistryInstallStore {

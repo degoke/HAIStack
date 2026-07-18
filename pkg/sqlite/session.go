@@ -13,11 +13,12 @@ import (
 type Session struct {
 	tx *sql.Tx
 
-	resource *ResourceStore
-	history  *HistoryStore
-	search   *SearchStore
-	outbox   *OutboxStore
-	cursor   *CursorStore
+	resource    *ResourceStore
+	history     *HistoryStore
+	search      *SearchStore
+	outbox      *OutboxStore
+	cursor      *CursorStore
+	terminology *TerminologyStore
 
 	committed  bool
 	rolledBack bool
@@ -34,14 +35,18 @@ func (db *DB) BeginSession(ctx context.Context) (*Session, error) {
 
 func newSession(tx *sql.Tx) *Session {
 	return &Session{
-		tx:       tx,
-		resource: newResourceStoreTx(tx),
-		history:  newHistoryStoreTx(tx),
-		search:   newSearchStoreTx(tx),
-		outbox:   newOutboxStoreTx(tx),
-		cursor:   newCursorStoreTx(tx),
+		tx:          tx,
+		resource:    newResourceStoreTx(tx),
+		history:     newHistoryStoreTx(tx),
+		search:      newSearchStoreTx(tx),
+		outbox:      newOutboxStoreTx(tx),
+		cursor:      newCursorStoreTx(tx),
+		terminology: newTerminologyStore(tx, "default"),
 	}
 }
+
+// TerminologyStore returns the transaction-scoped terminology projection store.
+func (s *Session) TerminologyStore() store.TerminologyStore { return s.terminology }
 
 // Commit commits the session transaction.
 func (s *Session) Commit(ctx context.Context) error {

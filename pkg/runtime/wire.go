@@ -18,6 +18,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
@@ -103,22 +104,24 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 	}
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:   db.DefinitionStore(),
-		installs:      db.RegistryInstallStore(),
-		moduleStore:   db.ModuleStore(),
-		jobStore:      db.JobStore(),
-		resources:     db.ResourceStore(),
-		history:       db.HistoryStore(),
-		searchStore:   db.SearchStore(),
-		sessions:      db,
-		outboxEvents:  db.OutboxStore(),
-		syncTenantID:  "local",
-		syncEvents:    db.OutboxStore(),
-		syncCursors:   db.CursorStore(),
-		syncInbox:     db.InboxStore(),
-		syncConflicts: db.ConflictStore(),
-		syncAudit:     db.AuditStore(),
-		reindexJobs:   false,
+		definitions:      db.DefinitionStore(),
+		installs:         db.RegistryInstallStore(),
+		moduleStore:      db.ModuleStore(),
+		jobStore:         db.JobStore(),
+		resources:        db.ResourceStore(),
+		history:          db.HistoryStore(),
+		searchStore:      db.SearchStore(),
+		sessions:         db,
+		outboxEvents:     db.OutboxStore(),
+		syncTenantID:     "local",
+		terminologyScope: "default",
+		syncEvents:       db.OutboxStore(),
+		syncCursors:      db.CursorStore(),
+		syncInbox:        db.InboxStore(),
+		syncConflicts:    db.ConflictStore(),
+		syncAudit:        db.AuditStore(),
+		terminology:      db.TerminologyStore(),
+		reindexJobs:      false,
 	})
 }
 
@@ -140,46 +143,57 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 	state.services.TenantDB = tdb
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:   db.DefinitionStore(),
-		installs:      tdb.RegistryInstallStore(),
-		moduleStore:   tdb.ModuleStore(),
-		jobStore:      tdb.JobStore(),
-		resources:     tdb.ResourceStore(),
-		history:       tdb.HistoryStore(),
-		searchStore:   tdb.SearchStore(),
-		sessions:      tdb,
-		outboxEvents:  tdb.EventStore(),
-		syncTenantID:  b.tenantID,
-		syncEvents:    tdb.EventStore(),
-		syncCursors:   tdb.CursorStore(),
-		syncInbox:     tdb.InboxStore(),
-		syncConflicts: tdb.ConflictStore(),
-		syncAudit:     tdb.AuditStore(),
-		reindexJobs:   b.searchEnabled,
+		definitions:      db.DefinitionStore(),
+		installs:         tdb.RegistryInstallStore(),
+		moduleStore:      tdb.ModuleStore(),
+		jobStore:         tdb.JobStore(),
+		resources:        tdb.ResourceStore(),
+		history:          tdb.HistoryStore(),
+		searchStore:      tdb.SearchStore(),
+		sessions:         tdb,
+		outboxEvents:     tdb.EventStore(),
+		syncTenantID:     b.tenantID,
+		terminologyScope: b.tenantID,
+		syncEvents:       tdb.EventStore(),
+		syncCursors:      tdb.CursorStore(),
+		syncInbox:        tdb.InboxStore(),
+		syncConflicts:    tdb.ConflictStore(),
+		syncAudit:        tdb.AuditStore(),
+		terminology:      tdb.TerminologyStore(),
+		reindexJobs:      b.searchEnabled,
 	})
 }
 
 type persistenceContext struct {
-	definitions   store.DefinitionStore
-	installs      store.RegistryInstallStore
-	moduleStore   store.ModuleStore
-	jobStore      store.JobStore
-	resources     store.ResourceStore
-	history       store.HistoryStore
-	searchStore   store.SearchStore
-	sessions      store.WriteSessionProvider
-	outboxEvents  store.EventStore
-	syncTenantID  string
-	syncEvents    store.EventStore
-	syncCursors   store.CursorStore
-	syncInbox     store.InboxStore
-	syncConflicts store.ConflictStore
-	syncAudit     store.AuditStore
-	reindexJobs   bool
+	definitions      store.DefinitionStore
+	installs         store.RegistryInstallStore
+	moduleStore      store.ModuleStore
+	jobStore         store.JobStore
+	resources        store.ResourceStore
+	history          store.HistoryStore
+	searchStore      store.SearchStore
+	sessions         store.WriteSessionProvider
+	outboxEvents     store.EventStore
+	syncTenantID     string
+	syncEvents       store.EventStore
+	syncCursors      store.CursorStore
+	syncInbox        store.InboxStore
+	syncConflicts    store.ConflictStore
+	syncAudit        store.AuditStore
+	reindexJobs      bool
+	terminology      store.TerminologyStore
+	terminologyScope string
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
 	now := func() time.Time { return time.Now().UTC() }
+	termScope := pc.terminologyScope
+	if termScope == "" {
+		termScope = pc.syncTenantID
+	}
+	if pc.terminology != nil {
+		state.services.TerminologyService = &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+	}
 
 	var reindexNotifier registry.SearchReindexNotifier
 	if pc.reindexJobs {
@@ -187,10 +201,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	regManager := registry.NewManager(registry.Config{
-		Definitions:   pc.definitions,
-		Installs:      pc.installs,
-		Now:           now,
-		SearchReindex: reindexNotifier,
+		Definitions:      pc.definitions,
+		Installs:         pc.installs,
+		Now:              now,
+		SearchReindex:    reindexNotifier,
+		Terminology:      pc.terminology,
+		TerminologyScope: termScope,
+		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
 	})
 	if err := regManager.SeedBundled(ctx); err != nil {
 		return fmt.Errorf("runtime: seed registry: %w", err)
@@ -246,13 +263,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	validator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{})
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
-		Resources: pc.resources,
-		History:   pc.history,
-		Sessions:  pc.sessions,
-		IDPolicy:  core.DefaultIDPolicy{},
-		Validator: validator,
-		Indexer:   indexer,
-		Outbox:    &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Resources:        pc.resources,
+		History:          pc.history,
+		Sessions:         pc.sessions,
+		IDPolicy:         core.DefaultIDPolicy{},
+		Validator:        validator,
+		Indexer:          indexer,
+		Outbox:           &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Terminology:      pc.terminology,
+		TerminologyScope: termScope,
+		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: resource service: %w", err)

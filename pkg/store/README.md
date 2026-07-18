@@ -14,6 +14,7 @@ This package **does not talk to a database directly**. It defines **interfaces**
 - index data for search
 - record change events for sync
 - store files, audit logs, background jobs, and more
+- store canonical terminology resources and their disposable lookup projections
 
 Actual database code lives in separate packages (`pkg/sqlite`, `pkg/postgres`). Application code depends on **`store.ResourceStore`**, not on a specific backend. That makes it easy to swap implementations or test with in-memory fakes.
 
@@ -130,6 +131,7 @@ On delete: remove from `ResourceStore`, append a tombstone to history, emit a de
 | `ModuleStore` | Registered plugins/extensions |
 | `IDRegistryStore` | Authoritative ID registration |
 | `WriteSessionProvider` | Atomic write across resource, history, search, and events |
+| `TerminologyStore` | Canonical CodeSystem/ValueSet records and compiled projections |
 
 ## Where it fits
 

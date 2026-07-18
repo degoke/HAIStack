@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/proto"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -143,11 +144,91 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 			))
 		}
 	}
+	if opts.TerminologyEnabled && opts.Terminology != nil {
+		e.validateTerminology(ctx, obj, resourceType, opts, &issues)
+	}
 
 	if len(issues) > 0 {
-		return &ValidationResult{Valid: false, Issues: issues}, nil
+		return &ValidationResult{Valid: !hasErrorIssues(issues), Issues: issues}, nil
 	}
 	return &ValidationResult{Valid: true}, nil
+}
+
+func (e *builtinEngine) validateTerminology(ctx context.Context, obj map[string]interface{}, resourceType string, opts ValidateOptions, issues *[]ValidationIssue) {
+	for path, binding := range opts.TerminologyBindings {
+		value, ok := obj[path]
+		if !ok || value == nil {
+			continue
+		}
+		codings := codedValues(value)
+		if len(codings) == 0 {
+			continue
+		}
+		valid := false
+		unknown := false
+		invalid := false
+		for _, c := range codings {
+			r, err := opts.Terminology.ValidateCode(ctx, terminology.ValidateCodeRequest{URL: binding.URL, Version: binding.Version, Coding: c})
+			if err != nil {
+				*issues = append(*issues, ValidationIssue{Severity: "warning", Code: "terminology-unavailable", Diagnostics: err.Error(), Expression: []string{resourceType + "." + path}})
+				continue
+			}
+			switch r.Status {
+			case terminology.Valid:
+				valid = true
+				if r.DisplayWarning {
+					*issues = append(*issues, ValidationIssue{Severity: "warning", Code: "terminology-display-warning", Diagnostics: r.Message, Expression: []string{resourceType + "." + path}})
+				}
+			case terminology.UnknownTerminology:
+				unknown = true
+			case terminology.Invalid:
+				invalid = true
+				severity := "warning"
+				if binding.Strength == "required" {
+					severity = "error"
+				}
+				*issues = append(*issues, ValidationIssue{Severity: severity, Code: "terminology-invalid", Diagnostics: r.Message, Expression: []string{resourceType + "." + path}})
+			}
+		}
+		if !valid && unknown && binding.Strength == "required" {
+			*issues = append(*issues, issue("terminology-unknown", "terminology is unknown", []string{resourceType + "." + path}))
+		}
+		if !valid && !unknown && !invalid && binding.Strength == "required" {
+			*issues = append(*issues, issue("terminology-invalid", "no coding is valid", []string{resourceType + "." + path}))
+		}
+	}
+}
+
+func hasErrorIssues(issues []ValidationIssue) bool {
+	for _, i := range issues {
+		if i.Severity != "warning" {
+			return true
+		}
+	}
+	return false
+}
+
+func codedValues(v interface{}) []terminology.Coding {
+	var out []terminology.Coding
+	switch x := v.(type) {
+	case map[string]interface{}:
+		if s, _ := x["system"].(string); s != "" {
+			c, _ := x["code"].(string)
+			d, _ := x["display"].(string)
+			ver, _ := x["version"].(string)
+			out = append(out, terminology.Coding{System: s, Code: c, Display: d, Version: ver})
+		}
+		if cs, ok := x["coding"].([]interface{}); ok {
+			for _, c := range cs {
+				out = append(out, codedValues(c)...)
+			}
+		}
+	case []interface{}:
+		for _, c := range x {
+			out = append(out, codedValues(c)...)
+		}
+	}
+	return out
 }
 
 func shouldRunProtoValidation(resourceType string, known map[string]struct{}, issues []ValidationIssue) bool {

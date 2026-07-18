@@ -49,14 +49,15 @@ type Session struct {
 	tx       pgx.Tx
 	tenantID string
 
-	resource  *ResourceStore
-	history   *HistoryStore
-	search    *SearchStore
-	events    *EventStore
-	cursor    *CursorStore
-	idReg     *IDRegistry
-	conflicts *ConflictStore
-	audit     *AuditStore
+	resource    *ResourceStore
+	history     *HistoryStore
+	search      *SearchStore
+	events      *EventStore
+	cursor      *CursorStore
+	idReg       *IDRegistry
+	conflicts   *ConflictStore
+	audit       *AuditStore
+	terminology *TerminologyStore
 
 	committed  bool
 	rolledBack bool
@@ -64,18 +65,22 @@ type Session struct {
 
 func newSession(tx pgx.Tx, tenantID string) *Session {
 	return &Session{
-		tx:        tx,
-		tenantID:  tenantID,
-		resource:  newResourceStoreTx(tx, tenantID),
-		history:   newHistoryStoreTx(tx, tenantID),
-		search:    newSearchStoreTx(tx, tenantID),
-		events:    newEventStoreTx(tx, tenantID),
-		cursor:    newCursorStoreTx(tx, tenantID),
-		idReg:     newIDRegistryTx(tx, tenantID),
-		conflicts: newConflictStoreTx(tx, tenantID),
-		audit:     newAuditStoreTx(tx, tenantID),
+		tx:          tx,
+		tenantID:    tenantID,
+		resource:    newResourceStoreTx(tx, tenantID),
+		history:     newHistoryStoreTx(tx, tenantID),
+		search:      newSearchStoreTx(tx, tenantID),
+		events:      newEventStoreTx(tx, tenantID),
+		cursor:      newCursorStoreTx(tx, tenantID),
+		idReg:       newIDRegistryTx(tx, tenantID),
+		conflicts:   newConflictStoreTx(tx, tenantID),
+		audit:       newAuditStoreTx(tx, tenantID),
+		terminology: newTerminologyStore(tx, tenantID),
 	}
 }
+
+// TerminologyStore returns the transaction-scoped terminology projection store.
+func (s *Session) TerminologyStore() store.TerminologyStore { return s.terminology }
 
 // Commit commits the session transaction.
 func (s *Session) Commit(ctx context.Context) error {

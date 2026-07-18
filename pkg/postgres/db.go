@@ -66,6 +66,11 @@ func (db *DB) DefinitionStore() *DefinitionStore {
 	return newDefinitionStore(db.pool)
 }
 
+// TerminologyStore returns a terminology store scoped to the supplied tenant.
+func (db *DB) TerminologyStore(scopeID string) *TerminologyStore {
+	return newTerminologyStore(db.pool, scopeID)
+}
+
 // EnsureTenant registers a tenant row if it does not already exist.
 func (db *DB) EnsureTenant(ctx context.Context, tenantID string) error {
 	_, err := db.pool.Exec(ctx, `

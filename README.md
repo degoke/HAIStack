@@ -42,6 +42,8 @@ The stack targets **on-device, offline-first, edge, on-premise, cloud, and AI-as
 
 **Technical foundation** — canonical FHIR JSON is the source of truth. Resources flow as `ResourceEnvelope` values (version, hash, timestamps). Business rules live in `pkg/core`; persistence swaps via `pkg/store` contracts and `pkg/sqlite` / `pkg/postgres` adapters.
 
+**Terminology as projections** — `CodeSystem`, `ValueSet`, and `ConceptMap` remain ordinary FHIR resources. `pkg/terminology` compiles rebuildable, tenant-scoped projections for fast code lookup, validation, and finite ValueSet expansion. Terminology-aware validation is opt-in.
+
 ---
 
 ## Example composition
@@ -99,6 +101,12 @@ Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlit
                     │      pkg/registry       │
                     │  FHIR definition catalog│
                     └───────────┬─────────────┘
+                                │
+                    ┌───────────▼─────────────┐
+                    │    pkg/terminology       │
+                    │ lookup, validation,      │
+                    │ finite ValueSet expansion│
+                    └───────────┬─────────────┘
                                 ▼
                     ┌───────────────────────┐
                     │      pkg/store        │
@@ -123,7 +131,7 @@ Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlit
                     └───────────────────────┘
 ```
 
-**Write path:** validate (optional) → assign id/version → persist resource + history → append outbox event (optional) → update search index (optional) — all in one `WriteSession` transaction.
+**Write path:** validate (optional) → assign id/version → persist resource + history → compile terminology projection when applicable → append outbox event (optional) → update search index (optional) — all in one `WriteSession` transaction.
 
 Package-level detail lives in each `pkg/*/doc.go`.
 
@@ -143,6 +151,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-sync | `pkg/sync` | Done | Outbox, Engine push/pull, PostgresHub, inbox idempotency, conflict/job hooks |
 | haistack-search | `pkg/search` | Done | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
+| haistack-terminology | `pkg/terminology` | Done | Tenant-scoped CodeSystem lookup, ValueSet expansion, provider chain, and opt-in terminology validation |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
 | haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
@@ -216,6 +225,30 @@ created, err := svc.Create(ctx, &types.ResourceEnvelope{
     JSON:         patientJSON,
 })
 ```
+
+### Terminology lookup
+
+Terminology is available through the internal service API. Database-backed
+resource writes and module installs compile `CodeSystem` and `ValueSet`
+projections automatically; ordinary validation remains unchanged unless
+terminology checks are explicitly enabled.
+
+```go
+import "github.com/degoke/health-ai-stack/pkg/terminology"
+
+term := &terminology.LocalService{
+    Store:   db.TerminologyStore(),
+    ScopeID: "default", // use the Postgres tenant ID in server mode
+}
+
+lookup, err := term.Lookup(ctx, terminology.LookupRequest{
+    System: "http://example.org/codes", Code: "active",
+})
+```
+
+See [`pkg/terminology/README.md`](pkg/terminology/README.md) for provider
+precedence, projection rebuilding, ValueSet composition, and opt-in
+validation.
 
 ### Server runtime (Postgres)
 

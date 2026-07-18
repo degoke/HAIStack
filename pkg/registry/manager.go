@@ -2,30 +2,39 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
 const defaultFHIRVersion = "4.0.1"
 
 // Config configures a registry Manager.
 type Config struct {
-	Definitions   store.DefinitionStore
-	Installs      store.RegistryInstallStore
-	FHIRVersion   string
-	Now           func() time.Time
-	SearchReindex SearchReindexNotifier
+	Definitions      store.DefinitionStore
+	Installs         store.RegistryInstallStore
+	FHIRVersion      string
+	Now              func() time.Time
+	SearchReindex    SearchReindexNotifier
+	Terminology      store.TerminologyStore
+	TerminologyScope string
+	TerminologyCache terminology.Invalidator
 }
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
 type Manager struct {
-	definitions   store.DefinitionStore
-	installs      store.RegistryInstallStore
-	fhirVersion   string
-	now           func() time.Time
-	searchReindex SearchReindexNotifier
-	snapshot      *Snapshot
+	definitions      store.DefinitionStore
+	installs         store.RegistryInstallStore
+	fhirVersion      string
+	now              func() time.Time
+	searchReindex    SearchReindexNotifier
+	terminology      store.TerminologyStore
+	terminologyScope string
+	terminologyCache terminology.Invalidator
+	snapshot         *Snapshot
 }
 
 // NewManager constructs a registry manager from persistence stores.
@@ -44,6 +53,7 @@ func NewManager(cfg Config) *Manager {
 		fhirVersion:   fhirVersion,
 		now:           now,
 		searchReindex: cfg.SearchReindex,
+		terminology:   cfg.Terminology, terminologyScope: cfg.TerminologyScope, terminologyCache: cfg.TerminologyCache,
 	}
 }
 
@@ -69,6 +79,30 @@ func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, proven
 	return m.ingestDefinition(ctx, jsonData, provenance, true)
 }
 
+// DeleteDefinition removes a catalog entry and its terminology projection.
+func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version string) error {
+	r, err := m.definitions.Get(ctx, canonicalURL, version)
+	if err != nil {
+		return err
+	}
+	if m.terminology != nil && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
+		if err := m.terminology.DeleteProjections(ctx, m.terminologyScope, r.FHIRResourceType, canonicalURL, version); err != nil {
+			return err
+		}
+		if err := m.terminology.DeleteResource(ctx, m.terminologyScope, r.FHIRResourceType, canonicalURL, version); err != nil {
+			return err
+		}
+		if m.terminologyCache != nil {
+			if r.FHIRResourceType == "CodeSystem" {
+				m.terminologyCache.InvalidateCodeSystem(canonicalURL, version)
+			} else {
+				m.terminologyCache.InvalidateValueSet(canonicalURL, version)
+			}
+		}
+	}
+	return m.definitions.Delete(ctx, canonicalURL, version)
+}
+
 func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provenance InstallProvenance, scheduleReindex bool) error {
 	parsed, targets, err := ParseDefinition(jsonData)
 	if err != nil {
@@ -90,6 +124,25 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 	}
 	if err := m.definitions.Upsert(ctx, record, targets); err != nil {
 		return err
+	}
+	if m.terminology != nil && (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") {
+		var meta struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(jsonData, &meta); err != nil {
+			return err
+		}
+		tr := store.TerminologyResourceRecord{ScopeID: m.terminologyScope, ResourceType: parsed.FHIRResourceType, ResourceID: meta.ID, CanonicalURL: parsed.CanonicalURL, Version: parsed.Version, Status: parsed.Status, ResourceJSON: append([]byte(nil), jsonData...), SourceModule: provenance.SourceModule}
+		if err := terminology.Install(ctx, m.terminology, tr); err != nil {
+			return fmt.Errorf("compile terminology: %w", err)
+		}
+		if m.terminologyCache != nil {
+			if parsed.FHIRResourceType == "CodeSystem" {
+				m.terminologyCache.InvalidateCodeSystem(parsed.CanonicalURL, parsed.Version)
+			} else {
+				m.terminologyCache.InvalidateValueSet(parsed.CanonicalURL, parsed.Version)
+			}
+		}
 	}
 	if scheduleReindex && parsed.DefinitionKind == store.DefinitionKindSearchParameter && m.searchReindex != nil {
 		types := searchBaseResourceTypes(targets)

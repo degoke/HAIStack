@@ -61,7 +61,7 @@ func (a *RegistryApplier) InstallDefinition(ctx context.Context, jsonData []byte
 
 // DeleteDefinition removes a definition catalog entry and its target mappings.
 func (a *RegistryApplier) DeleteDefinition(ctx context.Context, canonicalURL, version string) error {
-	if err := a.defs.Delete(ctx, canonicalURL, version); err != nil {
+	if err := a.registry.DeleteDefinition(ctx, canonicalURL, version); err != nil {
 		return fmt.Errorf("delete definition %s: %w", canonicalURL, err)
 	}
 	return nil

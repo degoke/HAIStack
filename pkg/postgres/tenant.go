@@ -134,6 +134,11 @@ func (tdb *TenantDB) RegistryInstallStore() *RegistryInstallStore {
 	return newRegistryInstallStore(tdb.pool, tdb.tenantID)
 }
 
+// TerminologyStore returns a tenant-scoped terminology projection store.
+func (tdb *TenantDB) TerminologyStore() *TerminologyStore {
+	return newTerminologyStore(tdb.pool, tdb.tenantID)
+}
+
 // AuthStore returns a tenant-scoped auth persistence adapter.
 func (tdb *TenantDB) AuthStore() *AuthStore {
 	return newAuthStore(tdb.pool, tdb.tenantID)

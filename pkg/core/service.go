@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/google/uuid"
@@ -25,9 +27,13 @@ type ResourceService struct {
 	idPolicy  ResourceIDPolicy
 	codec     types.ResourceCodec
 
-	validator validate.Validator
-	indexer   search.Indexer
-	outbox    hasync.Outbox
+	validator               validate.Validator
+	indexer                 search.Indexer
+	outbox                  hasync.Outbox
+	terminology             store.TerminologyStore
+	terminologyScope        string
+	terminologySourceModule string
+	terminologyCache        terminology.Invalidator
 }
 
 // ResourceServiceConfig configures a ResourceService.
@@ -41,9 +47,13 @@ type ResourceServiceConfig struct {
 	IDPolicy  ResourceIDPolicy
 	Codec     types.ResourceCodec
 
-	Validator validate.Validator
-	Indexer   search.Indexer
-	Outbox    hasync.Outbox
+	Validator               validate.Validator
+	Indexer                 search.Indexer
+	Outbox                  hasync.Outbox
+	Terminology             store.TerminologyStore
+	TerminologyScope        string
+	TerminologySourceModule string
+	TerminologyCache        terminology.Invalidator
 }
 
 // NewResourceService constructs a ResourceService with required dependencies.
@@ -63,15 +73,22 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 	if cfg.Codec == nil {
 		cfg.Codec = types.NewJSONCodec()
 	}
+	if cfg.TerminologyScope == "" {
+		cfg.TerminologyScope = "default"
+	}
 	return &ResourceService{
-		resources: cfg.Resources,
-		history:   cfg.History,
-		sessions:  cfg.Sessions,
-		idPolicy:  cfg.IDPolicy,
-		codec:     cfg.Codec,
-		validator: cfg.Validator,
-		indexer:   cfg.Indexer,
-		outbox:    cfg.Outbox,
+		resources:               cfg.Resources,
+		history:                 cfg.History,
+		sessions:                cfg.Sessions,
+		idPolicy:                cfg.IDPolicy,
+		codec:                   cfg.Codec,
+		validator:               cfg.Validator,
+		indexer:                 cfg.Indexer,
+		outbox:                  cfg.Outbox,
+		terminology:             cfg.Terminology,
+		terminologyScope:        cfg.TerminologyScope,
+		terminologySourceModule: cfg.TerminologySourceModule,
+		terminologyCache:        cfg.TerminologyCache,
 	}, nil
 }
 
@@ -205,10 +222,17 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 	if !exists {
 		return nil, notFoundErr(fmt.Sprintf("resource not found: %s/%s", envelope.ResourceType, envelope.ID), nil)
 	}
+	previous, err := session.ResourceStore().Read(ctx, envelope.ResourceType, envelope.ID)
+	if err != nil {
+		return nil, exceptionErr("read previous resource", err)
+	}
 
 	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.removePreviousTerminology(ctx, session, previous, written); err != nil {
+		return nil, exceptionErr("replace previous terminology projection", err)
 	}
 	if err := session.Commit(ctx); err != nil {
 		return nil, exceptionErr("commit write session", err)
@@ -323,6 +347,9 @@ func (s *ResourceService) applyWrite(
 	default:
 		return nil, exceptionErr(fmt.Sprintf("unsupported write action %q", action), nil)
 	}
+	if err := s.compileTerminology(ctx, session, prepared); err != nil {
+		return nil, exceptionErr("compile terminology projection", err)
+	}
 
 	version := store.ResourceVersion{
 		ResourceType: prepared.ResourceType,
@@ -358,6 +385,9 @@ func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSe
 		}
 		return exceptionErr("delete resource", err)
 	}
+	if err := s.removeTerminology(ctx, session, current); err != nil {
+		return exceptionErr("delete terminology projection", err)
+	}
 
 	version := store.ResourceVersion{
 		ResourceType: current.ResourceType,
@@ -385,6 +415,93 @@ func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSe
 		}
 	}
 	return nil
+}
+
+func (s *ResourceService) compileTerminology(ctx context.Context, session store.WriteSession, env *types.ResourceEnvelope) error {
+	if s.terminology == nil || (env.ResourceType != "CodeSystem" && env.ResourceType != "ValueSet") {
+		return nil
+	}
+	ts, ok := session.(store.TerminologyWriteSession)
+	if !ok {
+		return nil
+	}
+	var meta struct{ ResourceType, ID, URL, Version, Status string }
+	if err := json.Unmarshal(env.JSON, &meta); err != nil {
+		return err
+	}
+	if meta.URL == "" {
+		return fmt.Errorf("terminology url is required")
+	}
+	r := store.TerminologyResourceRecord{ScopeID: s.terminologyScope, ResourceType: meta.ResourceType, ResourceID: meta.ID, CanonicalURL: meta.URL, Version: meta.Version, Status: meta.Status, ResourceJSON: append([]byte(nil), env.JSON...), SourceModule: s.terminologySourceModule}
+	if err := terminology.Install(ctx, ts.TerminologyStore(), r); err != nil {
+		return err
+	}
+	if s.terminologyCache != nil {
+		if meta.ResourceType == "CodeSystem" {
+			s.terminologyCache.InvalidateCodeSystem(meta.URL, meta.Version)
+		} else {
+			s.terminologyCache.InvalidateValueSet(meta.URL, meta.Version)
+		}
+	}
+	return nil
+}
+func (s *ResourceService) removeTerminology(ctx context.Context, session store.WriteSession, env *types.ResourceEnvelope) error {
+	if s.terminology == nil || (env.ResourceType != "CodeSystem" && env.ResourceType != "ValueSet") {
+		return nil
+	}
+	ts, ok := session.(store.TerminologyWriteSession)
+	if !ok {
+		return nil
+	}
+	var m struct{ URL, Version string }
+	if err := json.Unmarshal(env.JSON, &m); err != nil {
+		return err
+	}
+	if m.URL == "" {
+		return nil
+	}
+	if err := ts.TerminologyStore().DeleteProjections(ctx, s.terminologyScope, env.ResourceType, m.URL, m.Version); err != nil {
+		return err
+	}
+	if s.terminologyCache != nil {
+		if env.ResourceType == "CodeSystem" {
+			s.terminologyCache.InvalidateCodeSystem(m.URL, m.Version)
+		} else {
+			s.terminologyCache.InvalidateValueSet(m.URL, m.Version)
+		}
+	}
+	return ts.TerminologyStore().DeleteResource(ctx, s.terminologyScope, env.ResourceType, m.URL, m.Version)
+}
+
+func (s *ResourceService) removePreviousTerminology(ctx context.Context, session store.WriteSession, previous, current *types.ResourceEnvelope) error {
+	if s.terminology == nil || previous == nil || (previous.ResourceType != "CodeSystem" && previous.ResourceType != "ValueSet") {
+		return nil
+	}
+	var oldMeta, newMeta struct{ URL, Version string }
+	if err := json.Unmarshal(previous.JSON, &oldMeta); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(current.JSON, &newMeta); err != nil {
+		return err
+	}
+	if oldMeta.URL == newMeta.URL && oldMeta.Version == newMeta.Version {
+		return nil
+	}
+	ts, ok := session.(store.TerminologyWriteSession)
+	if !ok {
+		return nil
+	}
+	if err := ts.TerminologyStore().DeleteProjections(ctx, s.terminologyScope, previous.ResourceType, oldMeta.URL, oldMeta.Version); err != nil {
+		return err
+	}
+	if s.terminologyCache != nil {
+		if previous.ResourceType == "CodeSystem" {
+			s.terminologyCache.InvalidateCodeSystem(oldMeta.URL, oldMeta.Version)
+		} else {
+			s.terminologyCache.InvalidateValueSet(oldMeta.URL, oldMeta.Version)
+		}
+	}
+	return ts.TerminologyStore().DeleteResource(ctx, s.terminologyScope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
 }
 
 func (s *ResourceService) withVersionMeta(envelope *types.ResourceEnvelope, versionID string, now time.Time) (*types.ResourceEnvelope, error) {

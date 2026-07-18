@@ -13,6 +13,9 @@ type DefinitionKind string
 const (
 	DefinitionKindStructureDefinition DefinitionKind = "structure-definition"
 	DefinitionKindSearchParameter     DefinitionKind = "search-parameter"
+	DefinitionKindCodeSystem          DefinitionKind = "code-system"
+	DefinitionKindValueSet            DefinitionKind = "value-set"
+	DefinitionKindConceptMap          DefinitionKind = "concept-map"
 )
 
 // DefinitionKindFromResourceType maps a FHIR definition resource type to a catalog kind slug.
@@ -23,6 +26,12 @@ func DefinitionKindFromResourceType(resourceType string) DefinitionKind {
 		return DefinitionKindStructureDefinition
 	case "SearchParameter":
 		return DefinitionKindSearchParameter
+	case "CodeSystem":
+		return DefinitionKindCodeSystem
+	case "ValueSet":
+		return DefinitionKindValueSet
+	case "ConceptMap":
+		return DefinitionKindConceptMap
 	default:
 		return DefinitionKind(camelToKebab(resourceType))
 	}
