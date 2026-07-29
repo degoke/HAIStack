@@ -65,15 +65,15 @@ func TestMigrationCreatesSchema(t *testing.T) {
 	db := openTestDB(t, tempDBPath(t))
 
 	tables := []string{
-		"resource", "resource_history",
-		"search_token", "search_string", "search_date", "search_number", "search_reference",
-		"sync_outbox", "sync_inbox_applied", "sync_cursor", "sync_conflict",
-		"binary_object", "module_registry",
-		"blob_manifest", "blob_chunk", "blob_binary_link",
-		"blob_document_link", "blob_sync_status", "blob_transfer_session",
-		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
-		"definition_resource", "definition_target", "registry_install",
-		"schema_migrations",
+		"hai_resource", "hai_resource_history",
+		"hai_search_token", "hai_search_string", "hai_search_date", "hai_search_number", "hai_search_reference",
+		"hai_sync_outbox", "hai_sync_inbox_applied", "hai_sync_cursor", "hai_sync_conflict",
+		"hai_binary_object", "hai_module_registry",
+		"hai_blob_manifest", "hai_blob_chunk", "hai_blob_binary_link",
+		"hai_blob_document_link", "hai_blob_sync_status", "hai_blob_transfer_session",
+		"hai_auth_principal", "hai_auth_role", "hai_auth_tenant_binding", "hai_auth_device_identity", "hai_auth_policy_document",
+		"hai_definition_resource", "hai_definition_target", "hai_registry_install",
+		"hai_schema_migrations",
 	}
 	for _, table := range tables {
 		var name string
@@ -318,7 +318,7 @@ func TestAuthStoreCorruptPrincipalAttributesFailsRead(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertPrincipal: %v", err)
 	}
-	if _, err := db.SQL().ExecContext(ctx, `UPDATE auth_principal SET attributes = ? WHERE id = ?`, []byte(`{`), "user-1"); err != nil {
+	if _, err := db.SQL().ExecContext(ctx, `UPDATE hai_auth_principal SET attributes = ? WHERE id = ?`, []byte(`{`), "user-1"); err != nil {
 		t.Fatalf("corrupt principal attributes: %v", err)
 	}
 

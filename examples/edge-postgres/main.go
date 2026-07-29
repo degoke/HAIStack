@@ -26,7 +26,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer func() { _ = cleanup() }()
 
 	tenantID := fmt.Sprintf("edge-example-%d", time.Now().UnixNano())
 	rt, err := runtime.New().
@@ -38,7 +38,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer appkit.ShutdownRuntime(ctx, rt)
+	defer func() { _ = appkit.ShutdownRuntime(ctx, rt) }()
 
 	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("Patricia", "Bath", "+1-555-0140"))
 	if err != nil {
@@ -73,7 +73,7 @@ func get(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, body)

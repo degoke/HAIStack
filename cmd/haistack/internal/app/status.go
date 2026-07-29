@@ -59,7 +59,7 @@ type SQLiteStatusReader struct {
 
 func (r SQLiteStatusReader) GetCursor(ctx context.Context, name string) (string, bool, error) {
 	var position sql.NullString
-	err := r.DB.QueryRowContext(ctx, `SELECT position FROM sync_cursor WHERE name = ?`, name).Scan(&position)
+	err := r.DB.QueryRowContext(ctx, `SELECT position FROM hai_sync_cursor WHERE name = ?`, name).Scan(&position)
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}
@@ -75,7 +75,7 @@ func (r SQLiteStatusReader) GetCursor(ctx context.Context, name string) (string,
 func (r SQLiteStatusReader) CountPendingJobs(ctx context.Context, jobType string) (int, error) {
 	var count int
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM background_job
+		SELECT COUNT(*) FROM hai_background_job
 		WHERE type = ? AND status = 'pending'`, jobType).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count pending jobs: %w", err)
@@ -86,7 +86,7 @@ func (r SQLiteStatusReader) CountPendingJobs(ctx context.Context, jobType string
 func (r SQLiteStatusReader) CountUnresolvedConflicts(ctx context.Context) (int, error) {
 	var count int
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM sync_conflict WHERE resolved_at IS NULL`).Scan(&count)
+		SELECT COUNT(*) FROM hai_sync_conflict WHERE resolved_at IS NULL`).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count unresolved conflicts: %w", err)
 	}
@@ -102,7 +102,7 @@ type PostgresStatusReader struct {
 func (r PostgresStatusReader) GetCursor(ctx context.Context, name string) (string, bool, error) {
 	var position *string
 	err := r.Pool.QueryRow(ctx, `
-		SELECT position FROM sync_cursor WHERE tenant_id = $1 AND name = $2`,
+		SELECT position FROM hai_sync_cursor WHERE tenant_id = $1 AND name = $2`,
 		r.TenantID, name).Scan(&position)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
@@ -119,7 +119,7 @@ func (r PostgresStatusReader) GetCursor(ctx context.Context, name string) (strin
 func (r PostgresStatusReader) CountPendingJobs(ctx context.Context, jobType string) (int, error) {
 	var count int
 	err := r.Pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM background_job
+		SELECT COUNT(*) FROM hai_background_job
 		WHERE tenant_id = $1 AND type = $2 AND status = 'pending'`,
 		r.TenantID, jobType).Scan(&count)
 	if err != nil {
@@ -131,7 +131,7 @@ func (r PostgresStatusReader) CountPendingJobs(ctx context.Context, jobType stri
 func (r PostgresStatusReader) CountUnresolvedConflicts(ctx context.Context) (int, error) {
 	var count int
 	err := r.Pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM sync_conflict
+		SELECT COUNT(*) FROM hai_sync_conflict
 		WHERE tenant_id = $1 AND resolved_at IS NULL`, r.TenantID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count unresolved conflicts: %w", err)

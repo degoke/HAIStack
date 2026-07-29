@@ -22,11 +22,11 @@ type searchExec interface {
 type searchTable string
 
 const (
-	searchTableToken     searchTable = "search_token"
-	searchTableString    searchTable = "search_string"
-	searchTableDate      searchTable = "search_date"
-	searchTableNumber    searchTable = "search_number"
-	searchTableReference searchTable = "search_reference"
+	searchTableToken     searchTable = "hai_search_token"
+	searchTableString    searchTable = "hai_search_string"
+	searchTableDate      searchTable = "hai_search_date"
+	searchTableNumber    searchTable = "hai_search_number"
+	searchTableReference searchTable = "hai_search_reference"
 )
 
 func newSearchStore(db *sql.DB) *SearchStore {

@@ -65,21 +65,6 @@ func fromStoreRecord(rec store.SubscriptionRecord) (SubscriptionRecord, error) {
 	}, nil
 }
 
-func fromStoreDelivery(rec store.DeliveryRecord) DeliveryRecord {
-	return DeliveryRecord{
-		ID:             rec.ID,
-		SubscriptionID: rec.SubscriptionID,
-		EventSequence:  rec.EventSequence,
-		Attempt:        rec.Attempt,
-		Status:         rec.Status,
-		ResponseStatus: rec.ResponseStatus,
-		ResponseBody:   rec.ResponseBody,
-		ErrorMessage:   rec.ErrorMessage,
-		CreatedAt:      rec.CreatedAt,
-		UpdatedAt:      rec.UpdatedAt,
-	}
-}
-
 func toStoreDelivery(rec DeliveryRecord) store.DeliveryRecord {
 	return store.DeliveryRecord{
 		ID:             rec.ID,
@@ -104,9 +89,7 @@ func validateTrigger(t Trigger) error {
 	default:
 		return fmt.Errorf("%w: unsupported event %q", ErrInvalidTrigger, t.Event)
 	}
-	if t.Event == TriggerEventUpdate && len(t.ChangedFields) == 0 && t.FilterFHIRPath == "" {
-		// update without field filter matches any update on resource type
-	}
+	// Update without field filter matches any update on resource type.
 	return nil
 }
 

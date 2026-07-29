@@ -9,9 +9,9 @@ import (
 
 func newModuleCommand(opts *Options, printer *app.Printer) *cobra.Command {
 	installCmd := &cobra.Command{
-		Use:   "install <path>",
-		Short: "Install a module from a local directory",
-		Args:  cobra.ExactArgs(1),
+		Use:     "install <path>",
+		Short:   "Install a module from a local directory",
+		Args:    cobra.ExactArgs(1),
 		Example: `  haistack module install modules/core`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.loadConfig()

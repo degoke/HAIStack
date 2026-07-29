@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS auth_principal (
+CREATE TABLE IF NOT EXISTS hai_auth_principal (
     id           TEXT PRIMARY KEY,
     kind         TEXT NOT NULL,
     display_name TEXT,
@@ -7,27 +7,27 @@ CREATE TABLE IF NOT EXISTS auth_principal (
     updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS auth_role (
+CREATE TABLE IF NOT EXISTS hai_auth_role (
     name        TEXT PRIMARY KEY,
     permissions TEXT NOT NULL DEFAULT '[]',
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS auth_tenant_binding (
+CREATE TABLE IF NOT EXISTS hai_auth_tenant_binding (
     tenant_id    TEXT NOT NULL,
     principal_id TEXT NOT NULL,
     roles        TEXT NOT NULL DEFAULT '[]',
     created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (tenant_id, principal_id),
-    FOREIGN KEY (principal_id) REFERENCES auth_principal (id) ON DELETE CASCADE
+    FOREIGN KEY (principal_id) REFERENCES hai_auth_principal (id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_tenant_binding_principal
-    ON auth_tenant_binding (principal_id, tenant_id);
+    ON hai_auth_tenant_binding (principal_id, tenant_id);
 
-CREATE TABLE IF NOT EXISTS auth_device_identity (
+CREATE TABLE IF NOT EXISTS hai_auth_device_identity (
     tenant_id           TEXT NOT NULL,
     device_id           TEXT NOT NULL,
     status              TEXT NOT NULL,
@@ -37,13 +37,13 @@ CREATE TABLE IF NOT EXISTS auth_device_identity (
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (tenant_id, device_id),
-    FOREIGN KEY (linked_principal_id) REFERENCES auth_principal (id) ON DELETE SET NULL
+    FOREIGN KEY (linked_principal_id) REFERENCES hai_auth_principal (id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_device_linked_principal
-    ON auth_device_identity (linked_principal_id);
+    ON hai_auth_device_identity (linked_principal_id);
 
-CREATE TABLE IF NOT EXISTS auth_policy_document (
+CREATE TABLE IF NOT EXISTS hai_auth_policy_document (
     tenant_id   TEXT NOT NULL,
     name        TEXT NOT NULL,
     format      TEXT NOT NULL,
@@ -56,4 +56,4 @@ CREATE TABLE IF NOT EXISTS auth_policy_document (
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_policy_active
-    ON auth_policy_document (tenant_id, active, updated_at);
+    ON hai_auth_policy_document (tenant_id, active, updated_at);

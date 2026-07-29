@@ -19,16 +19,12 @@ func newSubscriptionDeliveryStore(pool *pgxpool.Pool, tenantID string) *Subscrip
 	return &SubscriptionDeliveryStore{exec: pool, tenantID: tenantID}
 }
 
-func newSubscriptionDeliveryStoreTx(tx querier, tenantID string) *SubscriptionDeliveryStore {
-	return &SubscriptionDeliveryStore{exec: tx, tenantID: tenantID}
-}
-
 var _ store.SubscriptionDeliveryStore = (*SubscriptionDeliveryStore)(nil)
 
 // Append implements store.SubscriptionDeliveryStore.
 func (s *SubscriptionDeliveryStore) Append(ctx context.Context, record store.DeliveryRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO subscription_delivery_log (
+		INSERT INTO hai_subscription_delivery_log (
 			id, tenant_id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -45,7 +41,7 @@ func (s *SubscriptionDeliveryStore) Append(ctx context.Context, record store.Del
 // Update implements store.SubscriptionDeliveryStore.
 func (s *SubscriptionDeliveryStore) Update(ctx context.Context, record store.DeliveryRecord) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE subscription_delivery_log
+		UPDATE hai_subscription_delivery_log
 		SET status = $1, response_status = $2, response_body = $3, error_message = $4, updated_at = $5
 		WHERE tenant_id = $6 AND id = $7`,
 		string(record.Status), nullDeliveryInt32(record.ResponseStatus), nullString(record.ResponseBody),
@@ -65,7 +61,7 @@ func (s *SubscriptionDeliveryStore) Get(ctx context.Context, id string) (*store.
 	row := s.exec.QueryRow(ctx, `
 		SELECT id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
-		FROM subscription_delivery_log
+		FROM hai_subscription_delivery_log
 		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id)
 	rec, err := scanDelivery(row)
 	if isNoRows(err) {
@@ -95,13 +91,12 @@ func (s *SubscriptionDeliveryStore) List(ctx context.Context, query store.Delive
 	if query.EventSequence > 0 {
 		clauses = append(clauses, fmt.Sprintf("event_sequence = $%d", argN))
 		args = append(args, query.EventSequence)
-		argN++
 	}
 	where := strings.Join(clauses, " AND ")
 	sqlQuery := fmt.Sprintf(`
 		SELECT id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
-		FROM subscription_delivery_log
+		FROM hai_subscription_delivery_log
 		WHERE %s
 		ORDER BY created_at ASC`, where)
 	if query.Limit > 0 {

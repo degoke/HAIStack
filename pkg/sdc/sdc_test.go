@@ -87,10 +87,13 @@ func TestSDCModuleLoadsThroughInstallerLoader(t *testing.T) {
 
 func TestEnvelopeFirstResourceBoundary(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{{LinkID: "x", Type: "string"}})
-	env, e := ProjectionEnvelope(q)
-	env, e = QuestionnaireResource(env)
-	if e != nil {
-		t.Fatal(e)
+	env, err := ProjectionEnvelope(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err = QuestionnaireResource(env)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if env.ResourceType != "Questionnaire" {
 		t.Fatalf("resource type=%q", env.ResourceType)

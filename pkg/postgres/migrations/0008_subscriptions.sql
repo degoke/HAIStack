@@ -1,6 +1,6 @@
 -- Subscription registry and delivery log for event-driven notifications.
 
-CREATE TABLE IF NOT EXISTS subscription_registry (
+CREATE TABLE IF NOT EXISTS hai_subscription_registry (
     id            TEXT PRIMARY KEY,
     tenant_id     TEXT NOT NULL,
     name          TEXT NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS subscription_registry (
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscription_registry_match
-    ON subscription_registry (tenant_id, status, resource_type, event_kind);
+    ON hai_subscription_registry (tenant_id, status, resource_type, event_kind);
 
-CREATE TABLE IF NOT EXISTS subscription_delivery_log (
+CREATE TABLE IF NOT EXISTS hai_subscription_delivery_log (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL,
     subscription_id TEXT NOT NULL,
@@ -33,4 +33,4 @@ CREATE TABLE IF NOT EXISTS subscription_delivery_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscription_delivery_sub
-    ON subscription_delivery_log (tenant_id, subscription_id, event_sequence);
+    ON hai_subscription_delivery_log (tenant_id, subscription_id, event_sequence);

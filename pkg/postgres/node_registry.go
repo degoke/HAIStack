@@ -26,7 +26,7 @@ func (s *NodeRegistry) Register(ctx context.Context, node store.NodeRecord) erro
 		return fmt.Errorf("marshal node metadata: %w", err)
 	}
 	_, err = s.exec.Exec(ctx, `
-		INSERT INTO node_registry (tenant_id, node_id, metadata, registered_at)
+		INSERT INTO hai_node_registry (tenant_id, node_id, metadata, registered_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id, node_id) DO UPDATE SET
 			metadata = EXCLUDED.metadata,
@@ -47,7 +47,7 @@ func (s *NodeRegistry) Get(ctx context.Context, nodeID string) (*store.NodeRecor
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT node_id, metadata, registered_at
-		FROM node_registry
+		FROM hai_node_registry
 		WHERE tenant_id = $1 AND node_id = $2`, s.tenantID, nodeID,
 	).Scan(&record.NodeID, &metadata, &registered)
 	if isNoRows(err) {
@@ -66,7 +66,7 @@ func (s *NodeRegistry) Get(ctx context.Context, nodeID string) (*store.NodeRecor
 func (s *NodeRegistry) List(ctx context.Context) ([]store.NodeRecord, error) {
 	rows, err := s.exec.Query(ctx, `
 		SELECT node_id, metadata, registered_at
-		FROM node_registry
+		FROM hai_node_registry
 		WHERE tenant_id = $1
 		ORDER BY node_id ASC`, s.tenantID)
 	if err != nil {
@@ -98,7 +98,7 @@ func (s *NodeRegistry) List(ctx context.Context) ([]store.NodeRecord, error) {
 
 func (s *NodeRegistry) Unregister(ctx context.Context, nodeID string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM node_registry WHERE tenant_id = $1 AND node_id = $2`, s.tenantID, nodeID)
+		DELETE FROM hai_node_registry WHERE tenant_id = $1 AND node_id = $2`, s.tenantID, nodeID)
 	if err != nil {
 		return fmt.Errorf("unregister node: %w", err)
 	}

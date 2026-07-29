@@ -74,12 +74,12 @@ func dockerAvailable() bool {
 	return exec.CommandContext(ctx, "docker", "info").Run() == nil
 }
 
-func openTestDB(t *testing.T) (*postgres.DB, func()) {
+func openTestDB(t *testing.T, opts ...postgres.Option) (*postgres.DB, func()) {
 	t.Helper()
 	ctx := context.Background()
 
 	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
-		db, err := postgres.Open(ctx, dsn)
+		db, err := postgres.Open(ctx, dsn, opts...)
 		if err != nil {
 			t.Fatalf("Open TEST_POSTGRES_DSN: %v", err)
 		}
@@ -111,7 +111,7 @@ func openTestDB(t *testing.T) (*postgres.DB, func()) {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	db, err := postgres.Open(ctx, dsn)
+	db, err := postgres.Open(ctx, dsn, opts...)
 	if err != nil {
 		_ = container.Terminate(ctx)
 		t.Fatalf("Open: %v", err)
@@ -142,21 +142,38 @@ func TestMigrationCreatesSchema(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
 
+	assertTablesInSchema(t, db, db.Schema())
+}
+
+func TestMigrationCustomSchema(t *testing.T) {
+	schema := fmt.Sprintf("haistack_%d", time.Now().UnixNano())
+	db, cleanup := openTestDB(t, postgres.WithSchema(schema))
+	defer cleanup()
+
+	if db.Schema() != schema {
+		t.Fatalf("Schema() = %q, want %q", db.Schema(), schema)
+	}
+	assertTablesInSchema(t, db, schema)
+}
+
+func assertTablesInSchema(t *testing.T, db *postgres.DB, schema string) {
+	t.Helper()
+
 	tables := []string{
-		"tenant", "resource", "resource_history", "event_log",
-		"resource_id_registry", "node_registry", "sync_conflict",
-		"search_token", "search_string", "search_date", "search_number", "search_reference",
-		"search_text", "search_composite",
-		"sync_cursor", "sync_inbox_applied", "binary_object", "audit_log", "module_registry",
-		"auth_principal", "auth_role", "auth_tenant_binding", "auth_device_identity", "auth_policy_document",
-		"materialized_view", "analytics_reporting_meta", "analytics_reporting_row",
-		"analytics_event", "background_job", "schema_migrations",
+		"hai_tenant", "hai_resource", "hai_resource_history", "hai_event_log",
+		"hai_resource_id_registry", "hai_node_registry", "hai_sync_conflict",
+		"hai_search_token", "hai_search_string", "hai_search_date", "hai_search_number", "hai_search_reference",
+		"hai_search_text", "hai_search_composite",
+		"hai_sync_cursor", "hai_sync_inbox_applied", "hai_binary_object", "hai_audit_log", "hai_module_registry",
+		"hai_auth_principal", "hai_auth_role", "hai_auth_tenant_binding", "hai_auth_device_identity", "hai_auth_policy_document",
+		"hai_materialized_view", "hai_analytics_reporting_meta", "hai_analytics_reporting_row",
+		"hai_analytics_event", "hai_background_job", "hai_schema_migrations",
 	}
 	ctx := context.Background()
 	for _, table := range tables {
 		var name string
 		err := db.Pool().QueryRow(ctx, `
-			SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = $1`, table,
+			SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = $2`, schema, table,
 		).Scan(&name)
 		if err != nil {
 			t.Fatalf("table %q missing: %v", table, err)
@@ -362,7 +379,7 @@ func TestAuthStoreCorruptPrincipalAttributesFailsRead(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertPrincipal: %v", err)
 	}
-	if _, err := db.Pool().Exec(ctx, `UPDATE auth_principal SET attributes = $1 WHERE id = $2`, []byte(`[]`), "user-1"); err != nil {
+	if _, err := db.Pool().Exec(ctx, `UPDATE hai_auth_principal SET attributes = $1 WHERE id = $2`, []byte(`[]`), "user-1"); err != nil {
 		t.Fatalf("corrupt principal attributes: %v", err)
 	}
 

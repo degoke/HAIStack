@@ -30,7 +30,7 @@ func (s *AuditStore) Append(ctx context.Context, record store.AuditRecord) error
 		return fmt.Errorf("marshal audit details: %w", err)
 	}
 	_, err = s.exec.Exec(ctx, `
-		INSERT INTO audit_log (
+		INSERT INTO hai_audit_log (
 			id, tenant_id, timestamp, actor, action, resource_type, resource_id, outcome, details
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		record.ID,
@@ -87,7 +87,7 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 
 	sql := fmt.Sprintf(`
 		SELECT id, timestamp, actor, action, resource_type, resource_id, outcome, details
-		FROM audit_log
+		FROM hai_audit_log
 		WHERE %s
 		ORDER BY timestamp ASC`, strings.Join(clauses, " AND "))
 	if query.Limit > 0 {

@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -51,11 +50,4 @@ func resourceHeaders(basePath string, envelope *types.ResourceEnvelope) map[stri
 		headers["Location"] = locationURL(basePath, envelope.ResourceType, envelope.ID)
 	}
 	return headers
-}
-
-func formatLastModified(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(http.TimeFormat)
 }

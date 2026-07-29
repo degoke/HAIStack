@@ -49,7 +49,7 @@ func (s *BlobMetadataStore) PutManifest(ctx context.Context, manifest binary.Blo
 		retainUntil = &manifest.Descriptor.Retention.RetainUntil
 	}
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_manifest (
+		INSERT INTO hai_blob_manifest (
 			tenant_id, blob_id, sha256, size, content_type, backend_kind, storage_ref,
 			chunk_size, chunk_count, created_at, finalized_at,
 			encryption_algorithm, encryption_key_id, encryption_nonce,
@@ -99,7 +99,7 @@ func (s *BlobMetadataStore) GetManifest(ctx context.Context, blobID string) (*bi
 			chunk_size, chunk_count, created_at, finalized_at,
 			encryption_algorithm, encryption_key_id, encryption_nonce,
 			retention_mode, retain_until
-		FROM blob_manifest WHERE tenant_id = $1 AND blob_id = $2`, blobID)
+		FROM hai_blob_manifest WHERE tenant_id = $1 AND blob_id = $2`, blobID)
 }
 
 func (s *BlobMetadataStore) GetManifestByHash(ctx context.Context, sha256 string) (*binary.BlobManifest, error) {
@@ -108,12 +108,12 @@ func (s *BlobMetadataStore) GetManifestByHash(ctx context.Context, sha256 string
 			chunk_size, chunk_count, created_at, finalized_at,
 			encryption_algorithm, encryption_key_id, encryption_nonce,
 			retention_mode, retain_until
-		FROM blob_manifest WHERE tenant_id = $1 AND sha256 = $2 LIMIT 1`, sha256)
+		FROM hai_blob_manifest WHERE tenant_id = $1 AND sha256 = $2 LIMIT 1`, sha256)
 }
 
 func (s *BlobMetadataStore) DeleteManifest(ctx context.Context, blobID string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_manifest WHERE tenant_id = $1 AND blob_id = $2`,
+		DELETE FROM hai_blob_manifest WHERE tenant_id = $1 AND blob_id = $2`,
 		s.tenantID, blobID,
 	)
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *BlobMetadataStore) DeleteManifest(ctx context.Context, blobID string) e
 
 func (s *BlobMetadataStore) PutBinaryLink(ctx context.Context, link binary.BinaryLink) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_binary_link (tenant_id, resource_id, blob_id, created_at)
+		INSERT INTO hai_blob_binary_link (tenant_id, resource_id, blob_id, created_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id, resource_id) DO UPDATE SET
 			blob_id = EXCLUDED.blob_id,
@@ -144,7 +144,7 @@ func (s *BlobMetadataStore) GetBinaryLink(ctx context.Context, resourceID string
 	var link binary.BinaryLink
 	err := s.exec.QueryRow(ctx, `
 		SELECT resource_id, blob_id, created_at
-		FROM blob_binary_link WHERE tenant_id = $1 AND resource_id = $2`,
+		FROM hai_blob_binary_link WHERE tenant_id = $1 AND resource_id = $2`,
 		s.tenantID, resourceID,
 	).Scan(&link.ResourceID, &link.BlobID, &link.CreatedAt)
 	if isNoRows(err) {
@@ -158,7 +158,7 @@ func (s *BlobMetadataStore) GetBinaryLink(ctx context.Context, resourceID string
 
 func (s *BlobMetadataStore) DeleteBinaryLink(ctx context.Context, resourceID string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_binary_link WHERE tenant_id = $1 AND resource_id = $2`,
+		DELETE FROM hai_blob_binary_link WHERE tenant_id = $1 AND resource_id = $2`,
 		s.tenantID, resourceID,
 	)
 	if err != nil {
@@ -172,7 +172,7 @@ func (s *BlobMetadataStore) DeleteBinaryLink(ctx context.Context, resourceID str
 
 func (s *BlobMetadataStore) PutDocumentLink(ctx context.Context, link binary.DocumentAttachmentLink) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_document_link (tenant_id, document_id, content_index, blob_id, created_at)
+		INSERT INTO hai_blob_document_link (tenant_id, document_id, content_index, blob_id, created_at)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (tenant_id, document_id, content_index) DO UPDATE SET
 			blob_id = EXCLUDED.blob_id,
@@ -189,7 +189,7 @@ func (s *BlobMetadataStore) GetDocumentLink(ctx context.Context, documentID stri
 	var link binary.DocumentAttachmentLink
 	err := s.exec.QueryRow(ctx, `
 		SELECT document_id, content_index, blob_id, created_at
-		FROM blob_document_link
+		FROM hai_blob_document_link
 		WHERE tenant_id = $1 AND document_id = $2 AND content_index = $3`,
 		s.tenantID, documentID, contentIndex,
 	).Scan(&link.DocumentID, &link.ContentIndex, &link.BlobID, &link.CreatedAt)
@@ -204,7 +204,7 @@ func (s *BlobMetadataStore) GetDocumentLink(ctx context.Context, documentID stri
 
 func (s *BlobMetadataStore) DeleteDocumentLink(ctx context.Context, documentID string, contentIndex int) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_document_link
+		DELETE FROM hai_blob_document_link
 		WHERE tenant_id = $1 AND document_id = $2 AND content_index = $3`,
 		s.tenantID, documentID, contentIndex,
 	)
@@ -220,7 +220,7 @@ func (s *BlobMetadataStore) DeleteDocumentLink(ctx context.Context, documentID s
 func (s *BlobMetadataStore) PutSyncStatus(ctx context.Context, blobID string, status binary.BlobSyncStatus) error {
 	now := time.Now().UTC()
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_sync_status (tenant_id, blob_id, status, updated_at)
+		INSERT INTO hai_blob_sync_status (tenant_id, blob_id, status, updated_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id, blob_id) DO UPDATE SET
 			status = EXCLUDED.status,
@@ -236,7 +236,7 @@ func (s *BlobMetadataStore) PutSyncStatus(ctx context.Context, blobID string, st
 func (s *BlobMetadataStore) GetSyncStatus(ctx context.Context, blobID string) (binary.BlobSyncStatus, error) {
 	var status string
 	err := s.exec.QueryRow(ctx, `
-		SELECT status FROM blob_sync_status WHERE tenant_id = $1 AND blob_id = $2`,
+		SELECT status FROM hai_blob_sync_status WHERE tenant_id = $1 AND blob_id = $2`,
 		s.tenantID, blobID,
 	).Scan(&status)
 	if isNoRows(err) {
@@ -250,7 +250,7 @@ func (s *BlobMetadataStore) GetSyncStatus(ctx context.Context, blobID string) (b
 
 func (s *BlobMetadataStore) DeleteSyncStatus(ctx context.Context, blobID string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_sync_status WHERE tenant_id = $1 AND blob_id = $2`,
+		DELETE FROM hai_blob_sync_status WHERE tenant_id = $1 AND blob_id = $2`,
 		s.tenantID, blobID,
 	)
 	if err != nil {
@@ -264,7 +264,7 @@ func (s *BlobMetadataStore) DeleteSyncStatus(ctx context.Context, blobID string)
 
 func (s *BlobMetadataStore) CreateUploadSession(ctx context.Context, session binary.UploadSession) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_transfer_session (
+		INSERT INTO hai_blob_transfer_session (
 			tenant_id, session_id, session_kind, blob_id, sha256, size, content_type,
 			chunk_size, transferred_bytes, transferred_chunks, expected_chunks,
 			status, created_at, updated_at,
@@ -298,7 +298,7 @@ func (s *BlobMetadataStore) GetUploadSession(ctx context.Context, id string) (*b
 		SELECT session_id, blob_id, sha256, size, content_type, chunk_size,
 			transferred_bytes, transferred_chunks, expected_chunks, status, created_at, updated_at,
 			encryption_algorithm, encryption_key_id, encryption_nonce, retention_mode, retain_until
-		FROM blob_transfer_session
+		FROM hai_blob_transfer_session
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $3`,
 		s.tenantID, id, string(binary.TransferUpload),
 	).Scan(
@@ -328,7 +328,7 @@ func (s *BlobMetadataStore) GetUploadSession(ctx context.Context, id string) (*b
 
 func (s *BlobMetadataStore) UpdateUploadSession(ctx context.Context, session binary.UploadSession) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE blob_transfer_session SET
+		UPDATE hai_blob_transfer_session SET
 			blob_id = $3, sha256 = $4, size = $5, content_type = $6,
 			chunk_size = $7, transferred_bytes = $8, transferred_chunks = $9,
 			expected_chunks = $10, status = $11, updated_at = $12,
@@ -357,7 +357,7 @@ func (s *BlobMetadataStore) UpdateUploadSession(ctx context.Context, session bin
 
 func (s *BlobMetadataStore) DeleteUploadSession(ctx context.Context, id string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_transfer_session
+		DELETE FROM hai_blob_transfer_session
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $3`,
 		s.tenantID, id, string(binary.TransferUpload),
 	)
@@ -372,7 +372,7 @@ func (s *BlobMetadataStore) DeleteUploadSession(ctx context.Context, id string) 
 
 func (s *BlobMetadataStore) CreateDownloadSession(ctx context.Context, session binary.DownloadSession) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_transfer_session (
+		INSERT INTO hai_blob_transfer_session (
 			tenant_id, session_id, session_kind, blob_id, chunk_size,
 			transferred_bytes, transferred_chunks, total_chunks,
 			status, created_at, updated_at
@@ -394,7 +394,7 @@ func (s *BlobMetadataStore) GetDownloadSession(ctx context.Context, id string) (
 	err := s.exec.QueryRow(ctx, `
 		SELECT session_id, blob_id, chunk_size, transferred_bytes, transferred_chunks,
 			total_chunks, status, created_at, updated_at
-		FROM blob_transfer_session
+		FROM hai_blob_transfer_session
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $3`,
 		s.tenantID, id, string(binary.TransferDownload),
 	).Scan(
@@ -416,7 +416,7 @@ func (s *BlobMetadataStore) GetDownloadSession(ctx context.Context, id string) (
 
 func (s *BlobMetadataStore) UpdateDownloadSession(ctx context.Context, session binary.DownloadSession) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE blob_transfer_session SET
+		UPDATE hai_blob_transfer_session SET
 			blob_id = $3, chunk_size = $4, transferred_bytes = $5, transferred_chunks = $6,
 			total_chunks = $7, status = $8, updated_at = $9
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $10`,
@@ -435,7 +435,7 @@ func (s *BlobMetadataStore) UpdateDownloadSession(ctx context.Context, session b
 
 func (s *BlobMetadataStore) DeleteDownloadSession(ctx context.Context, id string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_transfer_session
+		DELETE FROM hai_blob_transfer_session
 		WHERE tenant_id = $1 AND session_id = $2 AND session_kind = $3`,
 		s.tenantID, id, string(binary.TransferDownload),
 	)

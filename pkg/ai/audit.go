@@ -2,8 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/audit"
@@ -57,18 +55,4 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 		Details:        rec.Details,
 		Timestamp:      rec.Timestamp,
 	})
-}
-
-func auditDetailString(v any) string {
-	if v == nil {
-		return "null"
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Sprintf("%v", v)
-	}
-	return string(data)
 }

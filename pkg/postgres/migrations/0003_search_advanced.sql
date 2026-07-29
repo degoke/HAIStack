@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS search_text (
+CREATE TABLE IF NOT EXISTS hai_search_text (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS search_text (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_text_fts
-    ON search_text USING GIN (tsvector);
+    ON hai_search_text USING GIN (tsvector);
 
-CREATE TABLE IF NOT EXISTS search_composite (
+CREATE TABLE IF NOT EXISTS hai_search_composite (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -21,4 +21,4 @@ CREATE TABLE IF NOT EXISTS search_composite (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_composite_lookup
-    ON search_composite (tenant_id, resource_type, field_key, value);
+    ON hai_search_composite (tenant_id, resource_type, field_key, value);

@@ -22,7 +22,7 @@ var _ store.SubscriptionDeliveryStore = (*SubscriptionDeliveryStore)(nil)
 // Append implements store.SubscriptionDeliveryStore.
 func (s *SubscriptionDeliveryStore) Append(ctx context.Context, record store.DeliveryRecord) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO subscription_delivery_log (
+		INSERT INTO hai_subscription_delivery_log (
 			id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -39,7 +39,7 @@ func (s *SubscriptionDeliveryStore) Append(ctx context.Context, record store.Del
 // Update implements store.SubscriptionDeliveryStore.
 func (s *SubscriptionDeliveryStore) Update(ctx context.Context, record store.DeliveryRecord) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE subscription_delivery_log
+		UPDATE hai_subscription_delivery_log
 		SET status = ?, response_status = ?, response_body = ?, error_message = ?, updated_at = ?
 		WHERE id = ?`,
 		string(record.Status), nullIntArg(record.ResponseStatus), nullString(record.ResponseBody),
@@ -63,7 +63,7 @@ func (s *SubscriptionDeliveryStore) Get(ctx context.Context, id string) (*store.
 	rec, err := scanDelivery(s.db.QueryRowContext(ctx, `
 		SELECT id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
-		FROM subscription_delivery_log WHERE id = ?`, id))
+		FROM hai_subscription_delivery_log WHERE id = ?`, id))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("delivery not found: %s", id)
 	}
@@ -98,7 +98,7 @@ func (s *SubscriptionDeliveryStore) List(ctx context.Context, query store.Delive
 	sqlQuery := fmt.Sprintf(`
 		SELECT id, subscription_id, event_sequence, attempt, status,
 			response_status, response_body, error_message, created_at, updated_at
-		FROM subscription_delivery_log
+		FROM hai_subscription_delivery_log
 		WHERE %s
 		ORDER BY created_at ASC`, where)
 	if query.Limit > 0 {

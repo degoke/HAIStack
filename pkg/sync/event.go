@@ -11,9 +11,9 @@ import (
 type EventType string
 
 const (
-	EventTypeResourceCreated   EventType = "resource.created"
-	EventTypeResourceUpdated   EventType = "resource.updated"
-	EventTypeResourceDeleted   EventType = "resource.deleted"
+	EventTypeResourceCreated    EventType = "resource.created"
+	EventTypeResourceUpdated    EventType = "resource.updated"
+	EventTypeResourceDeleted    EventType = "resource.deleted"
 	EventTypeResourceConflicted EventType = "resource.conflicted"
 )
 
@@ -59,22 +59,22 @@ const (
 
 // CanonicalEvent is a hub-assigned replay event returned to device nodes on pull.
 type CanonicalEvent struct {
-	EventID              string                  `json:"eventId"`
-	OriginNodeID         string                  `json:"originNodeId,omitempty"`
-	TenantID             string                  `json:"tenantId"`
-	ResourceType         string                  `json:"resourceType"`
-	ResourceID           string                  `json:"resourceId"`
-	Operation            EventType               `json:"operation"`
-	BaseCloudVersion     string                  `json:"baseCloudVersion,omitempty"`
-	LocalVersion         string                  `json:"localVersion,omitempty"`
-	ResourceAfter        *types.ResourceEnvelope `json:"resourceAfter,omitempty"`
-	ResourceHash         string                  `json:"resourceHash,omitempty"`
-	CanonicalSequence    int64                   `json:"canonicalSequence"`
-	CanonicalVersionID   string                  `json:"canonicalVersionId"`
-	Status               CanonicalStatus         `json:"status"`
-	AcknowledgedAt       time.Time               `json:"acknowledgedAt,omitempty"`
-	ConflictReason       string                  `json:"conflictReason,omitempty"`
-	ConflictRemoteVersion string                 `json:"conflictRemoteVersion,omitempty"`
+	EventID               string                  `json:"eventId"`
+	OriginNodeID          string                  `json:"originNodeId,omitempty"`
+	TenantID              string                  `json:"tenantId"`
+	ResourceType          string                  `json:"resourceType"`
+	ResourceID            string                  `json:"resourceId"`
+	Operation             EventType               `json:"operation"`
+	BaseCloudVersion      string                  `json:"baseCloudVersion,omitempty"`
+	LocalVersion          string                  `json:"localVersion,omitempty"`
+	ResourceAfter         *types.ResourceEnvelope `json:"resourceAfter,omitempty"`
+	ResourceHash          string                  `json:"resourceHash,omitempty"`
+	CanonicalSequence     int64                   `json:"canonicalSequence"`
+	CanonicalVersionID    string                  `json:"canonicalVersionId"`
+	Status                CanonicalStatus         `json:"status"`
+	AcknowledgedAt        time.Time               `json:"acknowledgedAt,omitempty"`
+	ConflictReason        string                  `json:"conflictReason,omitempty"`
+	ConflictRemoteVersion string                  `json:"conflictRemoteVersion,omitempty"`
 }
 
 // CanonicalEventID returns the stable idempotency key for pull/apply dedupe.

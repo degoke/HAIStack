@@ -38,7 +38,7 @@ func (s *AuditStore) Append(ctx context.Context, record store.AuditRecord) error
 		outcome = record.Outcome
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO audit_log (
+		INSERT INTO hai_audit_log (
 			id, timestamp, actor, action, resource_type, resource_id, outcome, details
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID,
@@ -89,7 +89,7 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 	}
 	sqlQuery := fmt.Sprintf(`
 		SELECT id, timestamp, actor, action, resource_type, resource_id, outcome, details
-		FROM audit_log
+		FROM hai_audit_log
 		WHERE %s
 		ORDER BY timestamp ASC`, where)
 	if query.Limit > 0 {

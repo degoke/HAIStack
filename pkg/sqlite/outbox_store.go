@@ -28,7 +28,7 @@ func newOutboxStoreTx(tx *sql.Tx) *OutboxStore {
 
 func (s *OutboxStore) Append(ctx context.Context, event store.ResourceEvent) (store.ResourceEvent, error) {
 	result, err := s.exec.ExecContext(ctx, `
-		INSERT INTO sync_outbox (resource_type, resource_id, version_id, action, timestamp, hash)
+		INSERT INTO hai_sync_outbox (resource_type, resource_id, version_id, action, timestamp, hash)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		event.ResourceType,
 		event.ID,
@@ -52,7 +52,7 @@ func (s *OutboxStore) Append(ctx context.Context, event store.ResourceEvent) (st
 func (s *OutboxStore) ReadSince(ctx context.Context, afterSequence int64, limit int) ([]store.ResourceEvent, error) {
 	query := `
 		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
-		FROM sync_outbox
+		FROM hai_sync_outbox
 		WHERE sequence > ?
 		ORDER BY sequence ASC`
 	args := []any{afterSequence}
@@ -109,7 +109,7 @@ func (s *OutboxStore) LatestForResource(ctx context.Context, resourceType, id st
 	)
 	err := s.exec.QueryRowContext(ctx, `
 		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
-		FROM sync_outbox
+		FROM hai_sync_outbox
 		WHERE resource_type = ? AND resource_id = ?
 		ORDER BY sequence DESC
 		LIMIT 1`, resourceType, id,

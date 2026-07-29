@@ -37,9 +37,9 @@ func TestParseQueryRepeatedAndCommaOR(t *testing.T) {
 
 func TestParseQueryAdvancedFeatures(t *testing.T) {
 	q, err := search.ParseQueryValues("Patient", map[string][]string{
-		"_include": {"Patient:general-practitioner"},
+		"_include":   {"Patient:general-practitioner"},
 		"name:exact": {"Smith"},
-		"_sort":    {"-birthdate"},
+		"_sort":      {"-birthdate"},
 	})
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)

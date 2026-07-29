@@ -14,13 +14,21 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
+func runMigrations(ctx context.Context, pool *pgxpool.Pool, schema dbSchema) error {
+	if schema.name != defaultSchema {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, schema.name)); err != nil {
+			return fmt.Errorf("ensure %s schema: %w", schema.name, err)
+		}
+	}
+
+	migrationsTable := schema.migrationsTable()
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
 			version    INTEGER PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		)`); err != nil {
-		return fmt.Errorf("ensure schema_migrations table: %w", err)
+		)`, migrationsTable)); err != nil {
+		return fmt.Errorf("ensure %s table: %w", migrationsTable, err)
 	}
 
 	entries, err := migrationFS.ReadDir("migrations")
@@ -44,7 +52,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 
 		var applied int
-		err = pool.QueryRow(ctx, `SELECT COUNT(1) FROM schema_migrations WHERE version = $1`, version).Scan(&applied)
+		err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(1) FROM %s WHERE version = $1`, migrationsTable), version).Scan(&applied)
 		if err != nil {
 			return fmt.Errorf("check migration %d: %w", version, err)
 		}
@@ -62,11 +70,15 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("begin migration %d: %w", version, err)
 		}
 
+		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO "+schema.searchPath()); err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("set search_path for migration %d: %w", version, err)
+		}
 		if _, err := tx.Exec(ctx, string(body)); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("apply migration %d: %w", version, err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (version) VALUES ($1)`, migrationsTable), version); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("record migration %d: %w", version, err)
 		}

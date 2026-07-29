@@ -25,7 +25,7 @@ func newInboxStore(db *sql.DB) *InboxStore {
 // MarkApplied records that a remote operation has been applied locally.
 func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.Time) error {
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT OR REPLACE INTO sync_inbox_applied (id, applied_at)
+		INSERT OR REPLACE INTO hai_sync_inbox_applied (id, applied_at)
 		VALUES (?, ?)`,
 		id, formatTime(appliedAt),
 	)
@@ -39,7 +39,7 @@ func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.
 func (s *InboxStore) IsApplied(ctx context.Context, id string) (bool, error) {
 	var count int
 	err := s.exec.QueryRowContext(ctx, `
-		SELECT COUNT(1) FROM sync_inbox_applied WHERE id = ?`, id,
+		SELECT COUNT(1) FROM hai_sync_inbox_applied WHERE id = ?`, id,
 	).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("check inbox applied: %w", err)
@@ -51,7 +51,7 @@ func (s *InboxStore) IsApplied(ctx context.Context, id string) (bool, error) {
 func (s *InboxStore) AppliedAt(ctx context.Context, id string) (*time.Time, error) {
 	var appliedAt string
 	err := s.exec.QueryRowContext(ctx, `
-		SELECT applied_at FROM sync_inbox_applied WHERE id = ?`, id,
+		SELECT applied_at FROM hai_sync_inbox_applied WHERE id = ?`, id,
 	).Scan(&appliedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil

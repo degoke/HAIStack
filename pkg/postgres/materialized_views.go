@@ -20,7 +20,7 @@ func newMaterializedViewStore(pool *pgxpool.Pool, tenantID string) *Materialized
 
 func (s *MaterializedViewStore) Upsert(ctx context.Context, record store.MaterializedViewRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO materialized_view (tenant_id, view_name, key, payload, version, updated_at)
+		INSERT INTO hai_materialized_view (tenant_id, view_name, key, payload, version, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (tenant_id, view_name, key) DO UPDATE SET
 			payload = EXCLUDED.payload,
@@ -38,7 +38,7 @@ func (s *MaterializedViewStore) Get(ctx context.Context, viewName, key string) (
 	var record store.MaterializedViewRecord
 	err := s.exec.QueryRow(ctx, `
 		SELECT view_name, key, payload, version, updated_at
-		FROM materialized_view
+		FROM hai_materialized_view
 		WHERE tenant_id = $1 AND view_name = $2 AND key = $3`,
 		s.tenantID, viewName, key,
 	).Scan(&record.ViewName, &record.Key, &record.Payload, &record.Version, &record.UpdatedAt)
@@ -53,7 +53,7 @@ func (s *MaterializedViewStore) Get(ctx context.Context, viewName, key string) (
 
 func (s *MaterializedViewStore) Delete(ctx context.Context, viewName, key string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM materialized_view
+		DELETE FROM hai_materialized_view
 		WHERE tenant_id = $1 AND view_name = $2 AND key = $3`,
 		s.tenantID, viewName, key,
 	)
@@ -68,7 +68,7 @@ func (s *MaterializedViewStore) Delete(ctx context.Context, viewName, key string
 
 func (s *MaterializedViewStore) ListKeys(ctx context.Context, viewName string) ([]string, error) {
 	rows, err := s.exec.Query(ctx, `
-		SELECT key FROM materialized_view
+		SELECT key FROM hai_materialized_view
 		WHERE tenant_id = $1 AND view_name = $2
 		ORDER BY key ASC`, s.tenantID, viewName)
 	if err != nil {

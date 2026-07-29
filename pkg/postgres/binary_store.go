@@ -21,7 +21,7 @@ func newBinaryStore(pool *pgxpool.Pool, tenantID string) *BinaryStore {
 
 func (s *BinaryStore) Put(ctx context.Context, obj store.BinaryObject) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO binary_object (tenant_id, key, content_type, size, hash, data, created_at)
+		INSERT INTO hai_binary_object (tenant_id, key, content_type, size, hash, data, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (tenant_id, key) DO UPDATE SET
 			content_type = EXCLUDED.content_type,
@@ -46,7 +46,7 @@ func (s *BinaryStore) Get(ctx context.Context, key string) (*store.BinaryObject,
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT key, content_type, size, hash, data, created_at
-		FROM binary_object
+		FROM hai_binary_object
 		WHERE tenant_id = $1 AND key = $2`, s.tenantID, key,
 	).Scan(&obj.Key, &contentType, &obj.Size, &hash, &obj.Data, &createdAt)
 	if isNoRows(err) {
@@ -67,7 +67,7 @@ func (s *BinaryStore) Get(ctx context.Context, key string) (*store.BinaryObject,
 
 func (s *BinaryStore) Delete(ctx context.Context, key string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM binary_object WHERE tenant_id = $1 AND key = $2`, s.tenantID, key)
+		DELETE FROM hai_binary_object WHERE tenant_id = $1 AND key = $2`, s.tenantID, key)
 	if err != nil {
 		return fmt.Errorf("delete binary: %w", err)
 	}

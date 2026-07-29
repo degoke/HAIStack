@@ -29,7 +29,7 @@ func (s *AnalyticsStore) Append(ctx context.Context, event store.AnalyticsEvent)
 		return fmt.Errorf("marshal analytics values: %w", err)
 	}
 	_, err = s.exec.Exec(ctx, `
-		INSERT INTO analytics_event (id, tenant_id, name, timestamp, dimensions, values, payload)
+		INSERT INTO hai_analytics_event (id, tenant_id, name, timestamp, dimensions, values, payload)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		event.ID, s.tenantID, event.Name, event.Timestamp, dimensions, values, event.Payload,
 	)
@@ -47,7 +47,7 @@ func (s *AnalyticsStore) QueryPrepared(ctx context.Context, query store.Prepared
 	since := args["since"]
 	rows, err := s.exec.Query(ctx, `
 		SELECT id, name, timestamp, dimensions, values, payload
-		FROM analytics_event
+		FROM hai_analytics_event
 		WHERE tenant_id = $1 AND name = $2 AND timestamp >= $3::timestamptz
 		ORDER BY timestamp ASC`,
 		s.tenantID, name, since,

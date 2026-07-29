@@ -1,6 +1,6 @@
 -- haistack-sqlite registry catalog schema
 
-CREATE TABLE IF NOT EXISTS definition_resource (
+CREATE TABLE IF NOT EXISTS hai_definition_resource (
     canonical_url      TEXT NOT NULL,
     version            TEXT NOT NULL,
     fhir_version       TEXT NOT NULL,
@@ -17,22 +17,22 @@ CREATE TABLE IF NOT EXISTS definition_resource (
 );
 
 CREATE INDEX IF NOT EXISTS idx_definition_resource_kind
-    ON definition_resource (definition_kind, fhir_version);
+    ON hai_definition_resource (definition_kind, fhir_version);
 
-CREATE TABLE IF NOT EXISTS definition_target (
+CREATE TABLE IF NOT EXISTS hai_definition_target (
     canonical_url        TEXT NOT NULL,
     version              TEXT NOT NULL,
     target_resource_type TEXT NOT NULL,
     target_role          TEXT NOT NULL,
     PRIMARY KEY (canonical_url, version, target_resource_type, target_role),
     FOREIGN KEY (canonical_url, version)
-        REFERENCES definition_resource (canonical_url, version) ON DELETE CASCADE
+        REFERENCES hai_definition_resource (canonical_url, version) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_definition_target_lookup
-    ON definition_target (target_resource_type, target_role);
+    ON hai_definition_target (target_resource_type, target_role);
 
-CREATE TABLE IF NOT EXISTS registry_install (
+CREATE TABLE IF NOT EXISTS hai_registry_install (
     definition_kind      TEXT NOT NULL,
     canonical_url        TEXT NOT NULL,
     version              TEXT NOT NULL,
@@ -44,4 +44,4 @@ CREATE TABLE IF NOT EXISTS registry_install (
 );
 
 CREATE INDEX IF NOT EXISTS idx_registry_install_target
-    ON registry_install (target_resource_type, definition_kind, enabled);
+    ON hai_registry_install (target_resource_type, definition_kind, enabled);

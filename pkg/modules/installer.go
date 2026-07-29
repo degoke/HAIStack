@@ -47,12 +47,12 @@ func (i *Installer) PlanInstall(ctx context.Context, mod *Module) (*Plan, error)
 	}
 
 	plan := &Plan{
-		Name:             mod.Manifest.Name,
-		Version:          mod.Manifest.Version,
-		Action:           action,
-		Dependencies:     append([]DependencyRef(nil), mod.Manifest.Dependencies...),
+		Name:              mod.Manifest.Name,
+		Version:           mod.Manifest.Version,
+		Action:            action,
+		Dependencies:      append([]DependencyRef(nil), mod.Manifest.Dependencies...),
 		ResourcesToEnable: sortedStringSet(mod.Manifest.Resources),
-		Deferred:         declarationsFromManifest(mod.Manifest),
+		Deferred:          declarationsFromManifest(mod.Manifest),
 	}
 
 	for _, def := range mod.Definitions {

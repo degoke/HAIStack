@@ -10,7 +10,7 @@ import (
 const maxRequestBodyBytes = 10 << 20 // 10 MiB
 
 func readBody(r *http.Request) ([]byte, error) {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	limited := io.LimitReader(r.Body, maxRequestBodyBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {

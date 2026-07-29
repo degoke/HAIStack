@@ -14,16 +14,16 @@ import (
 
 // Processor consumes store.ResourceEvent entries and enqueues delivery jobs.
 type Processor struct {
-	Events      store.EventStore
-	Cursors     store.CursorStore
+	Events        store.EventStore
+	Cursors       store.CursorStore
 	Subscriptions store.SubscriptionStore
-	Jobs        store.JobStore
-	Resources   store.ResourceStore
-	History     store.HistoryStore
-	Matcher     *Matcher
-	Scope       string
-	BatchSize   int
-	Now         func() time.Time
+	Jobs          store.JobStore
+	Resources     store.ResourceStore
+	History       store.HistoryStore
+	Matcher       *Matcher
+	Scope         string
+	BatchSize     int
+	Now           func() time.Time
 }
 
 // RunOnce reads one batch of events since the stored cursor and schedules deliveries.

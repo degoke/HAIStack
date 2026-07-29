@@ -166,7 +166,7 @@ func TestTransferServiceUploadDownloadAndSyncStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartDownload: %v", err)
 	}
-	chunk0, session, err := svc.DownloadChunk(ctx, download.ID, 0)
+	chunk0, _, err := svc.DownloadChunk(ctx, download.ID, 0)
 	if err != nil {
 		t.Fatalf("DownloadChunk 0: %v", err)
 	}
@@ -657,8 +657,8 @@ func TestSQLiteBlobMigrationAndMetadataStores(t *testing.T) {
 	}
 
 	tables := []string{
-		"blob_manifest", "blob_chunk", "blob_binary_link",
-		"blob_document_link", "blob_sync_status", "blob_transfer_session",
+		"hai_blob_manifest", "hai_blob_chunk", "hai_blob_binary_link",
+		"hai_blob_document_link", "hai_blob_sync_status", "hai_blob_transfer_session",
 	}
 	for _, table := range tables {
 		var name string

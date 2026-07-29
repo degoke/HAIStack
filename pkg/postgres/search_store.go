@@ -19,13 +19,13 @@ type SearchStore struct {
 type searchTable string
 
 const (
-	searchTableToken     searchTable = "search_token"
-	searchTableString    searchTable = "search_string"
-	searchTableDate      searchTable = "search_date"
-	searchTableNumber    searchTable = "search_number"
-	searchTableReference searchTable = "search_reference"
-	searchTableComposite searchTable = "search_composite"
-	searchTableText      searchTable = "search_text"
+	searchTableToken     searchTable = "hai_search_token"
+	searchTableString    searchTable = "hai_search_string"
+	searchTableDate      searchTable = "hai_search_date"
+	searchTableNumber    searchTable = "hai_search_number"
+	searchTableReference searchTable = "hai_search_reference"
+	searchTableComposite searchTable = "hai_search_composite"
+	searchTableText      searchTable = "hai_search_text"
 )
 
 func newSearchStore(pool *pgxpool.Pool, tenantID string) *SearchStore {
@@ -69,7 +69,7 @@ func (s *SearchStore) Index(ctx context.Context, entry store.SearchIndexEntry) e
 		}
 		if table == searchTableText {
 			query := `
-				INSERT INTO search_text (tenant_id, resource_type, resource_id, field_key, document)
+				INSERT INTO hai_search_text (tenant_id, resource_type, resource_id, field_key, document)
 				VALUES ($1, $2, $3, $4, $5)
 				ON CONFLICT (tenant_id, resource_type, resource_id, field_key)
 				DO UPDATE SET document = EXCLUDED.document`
@@ -104,7 +104,7 @@ func (s *SearchStore) RemoveIndex(ctx context.Context, resourceType, id string) 
 			return fmt.Errorf("remove search index from %s: %w", table, err)
 		}
 	}
-	if _, err := s.exec.Exec(ctx, `DELETE FROM search_text WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3`, s.tenantID, resourceType, id); err != nil {
+	if _, err := s.exec.Exec(ctx, `DELETE FROM hai_search_text WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3`, s.tenantID, resourceType, id); err != nil {
 		return fmt.Errorf("remove search text index: %w", err)
 	}
 	return nil
@@ -319,7 +319,7 @@ func (s *SearchStore) LookupReferences(ctx context.Context, resourceType, fieldK
 		return nil, err
 	}
 	query := `
-		SELECT resource_id, value FROM search_reference
+		SELECT resource_id, value FROM hai_search_reference
 		WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND resource_id = ANY($4)
 		ORDER BY resource_id, value`
 	rows, err := s.exec.Query(ctx, query, s.tenantID, resourceType, normalizedKey, sourceIDs)
@@ -351,7 +351,7 @@ func (s *SearchStore) LookupReferencing(ctx context.Context, sourceType, fieldKe
 	}
 	values := []string{targetID, targetType + "/" + targetID, targetType + "|" + targetID}
 	query := `
-		SELECT DISTINCT resource_id FROM search_reference
+		SELECT DISTINCT resource_id FROM hai_search_reference
 		WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND value = ANY($4)
 		ORDER BY resource_id`
 	rows, err := s.exec.Query(ctx, query, s.tenantID, sourceType, normalizedKey, values)
@@ -378,7 +378,7 @@ func (s *SearchStore) LookupReferencing(ctx context.Context, sourceType, fieldKe
 func (s *SearchStore) LookupFullText(ctx context.Context, resourceType, queryText string) (store.FullTextMatch, error) {
 	query := `
 		SELECT resource_id, ts_rank(tsvector, plainto_tsquery('english', $3)) AS rank
-		FROM search_text
+		FROM hai_search_text
 		WHERE tenant_id = $1 AND resource_type = $2
 		  AND tsvector @@ plainto_tsquery('english', $3)
 		ORDER BY rank DESC, resource_id`
@@ -408,13 +408,13 @@ func (s *SearchStore) LookupFullText(ctx context.Context, resourceType, queryTex
 func (s *SearchStore) ListIndexedResourceIDs(ctx context.Context, resourceType string) ([]string, error) {
 	query := `
 		SELECT DISTINCT resource_id FROM (
-			SELECT resource_id FROM search_token WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_string WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_date WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_number WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_reference WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_composite WHERE tenant_id = $1 AND resource_type = $2
-			UNION SELECT resource_id FROM search_text WHERE tenant_id = $1 AND resource_type = $2
+			SELECT resource_id FROM hai_search_token WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_string WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_date WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_number WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_reference WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_composite WHERE tenant_id = $1 AND resource_type = $2
+			UNION SELECT resource_id FROM hai_search_text WHERE tenant_id = $1 AND resource_type = $2
 		) ids
 		ORDER BY resource_id`
 	rows, err := s.exec.Query(ctx, query, s.tenantID, resourceType)

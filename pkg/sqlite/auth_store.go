@@ -25,7 +25,7 @@ func (s *AuthStore) UpsertPrincipal(ctx context.Context, principal store.AuthPri
 		return fmt.Errorf("marshal principal attributes: %w", err)
 	}
 	_, err = s.exec.ExecContext(ctx, `
-		INSERT INTO auth_principal (id, kind, display_name, attributes, created_at, updated_at)
+		INSERT INTO hai_auth_principal (id, kind, display_name, attributes, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			kind = excluded.kind,
@@ -44,7 +44,7 @@ func (s *AuthStore) UpsertPrincipal(ctx context.Context, principal store.AuthPri
 func (s *AuthStore) GetPrincipal(ctx context.Context, id string) (*store.AuthPrincipalRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT id, kind, display_name, attributes, created_at, updated_at
-		FROM auth_principal WHERE id = ?`, id)
+		FROM hai_auth_principal WHERE id = ?`, id)
 	record, err := scanSQLitePrincipal(row)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("principal not found: %s", id)
@@ -58,7 +58,7 @@ func (s *AuthStore) GetPrincipal(ctx context.Context, id string) (*store.AuthPri
 func (s *AuthStore) ListPrincipals(ctx context.Context) ([]store.AuthPrincipalRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT id, kind, display_name, attributes, created_at, updated_at
-		FROM auth_principal
+		FROM hai_auth_principal
 		ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list principals: %w", err)
@@ -79,7 +79,7 @@ func (s *AuthStore) ListPrincipals(ctx context.Context) ([]store.AuthPrincipalRe
 }
 
 func (s *AuthStore) DeletePrincipal(ctx context.Context, id string) error {
-	result, err := s.exec.ExecContext(ctx, `DELETE FROM auth_principal WHERE id = ?`, id)
+	result, err := s.exec.ExecContext(ctx, `DELETE FROM hai_auth_principal WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete principal: %w", err)
 	}
@@ -99,7 +99,7 @@ func (s *AuthStore) UpsertRole(ctx context.Context, role store.AuthRoleRecord) e
 		return fmt.Errorf("marshal role permissions: %w", err)
 	}
 	_, err = s.exec.ExecContext(ctx, `
-		INSERT INTO auth_role (name, permissions, created_at, updated_at)
+		INSERT INTO hai_auth_role (name, permissions, created_at, updated_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET
 			permissions = excluded.permissions,
@@ -115,7 +115,7 @@ func (s *AuthStore) UpsertRole(ctx context.Context, role store.AuthRoleRecord) e
 func (s *AuthStore) GetRole(ctx context.Context, name string) (*store.AuthRoleRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT name, permissions, created_at, updated_at
-		FROM auth_role WHERE name = ?`, name)
+		FROM hai_auth_role WHERE name = ?`, name)
 	record, err := scanSQLiteRole(row)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("role not found: %s", name)
@@ -129,7 +129,7 @@ func (s *AuthStore) GetRole(ctx context.Context, name string) (*store.AuthRoleRe
 func (s *AuthStore) ListRoles(ctx context.Context) ([]store.AuthRoleRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT name, permissions, created_at, updated_at
-		FROM auth_role
+		FROM hai_auth_role
 		ORDER BY name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
@@ -150,7 +150,7 @@ func (s *AuthStore) ListRoles(ctx context.Context) ([]store.AuthRoleRecord, erro
 }
 
 func (s *AuthStore) DeleteRole(ctx context.Context, name string) error {
-	result, err := s.exec.ExecContext(ctx, `DELETE FROM auth_role WHERE name = ?`, name)
+	result, err := s.exec.ExecContext(ctx, `DELETE FROM hai_auth_role WHERE name = ?`, name)
 	if err != nil {
 		return fmt.Errorf("delete role: %w", err)
 	}
@@ -171,7 +171,7 @@ func (s *AuthStore) UpsertTenantBinding(ctx context.Context, binding store.AuthT
 		return fmt.Errorf("marshal binding roles: %w", err)
 	}
 	_, err = s.exec.ExecContext(ctx, `
-		INSERT INTO auth_tenant_binding (tenant_id, principal_id, roles, created_at, updated_at)
+		INSERT INTO hai_auth_tenant_binding (tenant_id, principal_id, roles, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(tenant_id, principal_id) DO UPDATE SET
 			roles = excluded.roles,
@@ -188,7 +188,7 @@ func (s *AuthStore) UpsertTenantBinding(ctx context.Context, binding store.AuthT
 func (s *AuthStore) GetTenantBinding(ctx context.Context, principalID string) (*store.AuthTenantBindingRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT tenant_id, principal_id, roles, created_at, updated_at
-		FROM auth_tenant_binding
+		FROM hai_auth_tenant_binding
 		WHERE tenant_id = ? AND principal_id = ?`, s.tenantID, principalID)
 	record, err := scanSQLiteBinding(row)
 	if err == sql.ErrNoRows {
@@ -203,7 +203,7 @@ func (s *AuthStore) GetTenantBinding(ctx context.Context, principalID string) (*
 func (s *AuthStore) ListTenantBindings(ctx context.Context) ([]store.AuthTenantBindingRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT tenant_id, principal_id, roles, created_at, updated_at
-		FROM auth_tenant_binding
+		FROM hai_auth_tenant_binding
 		WHERE tenant_id = ?
 		ORDER BY principal_id ASC`, s.tenantID)
 	if err != nil {
@@ -226,7 +226,7 @@ func (s *AuthStore) ListTenantBindings(ctx context.Context) ([]store.AuthTenantB
 
 func (s *AuthStore) DeleteTenantBinding(ctx context.Context, principalID string) error {
 	result, err := s.exec.ExecContext(ctx, `
-		DELETE FROM auth_tenant_binding WHERE tenant_id = ? AND principal_id = ?`,
+		DELETE FROM hai_auth_tenant_binding WHERE tenant_id = ? AND principal_id = ?`,
 		s.tenantID, principalID,
 	)
 	if err != nil {
@@ -249,7 +249,7 @@ func (s *AuthStore) UpsertDevice(ctx context.Context, device store.AuthDeviceRec
 		return fmt.Errorf("marshal device metadata: %w", err)
 	}
 	_, err = s.exec.ExecContext(ctx, `
-		INSERT INTO auth_device_identity (
+		INSERT INTO hai_auth_device_identity (
 			tenant_id, device_id, status, trusted, metadata, linked_principal_id, created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -271,7 +271,7 @@ func (s *AuthStore) UpsertDevice(ctx context.Context, device store.AuthDeviceRec
 func (s *AuthStore) GetDevice(ctx context.Context, deviceID string) (*store.AuthDeviceRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT tenant_id, device_id, status, trusted, metadata, linked_principal_id, created_at, updated_at
-		FROM auth_device_identity
+		FROM hai_auth_device_identity
 		WHERE tenant_id = ? AND device_id = ?`, s.tenantID, deviceID)
 	record, err := scanSQLiteDevice(row)
 	if err == sql.ErrNoRows {
@@ -286,7 +286,7 @@ func (s *AuthStore) GetDevice(ctx context.Context, deviceID string) (*store.Auth
 func (s *AuthStore) ListDevices(ctx context.Context) ([]store.AuthDeviceRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT tenant_id, device_id, status, trusted, metadata, linked_principal_id, created_at, updated_at
-		FROM auth_device_identity
+		FROM hai_auth_device_identity
 		WHERE tenant_id = ?
 		ORDER BY device_id ASC`, s.tenantID)
 	if err != nil {
@@ -309,7 +309,7 @@ func (s *AuthStore) ListDevices(ctx context.Context) ([]store.AuthDeviceRecord, 
 
 func (s *AuthStore) DeleteDevice(ctx context.Context, deviceID string) error {
 	result, err := s.exec.ExecContext(ctx, `
-		DELETE FROM auth_device_identity WHERE tenant_id = ? AND device_id = ?`,
+		DELETE FROM hai_auth_device_identity WHERE tenant_id = ? AND device_id = ?`,
 		s.tenantID, deviceID,
 	)
 	if err != nil {
@@ -328,7 +328,7 @@ func (s *AuthStore) DeleteDevice(ctx context.Context, deviceID string) error {
 func (s *AuthStore) UpsertPolicy(ctx context.Context, policy store.AuthPolicyRecord) error {
 	policy.TenantID = s.normalizeTenantID(policy.TenantID)
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT INTO auth_policy_document (
+		INSERT INTO hai_auth_policy_document (
 			tenant_id, name, format, version, body, active, created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -346,7 +346,7 @@ func (s *AuthStore) UpsertPolicy(ctx context.Context, policy store.AuthPolicyRec
 	}
 	if policy.Active {
 		_, err = s.exec.ExecContext(ctx, `
-			UPDATE auth_policy_document
+			UPDATE hai_auth_policy_document
 			SET active = 0
 			WHERE tenant_id = ? AND name <> ? AND active <> 0`,
 			policy.TenantID, policy.Name,
@@ -361,7 +361,7 @@ func (s *AuthStore) UpsertPolicy(ctx context.Context, policy store.AuthPolicyRec
 func (s *AuthStore) GetPolicy(ctx context.Context, name string) (*store.AuthPolicyRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT tenant_id, name, format, version, body, active, created_at, updated_at
-		FROM auth_policy_document
+		FROM hai_auth_policy_document
 		WHERE tenant_id = ? AND name = ?`, s.tenantID, name)
 	record, err := scanSQLitePolicy(row)
 	if err == sql.ErrNoRows {
@@ -376,7 +376,7 @@ func (s *AuthStore) GetPolicy(ctx context.Context, name string) (*store.AuthPoli
 func (s *AuthStore) GetActivePolicy(ctx context.Context) (*store.AuthPolicyRecord, error) {
 	row := s.exec.QueryRowContext(ctx, `
 		SELECT tenant_id, name, format, version, body, active, created_at, updated_at
-		FROM auth_policy_document
+		FROM hai_auth_policy_document
 		WHERE tenant_id = ? AND active <> 0
 		ORDER BY updated_at DESC, name ASC
 		LIMIT 1`, s.tenantID)
@@ -393,7 +393,7 @@ func (s *AuthStore) GetActivePolicy(ctx context.Context) (*store.AuthPolicyRecor
 func (s *AuthStore) ListPolicies(ctx context.Context) ([]store.AuthPolicyRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT tenant_id, name, format, version, body, active, created_at, updated_at
-		FROM auth_policy_document
+		FROM hai_auth_policy_document
 		WHERE tenant_id = ?
 		ORDER BY name ASC`, s.tenantID)
 	if err != nil {
@@ -416,7 +416,7 @@ func (s *AuthStore) ListPolicies(ctx context.Context) ([]store.AuthPolicyRecord,
 
 func (s *AuthStore) DeletePolicy(ctx context.Context, name string) error {
 	result, err := s.exec.ExecContext(ctx, `
-		DELETE FROM auth_policy_document WHERE tenant_id = ? AND name = ?`,
+		DELETE FROM hai_auth_policy_document WHERE tenant_id = ? AND name = ?`,
 		s.tenantID, name,
 	)
 	if err != nil {

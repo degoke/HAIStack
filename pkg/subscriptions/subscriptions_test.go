@@ -59,7 +59,7 @@ func TestManagerRegisterListGetUpdateDelete(t *testing.T) {
 		ResourceType: "Patient",
 		Event:        subscriptions.TriggerEventCreate,
 	}, subscriptions.Channel{
-		Type: subscriptions.ChannelTypeLocal,
+		Type:  subscriptions.ChannelTypeLocal,
 		Local: &subscriptions.LocalConfig{HandlerName: "demo"},
 	}, subscriptions.RetryPolicy{MaxAttempts: 3})
 	if err != nil {

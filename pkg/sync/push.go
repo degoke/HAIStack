@@ -71,7 +71,7 @@ func (p *Pusher) Push(ctx context.Context) (*PushResultSummary, error) {
 		Cursor:   afterSeq,
 	}
 
-	var lastHandledSeq int64 = afterSeq
+	var lastHandledSeq = afterSeq
 	for i, result := range results {
 		event := localEvents[i]
 		if err := p.handlePushResult(ctx, cfg, event, result); err != nil {

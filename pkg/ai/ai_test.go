@@ -43,8 +43,8 @@ func TestExecutor_RequiresPolicy(t *testing.T) {
 
 func TestExecutor_UsableWithoutModelRouter(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients:       true,
-		allowPatientRead:   true,
+		seedPatients:     true,
+		allowPatientRead: true,
 	})
 	ctx := context.Background()
 
@@ -116,9 +116,9 @@ func TestReadFhirResource_BlockedResourceType(t *testing.T) {
 
 func TestSearchFhirResources_AllowedParams(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients:         true,
-		withSearch:           true,
-		allowPatientSearch:   true,
+		seedPatients:       true,
+		withSearch:         true,
+		allowPatientSearch: true,
 	})
 	ctx := context.Background()
 
@@ -147,9 +147,9 @@ func TestSearchFhirResources_AllowedParams(t *testing.T) {
 
 func TestSearchFhirResources_BlockedParams(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients:         true,
-		withSearch:           true,
-		allowPatientSearch:   true,
+		seedPatients:       true,
+		withSearch:         true,
+		allowPatientSearch: true,
 	})
 	ctx := context.Background()
 
@@ -378,10 +378,10 @@ func TestWriteFhirResource_ValidationFailure(t *testing.T) {
 
 func TestWriteFhirResource_ApprovalRequired(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		withCore:                true,
-		allowPatientWrite:       true,
-		writeRequiresApproval:   true,
-		approvalGranted:         false,
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+		approvalGranted:       false,
 	})
 	ctx := context.Background()
 
@@ -413,7 +413,7 @@ func TestWriteFhirResource_ApprovalRequired(t *testing.T) {
 
 func TestDeidentificationHookInvocation(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients: true,
+		seedPatients:     true,
 		allowPatientRead: true,
 	})
 	h.policy.Read["Patient"] = ai.ReadTypePolicy{Deidentify: true}
@@ -483,9 +483,9 @@ func TestConvenienceTool_GetUpcomingAppointments(t *testing.T) {
 
 func TestConvenienceTool_SearchPatientByPhone(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients:         true,
-		withSearch:           true,
-		allowPatientSearch:   true,
+		seedPatients:       true,
+		withSearch:         true,
+		allowPatientSearch: true,
 	})
 	ctx := context.Background()
 
@@ -571,9 +571,9 @@ func TestGenericToolDescriptors(t *testing.T) {
 
 func TestSearchMaxCountClampedByPolicy(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		seedPatients:         true,
-		withSearch:           true,
-		allowPatientSearch:   true,
+		seedPatients:       true,
+		withSearch:         true,
+		allowPatientSearch: true,
 	})
 	h.policy.Search["Patient"] = ai.SearchTypePolicy{
 		AllowedParams: []string{"name"},
@@ -664,10 +664,10 @@ func TestRegistry_DuplicateRegistration(t *testing.T) {
 
 func TestApprovalRequiredAuditOutcome(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
-		withCore:                true,
-		allowPatientWrite:       true,
-		writeRequiresApproval:   true,
-		approvalGranted:         false,
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+		approvalGranted:       false,
 	})
 	ctx := context.Background()
 

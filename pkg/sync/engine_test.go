@@ -144,10 +144,8 @@ func TestRepeatedSyncAttemptsStayIdempotent(t *testing.T) {
 	if _, err := engine.Push(ctx); err != nil {
 		t.Fatalf("push: %v", err)
 	}
-	if _, pull, err := engine.SyncOnce(ctx); err != nil {
+	if _, _, err := engine.SyncOnce(ctx); err != nil {
 		t.Fatalf("sync once: %v", err)
-	} else if pull.Applied == 0 && pull.Skipped == 0 && pull.Fetched == 0 {
-		// acceptable when hub already drained
 	}
 	if _, pull, err := engine.SyncOnce(ctx); err != nil {
 		t.Fatalf("second sync: %v", err)

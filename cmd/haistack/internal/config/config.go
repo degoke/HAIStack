@@ -126,7 +126,7 @@ func Load(path string, overrides Overrides) (Config, error) {
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			if !(errors.Is(err, os.ErrNotExist) && canUseDefaultsWithoutFile(path)) {
+			if !errors.Is(err, os.ErrNotExist) || !canUseDefaultsWithoutFile(path) {
 				return Config{}, fmt.Errorf("read config %s: %w", path, err)
 			}
 		} else {

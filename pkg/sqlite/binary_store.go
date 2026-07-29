@@ -26,7 +26,7 @@ func newBinaryStoreTx(tx *sql.Tx) *BinaryStore {
 
 func (s *BinaryStore) Put(ctx context.Context, obj store.BinaryObject) error {
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT INTO binary_object (key, content_type, size, hash, data, created_at)
+		INSERT INTO hai_binary_object (key, content_type, size, hash, data, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET
 			content_type = excluded.content_type,
@@ -51,7 +51,7 @@ func (s *BinaryStore) Get(ctx context.Context, key string) (*store.BinaryObject,
 	)
 	err := s.exec.QueryRowContext(ctx, `
 		SELECT key, content_type, size, hash, data, created_at
-		FROM binary_object WHERE key = ?`, key,
+		FROM hai_binary_object WHERE key = ?`, key,
 	).Scan(&obj.Key, &contentType, &obj.Size, &hash, &obj.Data, &createdAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("binary not found: %s", key)
@@ -74,7 +74,7 @@ func (s *BinaryStore) Get(ctx context.Context, key string) (*store.BinaryObject,
 }
 
 func (s *BinaryStore) Delete(ctx context.Context, key string) error {
-	result, err := s.exec.ExecContext(ctx, `DELETE FROM binary_object WHERE key = ?`, key)
+	result, err := s.exec.ExecContext(ctx, `DELETE FROM hai_binary_object WHERE key = ?`, key)
 	if err != nil {
 		return fmt.Errorf("delete binary: %w", err)
 	}

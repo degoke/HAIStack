@@ -15,11 +15,11 @@ type BundleBuilder struct {
 }
 
 type bundleEntry struct {
-	method       string
-	url          string
-	resource     *types.ResourceEnvelope
-	ifMatch      string
-	fullURL      string
+	method   string
+	url      string
+	resource *types.ResourceEnvelope
+	ifMatch  string
+	fullURL  string
 }
 
 // NewTransactionBundleBuilder returns a builder for transaction bundles.

@@ -1,6 +1,6 @@
 -- SQLite background job queue and append-only audit log.
 
-CREATE TABLE IF NOT EXISTS background_job (
+CREATE TABLE IF NOT EXISTS hai_background_job (
     id         TEXT PRIMARY KEY,
     type       TEXT NOT NULL,
     payload    BLOB,
@@ -13,9 +13,9 @@ CREATE TABLE IF NOT EXISTS background_job (
 );
 
 CREATE INDEX IF NOT EXISTS idx_background_job_claim
-    ON background_job (type, status, run_after, created_at);
+    ON hai_background_job (type, status, run_after, created_at);
 
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE IF NOT EXISTS hai_audit_log (
     id            TEXT PRIMARY KEY,
     timestamp     TEXT NOT NULL,
     actor         TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource
-    ON audit_log (resource_type, resource_id, timestamp);
+    ON hai_audit_log (resource_type, resource_id, timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor
-    ON audit_log (actor, timestamp);
+    ON hai_audit_log (actor, timestamp);

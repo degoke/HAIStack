@@ -59,7 +59,7 @@ func (a CoreSDCService) questionnaire(ctx context.Context, req SDCRequest) (sdc.
 		return a.Resolver.Resolve(ctx, req.Query.Get("questionnaire"))
 	}
 	if qenv == nil {
-		return sdc.Questionnaire{}, fmt.Errorf("Questionnaire input is required")
+		return sdc.Questionnaire{}, fmt.Errorf("questionnaire input is required")
 	}
 	return sdc.DecodeQuestionnaireResource(qenv)
 }

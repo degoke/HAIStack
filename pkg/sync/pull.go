@@ -59,7 +59,7 @@ func (p *Puller) Pull(ctx context.Context) (*PullResultSummary, error) {
 		Cursor:  afterSeq,
 	}
 
-	var lastAppliedSeq int64 = afterSeq
+	var lastAppliedSeq = afterSeq
 	for _, event := range events {
 		if event.Status != CanonicalStatusAccepted {
 			if event.CanonicalSequence > lastAppliedSeq {

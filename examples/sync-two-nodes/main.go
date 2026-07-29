@@ -24,18 +24,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	nodeA, err := appkit.NewSQLiteStack(ctx, filepath.Join(tempDir, "node-a.db"), "Patient")
 	if err != nil {
 		return err
 	}
-	defer nodeA.Close()
+	defer func() { _ = nodeA.Close() }()
 	nodeB, err := appkit.NewSQLiteStack(ctx, filepath.Join(tempDir, "node-b.db"), "Patient")
 	if err != nil {
 		return err
 	}
-	defer nodeB.Close()
+	defer func() { _ = nodeB.Close() }()
 
 	hub := synchub.NewMemoryHub()
 

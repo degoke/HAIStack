@@ -2,7 +2,6 @@ package subscriptions
 
 import (
 	"errors"
-	"fmt"
 )
 
 var (
@@ -15,10 +14,3 @@ var (
 	ErrUnknownHandler    = errors.New("subscriptions: unknown local handler")
 	ErrDuplicateDelivery = errors.New("subscriptions: delivery already completed")
 )
-
-func wrap(err error, msg string) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("subscriptions: %s: %w", msg, err)
-}

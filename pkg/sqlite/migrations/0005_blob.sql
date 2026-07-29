@@ -1,7 +1,7 @@
 -- Blob manifest, chunk, link, sync status, and transfer session tables.
--- Does not modify binary_object (legacy simple store contracts).
+-- Does not modify hai_binary_object (legacy simple store contracts).
 
-CREATE TABLE IF NOT EXISTS blob_manifest (
+CREATE TABLE IF NOT EXISTS hai_blob_manifest (
     blob_id       TEXT PRIMARY KEY,
     sha256        TEXT NOT NULL,
     size          INTEGER NOT NULL,
@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS blob_manifest (
     finalized_at  TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_blob_manifest_sha256 ON blob_manifest(sha256);
+CREATE INDEX IF NOT EXISTS idx_blob_manifest_sha256 ON hai_blob_manifest(sha256);
 
-CREATE TABLE IF NOT EXISTS blob_chunk (
+CREATE TABLE IF NOT EXISTS hai_blob_chunk (
     blob_id      TEXT NOT NULL,
     chunk_index  INTEGER NOT NULL,
     data         BLOB NOT NULL,
@@ -24,13 +24,13 @@ CREATE TABLE IF NOT EXISTS blob_chunk (
     PRIMARY KEY (blob_id, chunk_index)
 );
 
-CREATE TABLE IF NOT EXISTS blob_binary_link (
+CREATE TABLE IF NOT EXISTS hai_blob_binary_link (
     resource_id  TEXT PRIMARY KEY,
     blob_id      TEXT NOT NULL,
     created_at   TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS blob_document_link (
+CREATE TABLE IF NOT EXISTS hai_blob_document_link (
     document_id    TEXT NOT NULL,
     content_index  INTEGER NOT NULL,
     blob_id        TEXT NOT NULL,
@@ -38,13 +38,13 @@ CREATE TABLE IF NOT EXISTS blob_document_link (
     PRIMARY KEY (document_id, content_index)
 );
 
-CREATE TABLE IF NOT EXISTS blob_sync_status (
+CREATE TABLE IF NOT EXISTS hai_blob_sync_status (
     blob_id     TEXT PRIMARY KEY,
     status      TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS blob_transfer_session (
+CREATE TABLE IF NOT EXISTS hai_blob_transfer_session (
     session_id          TEXT PRIMARY KEY,
     session_kind        TEXT NOT NULL,
     blob_id             TEXT NOT NULL,

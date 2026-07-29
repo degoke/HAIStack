@@ -27,7 +27,7 @@ func newEventStoreTx(tx pgx.Tx, tenantID string) *EventStore {
 func (s *EventStore) Append(ctx context.Context, event store.ResourceEvent) (store.ResourceEvent, error) {
 	var sequence int64
 	err := s.exec.QueryRow(ctx, `
-		INSERT INTO event_log (tenant_id, resource_type, resource_id, version_id, action, timestamp, hash)
+		INSERT INTO hai_event_log (tenant_id, resource_type, resource_id, version_id, action, timestamp, hash)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING sequence`,
 		s.tenantID,
@@ -48,7 +48,7 @@ func (s *EventStore) Append(ctx context.Context, event store.ResourceEvent) (sto
 func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit int) ([]store.ResourceEvent, error) {
 	query := `
 		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
-		FROM event_log
+		FROM hai_event_log
 		WHERE tenant_id = $1 AND sequence > $2
 		ORDER BY sequence ASC`
 	args := []any{s.tenantID, afterSequence}
@@ -100,7 +100,7 @@ func (s *EventStore) LatestForResource(ctx context.Context, resourceType, id str
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
-		FROM event_log
+		FROM hai_event_log
 		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3
 		ORDER BY sequence DESC
 		LIMIT 1`, s.tenantID, resourceType, id,

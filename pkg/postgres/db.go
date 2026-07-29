@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // DB owns the shared Postgres connection pool, migration runner, and tenant accessors.
 type DB struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	schema dbSchema
 }
 
 // Open opens a Postgres connection pool at dsn with default pool settings.
@@ -19,12 +21,22 @@ func Open(ctx context.Context, dsn string, opts ...Option) (*DB, error) {
 		opt(&cfg)
 	}
 
+	schemaName, err := normalizeSchema(cfg.schema)
+	if err != nil {
+		return nil, err
+	}
+	schema := dbSchema{name: schemaName}
+
 	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres dsn: %w", err)
 	}
 	poolConfig.MaxConns = cfg.maxConns
 	poolConfig.MinConns = cfg.minConns
+	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET search_path TO "+schema.searchPath())
+		return err
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -36,12 +48,17 @@ func Open(ctx context.Context, dsn string, opts ...Option) (*DB, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	return &DB{pool: pool}, nil
+	return &DB{pool: pool, schema: schema}, nil
+}
+
+// Schema returns the configured Postgres schema for haistack tables.
+func (db *DB) Schema() string {
+	return db.schema.name
 }
 
 // Migrate runs embedded numbered SQL migrations.
 func (db *DB) Migrate(ctx context.Context) error {
-	return runMigrations(ctx, db.pool)
+	return runMigrations(ctx, db.pool, db.schema)
 }
 
 // Close closes the underlying connection pool.
@@ -74,7 +91,7 @@ func (db *DB) TerminologyStore(scopeID string) *TerminologyStore {
 // EnsureTenant registers a tenant row if it does not already exist.
 func (db *DB) EnsureTenant(ctx context.Context, tenantID string) error {
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO tenant (id) VALUES ($1)
+		INSERT INTO hai_tenant (id) VALUES ($1)
 		ON CONFLICT (id) DO NOTHING`, tenantID)
 	if err != nil {
 		return fmt.Errorf("ensure tenant: %w", err)

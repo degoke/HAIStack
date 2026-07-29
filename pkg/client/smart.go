@@ -22,16 +22,16 @@ type SMARTClient struct {
 
 // SMARTConfiguration is parsed from .well-known/smart-configuration.
 type SMARTConfiguration struct {
-	Issuer                string   `json:"issuer"`
-	AuthorizationEndpoint string   `json:"authorization_endpoint"`
-	TokenEndpoint         string   `json:"token_endpoint"`
-	RegistrationEndpoint  string   `json:"registration_endpoint,omitempty"`
-	RevocationEndpoint    string   `json:"revocation_endpoint,omitempty"`
-	ScopesSupported       []string `json:"scopes_supported,omitempty"`
+	Issuer                 string   `json:"issuer"`
+	AuthorizationEndpoint  string   `json:"authorization_endpoint"`
+	TokenEndpoint          string   `json:"token_endpoint"`
+	RegistrationEndpoint   string   `json:"registration_endpoint,omitempty"`
+	RevocationEndpoint     string   `json:"revocation_endpoint,omitempty"`
+	ScopesSupported        []string `json:"scopes_supported,omitempty"`
 	ResponseTypesSupported []string `json:"response_types_supported,omitempty"`
-	GrantTypesSupported   []string `json:"grant_types_supported,omitempty"`
-	CodeChallengeMethods  []string `json:"code_challenge_methods_supported,omitempty"`
-	Raw                   []byte   `json:"-"`
+	GrantTypesSupported    []string `json:"grant_types_supported,omitempty"`
+	CodeChallengeMethods   []string `json:"code_challenge_methods_supported,omitempty"`
+	Raw                    []byte   `json:"-"`
 }
 
 // TokenResponse is a parsed OAuth2 token response.
@@ -56,15 +56,15 @@ type PKCEChallenge struct {
 
 // AuthCodeRequest builds an authorization URL for the auth-code+PKCE flow.
 type AuthCodeRequest struct {
-	Config       *SMARTConfiguration
-	ClientID     string
-	RedirectURI  string
-	Scope        string
-	State        string
-	PKCE         *PKCEChallenge
-	Launch       string
-	Aud          string
-	ExtraParams  map[string]string
+	Config      *SMARTConfiguration
+	ClientID    string
+	RedirectURI string
+	Scope       string
+	State       string
+	PKCE        *PKCEChallenge
+	Launch      string
+	Aud         string
+	ExtraParams map[string]string
 }
 
 // ClientAssertionRequest builds a backend-service token exchange request.

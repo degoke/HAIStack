@@ -25,7 +25,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	rt, err := runtime.New().
 		WithSQLite(filepath.Join(tempDir, "runtime.db")).
@@ -36,7 +36,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer rt.Shutdown(ctx)
+	defer func() { _ = rt.Shutdown(ctx) }()
 
 	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("Katherine", "Johnson", "+1-555-0110"))
 	if err != nil {
@@ -81,7 +81,7 @@ func get(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, body)

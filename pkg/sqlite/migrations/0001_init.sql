@@ -1,9 +1,9 @@
 -- haistack-sqlite initial schema
 --
--- Future: optional resource_proto_blob column on resource for secondary proto storage.
--- Canonical FHIR JSON in resource.json remains the source of truth.
+-- Future: optional resource_proto_blob column on hai_resource for secondary proto storage.
+-- Canonical FHIR JSON in hai_resource.json remains the source of truth.
 
-CREATE TABLE IF NOT EXISTS resource (
+CREATE TABLE IF NOT EXISTS hai_resource (
     resource_type TEXT NOT NULL,
     id            TEXT NOT NULL,
     version_id    TEXT NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS resource (
     PRIMARY KEY (resource_type, id)
 );
 
-CREATE TABLE IF NOT EXISTS resource_history (
+CREATE TABLE IF NOT EXISTS hai_resource_history (
     rowid         INTEGER PRIMARY KEY AUTOINCREMENT,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS resource_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_resource_history_resource
-    ON resource_history (resource_type, resource_id, rowid);
+    ON hai_resource_history (resource_type, resource_id, rowid);
 
-CREATE TABLE IF NOT EXISTS search_token (
+CREATE TABLE IF NOT EXISTS hai_search_token (
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     field_key     TEXT NOT NULL,
@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS search_token (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_token_lookup
-    ON search_token (field_key, value);
+    ON hai_search_token (field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_string (
+CREATE TABLE IF NOT EXISTS hai_search_string (
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     field_key     TEXT NOT NULL,
@@ -51,9 +51,9 @@ CREATE TABLE IF NOT EXISTS search_string (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_string_lookup
-    ON search_string (field_key, value);
+    ON hai_search_string (field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_date (
+CREATE TABLE IF NOT EXISTS hai_search_date (
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     field_key     TEXT NOT NULL,
@@ -62,9 +62,9 @@ CREATE TABLE IF NOT EXISTS search_date (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_date_lookup
-    ON search_date (field_key, value);
+    ON hai_search_date (field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_number (
+CREATE TABLE IF NOT EXISTS hai_search_number (
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     field_key     TEXT NOT NULL,
@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS search_number (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_number_lookup
-    ON search_number (field_key, value);
+    ON hai_search_number (field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_reference (
+CREATE TABLE IF NOT EXISTS hai_search_reference (
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     field_key     TEXT NOT NULL,
@@ -84,9 +84,9 @@ CREATE TABLE IF NOT EXISTS search_reference (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_reference_lookup
-    ON search_reference (field_key, value);
+    ON hai_search_reference (field_key, value);
 
-CREATE TABLE IF NOT EXISTS sync_outbox (
+CREATE TABLE IF NOT EXISTS hai_sync_outbox (
     sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -96,18 +96,18 @@ CREATE TABLE IF NOT EXISTS sync_outbox (
     hash          TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sync_inbox_applied (
+CREATE TABLE IF NOT EXISTS hai_sync_inbox_applied (
     id         TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS sync_cursor (
+CREATE TABLE IF NOT EXISTS hai_sync_cursor (
     name       TEXT PRIMARY KEY,
     position   TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS sync_conflict (
+CREATE TABLE IF NOT EXISTS hai_sync_conflict (
     id                TEXT PRIMARY KEY,
     resource_type     TEXT NOT NULL,
     resource_id       TEXT NOT NULL,
@@ -119,9 +119,9 @@ CREATE TABLE IF NOT EXISTS sync_conflict (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_conflict_resource
-    ON sync_conflict (resource_type, resource_id);
+    ON hai_sync_conflict (resource_type, resource_id);
 
-CREATE TABLE IF NOT EXISTS binary_object (
+CREATE TABLE IF NOT EXISTS hai_binary_object (
     key          TEXT PRIMARY KEY,
     content_type TEXT,
     size         INTEGER NOT NULL,
@@ -130,14 +130,9 @@ CREATE TABLE IF NOT EXISTS binary_object (
     created_at   TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS module_registry (
+CREATE TABLE IF NOT EXISTS hai_module_registry (
     name          TEXT PRIMARY KEY,
     version       TEXT NOT NULL,
     metadata      TEXT,
     registered_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version    INTEGER PRIMARY KEY,
-    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

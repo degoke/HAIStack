@@ -1,7 +1,7 @@
 -- Blob manifest, chunk, link, sync status, and transfer session tables.
--- Does not modify binary_object (legacy simple store contracts).
+-- Does not modify hai_binary_object (legacy simple store contracts).
 
-CREATE TABLE IF NOT EXISTS blob_manifest (
+CREATE TABLE IF NOT EXISTS hai_blob_manifest (
     tenant_id     TEXT NOT NULL,
     blob_id       TEXT NOT NULL,
     sha256        TEXT NOT NULL,
@@ -16,9 +16,9 @@ CREATE TABLE IF NOT EXISTS blob_manifest (
     PRIMARY KEY (tenant_id, blob_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_blob_manifest_sha256 ON blob_manifest(tenant_id, sha256);
+CREATE INDEX IF NOT EXISTS idx_blob_manifest_sha256 ON hai_blob_manifest(tenant_id, sha256);
 
-CREATE TABLE IF NOT EXISTS blob_chunk (
+CREATE TABLE IF NOT EXISTS hai_blob_chunk (
     tenant_id     TEXT NOT NULL,
     blob_id       TEXT NOT NULL,
     chunk_index   INTEGER NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS blob_chunk (
     PRIMARY KEY (tenant_id, blob_id, chunk_index)
 );
 
-CREATE TABLE IF NOT EXISTS blob_binary_link (
+CREATE TABLE IF NOT EXISTS hai_blob_binary_link (
     tenant_id     TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     blob_id       TEXT NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS blob_binary_link (
     PRIMARY KEY (tenant_id, resource_id)
 );
 
-CREATE TABLE IF NOT EXISTS blob_document_link (
+CREATE TABLE IF NOT EXISTS hai_blob_document_link (
     tenant_id       TEXT NOT NULL,
     document_id     TEXT NOT NULL,
     content_index   INTEGER NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS blob_document_link (
     PRIMARY KEY (tenant_id, document_id, content_index)
 );
 
-CREATE TABLE IF NOT EXISTS blob_sync_status (
+CREATE TABLE IF NOT EXISTS hai_blob_sync_status (
     tenant_id     TEXT NOT NULL,
     blob_id       TEXT NOT NULL,
     status        TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS blob_sync_status (
     PRIMARY KEY (tenant_id, blob_id)
 );
 
-CREATE TABLE IF NOT EXISTS blob_transfer_session (
+CREATE TABLE IF NOT EXISTS hai_blob_transfer_session (
     tenant_id           TEXT NOT NULL,
     session_id          TEXT NOT NULL,
     session_kind        TEXT NOT NULL,

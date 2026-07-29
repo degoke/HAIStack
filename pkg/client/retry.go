@@ -18,9 +18,9 @@ type RetryPolicy interface {
 
 // DefaultRetryPolicy retries 429 and 5xx responses and transport errors.
 type DefaultRetryPolicy struct {
-	Attempts      int
-	InitialDelay  time.Duration
-	MaxDelay      time.Duration
+	Attempts       int
+	InitialDelay   time.Duration
+	MaxDelay       time.Duration
 	JitterFraction float64
 	// RetryableStatus overrides default retry classification for specific status codes.
 	RetryableStatus map[int]bool

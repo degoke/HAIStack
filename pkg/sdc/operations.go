@@ -240,9 +240,7 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 			ri := findResponse(old, it.LinkID)
 			if ri == nil {
 				ri = &ResponseItem{LinkID: it.LinkID, Text: it.Text}
-				for _, a := range it.Initial {
-					ri.Answer = append(ri.Answer, a)
-				}
+				ri.Answer = append(ri.Answer, it.Initial...)
 				if it.InitialExpression != nil && pc.Provider != nil {
 					vs, e := pc.Provider.Evaluate(ctx, *it.InitialExpression, populationRoot(pc))
 					if e != nil {

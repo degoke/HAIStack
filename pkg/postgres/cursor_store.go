@@ -29,7 +29,7 @@ func (s *CursorStore) GetCursor(ctx context.Context, name string) (*store.Cursor
 		updatedAt time.Time
 	)
 	err := s.exec.QueryRow(ctx, `
-		SELECT position, updated_at FROM sync_cursor
+		SELECT position, updated_at FROM hai_sync_cursor
 		WHERE tenant_id = $1 AND name = $2`, s.tenantID, name,
 	).Scan(&position, &updatedAt)
 	if isNoRows(err) {
@@ -47,7 +47,7 @@ func (s *CursorStore) GetCursor(ctx context.Context, name string) (*store.Cursor
 
 func (s *CursorStore) UpsertCursor(ctx context.Context, cursor store.Cursor) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO sync_cursor (tenant_id, name, position, updated_at)
+		INSERT INTO hai_sync_cursor (tenant_id, name, position, updated_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id, name) DO UPDATE SET
 			position = EXCLUDED.position,
@@ -62,7 +62,7 @@ func (s *CursorStore) UpsertCursor(ctx context.Context, cursor store.Cursor) err
 
 func (s *CursorStore) DeleteCursor(ctx context.Context, name string) error {
 	_, err := s.exec.Exec(ctx, `
-		DELETE FROM sync_cursor WHERE tenant_id = $1 AND name = $2`, s.tenantID, name)
+		DELETE FROM hai_sync_cursor WHERE tenant_id = $1 AND name = $2`, s.tenantID, name)
 	if err != nil {
 		return fmt.Errorf("delete cursor: %w", err)
 	}

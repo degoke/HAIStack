@@ -52,11 +52,11 @@ func TestR4FacadeAndConvenienceHelpers(t *testing.T) {
 
 	// These aliases cover a resource, a shared datatype, an enum-bearing nested
 	// message, and another resource package at compile time.
-	var _ *protor4.Observation = &protor4.Observation{}
-	var _ *protor4.Bundle = &protor4.Bundle{}
-	var _ *protor4.ContainedResource = &protor4.ContainedResource{}
-	var _ *protor4.Observation_StatusCode = &protor4.Observation_StatusCode{}
-	var _ protor4.ObservationStatusCode_Value = protor4.ObservationStatusCode_FINAL
+	var _ = &protor4.Observation{}
+	var _ = &protor4.Bundle{}
+	var _ = &protor4.ContainedResource{}
+	var _ = &protor4.Observation_StatusCode{}
+	var _ = protor4.ObservationStatusCode_FINAL
 }
 
 func TestConvenienceHelpersSupportObservation(t *testing.T) {

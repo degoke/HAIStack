@@ -26,7 +26,7 @@ func newConflictStoreTx(tx pgx.Tx, tenantID string) *ConflictStore {
 
 func (s *ConflictStore) Append(ctx context.Context, record store.ConflictRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO sync_conflict (
+		INSERT INTO hai_sync_conflict (
 			id, tenant_id, resource_type, resource_id,
 			local_version_id, remote_version_id, reason, created_at, resolved_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -49,7 +49,7 @@ func (s *ConflictStore) Append(ctx context.Context, record store.ConflictRecord)
 func (s *ConflictStore) List(ctx context.Context, resourceType, resourceID string) ([]store.ConflictRecord, error) {
 	rows, err := s.exec.Query(ctx, `
 		SELECT id, resource_type, resource_id, local_version_id, remote_version_id, reason, created_at, resolved_at
-		FROM sync_conflict
+		FROM hai_sync_conflict
 		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3
 		ORDER BY created_at ASC`,
 		s.tenantID, resourceType, resourceID,
@@ -90,7 +90,7 @@ func (s *ConflictStore) List(ctx context.Context, resourceType, resourceID strin
 
 func (s *ConflictStore) Resolve(ctx context.Context, id string, resolvedAt time.Time) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE sync_conflict SET resolved_at = $1
+		UPDATE hai_sync_conflict SET resolved_at = $1
 		WHERE tenant_id = $2 AND id = $3`,
 		resolvedAt, s.tenantID, id,
 	)

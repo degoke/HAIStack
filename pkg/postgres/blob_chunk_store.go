@@ -26,14 +26,6 @@ func newPostgresBlobStore(pool *pgxpool.Pool, tenantID string) *PostgresBlobStor
 	}
 }
 
-func newPostgresBlobStoreTx(tx querier, tenantID string) *PostgresBlobStore {
-	return &PostgresBlobStore{
-		exec:     tx,
-		tenantID: tenantID,
-		metadata: newBlobMetadataStoreTx(tx, tenantID),
-	}
-}
-
 // BlobChunkStore is kept as a compatibility alias for earlier naming.
 type BlobChunkStore = PostgresBlobStore
 
@@ -114,7 +106,7 @@ func (s *PostgresBlobStore) AppendChunk(ctx context.Context, key string, index i
 func (s *PostgresBlobStore) ReadChunk(ctx context.Context, key string, index int) ([]byte, error) {
 	var data []byte
 	err := s.exec.QueryRow(ctx, `
-		SELECT data FROM blob_chunk
+		SELECT data FROM hai_blob_chunk
 		WHERE tenant_id = $1 AND blob_id = $2 AND chunk_index = $3`,
 		s.tenantID, key, index,
 	).Scan(&data)
@@ -130,7 +122,7 @@ func (s *PostgresBlobStore) ReadChunk(ctx context.Context, key string, index int
 // ListChunkCount returns contiguous chunk count starting at index 0.
 func (s *PostgresBlobStore) ListChunkCount(ctx context.Context, key string) (int, error) {
 	rows, err := s.exec.Query(ctx, `
-		SELECT chunk_index FROM blob_chunk
+		SELECT chunk_index FROM hai_blob_chunk
 		WHERE tenant_id = $1 AND blob_id = $2
 		ORDER BY chunk_index`, s.tenantID, key,
 	)
@@ -168,7 +160,7 @@ func (s *PostgresBlobStore) Metadata() *BlobMetadataStore {
 
 func (s *PostgresBlobStore) putChunk(ctx context.Context, key string, index int, data []byte, now time.Time) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO blob_chunk (tenant_id, blob_id, chunk_index, data, created_at)
+		INSERT INTO hai_blob_chunk (tenant_id, blob_id, chunk_index, data, created_at)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (tenant_id, blob_id, chunk_index) DO UPDATE SET
 			data = EXCLUDED.data,
@@ -183,7 +175,7 @@ func (s *PostgresBlobStore) putChunk(ctx context.Context, key string, index int,
 
 func (s *PostgresBlobStore) deleteChunks(ctx context.Context, key string) error {
 	_, err := s.exec.Exec(ctx, `
-		DELETE FROM blob_chunk WHERE tenant_id = $1 AND blob_id = $2`,
+		DELETE FROM hai_blob_chunk WHERE tenant_id = $1 AND blob_id = $2`,
 		s.tenantID, key,
 	)
 	if err != nil {

@@ -25,13 +25,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	stack, err := appkit.NewSQLiteStack(ctx, filepath.Join(tempDir, "ai.db"), "Patient")
 	if err != nil {
 		return err
 	}
-	defer stack.Close()
+	defer func() { _ = stack.Close() }()
 
 	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("Mary", "Jackson", "+1-555-0130"))
 	if err != nil {

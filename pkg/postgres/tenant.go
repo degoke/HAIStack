@@ -21,7 +21,7 @@ func (tdb *TenantDB) TenantID() string {
 
 func (tdb *TenantDB) ensureTenant(ctx context.Context) error {
 	_, err := tdb.pool.Exec(ctx, `
-		INSERT INTO tenant (id) VALUES ($1)
+		INSERT INTO hai_tenant (id) VALUES ($1)
 		ON CONFLICT (id) DO NOTHING`, tdb.tenantID)
 	if err != nil {
 		return fmt.Errorf("ensure tenant %q: %w", tdb.tenantID, err)

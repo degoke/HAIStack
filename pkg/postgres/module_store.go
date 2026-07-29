@@ -26,7 +26,7 @@ func (s *ModuleStore) Register(ctx context.Context, module store.ModuleRecord) e
 		return fmt.Errorf("marshal module metadata: %w", err)
 	}
 	_, err = s.exec.Exec(ctx, `
-		INSERT INTO module_registry (tenant_id, name, version, metadata, registered_at)
+		INSERT INTO hai_module_registry (tenant_id, name, version, metadata, registered_at)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (tenant_id, name) DO UPDATE SET
 			version = EXCLUDED.version,
@@ -48,7 +48,7 @@ func (s *ModuleStore) Get(ctx context.Context, name string) (*store.ModuleRecord
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT name, version, metadata, registered_at
-		FROM module_registry
+		FROM hai_module_registry
 		WHERE tenant_id = $1 AND name = $2`, s.tenantID, name,
 	).Scan(&record.Name, &record.Version, &metadata, &registered)
 	if isNoRows(err) {
@@ -67,7 +67,7 @@ func (s *ModuleStore) Get(ctx context.Context, name string) (*store.ModuleRecord
 func (s *ModuleStore) List(ctx context.Context) ([]store.ModuleRecord, error) {
 	rows, err := s.exec.Query(ctx, `
 		SELECT name, version, metadata, registered_at
-		FROM module_registry
+		FROM hai_module_registry
 		WHERE tenant_id = $1
 		ORDER BY name ASC`, s.tenantID)
 	if err != nil {
@@ -99,7 +99,7 @@ func (s *ModuleStore) List(ctx context.Context) ([]store.ModuleRecord, error) {
 
 func (s *ModuleStore) Unregister(ctx context.Context, name string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM module_registry WHERE tenant_id = $1 AND name = $2`, s.tenantID, name)
+		DELETE FROM hai_module_registry WHERE tenant_id = $1 AND name = $2`, s.tenantID, name)
 	if err != nil {
 		return fmt.Errorf("unregister module: %w", err)
 	}

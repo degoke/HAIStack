@@ -122,10 +122,7 @@ func (a *AuthAdapter) FromBackendService(claims TokenClaims, client BackendClien
 	if claims.TenantHint == "" {
 		claims.TenantHint = client.TenantHint
 	}
-	// Ensure system scopes drive KindService even when scopes are empty but client is backend.
-	if claims.Scopes.Empty() && len(client.AllowedScopes) > 0 {
-		// Do not invent scopes; principal kind falls back via force below.
-	}
+	// Principal kind falls back via force below when scopes are empty.
 	bundle, err := a.ToAuthRequests(claims, launch)
 	if err != nil {
 		return AuthBundle{}, err

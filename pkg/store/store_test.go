@@ -370,16 +370,9 @@ func (s *memModuleStore) Unregister(_ context.Context, name string) error {
 }
 
 type memDefinitionStore struct {
-	mu   sync.Mutex
-	data map[string]store.DefinitionResourceRecord
+	mu      sync.Mutex
+	data    map[string]store.DefinitionResourceRecord
 	targets map[string][]store.DefinitionTargetRecord
-}
-
-func newMemDefinitionStore() *memDefinitionStore {
-	return &memDefinitionStore{
-		data:    make(map[string]store.DefinitionResourceRecord),
-		targets: make(map[string][]store.DefinitionTargetRecord),
-	}
 }
 
 func definitionKey(canonicalURL, version string) string {
@@ -460,10 +453,6 @@ func (s *memDefinitionStore) Delete(_ context.Context, canonicalURL, version str
 type memRegistryInstallStore struct {
 	mu   sync.Mutex
 	rows []store.RegistryInstallRecord
-}
-
-func newMemRegistryInstallStore() *memRegistryInstallStore {
-	return &memRegistryInstallStore{}
 }
 
 func (s *memRegistryInstallStore) SetEnabled(_ context.Context, record store.RegistryInstallRecord) error {
@@ -710,10 +699,6 @@ func (s *memCursorStore) DeleteCursor(_ context.Context, name string) error {
 type memInboxStore struct {
 	mu   sync.Mutex
 	data map[string]time.Time
-}
-
-func newMemInboxStore() *memInboxStore {
-	return &memInboxStore{data: make(map[string]time.Time)}
 }
 
 func (s *memInboxStore) MarkApplied(_ context.Context, id string, appliedAt time.Time) error {

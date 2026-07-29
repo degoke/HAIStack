@@ -110,13 +110,13 @@
 //
 // SearchStore routes fields to typed tables using key prefixes:
 //
-//   - token.<name>     → search_token
-//   - string.<name>    → search_string
-//   - date.<name>      → search_date
-//   - number.<name>    → search_number
-//   - reference.<name> or ref.<name> → search_reference
+//   - token.<name>     → hai_search_token
+//   - string.<name>    → hai_search_string
+//   - date.<name>      → hai_search_date
+//   - number.<name>    → hai_search_number
+//   - reference.<name> or ref.<name> → hai_search_reference
 //
-// Keys without a prefix (for example "family") default to search_string. FHIR search
+// Keys without a prefix (for example "family") default to hai_search_string. FHIR search
 // parsing and token extraction remain in pkg/search; this package stores prepared entries.
 //
 // QueryPrepared supports the "by-field" plan (args: key, value) matching pkg/store test doubles.
@@ -124,19 +124,19 @@
 // # Schema and migrations
 //
 // Migrations are embedded numbered SQL files under migrations/ (for example 0001_init.sql).
-// Migrate runs them idempotently and records applied versions in schema_migrations.
+// Migrate runs them idempotently and records applied versions in hai_schema_migrations.
 //
 // Main tables:
 //
-//   - resource            — current canonical state keyed by (resource_type, id)
-//   - resource_history    — immutable version log with delete tombstones
-//   - search_*            — five typed index tables (no generic fallback)
-//   - sync_outbox         — append-only local change events (AUTOINCREMENT sequence)
-//   - sync_inbox_applied  — remote operation idempotency (scaffold)
-//   - sync_cursor         — named consumer checkpoints
-//   - sync_conflict       — conflict records (scaffold)
-//   - binary_object       — inline binary metadata and payload (scaffold)
-//   - module_registry     — local module registration metadata (scaffold)
+//   - hai_resource            — current canonical state keyed by (resource_type, id)
+//   - hai_resource_history    — immutable version log with delete tombstones
+//   - hai_search_*            — five typed index tables (no generic fallback)
+//   - hai_sync_outbox         — append-only local change events (AUTOINCREMENT sequence)
+//   - hai_sync_inbox_applied  — remote operation idempotency (scaffold)
+//   - hai_sync_cursor         — named consumer checkpoints
+//   - hai_sync_conflict       — conflict records (scaffold)
+//   - hai_binary_object       — inline binary metadata and payload (scaffold)
+//   - hai_module_registry     — local module registration metadata (scaffold)
 //
 // # Integration with other packages
 //

@@ -422,7 +422,6 @@ func Compile(ctx context.Context, st store.TerminologyStore, scope, sourceModule
 // Install stores canonical JSON and compiles its replaceable projection. Callers
 // using a transaction-scoped store can make both operations part of one write.
 func Install(ctx context.Context, st store.TerminologyStore, record store.TerminologyResourceRecord) error {
-	compileJSON := record.ResourceJSON
 	var normalized map[string]any
 	if err := json.Unmarshal(record.ResourceJSON, &normalized); err != nil {
 		return err
@@ -437,6 +436,7 @@ func Install(ctx context.Context, st store.TerminologyStore, record store.Termin
 		normalized["status"] = record.Status
 	}
 	var err error
+	var compileJSON []byte
 	if compileJSON, err = json.Marshal(normalized); err != nil {
 		return err
 	}

@@ -36,23 +36,23 @@ type ExportKickoffRequest struct {
 
 // ExportJob represents an in-flight or completed bulk export job.
 type ExportJob struct {
-	StatusURL    string
-	Status       ExportJobStatus
-	Progress     string
-	TransactionTime time.Time
-	Request      string
+	StatusURL           string
+	Status              ExportJobStatus
+	Progress            string
+	TransactionTime     time.Time
+	Request             string
 	RequiresAccessToken bool
-	Raw          []byte
+	Raw                 []byte
 }
 
 // ExportManifest is the parsed export manifest.
 type ExportManifest struct {
-	TransactionTime time.Time          `json:"transactionTime"`
-	Request         string             `json:"request"`
-	RequiresAccessToken bool           `json:"requiresAccessToken"`
-	Output          []ExportOutputFile `json:"output"`
-	Error           []ExportErrorFile  `json:"error,omitempty"`
-	Raw             []byte             `json:"-"`
+	TransactionTime     time.Time          `json:"transactionTime"`
+	Request             string             `json:"request"`
+	RequiresAccessToken bool               `json:"requiresAccessToken"`
+	Output              []ExportOutputFile `json:"output"`
+	Error               []ExportErrorFile  `json:"error,omitempty"`
+	Raw                 []byte             `json:"-"`
 }
 
 // ExportOutputFile describes one exported NDJSON file.

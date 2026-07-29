@@ -19,16 +19,12 @@ func newSubscriptionStore(pool *pgxpool.Pool, tenantID string) *SubscriptionStor
 	return &SubscriptionStore{exec: pool, tenantID: tenantID}
 }
 
-func newSubscriptionStoreTx(tx querier, tenantID string) *SubscriptionStore {
-	return &SubscriptionStore{exec: tx, tenantID: tenantID}
-}
-
 var _ store.SubscriptionStore = (*SubscriptionStore)(nil)
 
 // Create implements store.SubscriptionStore.
 func (s *SubscriptionStore) Create(ctx context.Context, record store.SubscriptionRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO subscription_registry (
+		INSERT INTO hai_subscription_registry (
 			id, tenant_id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -45,7 +41,7 @@ func (s *SubscriptionStore) Create(ctx context.Context, record store.Subscriptio
 // Update implements store.SubscriptionStore.
 func (s *SubscriptionStore) Update(ctx context.Context, record store.SubscriptionRecord) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE subscription_registry
+		UPDATE hai_subscription_registry
 		SET name = $1, status = $2, resource_type = $3, event_kind = $4,
 			trigger_json = $5, channel_json = $6, retry_json = $7, updated_at = $8
 		WHERE tenant_id = $9 AND id = $10`,
@@ -67,7 +63,7 @@ func (s *SubscriptionStore) Get(ctx context.Context, id string) (*store.Subscrip
 	row := s.exec.QueryRow(ctx, `
 		SELECT id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
-		FROM subscription_registry
+		FROM hai_subscription_registry
 		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id)
 	rec, err := scanSubscription(row)
 	if isNoRows(err) {
@@ -102,13 +98,12 @@ func (s *SubscriptionStore) List(ctx context.Context, query store.SubscriptionLi
 	if query.EventKind != "" {
 		clauses = append(clauses, fmt.Sprintf("event_kind = $%d", argN))
 		args = append(args, query.EventKind)
-		argN++
 	}
 	where := strings.Join(clauses, " AND ")
 	sqlQuery := fmt.Sprintf(`
 		SELECT id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
-		FROM subscription_registry
+		FROM hai_subscription_registry
 		WHERE %s
 		ORDER BY created_at ASC`, where)
 	if query.Limit > 0 {
@@ -136,7 +131,7 @@ func (s *SubscriptionStore) List(ctx context.Context, query store.SubscriptionLi
 // Delete implements store.SubscriptionStore.
 func (s *SubscriptionStore) Delete(ctx context.Context, id string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM subscription_registry WHERE tenant_id = $1 AND id = $2`, s.tenantID, id)
+		DELETE FROM hai_subscription_registry WHERE tenant_id = $1 AND id = $2`, s.tenantID, id)
 	if err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
@@ -152,9 +147,9 @@ type subscriptionRowScanner interface {
 
 func scanSubscription(row subscriptionRowScanner) (*store.SubscriptionRecord, error) {
 	var (
-		rec        store.SubscriptionRecord
-		status     string
-		retryJSON  []byte
+		rec       store.SubscriptionRecord
+		status    string
+		retryJSON []byte
 	)
 	if err := row.Scan(
 		&rec.ID, &rec.Name, &status, &rec.ResourceType, &rec.EventKind,

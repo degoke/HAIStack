@@ -25,7 +25,7 @@ func newIDRegistryTx(tx pgx.Tx, tenantID string) *IDRegistry {
 func (s *IDRegistry) Check(ctx context.Context, resourceType, id string) (bool, error) {
 	var count int
 	err := s.exec.QueryRow(ctx, `
-		SELECT COUNT(1) FROM resource_id_registry
+		SELECT COUNT(1) FROM hai_resource_id_registry
 		WHERE tenant_id = $1 AND resource_type = $2 AND id = $3`,
 		s.tenantID, resourceType, id,
 	).Scan(&count)
@@ -37,7 +37,7 @@ func (s *IDRegistry) Check(ctx context.Context, resourceType, id string) (bool, 
 
 func (s *IDRegistry) Reserve(ctx context.Context, resourceType, id string) error {
 	tag, err := s.exec.Exec(ctx, `
-		INSERT INTO resource_id_registry (tenant_id, resource_type, id)
+		INSERT INTO hai_resource_id_registry (tenant_id, resource_type, id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING`,
 		s.tenantID, resourceType, id,
@@ -53,7 +53,7 @@ func (s *IDRegistry) Reserve(ctx context.Context, resourceType, id string) error
 
 func (s *IDRegistry) Register(ctx context.Context, resourceType, id string) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO resource_id_registry (tenant_id, resource_type, id)
+		INSERT INTO hai_resource_id_registry (tenant_id, resource_type, id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING`,
 		s.tenantID, resourceType, id,

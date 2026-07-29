@@ -23,13 +23,6 @@ func newSQLiteBlobStore(db *sql.DB) *SQLiteBlobStore {
 	}
 }
 
-func newSQLiteBlobStoreTx(tx *sql.Tx) *SQLiteBlobStore {
-	return &SQLiteBlobStore{
-		exec:     tx,
-		metadata: newBlobMetadataStoreTx(tx),
-	}
-}
-
 // ChunkBlobStore is kept as a compatibility alias for earlier naming.
 type ChunkBlobStore = SQLiteBlobStore
 
@@ -110,7 +103,7 @@ func (s *SQLiteBlobStore) AppendChunk(ctx context.Context, key string, index int
 func (s *SQLiteBlobStore) ReadChunk(ctx context.Context, key string, index int) ([]byte, error) {
 	var data []byte
 	err := s.exec.QueryRowContext(ctx, `
-		SELECT data FROM blob_chunk WHERE blob_id = ? AND chunk_index = ?`,
+		SELECT data FROM hai_blob_chunk WHERE blob_id = ? AND chunk_index = ?`,
 		key, index,
 	).Scan(&data)
 	if err == sql.ErrNoRows {
@@ -125,13 +118,13 @@ func (s *SQLiteBlobStore) ReadChunk(ctx context.Context, key string, index int) 
 // ListChunkCount returns contiguous chunk count starting at index 0.
 func (s *SQLiteBlobStore) ListChunkCount(ctx context.Context, key string) (int, error) {
 	rows, err := s.exec.QueryContext(ctx, `
-		SELECT chunk_index FROM blob_chunk WHERE blob_id = ? ORDER BY chunk_index`,
+		SELECT chunk_index FROM hai_blob_chunk WHERE blob_id = ? ORDER BY chunk_index`,
 		key,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("list chunks: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	count := 0
 	for rows.Next() {
@@ -157,7 +150,7 @@ func (s *SQLiteBlobStore) DeleteChunks(ctx context.Context, key string) error {
 
 func (s *SQLiteBlobStore) putChunk(ctx context.Context, key string, index int, data []byte, now time.Time) error {
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT INTO blob_chunk (blob_id, chunk_index, data, created_at)
+		INSERT INTO hai_blob_chunk (blob_id, chunk_index, data, created_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(blob_id, chunk_index) DO UPDATE SET
 			data = excluded.data,
@@ -171,7 +164,7 @@ func (s *SQLiteBlobStore) putChunk(ctx context.Context, key string, index int, d
 }
 
 func (s *SQLiteBlobStore) deleteChunks(ctx context.Context, key string) error {
-	_, err := s.exec.ExecContext(ctx, `DELETE FROM blob_chunk WHERE blob_id = ?`, key)
+	_, err := s.exec.ExecContext(ctx, `DELETE FROM hai_blob_chunk WHERE blob_id = ?`, key)
 	if err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
 	}

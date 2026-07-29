@@ -40,7 +40,7 @@ func (s *ResourceStore) Create(ctx context.Context, res *types.ResourceEnvelope)
 	}
 
 	_, err = s.exec.ExecContext(ctx, `
-		INSERT INTO resource (resource_type, id, version_id, last_updated, json, hash, updated_at)
+		INSERT INTO hai_resource (resource_type, id, version_id, last_updated, json, hash, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
 		res.ResourceType, res.ID, res.VersionID, formatTime(res.LastUpdated), res.JSON, res.Hash,
 	)
@@ -59,7 +59,7 @@ func (s *ResourceStore) Read(ctx context.Context, resourceType, id string) (*typ
 	)
 	err := s.exec.QueryRowContext(ctx, `
 		SELECT version_id, last_updated, json, hash
-		FROM resource
+		FROM hai_resource
 		WHERE resource_type = ? AND id = ?`,
 		resourceType, id,
 	).Scan(&versionID, &lastUpdated, &jsonData, &hash)
@@ -93,7 +93,7 @@ func (s *ResourceStore) Update(ctx context.Context, res *types.ResourceEnvelope)
 		return fmt.Errorf("resource envelope is nil")
 	}
 	result, err := s.exec.ExecContext(ctx, `
-		UPDATE resource
+		UPDATE hai_resource
 		SET version_id = ?, last_updated = ?, json = ?, hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		WHERE resource_type = ? AND id = ?`,
 		res.VersionID, formatTime(res.LastUpdated), res.JSON, res.Hash, res.ResourceType, res.ID,
@@ -113,7 +113,7 @@ func (s *ResourceStore) Update(ctx context.Context, res *types.ResourceEnvelope)
 
 func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) error {
 	result, err := s.exec.ExecContext(ctx, `
-		DELETE FROM resource WHERE resource_type = ? AND id = ?`,
+		DELETE FROM hai_resource WHERE resource_type = ? AND id = ?`,
 		resourceType, id,
 	)
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) err
 func (s *ResourceStore) Exists(ctx context.Context, resourceType, id string) (bool, error) {
 	var count int
 	err := s.exec.QueryRowContext(ctx, `
-		SELECT COUNT(1) FROM resource WHERE resource_type = ? AND id = ?`,
+		SELECT COUNT(1) FROM hai_resource WHERE resource_type = ? AND id = ?`,
 		resourceType, id,
 	).Scan(&count)
 	if err != nil {
@@ -147,7 +147,7 @@ func (s *ResourceStore) ListIDs(ctx context.Context, resourceType string, limit,
 		limit = 100
 	}
 	rows, err := s.exec.QueryContext(ctx, `
-		SELECT id FROM resource
+		SELECT id FROM hai_resource
 		WHERE resource_type = ?
 		ORDER BY id
 		LIMIT ? OFFSET ?`, resourceType, limit, offset)

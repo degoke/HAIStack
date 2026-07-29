@@ -36,7 +36,7 @@ func (s *DefinitionStore) Upsert(ctx context.Context, record store.DefinitionRes
 
 func upsertDefinition(ctx context.Context, exec queryExec, record store.DefinitionResourceRecord, targets []store.DefinitionTargetRecord) error {
 	_, err := exec.ExecContext(ctx, `
-		INSERT INTO definition_resource (
+		INSERT INTO hai_definition_resource (
 			canonical_url, version, fhir_version, fhir_resource_type, definition_kind,
 			name, status, package_name, package_version, module_name, json_data, installed_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -61,7 +61,7 @@ func upsertDefinition(ctx context.Context, exec queryExec, record store.Definiti
 	}
 
 	if _, err := exec.ExecContext(ctx, `
-		DELETE FROM definition_target WHERE canonical_url = ? AND version = ?`,
+		DELETE FROM hai_definition_target WHERE canonical_url = ? AND version = ?`,
 		record.CanonicalURL, record.Version,
 	); err != nil {
 		return fmt.Errorf("clear definition targets: %w", err)
@@ -69,7 +69,7 @@ func upsertDefinition(ctx context.Context, exec queryExec, record store.Definiti
 
 	for _, target := range targets {
 		if _, err := exec.ExecContext(ctx, `
-			INSERT INTO definition_target (canonical_url, version, target_resource_type, target_role)
+			INSERT INTO hai_definition_target (canonical_url, version, target_resource_type, target_role)
 			VALUES (?, ?, ?, ?)`,
 			target.CanonicalURL, target.Version, target.TargetResourceType, target.TargetRole,
 		); err != nil {
@@ -86,7 +86,7 @@ func (s *DefinitionStore) Get(ctx context.Context, canonicalURL, version string)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT canonical_url, version, fhir_version, fhir_resource_type, definition_kind,
 			name, status, package_name, package_version, module_name, json_data, installed_at
-		FROM definition_resource
+		FROM hai_definition_resource
 		WHERE canonical_url = ? AND version = ?`, canonicalURL, version,
 	).Scan(
 		&record.CanonicalURL, &record.Version, &record.FHIRVersion, &record.FHIRResourceType,
@@ -116,13 +116,13 @@ func (s *DefinitionStore) Delete(ctx context.Context, canonicalURL, version stri
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM definition_target WHERE canonical_url = ? AND version = ?`,
+		DELETE FROM hai_definition_target WHERE canonical_url = ? AND version = ?`,
 		canonicalURL, version,
 	); err != nil {
 		return fmt.Errorf("delete definition targets: %w", err)
 	}
 	result, err := tx.ExecContext(ctx, `
-		DELETE FROM definition_resource WHERE canonical_url = ? AND version = ?`,
+		DELETE FROM hai_definition_resource WHERE canonical_url = ? AND version = ?`,
 		canonicalURL, version,
 	)
 	if err != nil {
@@ -143,14 +143,14 @@ func (s *DefinitionStore) List(ctx context.Context, filter store.DefinitionFilte
 		SELECT DISTINCT dr.canonical_url, dr.version, dr.fhir_version, dr.fhir_resource_type,
 			dr.definition_kind, dr.name, dr.status, dr.package_name, dr.package_version,
 			dr.module_name, dr.json_data, dr.installed_at
-		FROM definition_resource dr`
+		FROM hai_definition_resource dr`
 	var joins []string
 	var where []string
 	var args []any
 
 	if filter.TargetResourceType != "" {
 		joins = append(joins, `
-			INNER JOIN definition_target dt
+			INNER JOIN hai_definition_target dt
 				ON dt.canonical_url = dr.canonical_url AND dt.version = dr.version`)
 		where = append(where, "dt.target_resource_type = ?")
 		args = append(args, filter.TargetResourceType)

@@ -71,23 +71,23 @@ type Plan struct {
 
 // InstallResult reports what an install changed in the registry.
 type InstallResult struct {
-	Name                 string          `json:"name"`
-	Version              string          `json:"version"`
-	EnabledResources     []string        `json:"enabledResources,omitempty"`
-	InstalledDefinitions []DefinitionRef `json:"installedDefinitions,omitempty"`
-	Deferred             Declarations    `json:"deferred,omitempty"`
+	Name                 string             `json:"name"`
+	Version              string             `json:"version"`
+	EnabledResources     []string           `json:"enabledResources,omitempty"`
+	InstalledDefinitions []DefinitionRef    `json:"installedDefinitions,omitempty"`
+	Deferred             Declarations       `json:"deferred,omitempty"`
 	Snapshot             *registry.Snapshot `json:"-"`
 }
 
 // UpgradeResult reports what an upgrade changed in the registry.
 type UpgradeResult struct {
-	Name                 string            `json:"name"`
-	OldVersion           string            `json:"oldVersion"`
-	NewVersion           string            `json:"newVersion"`
-	EnabledResources     []string          `json:"enabledResources,omitempty"`
-	InstalledDefinitions []DefinitionRef   `json:"installedDefinitions,omitempty"`
-	RemovedDefinitions   []DefinitionRef   `json:"removedDefinitions,omitempty"`
-	Deferred             Declarations      `json:"deferred,omitempty"`
+	Name                 string             `json:"name"`
+	OldVersion           string             `json:"oldVersion"`
+	NewVersion           string             `json:"newVersion"`
+	EnabledResources     []string           `json:"enabledResources,omitempty"`
+	InstalledDefinitions []DefinitionRef    `json:"installedDefinitions,omitempty"`
+	RemovedDefinitions   []DefinitionRef    `json:"removedDefinitions,omitempty"`
+	Deferred             Declarations       `json:"deferred,omitempty"`
 	Snapshot             *registry.Snapshot `json:"-"`
 }
 

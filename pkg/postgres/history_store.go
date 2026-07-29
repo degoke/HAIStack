@@ -32,7 +32,7 @@ func (s *HistoryStore) AppendVersion(ctx context.Context, version store.Resource
 	}
 
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO resource_history (
+		INSERT INTO hai_resource_history (
 			tenant_id, resource_type, resource_id, version_id, action, timestamp, hash, deleted, json
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		s.tenantID,
@@ -54,7 +54,7 @@ func (s *HistoryStore) AppendVersion(ctx context.Context, version store.Resource
 func (s *HistoryStore) GetHistory(ctx context.Context, resourceType, id string) ([]store.ResourceVersion, error) {
 	rows, err := s.exec.Query(ctx, `
 		SELECT version_id, action, timestamp, hash, deleted, json
-		FROM resource_history
+		FROM hai_resource_history
 		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3
 		ORDER BY rowid ASC`,
 		s.tenantID, resourceType, id,

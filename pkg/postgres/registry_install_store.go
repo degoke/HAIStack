@@ -20,7 +20,7 @@ func newRegistryInstallStore(pool *pgxpool.Pool, tenantID string) *RegistryInsta
 
 func (s *RegistryInstallStore) SetEnabled(ctx context.Context, record store.RegistryInstallRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO registry_install (
+		INSERT INTO hai_registry_install (
 			tenant_id, definition_kind, canonical_url, version, target_resource_type,
 			enabled, source_module, installed_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -60,7 +60,7 @@ func (s *RegistryInstallStore) ListInstalled(ctx context.Context, filter store.R
 }
 
 func (s *RegistryInstallStore) Delete(ctx context.Context, filter store.RegistryInstallFilter) error {
-	query := `DELETE FROM registry_install WHERE tenant_id = $1`
+	query := `DELETE FROM hai_registry_install WHERE tenant_id = $1`
 	args := []any{s.tenantID}
 	argN := 2
 
@@ -82,7 +82,6 @@ func (s *RegistryInstallStore) Delete(ctx context.Context, filter store.Registry
 	if filter.Version != "" {
 		query += fmt.Sprintf(" AND version = $%d", argN)
 		args = append(args, filter.Version)
-		argN++
 	}
 	if _, err := s.exec.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("delete registry installs: %w", err)
@@ -94,7 +93,7 @@ func (s *RegistryInstallStore) queryInstallRows(ctx context.Context, filter stor
 	query := `
 		SELECT definition_kind, canonical_url, version, target_resource_type,
 			enabled, source_module, installed_at
-		FROM registry_install
+		FROM hai_registry_install
 		WHERE tenant_id = $1`
 	args := []any{s.tenantID}
 	argN := 2

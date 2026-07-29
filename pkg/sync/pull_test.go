@@ -145,8 +145,8 @@ func TestPullCursorAdvancesOnlyAfterSuccessfulApply(t *testing.T) {
 	hub.canonical = []hasync.CanonicalEvent{
 		{
 			ResourceType: "Patient", ResourceID: "p1",
-			Operation: hasync.EventTypeResourceCreated,
-			ResourceAfter: sampleResource("p1", "v1"),
+			Operation:         hasync.EventTypeResourceCreated,
+			ResourceAfter:     sampleResource("p1", "v1"),
 			CanonicalSequence: 1, CanonicalVersionID: "v1",
 			Status: hasync.CanonicalStatusAccepted,
 		},

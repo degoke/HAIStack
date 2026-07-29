@@ -21,7 +21,7 @@ func newJobStore(pool *pgxpool.Pool, tenantID string) *JobStore {
 
 func (s *JobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO background_job (
+		INSERT INTO hai_background_job (
 			id, tenant_id, type, payload, status, attempts, created_at, updated_at, run_after, last_error
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		job.ID, s.tenantID, job.Type, job.Payload, string(job.Status), job.Attempts,
@@ -40,14 +40,14 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 	var lastError *string
 	err := s.exec.QueryRow(ctx, `
 		WITH next AS (
-			SELECT id FROM background_job
+			SELECT id FROM hai_background_job
 			WHERE tenant_id = $1 AND type = $2 AND status = 'pending'
 				AND (run_after IS NULL OR run_after <= now())
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		UPDATE background_job j
+		UPDATE hai_background_job j
 		SET status = 'running', attempts = j.attempts + 1, updated_at = now()
 		FROM next
 		WHERE j.id = next.id
@@ -75,7 +75,7 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 
 func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE background_job
+		UPDATE hai_background_job
 		SET type = $1, payload = $2, status = $3, attempts = $4, updated_at = $5, run_after = $6, last_error = $7
 		WHERE tenant_id = $8 AND id = $9`,
 		job.Type, job.Payload, string(job.Status), job.Attempts, job.UpdatedAt,
@@ -99,7 +99,7 @@ func (s *JobStore) Get(ctx context.Context, id string) (*store.JobRecord, error)
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT id, type, payload, status, attempts, created_at, updated_at, run_after, last_error
-		FROM background_job
+		FROM hai_background_job
 		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id,
 	).Scan(
 		&job.ID, &job.Type, &job.Payload, &status, &job.Attempts,

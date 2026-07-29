@@ -22,14 +22,10 @@ func newInboxStore(pool *pgxpool.Pool, tenantID string) *InboxStore {
 	return &InboxStore{exec: pool, tenantID: tenantID}
 }
 
-func newInboxStoreTx(tx pgx.Tx, tenantID string) *InboxStore {
-	return &InboxStore{exec: tx, tenantID: tenantID}
-}
-
 // MarkApplied records that a remote operation has been applied.
 func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.Time) error {
 	_, err := s.exec.Exec(ctx, `
-		INSERT INTO sync_inbox_applied (tenant_id, id, applied_at)
+		INSERT INTO hai_sync_inbox_applied (tenant_id, id, applied_at)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (tenant_id, id) DO UPDATE SET applied_at = EXCLUDED.applied_at`,
 		s.tenantID, id, appliedAt,
@@ -44,7 +40,7 @@ func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.
 func (s *InboxStore) IsApplied(ctx context.Context, id string) (bool, error) {
 	var count int
 	err := s.exec.QueryRow(ctx, `
-		SELECT COUNT(1) FROM sync_inbox_applied
+		SELECT COUNT(1) FROM hai_sync_inbox_applied
 		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id,
 	).Scan(&count)
 	if err != nil {
@@ -57,7 +53,7 @@ func (s *InboxStore) IsApplied(ctx context.Context, id string) (bool, error) {
 func (s *InboxStore) AppliedAt(ctx context.Context, id string) (*time.Time, error) {
 	var appliedAt time.Time
 	err := s.exec.QueryRow(ctx, `
-		SELECT applied_at FROM sync_inbox_applied
+		SELECT applied_at FROM hai_sync_inbox_applied
 		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id,
 	).Scan(&appliedAt)
 	if err == pgx.ErrNoRows {

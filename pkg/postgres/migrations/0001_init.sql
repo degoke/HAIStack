@@ -1,12 +1,12 @@
 -- haistack-postgres initial schema
 
-CREATE TABLE IF NOT EXISTS tenant (
+CREATE TABLE IF NOT EXISTS hai_tenant (
     id         TEXT PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS resource (
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+CREATE TABLE IF NOT EXISTS hai_resource (
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     resource_type TEXT NOT NULL,
     id            TEXT NOT NULL,
     version_id    TEXT NOT NULL,
@@ -18,9 +18,9 @@ CREATE TABLE IF NOT EXISTS resource (
     PRIMARY KEY (tenant_id, resource_type, id)
 );
 
-CREATE TABLE IF NOT EXISTS resource_history (
+CREATE TABLE IF NOT EXISTS hai_resource_history (
     rowid         BIGSERIAL PRIMARY KEY,
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     version_id    TEXT NOT NULL,
@@ -33,11 +33,11 @@ CREATE TABLE IF NOT EXISTS resource_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_resource_history_resource
-    ON resource_history (tenant_id, resource_type, resource_id, rowid);
+    ON hai_resource_history (tenant_id, resource_type, resource_id, rowid);
 
-CREATE TABLE IF NOT EXISTS event_log (
+CREATE TABLE IF NOT EXISTS hai_event_log (
     sequence      BIGSERIAL PRIMARY KEY,
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
     version_id    TEXT NOT NULL,
@@ -46,25 +46,25 @@ CREATE TABLE IF NOT EXISTS event_log (
     hash          TEXT
 );
 
-CREATE TABLE IF NOT EXISTS resource_id_registry (
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+CREATE TABLE IF NOT EXISTS hai_resource_id_registry (
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     resource_type TEXT NOT NULL,
     id            TEXT NOT NULL,
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, resource_type, id)
 );
 
-CREATE TABLE IF NOT EXISTS node_registry (
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+CREATE TABLE IF NOT EXISTS hai_node_registry (
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     node_id       TEXT NOT NULL,
     metadata      JSONB,
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, node_id)
 );
 
-CREATE TABLE IF NOT EXISTS sync_conflict (
+CREATE TABLE IF NOT EXISTS hai_sync_conflict (
     id                TEXT PRIMARY KEY,
-    tenant_id         TEXT NOT NULL REFERENCES tenant (id),
+    tenant_id         TEXT NOT NULL REFERENCES hai_tenant (id),
     resource_type     TEXT NOT NULL,
     resource_id       TEXT NOT NULL,
     local_version_id  TEXT NOT NULL,
@@ -75,9 +75,9 @@ CREATE TABLE IF NOT EXISTS sync_conflict (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_conflict_resource
-    ON sync_conflict (tenant_id, resource_type, resource_id);
+    ON hai_sync_conflict (tenant_id, resource_type, resource_id);
 
-CREATE TABLE IF NOT EXISTS search_token (
+CREATE TABLE IF NOT EXISTS hai_search_token (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -87,9 +87,9 @@ CREATE TABLE IF NOT EXISTS search_token (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_token_lookup
-    ON search_token (tenant_id, field_key, value);
+    ON hai_search_token (tenant_id, field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_string (
+CREATE TABLE IF NOT EXISTS hai_search_string (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -99,9 +99,9 @@ CREATE TABLE IF NOT EXISTS search_string (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_string_lookup
-    ON search_string (tenant_id, field_key, value);
+    ON hai_search_string (tenant_id, field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_date (
+CREATE TABLE IF NOT EXISTS hai_search_date (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -111,9 +111,9 @@ CREATE TABLE IF NOT EXISTS search_date (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_date_lookup
-    ON search_date (tenant_id, field_key, value);
+    ON hai_search_date (tenant_id, field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_number (
+CREATE TABLE IF NOT EXISTS hai_search_number (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -123,9 +123,9 @@ CREATE TABLE IF NOT EXISTS search_number (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_number_lookup
-    ON search_number (tenant_id, field_key, value);
+    ON hai_search_number (tenant_id, field_key, value);
 
-CREATE TABLE IF NOT EXISTS search_reference (
+CREATE TABLE IF NOT EXISTS hai_search_reference (
     tenant_id     TEXT NOT NULL,
     resource_type TEXT NOT NULL,
     resource_id   TEXT NOT NULL,
@@ -135,9 +135,9 @@ CREATE TABLE IF NOT EXISTS search_reference (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_reference_lookup
-    ON search_reference (tenant_id, field_key, value);
+    ON hai_search_reference (tenant_id, field_key, value);
 
-CREATE TABLE IF NOT EXISTS sync_cursor (
+CREATE TABLE IF NOT EXISTS hai_sync_cursor (
     tenant_id  TEXT NOT NULL,
     name       TEXT NOT NULL,
     position   TEXT NOT NULL,
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS sync_cursor (
     PRIMARY KEY (tenant_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS binary_object (
+CREATE TABLE IF NOT EXISTS hai_binary_object (
     tenant_id    TEXT NOT NULL,
     key          TEXT NOT NULL,
     content_type TEXT,
@@ -157,9 +157,9 @@ CREATE TABLE IF NOT EXISTS binary_object (
     PRIMARY KEY (tenant_id, key)
 );
 
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE IF NOT EXISTS hai_audit_log (
     id            TEXT PRIMARY KEY,
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     timestamp     TIMESTAMPTZ NOT NULL,
     actor         TEXT NOT NULL,
     action        TEXT NOT NULL,
@@ -170,10 +170,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource
-    ON audit_log (tenant_id, resource_type, resource_id, timestamp);
+    ON hai_audit_log (tenant_id, resource_type, resource_id, timestamp);
 
-CREATE TABLE IF NOT EXISTS module_registry (
-    tenant_id     TEXT NOT NULL REFERENCES tenant (id),
+CREATE TABLE IF NOT EXISTS hai_module_registry (
+    tenant_id     TEXT NOT NULL REFERENCES hai_tenant (id),
     name          TEXT NOT NULL,
     version       TEXT NOT NULL,
     metadata      JSONB,
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS module_registry (
     PRIMARY KEY (tenant_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS materialized_view (
+CREATE TABLE IF NOT EXISTS hai_materialized_view (
     tenant_id  TEXT NOT NULL,
     view_name  TEXT NOT NULL,
     key        TEXT NOT NULL,
@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS materialized_view (
     PRIMARY KEY (tenant_id, view_name, key)
 );
 
-CREATE TABLE IF NOT EXISTS analytics_event (
+CREATE TABLE IF NOT EXISTS hai_analytics_event (
     id         TEXT PRIMARY KEY,
     tenant_id  TEXT NOT NULL,
     name       TEXT NOT NULL,
@@ -202,9 +202,9 @@ CREATE TABLE IF NOT EXISTS analytics_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_analytics_event_name_time
-    ON analytics_event (tenant_id, name, timestamp);
+    ON hai_analytics_event (tenant_id, name, timestamp);
 
-CREATE TABLE IF NOT EXISTS background_job (
+CREATE TABLE IF NOT EXISTS hai_background_job (
     id         TEXT PRIMARY KEY,
     tenant_id  TEXT NOT NULL,
     type       TEXT NOT NULL,
@@ -218,9 +218,4 @@ CREATE TABLE IF NOT EXISTS background_job (
 );
 
 CREATE INDEX IF NOT EXISTS idx_background_job_claim
-    ON background_job (tenant_id, type, status, run_after, created_at);
-
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version    INTEGER PRIMARY KEY,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+    ON hai_background_job (tenant_id, type, status, run_after, created_at);

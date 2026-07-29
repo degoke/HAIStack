@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -687,14 +686,6 @@ func (s *memInstallStore) ListInstalled(context.Context, store.RegistryInstallFi
 }
 
 func (s *memInstallStore) Delete(context.Context, store.RegistryInstallFilter) error { return nil }
-
-func mustValues(params map[string]string) url.Values {
-	values := url.Values{}
-	for k, v := range params {
-		values.Set(k, v)
-	}
-	return values
-}
 
 func dataMap(t *testing.T, data any) map[string]any {
 	t.Helper()

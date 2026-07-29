@@ -37,7 +37,7 @@ func (s *ResourceStore) Create(ctx context.Context, res *types.ResourceEnvelope)
 	}
 
 	_, err = s.exec.Exec(ctx, `
-		INSERT INTO resource (tenant_id, resource_type, id, version_id, last_updated, json, hash, updated_at)
+		INSERT INTO hai_resource (tenant_id, resource_type, id, version_id, last_updated, json, hash, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, now())`,
 		s.tenantID, res.ResourceType, res.ID, res.VersionID, res.LastUpdated, res.JSON, nullString(res.Hash),
 	)
@@ -56,7 +56,7 @@ func (s *ResourceStore) Read(ctx context.Context, resourceType, id string) (*typ
 	)
 	err := s.exec.QueryRow(ctx, `
 		SELECT version_id, last_updated, json, hash
-		FROM resource
+		FROM hai_resource
 		WHERE tenant_id = $1 AND resource_type = $2 AND id = $3`,
 		s.tenantID, resourceType, id,
 	).Scan(&versionID, &lastUpdated, &jsonData, &hash)
@@ -85,7 +85,7 @@ func (s *ResourceStore) Update(ctx context.Context, res *types.ResourceEnvelope)
 		return fmt.Errorf("resource envelope is nil")
 	}
 	tag, err := s.exec.Exec(ctx, `
-		UPDATE resource
+		UPDATE hai_resource
 		SET version_id = $1, last_updated = $2, json = $3, hash = $4, updated_at = now()
 		WHERE tenant_id = $5 AND resource_type = $6 AND id = $7`,
 		res.VersionID, res.LastUpdated, res.JSON, nullString(res.Hash),
@@ -102,7 +102,7 @@ func (s *ResourceStore) Update(ctx context.Context, res *types.ResourceEnvelope)
 
 func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) error {
 	tag, err := s.exec.Exec(ctx, `
-		DELETE FROM resource
+		DELETE FROM hai_resource
 		WHERE tenant_id = $1 AND resource_type = $2 AND id = $3`,
 		s.tenantID, resourceType, id,
 	)
@@ -118,7 +118,7 @@ func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) err
 func (s *ResourceStore) Exists(ctx context.Context, resourceType, id string) (bool, error) {
 	var count int
 	err := s.exec.QueryRow(ctx, `
-		SELECT COUNT(1) FROM resource
+		SELECT COUNT(1) FROM hai_resource
 		WHERE tenant_id = $1 AND resource_type = $2 AND id = $3`,
 		s.tenantID, resourceType, id,
 	).Scan(&count)
@@ -134,7 +134,7 @@ func (s *ResourceStore) ListIDs(ctx context.Context, resourceType string, limit,
 		limit = 100
 	}
 	rows, err := s.exec.Query(ctx, `
-		SELECT id FROM resource
+		SELECT id FROM hai_resource
 		WHERE tenant_id = $1 AND resource_type = $2
 		ORDER BY id
 		LIMIT $3 OFFSET $4`, s.tenantID, resourceType, limit, offset)

@@ -114,10 +114,3 @@ func CursorName(scope string) string {
 func defaultRetryPolicy() RetryPolicy {
 	return RetryPolicy{MaxAttempts: 5}
 }
-
-func (p RetryPolicy) effectiveMaxAttempts() int {
-	if p.MaxAttempts <= 0 {
-		return defaultRetryPolicy().MaxAttempts
-	}
-	return p.MaxAttempts
-}

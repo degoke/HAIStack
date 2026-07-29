@@ -24,7 +24,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer func() { _ = cleanup() }()
 
 	tenantID := fmt.Sprintf("cloud-example-%d", time.Now().UnixNano())
 	rt, err := runtime.New().
@@ -38,7 +38,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer rt.Shutdown(ctx)
+	defer func() { _ = rt.Shutdown(ctx) }()
 
 	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("Mae", "Jemison", "+1-555-0150"))
 	if err != nil {

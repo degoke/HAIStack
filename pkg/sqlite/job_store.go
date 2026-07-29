@@ -31,7 +31,7 @@ func (s *JobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
 		lastError = job.LastError
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO background_job (
+		INSERT INTO hai_background_job (
 			id, type, payload, status, attempts, created_at, updated_at, run_after, last_error
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, job.Type, job.Payload, string(job.Status), job.Attempts,
@@ -56,7 +56,7 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 
 	var id string
 	err = tx.QueryRowContext(ctx, `
-		SELECT id FROM background_job
+		SELECT id FROM hai_background_job
 		WHERE type = ?
 			AND status = 'pending'
 			AND (run_after IS NULL OR run_after <= ?)
@@ -72,7 +72,7 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 	}
 
 	res, err := tx.ExecContext(ctx, `
-		UPDATE background_job
+		UPDATE hai_background_job
 		SET status = 'running', attempts = attempts + 1, updated_at = ?
 		WHERE id = ? AND status = 'pending'`,
 		nowStr, id,
@@ -90,7 +90,7 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 
 	job, err := scanJob(tx.QueryRowContext(ctx, `
 		SELECT id, type, payload, status, attempts, created_at, updated_at, run_after, last_error
-		FROM background_job WHERE id = ?`, id))
+		FROM hai_background_job WHERE id = ?`, id))
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
 		lastError = job.LastError
 	}
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE background_job
+		UPDATE hai_background_job
 		SET type = ?, payload = ?, status = ?, attempts = ?, updated_at = ?, run_after = ?, last_error = ?
 		WHERE id = ?`,
 		job.Type, job.Payload, string(job.Status), job.Attempts, formatTime(job.UpdatedAt),
@@ -134,7 +134,7 @@ func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
 func (s *JobStore) Get(ctx context.Context, id string) (*store.JobRecord, error) {
 	job, err := scanJob(s.db.QueryRowContext(ctx, `
 		SELECT id, type, payload, status, attempts, created_at, updated_at, run_after, last_error
-		FROM background_job WHERE id = ?`, id))
+		FROM hai_background_job WHERE id = ?`, id))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("job not found: %s", id)
 	}

@@ -37,7 +37,7 @@ func (s *ConflictStore) Append(ctx context.Context, record store.ConflictRecord)
 		resolvedAt = formatTime(*record.ResolvedAt)
 	}
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT INTO sync_conflict (
+		INSERT INTO hai_sync_conflict (
 			id, resource_type, resource_id,
 			local_version_id, remote_version_id, reason, created_at, resolved_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -59,7 +59,7 @@ func (s *ConflictStore) Append(ctx context.Context, record store.ConflictRecord)
 func (s *ConflictStore) List(ctx context.Context, resourceType, resourceID string) ([]store.ConflictRecord, error) {
 	rows, err := s.exec.QueryContext(ctx, `
 		SELECT id, resource_type, resource_id, local_version_id, remote_version_id, reason, created_at, resolved_at
-		FROM sync_conflict
+		FROM hai_sync_conflict
 		WHERE resource_type = ? AND resource_id = ?
 		ORDER BY created_at ASC`,
 		resourceType, resourceID,
@@ -110,7 +110,7 @@ func (s *ConflictStore) List(ctx context.Context, resourceType, resourceID strin
 
 func (s *ConflictStore) Resolve(ctx context.Context, id string, resolvedAt time.Time) error {
 	result, err := s.exec.ExecContext(ctx, `
-		UPDATE sync_conflict SET resolved_at = ? WHERE id = ?`,
+		UPDATE hai_sync_conflict SET resolved_at = ? WHERE id = ?`,
 		formatTime(resolvedAt), id,
 	)
 	if err != nil {

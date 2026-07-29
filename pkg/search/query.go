@@ -19,25 +19,25 @@ type SortField struct {
 type MatchOperator string
 
 const (
-	OpEqual    MatchOperator = "eq"
-	OpNotEqual MatchOperator = "ne"
-	OpGreater  MatchOperator = "gt"
-	OpLess     MatchOperator = "lt"
-	OpGE       MatchOperator = "ge"
-	OpLE       MatchOperator = "le"
-	OpStarts   MatchOperator = "sa"
-	OpEnds     MatchOperator = "eb"
-	OpApprox   MatchOperator = "ap"
-	OpContains MatchOperator = "contains"
-	OpExact    MatchOperator = "exact"
-	OpText     MatchOperator = "text"
-	OpBelow    MatchOperator = "below"
-	OpAbove    MatchOperator = "above"
-	OpIn       MatchOperator = "in"
-	OpNotIn    MatchOperator = "not-in"
-	OpNot      MatchOperator = "not"
+	OpEqual      MatchOperator = "eq"
+	OpNotEqual   MatchOperator = "ne"
+	OpGreater    MatchOperator = "gt"
+	OpLess       MatchOperator = "lt"
+	OpGE         MatchOperator = "ge"
+	OpLE         MatchOperator = "le"
+	OpStarts     MatchOperator = "sa"
+	OpEnds       MatchOperator = "eb"
+	OpApprox     MatchOperator = "ap"
+	OpContains   MatchOperator = "contains"
+	OpExact      MatchOperator = "exact"
+	OpText       MatchOperator = "text"
+	OpBelow      MatchOperator = "below"
+	OpAbove      MatchOperator = "above"
+	OpIn         MatchOperator = "in"
+	OpNotIn      MatchOperator = "not-in"
+	OpNot        MatchOperator = "not"
 	OpIdentifier MatchOperator = "identifier"
-	OpType     MatchOperator = "type"
+	OpType       MatchOperator = "type"
 )
 
 // ParamClause is one resolved search parameter with OR semantics across Values.
@@ -82,10 +82,10 @@ type RevIncludeDirective struct {
 type SummaryMode string
 
 const (
-	SummaryNone SummaryMode = ""
-	SummaryTrue SummaryMode = "true"
-	SummaryText SummaryMode = "text"
-	SummaryData SummaryMode = "data"
+	SummaryNone  SummaryMode = ""
+	SummaryTrue  SummaryMode = "true"
+	SummaryText  SummaryMode = "text"
+	SummaryData  SummaryMode = "data"
 	SummaryCount SummaryMode = "count"
 )
 
@@ -137,10 +137,10 @@ type ChainPlan struct {
 
 // IncludePlan describes direct include expansion after primary search.
 type IncludePlan struct {
-	SourceType string
-	ParamCode  string
+	SourceType  string
+	ParamCode   string
 	RefFieldKey string
-	TargetType string
+	TargetType  string
 }
 
 // RevIncludePlan describes reverse include expansion after primary search.

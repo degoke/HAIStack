@@ -98,7 +98,7 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("s3 put blob: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -132,7 +132,7 @@ func (s *S3BlobStore) Get(ctx context.Context, blobID string) ([]byte, *BlobDesc
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil, ErrNotFound
 	}
@@ -169,7 +169,7 @@ func (s *S3BlobStore) Head(ctx context.Context, blobID string) (*BlobDescriptor,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, ErrNotFound
 	}
@@ -199,7 +199,7 @@ func (s *S3BlobStore) Delete(ctx context.Context, blobID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return ErrNotFound
 	}

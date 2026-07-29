@@ -69,7 +69,7 @@ func TestBuildAuthURL(t *testing.T) {
 	c, _ := New(Config{BaseURL: "http://example.com"})
 	pkce, _ := NewPKCEChallenge()
 	u, err := c.SMART().BuildAuthURL(AuthCodeRequest{
-		Config: &SMARTConfiguration{AuthorizationEndpoint: "https://auth.example/authorize"},
+		Config:      &SMARTConfiguration{AuthorizationEndpoint: "https://auth.example/authorize"},
 		ClientID:    "client-1",
 		RedirectURI: "https://app.example/callback",
 		Scope:       "launch/patient patient/*.read",

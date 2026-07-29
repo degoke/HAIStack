@@ -39,7 +39,8 @@
 // pgx driver:
 //
 //   - Uses github.com/jackc/pgx/v5 and pgxpool directly (not database/sql).
-//   - Open accepts functional options such as WithMaxConns and WithMinConns.
+//   - Open accepts functional options such as WithMaxConns, WithMinConns, and WithSchema.
+//   - WithSchema selects the Postgres schema for haistack tables (default: public).
 //
 // # Opening a database
 //
@@ -48,6 +49,10 @@
 //	defer db.Close()
 //
 //	if err := db.Migrate(ctx); err != nil { … }
+//
+// Custom schema:
+//
+//	db, err := postgres.Open(ctx, dsn, postgres.WithSchema("haistack"))
 //
 // Obtain a tenant-scoped accessor:
 //
@@ -137,13 +142,13 @@
 //
 // SearchStore routes fields to typed tables using key prefixes (same convention as sqlite):
 //
-//   - token.<name>                     → search_token
-//   - string.<name>                    → search_string
-//   - date.<name>                      → search_date
-//   - number.<name>                    → search_number
-//   - reference.<name> or ref.<name>   → search_reference
+//   - token.<name>                     → hai_search_token
+//   - string.<name>                    → hai_search_string
+//   - date.<name>                      → hai_search_date
+//   - number.<name>                    → hai_search_number
+//   - reference.<name> or ref.<name>   → hai_search_reference
 //
-// Keys without a prefix default to search_string. QueryPrepared supports the "by-field"
+// Keys without a prefix default to hai_search_string. QueryPrepared supports the "by-field"
 // plan (args: key, value). AnalyticsStore QueryPrepared supports "by-name-since"
 // (args: name, since as RFC3339).
 //
@@ -156,26 +161,27 @@
 // # Schema and migrations
 //
 // Migrations are embedded numbered SQL files under migrations/ (for example 0001_init.sql).
-// Migrate runs them idempotently and records applied versions in schema_migrations.
+// Migrate runs them idempotently and records applied versions in hai_schema_migrations.
+// Non-public schemas are created automatically before the first migration.
 //
 // Main tables (all tenant-aware where applicable):
 //
-//   - tenant                — authoritative tenant registry
-//   - resource              — current accepted state keyed by (tenant_id, resource_type, id)
-//   - resource_history      — immutable accepted version log with delete tombstones
-//   - event_log             — globally ordered accepted-write events (BIGSERIAL sequence)
-//   - resource_id_registry  — authoritative resource ID registration per type
-//   - node_registry         — edge/cloud node metadata for sync coordination
-//   - sync_conflict         — rejected/conflicted write records and resolution timestamps
-//   - search_*              — five typed index tables (token, string, date, number, reference)
-//   - sync_cursor           — named consumer checkpoints
-//   - binary_object         — inline binary or blob metadata (optional location column)
-//   - audit_log             — append-only audit entries
-//   - module_registry       — tenant module registration metadata
-//   - materialized_view     — named projection entries
-//   - analytics_reporting_meta / analytics_reporting_row — analytics reporting table snapshots
-//   - analytics_event       — append-only analytics records
-//   - background_job        — durable job queue with claim semantics (FOR UPDATE SKIP LOCKED)
+//   - hai_tenant                — authoritative tenant registry
+//   - hai_resource              — current accepted state keyed by (tenant_id, resource_type, id)
+//   - hai_resource_history      — immutable accepted version log with delete tombstones
+//   - hai_event_log             — globally ordered accepted-write events (BIGSERIAL sequence)
+//   - hai_resource_id_registry  — authoritative resource ID registration per type
+//   - hai_node_registry         — edge/cloud node metadata for sync coordination
+//   - hai_sync_conflict         — rejected/conflicted write records and resolution timestamps
+//   - hai_search_*              — typed index tables (token, string, date, number, reference, text, composite)
+//   - hai_sync_cursor           — named consumer checkpoints
+//   - hai_binary_object         — inline binary or blob metadata (optional location column)
+//   - hai_audit_log             — append-only audit entries
+//   - hai_module_registry       — tenant module registration metadata
+//   - hai_materialized_view     — named projection entries
+//   - hai_analytics_reporting_meta / hai_analytics_reporting_row — analytics reporting table snapshots
+//   - hai_analytics_event       — append-only analytics records
+//   - hai_background_job        — durable job queue with claim semantics (FOR UPDATE SKIP LOCKED)
 //
 // # Integration with other packages
 //

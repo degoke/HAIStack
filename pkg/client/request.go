@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -115,7 +114,7 @@ func (c *Client) doOnce(ctx context.Context, opts requestOptions) (*rawResponse,
 	if err != nil {
 		return nil, err
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {
@@ -165,15 +164,4 @@ func transportErrFromError(err error) error {
 		return nil
 	}
 	return err
-}
-
-func joinURL(base string, parts ...string) string {
-	path := strings.TrimRight(base, "/")
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		path += "/" + strings.Trim(part, "/")
-	}
-	return path
 }

@@ -36,7 +36,7 @@ func (s *ReportingTableStore) Refresh(ctx context.Context, meta store.ReportingT
 	}()
 
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM analytics_reporting_row
+		DELETE FROM hai_analytics_reporting_row
 		WHERE tenant_id = $1 AND view_name = $2 AND view_version = $3`,
 		s.tenantID, meta.ViewName, meta.ViewVersion,
 	); err != nil {
@@ -49,7 +49,7 @@ func (s *ReportingTableStore) Refresh(ctx context.Context, meta store.ReportingT
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO analytics_reporting_meta (tenant_id, view_name, view_version, columns, row_count, refreshed_at)
+		INSERT INTO hai_analytics_reporting_meta (tenant_id, view_name, view_version, columns, row_count, refreshed_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (tenant_id, view_name, view_version) DO UPDATE SET
 			columns = EXCLUDED.columns,
@@ -66,7 +66,7 @@ func (s *ReportingTableStore) Refresh(ctx context.Context, meta store.ReportingT
 			return fmt.Errorf("marshal reporting row %d: %w", i, err)
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO analytics_reporting_row (tenant_id, view_name, view_version, row_num, data)
+			INSERT INTO hai_analytics_reporting_row (tenant_id, view_name, view_version, row_num, data)
 			VALUES ($1, $2, $3, $4, $5)`,
 			s.tenantID, meta.ViewName, meta.ViewVersion, int64(i), data,
 		); err != nil {
@@ -83,7 +83,7 @@ func (s *ReportingTableStore) Refresh(ctx context.Context, meta store.ReportingT
 
 func (s *ReportingTableStore) QueryRows(ctx context.Context, viewName, viewVersion string) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT data FROM analytics_reporting_row
+		SELECT data FROM hai_analytics_reporting_row
 		WHERE tenant_id = $1 AND view_name = $2 AND view_version = $3
 		ORDER BY row_num ASC`,
 		s.tenantID, viewName, viewVersion,
@@ -118,7 +118,7 @@ func (s *ReportingTableStore) GetMeta(ctx context.Context, viewName, viewVersion
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT view_name, view_version, columns, row_count, refreshed_at
-		FROM analytics_reporting_meta
+		FROM hai_analytics_reporting_meta
 		WHERE tenant_id = $1 AND view_name = $2 AND view_version = $3`,
 		s.tenantID, viewName, viewVersion,
 	).Scan(&meta.ViewName, &meta.ViewVersion, &columnsJSON, &meta.RowCount, &meta.RefreshedAt)
@@ -138,7 +138,7 @@ func (s *ReportingTableStore) GetMeta(ctx context.Context, viewName, viewVersion
 
 func (s *ReportingTableStore) ensureTenant(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO tenant (id) VALUES ($1)
+		INSERT INTO hai_tenant (id) VALUES ($1)
 		ON CONFLICT (id) DO NOTHING`, s.tenantID)
 	if err != nil {
 		return fmt.Errorf("ensure tenant %q: %w", s.tenantID, err)

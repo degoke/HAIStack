@@ -29,7 +29,7 @@ func (s *RegistryInstallStore) SetEnabled(ctx context.Context, record store.Regi
 		enabled = 1
 	}
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT INTO registry_install (
+		INSERT INTO hai_registry_install (
 			definition_kind, canonical_url, version, target_resource_type,
 			enabled, source_module, installed_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -69,7 +69,7 @@ func (s *RegistryInstallStore) ListInstalled(ctx context.Context, filter store.R
 }
 
 func (s *RegistryInstallStore) Delete(ctx context.Context, filter store.RegistryInstallFilter) error {
-	query := `DELETE FROM registry_install`
+	query := `DELETE FROM hai_registry_install`
 	var where []string
 	var args []any
 
@@ -103,7 +103,7 @@ func (s *RegistryInstallStore) queryInstallRows(ctx context.Context, filter stor
 	query := `
 		SELECT definition_kind, canonical_url, version, target_resource_type,
 			enabled, source_module, installed_at
-		FROM registry_install`
+		FROM hai_registry_install`
 	var where []string
 	var args []any
 

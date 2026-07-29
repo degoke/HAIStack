@@ -23,7 +23,7 @@ var _ store.SubscriptionStore = (*SubscriptionStore)(nil)
 // Create implements store.SubscriptionStore.
 func (s *SubscriptionStore) Create(ctx context.Context, record store.SubscriptionRecord) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO subscription_registry (
+		INSERT INTO hai_subscription_registry (
 			id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -40,7 +40,7 @@ func (s *SubscriptionStore) Create(ctx context.Context, record store.Subscriptio
 // Update implements store.SubscriptionStore.
 func (s *SubscriptionStore) Update(ctx context.Context, record store.SubscriptionRecord) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE subscription_registry
+		UPDATE hai_subscription_registry
 		SET name = ?, status = ?, resource_type = ?, event_kind = ?,
 			trigger_json = ?, channel_json = ?, retry_json = ?, updated_at = ?
 		WHERE id = ?`,
@@ -66,7 +66,7 @@ func (s *SubscriptionStore) Get(ctx context.Context, id string) (*store.Subscrip
 	rec, err := scanSubscription(s.db.QueryRowContext(ctx, `
 		SELECT id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
-		FROM subscription_registry WHERE id = ?`, id))
+		FROM hai_subscription_registry WHERE id = ?`, id))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("subscription not found: %s", id)
 	}
@@ -99,7 +99,7 @@ func (s *SubscriptionStore) List(ctx context.Context, query store.SubscriptionLi
 	sqlQuery := fmt.Sprintf(`
 		SELECT id, name, status, resource_type, event_kind,
 			trigger_json, channel_json, retry_json, created_at, updated_at
-		FROM subscription_registry
+		FROM hai_subscription_registry
 		WHERE %s
 		ORDER BY created_at ASC`, where)
 	if query.Limit > 0 {
@@ -126,7 +126,7 @@ func (s *SubscriptionStore) List(ctx context.Context, query store.SubscriptionLi
 
 // Delete implements store.SubscriptionStore.
 func (s *SubscriptionStore) Delete(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM subscription_registry WHERE id = ?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM hai_subscription_registry WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}

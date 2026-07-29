@@ -22,8 +22,8 @@ type SyncClient struct {
 
 // PushRequest is the HTTP wire payload for POST /sync/push.
 type PushRequest struct {
-	NodeID   string           `json:"nodeId"`
-	TenantID string           `json:"tenantId"`
+	NodeID   string            `json:"nodeId"`
+	TenantID string            `json:"tenantId"`
 	Events   []sync.LocalEvent `json:"events"`
 }
 

@@ -38,12 +38,12 @@ func NewScenario(tenantID string, clock hasync.Clock) *Scenario {
 
 // ScenarioResult captures artifacts from a sync scenario run.
 type ScenarioResult struct {
-	PushSummary     *hasync.PushResultSummary
-	PullSummary     *hasync.PullResultSummary
-	HubEvents       []hasync.CanonicalEvent
+	PushSummary      *hasync.PushResultSummary
+	PullSummary      *hasync.PullResultSummary
+	HubEvents        []hasync.CanonicalEvent
 	DeviceBResources []*types.ResourceEnvelope
-	Conflicts       []store.ConflictRecord
-	AuditRecords    []store.AuditRecord
+	Conflicts        []store.ConflictRecord
+	AuditRecords     []store.AuditRecord
 }
 
 // RunPushPull seeds nothing; it pushes from device A then pulls on device B.

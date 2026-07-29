@@ -58,15 +58,15 @@ func TestSyncPushPullSerialization(t *testing.T) {
 	c, _ := New(Config{BaseURL: srv.URL})
 	env, _ := types.NewJSONCodec().ParseJSON("Patient", []byte(`{"resourceType":"Patient","id":"p1"}`))
 	event := sync.LocalEvent{
-		EventID:      "evt-1",
-		OriginNodeID: "node-a",
-		TenantID:     "tenant-1",
-		ResourceType: "Patient",
-		ResourceID:   "p1",
-		Operation:    sync.EventTypeResourceCreated,
-		LocalVersion: "1",
-		Status:       sync.LocalEventStatusPending,
-		CreatedAt:    time.Now().UTC(),
+		EventID:       "evt-1",
+		OriginNodeID:  "node-a",
+		TenantID:      "tenant-1",
+		ResourceType:  "Patient",
+		ResourceID:    "p1",
+		Operation:     sync.EventTypeResourceCreated,
+		LocalVersion:  "1",
+		Status:        sync.LocalEventStatusPending,
+		CreatedAt:     time.Now().UTC(),
 		ResourceAfter: env,
 	}
 	pushResp, err := c.Sync().Push(context.Background(), ToPushRequest("node-a", "tenant-1", []sync.LocalEvent{event}))

@@ -39,10 +39,10 @@ type SubscriptionListQuery struct {
 type DeliveryStatus string
 
 const (
-	DeliveryStatusPending   DeliveryStatus = "pending"
-	DeliveryStatusSuccess   DeliveryStatus = "success"
-	DeliveryStatusFailed    DeliveryStatus = "failed"
-	DeliveryStatusRetrying  DeliveryStatus = "retrying"
+	DeliveryStatusPending  DeliveryStatus = "pending"
+	DeliveryStatusSuccess  DeliveryStatus = "success"
+	DeliveryStatusFailed   DeliveryStatus = "failed"
+	DeliveryStatusRetrying DeliveryStatus = "retrying"
 )
 
 // DeliveryRecord is an append-only delivery log entry.
