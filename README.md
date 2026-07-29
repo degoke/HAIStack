@@ -1,4 +1,6 @@
-# Health AI Stack
+# HAIStack
+
+## Health AI Stack
 
 [![CI](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
