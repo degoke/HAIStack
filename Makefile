@@ -2,6 +2,7 @@
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
+GO_TEST_TIMEOUT ?= 30m
 ifneq ($(wildcard $(GOPATH_BIN)/golangci-lint),)
 GOLANGCI_LINT ?= $(GOPATH_BIN)/golangci-lint
 else
@@ -36,7 +37,7 @@ test: ## Run unit and integration tests
 	$(GO) test ./...
 
 test-race: ## Run tests with the race detector
-	$(GO) test -race -count=1 ./...
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 build: ## Build all packages
 	$(GO) build ./...

@@ -57,9 +57,11 @@ func (s *memJobStore) Get(_ context.Context, id string) (*store.JobRecord, error
 func TestReindexJobRunnerRunOnce(t *testing.T) {
 	ctx := context.Background()
 	jobs := &memJobStore{}
+	snapshot := testSnapshot(t, "Patient")
+	reg := search.NewSnapshotRegistry(snapshot)
 	worker := &search.ReindexWorker{
-		Registry:  search.NewSnapshotRegistry(testSnapshot(t, "Patient")),
-		Indexer:   mustIndexer(t, search.NewSnapshotRegistry(testSnapshot(t, "Patient"))),
+		Registry:  reg,
+		Indexer:   mustIndexer(t, reg),
 		Resources: newMemResourceStore(),
 		Search:    &memSearchBackend{},
 	}

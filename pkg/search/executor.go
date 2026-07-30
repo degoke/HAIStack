@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -341,6 +342,14 @@ func (e *StoreExecutor) expandIncludes(ctx context.Context, plan *Plan, primaryI
 				if targetType == "" {
 					targetType = inc.TargetType
 				}
+				if targetType == "" && link.Literal != "" {
+					if parsed := parseIncludedReference(link.Literal); parsed != "" {
+						targetType = parsed
+					}
+				}
+				if targetType == "" {
+					continue
+				}
 				key := targetType + "/" + link.TargetID
 				if _, ok := seen[key]; ok {
 					continue
@@ -412,4 +421,14 @@ func intersectTwo(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+func parseIncludedReference(value string) string {
+	if i := strings.Index(value, "/"); i > 0 {
+		return value[:i]
+	}
+	if i := strings.Index(value, "|"); i > 0 {
+		return value[:i]
+	}
+	return ""
 }

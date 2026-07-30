@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
-	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,16 +14,15 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
 )
 
 func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {
 	t.Helper()
 	ctx := context.Background()
-	db, cleanup := openPostgresTestDB(t)
+	db := postgrestest.SharedDB(t)
 	tenantID := fmt.Sprintf("search-%d", time.Now().UnixNano())
 	if err := db.EnsureTenant(ctx, tenantID); err != nil {
-		cleanup()
 		t.Fatalf("EnsureTenant: %v", err)
 	}
 	tdb := db.Tenant(tenantID)
@@ -36,25 +32,21 @@ func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Ser
 		Installs:    tdb.RegistryInstallStore(),
 	})
 	if err := manager.SeedBundled(ctx); err != nil {
-		cleanup()
 		t.Fatalf("SeedBundled: %v", err)
 	}
 	for _, rt := range []string{"Patient", "Observation"} {
 		if err := manager.EnableResource(ctx, rt); err != nil {
-			cleanup()
 			t.Fatalf("EnableResource %s: %v", rt, err)
 		}
 	}
 	snapshot, err := manager.RebuildSnapshot(ctx)
 	if err != nil {
-		cleanup()
 		t.Fatalf("RebuildSnapshot: %v", err)
 	}
 	reg := search.NewSnapshotRegistry(snapshot)
 	eng := testEngine(t)
 	indexer, err := search.NewRegistryIndexer(search.RegistryIndexerConfig{Registry: reg, Engine: eng})
 	if err != nil {
-		cleanup()
 		t.Fatalf("NewRegistryIndexer: %v", err)
 	}
 
@@ -67,7 +59,6 @@ func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Ser
 		Outbox:    &hasync.EventStoreOutbox{Events: tdb.EventStore()},
 	})
 	if err != nil {
-		cleanup()
 		t.Fatalf("NewResourceService: %v", err)
 	}
 
@@ -78,79 +69,9 @@ func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Ser
 		BaseURL:   "Patient",
 	})
 	if err != nil {
-		cleanup()
 		t.Fatalf("NewService: %v", err)
 	}
-	return svc, searchSvc, snapshot, tdb, cleanup
-}
-
-func openPostgresTestDB(t *testing.T) (*postgres.DB, func()) {
-	t.Helper()
-	ctx := context.Background()
-
-	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
-		db, err := postgres.Open(ctx, dsn)
-		if err != nil {
-			t.Fatalf("Open TEST_POSTGRES_DSN: %v", err)
-		}
-		if err := db.Migrate(ctx); err != nil {
-			db.Close()
-			t.Fatalf("Migrate: %v", err)
-		}
-		return db, db.Close
-	}
-
-	if !postgresDockerAvailable() {
-		t.Skip("postgres unavailable: set TEST_POSTGRES_DSN or start Docker")
-	}
-
-	container, err := tcpostgres.Run(ctx,
-		"postgres:16-alpine",
-		tcpostgres.WithDatabase("haistack_search_test"),
-		tcpostgres.WithUsername("test"),
-		tcpostgres.WithPassword("test"),
-		tcpostgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
-
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = container.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-
-	db, err := postgres.Open(ctx, dsn)
-	if err != nil {
-		_ = container.Terminate(ctx)
-		t.Fatalf("Open: %v", err)
-	}
-	if err := db.Migrate(ctx); err != nil {
-		db.Close()
-		_ = container.Terminate(ctx)
-		t.Fatalf("Migrate: %v", err)
-	}
-
-	cleanup := func() {
-		db.Close()
-		_ = container.Terminate(ctx)
-	}
-	return db, cleanup
-}
-
-func postgresDockerAvailable() bool {
-	if os.Getenv("DOCKER_HOST") == "" {
-		out, err := exec.Command("docker", "context", "inspect", "-f", "{{.Endpoints.docker.Host}}").Output()
-		if err == nil {
-			if host := strings.TrimSpace(string(out)); host != "" {
-				_ = os.Setenv("DOCKER_HOST", host)
-			}
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "docker", "info").Run() == nil
+	return svc, searchSvc, snapshot, tdb, func() {}
 }
 
 func TestPostgresSearchByNameAndID(t *testing.T) {
@@ -450,8 +371,7 @@ func TestPostgresEnableResourceSchedulesReindex(t *testing.T) {
 		t.Skip("skipping postgres integration test in short mode")
 	}
 	ctx := context.Background()
-	db, cleanup := openPostgresTestDB(t)
-	defer cleanup()
+	db := postgrestest.SharedDB(t)
 	tenantID := fmt.Sprintf("search-reindex-%d", time.Now().UnixNano())
 	if err := db.EnsureTenant(ctx, tenantID); err != nil {
 		t.Fatalf("EnsureTenant: %v", err)

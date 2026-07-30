@@ -150,7 +150,7 @@ func resolveChainClause(reg Registry, resourceType string, chain ChainClause) (C
 	if refInfo.Type != "reference" {
 		return ChainClause{}, fmt.Errorf("%w: chain left-hand %q is not a reference", ErrInvalidQuery, chain.RefCode)
 	}
-	targetType, err := inferChainTargetType(refInfo, chain.Param.Code)
+	targetType, err := inferChainTargetType(reg, refInfo, chain.Param.Code)
 	if err != nil {
 		return ChainClause{}, err
 	}
@@ -171,7 +171,7 @@ func resolveChainClause(reg Registry, resourceType string, chain ChainClause) (C
 	}, nil
 }
 
-func inferChainTargetType(refInfo ParameterInfo, chainedCode string) (string, error) {
+func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode string) (string, error) {
 	if len(refInfo.Target) == 1 {
 		return refInfo.Target[0], nil
 	}
@@ -181,6 +181,18 @@ func inferChainTargetType(refInfo ParameterInfo, chainedCode string) (string, er
 	for _, target := range refInfo.Target {
 		if strings.EqualFold(chainedCode, strings.ToLower(target)) {
 			return target, nil
+		}
+	}
+	if reg != nil {
+		for _, target := range refInfo.Target {
+			if reg.IsResourceEnabled(target) && reg.HasSearchParameter(target, chainedCode) {
+				return target, nil
+			}
+		}
+		for _, target := range refInfo.Target {
+			if reg.IsResourceEnabled(target) {
+				return target, nil
+			}
 		}
 	}
 	return refInfo.Target[0], nil

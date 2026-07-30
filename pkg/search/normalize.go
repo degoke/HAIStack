@@ -266,7 +266,7 @@ func normalizeReferenceValue(v fhirpath.Value) []string {
 		return referenceTokens(val)
 	default:
 		if s, err := v.String(); err == nil && s != "" {
-			return []string{normalizeReferenceString(s)}
+			return referenceStringTokens(s)
 		}
 	}
 	return nil
@@ -277,7 +277,7 @@ func referenceTokens(ref *dtpb.Reference) []string {
 		return nil
 	}
 	if uri := ref.GetUri(); uri != nil && uri.GetValue() != "" {
-		return []string{normalizeReferenceString(uri.GetValue())}
+		return referenceStringTokens(uri.GetValue())
 	}
 	type id struct {
 		getType func() string
@@ -321,6 +321,27 @@ func referenceTokens(ref *dtpb.Reference) []string {
 		return []string{typed, idVal, canonical}
 	}
 	return []string{idVal}
+}
+
+func referenceStringTokens(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "urn:") {
+		return []string{raw}
+	}
+	if i := strings.Index(raw, "/"); i > 0 && i < len(raw)-1 {
+		rt := raw[:i]
+		id := raw[i+1:]
+		return []string{rt + "/" + id, id, rt + "|" + id}
+	}
+	if i := strings.Index(raw, "|"); i > 0 && i < len(raw)-1 {
+		rt := raw[:i]
+		id := raw[i+1:]
+		return []string{rt + "/" + id, id, rt + "|" + id}
+	}
+	return []string{raw}
 }
 
 func normalizeReferenceString(raw string) string {

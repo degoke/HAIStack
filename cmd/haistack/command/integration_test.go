@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,61 +15,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/runtime"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
 	"github.com/degoke/health-ai-stack/pkg/types"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
-
-func openPostgresDSN(t *testing.T) (string, func()) {
-	t.Helper()
-	ctx := context.Background()
-	if dsn := os.Getenv("TEST_POSTGRES_DSN"); dsn != "" {
-		db, err := postgres.Open(ctx, dsn)
-		if err != nil {
-			t.Fatalf("Open TEST_POSTGRES_DSN: %v", err)
-		}
-		if err := db.Migrate(ctx); err != nil {
-			db.Close()
-			t.Fatalf("Migrate: %v", err)
-		}
-		return dsn, db.Close
-	}
-	if !dockerAvailable() {
-		t.Skip("postgres unavailable: set TEST_POSTGRES_DSN or start Docker")
-	}
-	container, err := tcpostgres.Run(ctx,
-		"postgres:16-alpine",
-		tcpostgres.WithDatabase("haistack_cli_test"),
-		tcpostgres.WithUsername("test"),
-		tcpostgres.WithPassword("test"),
-		tcpostgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = container.Terminate(ctx)
-		t.Fatalf("connection string: %v", err)
-	}
-	db, err := postgres.Open(ctx, dsn)
-	if err != nil {
-		_ = container.Terminate(ctx)
-		t.Fatalf("Open: %v", err)
-	}
-	if err := db.Migrate(ctx); err != nil {
-		db.Close()
-		_ = container.Terminate(ctx)
-		t.Fatalf("Migrate: %v", err)
-	}
-	db.Close()
-	return dsn, func() { _ = container.Terminate(ctx) }
-}
-
-func dockerAvailable() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "docker", "info").Run() == nil
-}
 
 func TestServeBuildsAndStartsSQLite(t *testing.T) {
 	dir := t.TempDir()
@@ -131,8 +78,7 @@ func TestSyncPushPullStatusSQLite(t *testing.T) {
 		t.Skip("skipping sync integration in short mode")
 	}
 	ctx := context.Background()
-	dsn, cleanup := openPostgresDSN(t)
-	defer cleanup()
+	dsn := postgrestest.SharedDSN(t)
 
 	hubTenant := fmt.Sprintf("cli-hub-%d", time.Now().UnixNano())
 	hubDB, err := postgres.Open(ctx, dsn)
@@ -198,8 +144,7 @@ func TestPostgresCLIHonorsTenant(t *testing.T) {
 		t.Skip("skipping postgres CLI integration in short mode")
 	}
 	ctx := context.Background()
-	dsn, cleanup := openPostgresDSN(t)
-	defer cleanup()
+	dsn := postgrestest.SharedDSN(t)
 	tenantID := fmt.Sprintf("cli-%d", time.Now().UnixNano())
 
 	dir := t.TempDir()
@@ -243,8 +188,7 @@ func TestPostgresSearchAndReindex(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres search integration in short mode")
 	}
-	dsn, cleanup := openPostgresDSN(t)
-	defer cleanup()
+	dsn := postgrestest.SharedDSN(t)
 	tenantID := fmt.Sprintf("cli-search-%d", time.Now().UnixNano())
 
 	dir := t.TempDir()
@@ -269,9 +213,29 @@ runtime:
 	if err := os.WriteFile(patientPath, []byte(`{"resourceType":"Patient","name":[{"family":"PgSearch"}]}`), 0o644); err != nil {
 		t.Fatalf("write patient: %v", err)
 	}
-	if _, _, err := runCLI(t, dir, "import", patientPath); err != nil {
-		t.Fatalf("import: %v", err)
+
+	ctx := context.Background()
+	cfg, err := config.Load(filepath.Join(dir, config.DefaultConfigFile), config.Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
 	}
+	session, err := app.OpenSession(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	patient, err := app.ReadResourceFile(patientPath)
+	if err != nil {
+		_ = session.Close(ctx)
+		t.Fatalf("read patient: %v", err)
+	}
+	if _, _, err := app.UpsertResource(ctx, session.Runtime.Services().ResourceService, patient); err != nil {
+		_ = session.Close(ctx)
+		t.Fatalf("upsert patient: %v", err)
+	}
+	if err := session.Close(ctx); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+
 	stdout, _, err := runCLI(t, dir, "search", "Patient", "name=PgSearch")
 	if err != nil {
 		t.Fatalf("search: %v", err)

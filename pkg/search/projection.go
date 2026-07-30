@@ -23,6 +23,7 @@ func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements 
 	if err := json.Unmarshal(res.JSON, &payload); err != nil {
 		return nil, fmt.Errorf("%w: decode %s/%s: %v", ErrProjectionFailed, res.ResourceType, res.ID, err)
 	}
+	original := payload
 
 	switch summary {
 	case SummaryTrue:
@@ -34,7 +35,9 @@ func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements 
 	}
 
 	if len(elements) > 0 {
-		payload = elementsProjection(payload, elements)
+		for key, value := range elementsProjection(original, elements) {
+			payload[key] = value
+		}
 	}
 
 	raw, err := json.Marshal(payload)

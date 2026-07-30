@@ -187,14 +187,14 @@ func (rt *Runtime) runJobLoop(ctx context.Context) {
 		processed := false
 		if rt.jobRunner != nil {
 			ok, err := rt.jobRunner.RunOnce(ctx)
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				rt.recordBackgroundError(fmt.Errorf("%w: jobs: %v", ErrBackgroundWorker, err))
 			}
 			processed = processed || ok
 		}
 		if rt.syncProcessor != nil {
 			ok, err := rt.syncProcessor.ProcessNext(ctx)
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				rt.recordBackgroundError(fmt.Errorf("%w: sync jobs: %v", ErrBackgroundWorker, err))
 			}
 			processed = processed || ok
