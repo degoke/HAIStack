@@ -100,6 +100,17 @@ func (f *fakeSearchService) SearchBundle(ctx context.Context, resourceType strin
 	return &search.SearchBundle{ResourceType: resourceType}, nil
 }
 
+type recordingSearchService struct {
+	lastResourceType string
+	lastParams       url.Values
+}
+
+func (r *recordingSearchService) SearchBundle(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
+	r.lastResourceType = resourceType
+	r.lastParams = params
+	return &search.SearchBundle{ResourceType: resourceType}, nil
+}
+
 type fakeCapabilitySource struct {
 	snapshot registry.CapabilitySnapshot
 }
@@ -706,6 +717,36 @@ func TestAuthDeniedReadWriteSearch(t *testing.T) {
 	rec = doRequest(t, handler, http.MethodGet, "/fhir/Patient?family=Doe", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("search status = %d", rec.Code)
+	}
+}
+
+func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
+	backend := &recordingSearchService{}
+	searchSvc := hahttp.SearchServiceAdapter{Svc: backend}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		SearchService:   searchSvc,
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{
+				TenantID:     "t1",
+				PatientScope: "pat-1",
+			}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Observation?code=8867-4", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if backend.lastResourceType != "Observation" {
+		t.Fatalf("resourceType = %q", backend.lastResourceType)
+	}
+	if got := backend.lastParams.Get("subject"); got != "Patient/pat-1" {
+		t.Fatalf("subject = %q, want Patient/pat-1", got)
+	}
+	if got := backend.lastParams.Get("code"); got != "8867-4" {
+		t.Fatalf("code = %q, want 8867-4", got)
 	}
 }
 

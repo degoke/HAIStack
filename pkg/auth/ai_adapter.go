@@ -91,7 +91,7 @@ func (a *AIPolicyAdapter) CheckSearch(ctx context.Context, req ai.SearchPolicyRe
 		return &ai.SearchPolicyDecision{Allowed: false}, nil
 	}
 
-	out := &ai.SearchPolicyDecision{Allowed: true, Params: cloneValues(req.Params)}
+	out := &ai.SearchPolicyDecision{Allowed: true, Params: CloneURLValues(req.Params)}
 	if a.Constraints == nil {
 		return a.applyPatientSearchScope(out, req.ResourceType, tenant)
 	}
@@ -285,19 +285,15 @@ func (a *AIPolicyAdapter) applyPatientSearchScopeToParams(params url.Values, res
 	if tenant.PatientScope == "" {
 		return params, nil
 	}
-	if params == nil {
-		params = url.Values{}
+	searchParams := a.PatientSearchParams
+	if searchParams == nil {
+		searchParams = DefaultPatientSearchParams()
 	}
-	if resourceType == "Patient" {
-		params.Set("_id", tenant.PatientScope)
-		return params, nil
+	out, err := ApplyPatientSearchScopeToParams(params, resourceType, tenant.PatientScope, searchParams)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ai.ErrPolicyDenied, err)
 	}
-	param := a.PatientSearchParams[resourceType]
-	if param == "" {
-		return nil, fmt.Errorf("%w: no patient search scope configured for %s", ai.ErrPolicyDenied, resourceType)
-	}
-	params.Set(param, "Patient/"+tenant.PatientScope)
-	return params, nil
+	return out, nil
 }
 
 func (a *AIPolicyAdapter) resolve(ctx context.Context, actor, subject string) (Principal, TenantContext, error) {
@@ -324,15 +320,4 @@ func searchParamBase(param string) string {
 		}
 	}
 	return param
-}
-
-func cloneValues(v url.Values) url.Values {
-	if v == nil {
-		return nil
-	}
-	out := make(url.Values, len(v))
-	for k, vals := range v {
-		out[k] = append([]string(nil), vals...)
-	}
-	return out
 }

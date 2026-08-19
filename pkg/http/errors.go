@@ -23,6 +23,9 @@ func mapError(err error) (int, *types.OperationOutcome) {
 	if errors.Is(err, auth.ErrDenied) {
 		return http.StatusForbidden, deniedOutcome(err.Error())
 	}
+	if errors.Is(err, auth.ErrNoPatientSearchScope) {
+		return http.StatusForbidden, deniedOutcome(err.Error())
+	}
 	if errors.Is(err, errUnauthenticated) {
 		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
 	}
