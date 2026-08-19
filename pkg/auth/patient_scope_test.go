@@ -22,8 +22,9 @@ func TestApplyPatientSearchScopeToParams_PatientResource(t *testing.T) {
 }
 
 func TestApplyPatientSearchScopeToParams_ObservationSubject(t *testing.T) {
+	resolver := auth.MapPatientSearchParamResolver{"Observation": "subject"}
 	params := url.Values{"code": {"8867-4"}}
-	out, err := auth.ApplyPatientSearchScopeToParams(params, "Observation", "pat-1", nil)
+	out, err := auth.ApplyPatientSearchScopeToParams(params, "Observation", "pat-1", resolver)
 	if err != nil {
 		t.Fatalf("ApplyPatientSearchScopeToParams: %v", err)
 	}
@@ -33,7 +34,8 @@ func TestApplyPatientSearchScopeToParams_ObservationSubject(t *testing.T) {
 }
 
 func TestApplyPatientSearchScopeToParams_UnknownResourceType(t *testing.T) {
-	_, err := auth.ApplyPatientSearchScopeToParams(url.Values{}, "Practitioner", "pat-1", nil)
+	resolver := auth.MapPatientSearchParamResolver{"Observation": "subject"}
+	_, err := auth.ApplyPatientSearchScopeToParams(url.Values{}, "Practitioner", "pat-1", resolver)
 	if err == nil {
 		t.Fatal("expected error for unmapped resource type")
 	}
@@ -50,18 +52,17 @@ func TestApplyPatientSearchScopeToParams_EmptyPatientID(t *testing.T) {
 	}
 }
 
-func TestMergePatientSearchParams(t *testing.T) {
-	merged := auth.MergePatientSearchParams(map[string]string{
-		"Observation": "patient",
-		"CustomType":  "subject",
-	})
-	if merged["Observation"] != "patient" {
-		t.Fatalf("Observation override = %q", merged["Observation"])
+func TestOverridePatientSearchParamResolver(t *testing.T) {
+	resolver := auth.OverridePatientSearchParamResolver{
+		Base:      auth.MapPatientSearchParamResolver{"Observation": "subject"},
+		Overrides: auth.MapPatientSearchParamResolver{"Observation": "patient"},
 	}
-	if merged["CustomType"] != "subject" {
-		t.Fatalf("CustomType = %q", merged["CustomType"])
+	code, ok := resolver.PatientSearchParameterCode("Observation")
+	if !ok || code != "patient" {
+		t.Fatalf("PatientSearchParameterCode = (%q, %v), want (patient, true)", code, ok)
 	}
-	if merged["Appointment"] != "patient" {
-		t.Fatalf("Appointment default = %q", merged["Appointment"])
+	code, ok = resolver.PatientSearchParameterCode("Appointment")
+	if ok {
+		t.Fatalf("Appointment override = (%q, %v), want false", code, ok)
 	}
 }

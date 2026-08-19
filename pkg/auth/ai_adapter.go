@@ -27,11 +27,10 @@ type AIPolicyAdapter struct {
 	Resolve     ActorResolver
 	TenantID    string
 	Constraints *AIConstraints
-	// PatientSearchParams maps a searchable resource type to the FHIR search
-	// parameter that scopes it to the resolved patient. Patient searches use
-	// _id automatically. Other resource types are denied for a scoped subject
-	// unless this map contains an explicit relationship parameter.
-	PatientSearchParams map[string]string
+	// PatientSearchParams resolves the FHIR search parameter that scopes a resource
+	// type to one patient. Registry snapshots implement this from installed
+	// SearchParameters; maps can be used for tests and overrides.
+	PatientSearchParams PatientSearchParamResolver
 	// PatientViewScope must inject/validate a patient scope parameter for views.
 	// Scoped view calls are denied when it is nil because ViewDefinitions are
 	// otherwise free to scan unrelated patients.
@@ -285,11 +284,7 @@ func (a *AIPolicyAdapter) applyPatientSearchScopeToParams(params url.Values, res
 	if tenant.PatientScope == "" {
 		return params, nil
 	}
-	searchParams := a.PatientSearchParams
-	if searchParams == nil {
-		searchParams = DefaultPatientSearchParams()
-	}
-	out, err := ApplyPatientSearchScopeToParams(params, resourceType, tenant.PatientScope, searchParams)
+	out, err := ApplyPatientSearchScopeToParams(params, resourceType, tenant.PatientScope, a.PatientSearchParams)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ai.ErrPolicyDenied, err)
 	}

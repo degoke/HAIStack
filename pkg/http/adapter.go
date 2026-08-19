@@ -66,11 +66,11 @@ type searchBundleExecutor interface {
 }
 
 // SearchServiceAdapter adapts *search.Service to SearchService and
-// PatientScopedSearchService. When PatientSearchParams is nil,
-// auth.DefaultPatientSearchParams is used for query-time patient filtering.
+// PatientScopedSearchService. PatientSearchParamResolver derives scope
+// parameters from installed registry SearchParameters when configured.
 type SearchServiceAdapter struct {
-	Svc                 searchBundleExecutor
-	PatientSearchParams map[string]string
+	Svc                       searchBundleExecutor
+	PatientSearchParamResolver auth.PatientSearchParamResolver
 }
 
 func (a SearchServiceAdapter) SearchBundle(ctx context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
@@ -80,11 +80,7 @@ func (a SearchServiceAdapter) SearchBundle(ctx context.Context, resourceType str
 // SearchBundleForPatient injects a patient relationship filter into search params
 // before executing the query so unauthorized rows are excluded at query time.
 func (a SearchServiceAdapter) SearchBundleForPatient(ctx context.Context, resourceType, patientID string, params url.Values) (*search.SearchBundle, error) {
-	searchParams := a.PatientSearchParams
-	if searchParams == nil {
-		searchParams = auth.DefaultPatientSearchParams()
-	}
-	scoped, err := auth.ApplyPatientSearchScopeToParams(params, resourceType, patientID, searchParams)
+	scoped, err := auth.ApplyPatientSearchScopeToParams(params, resourceType, patientID, a.PatientSearchParamResolver)
 	if err != nil {
 		return nil, err
 	}

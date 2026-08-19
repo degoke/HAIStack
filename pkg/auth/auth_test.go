@@ -314,7 +314,7 @@ func TestAIPolicyAdapter_EnforcesPatientScopeForSearchAndViews(t *testing.T) {
 	}
 	adapter := &auth.AIPolicyAdapter{
 		Engine: eng, Resolve: resolve, TenantID: "tenant-a",
-		PatientSearchParams: map[string]string{"Appointment": "patient"},
+		PatientSearchParams: auth.MapPatientSearchParamResolver{"Appointment": "patient"},
 		Constraints: &auth.AIConstraints{Search: map[string]ai.SearchTypePolicy{
 			"Patient":     {AllowedParams: []string{"name"}},
 			"Appointment": {AllowedParams: []string{"date", "patient"}},

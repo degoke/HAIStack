@@ -9,62 +9,44 @@ import (
 // resource type that has no configured patient relationship search parameter.
 var ErrNoPatientSearchScope = fmt.Errorf("%w: no patient search scope configured", ErrDenied)
 
-// DefaultPatientSearchParams maps common FHIR R4 resource types to the search
-// parameter that scopes them to one patient. Hosts may override or extend this
-// map when wiring HTTP or AI adapters.
-func DefaultPatientSearchParams() map[string]string {
-	return map[string]string{
-		"AllergyIntolerance":     "patient",
-		"Appointment":          "patient",
-		"CarePlan":               "subject",
-		"CareTeam":               "subject",
-		"ClinicalImpression":     "subject",
-		"Condition":              "subject",
-		"Consent":                "patient",
-		"DetectedIssue":          "patient",
-		"DeviceRequest":          "subject",
-		"DeviceUseStatement":     "subject",
-		"DiagnosticReport":       "subject",
-		"DocumentReference":      "subject",
-		"Encounter":              "subject",
-		"EpisodeOfCare":          "patient",
-		"FamilyMemberHistory":    "patient",
-		"Flag":                   "subject",
-		"Goal":                   "subject",
-		"ImagingStudy":           "subject",
-		"Immunization":           "patient",
-		"List":                   "subject",
-		"Media":                  "subject",
-		"MedicationAdministration": "subject",
-		"MedicationDispense":     "subject",
-		"MedicationRequest":      "subject",
-		"MedicationStatement":    "subject",
-		"NutritionOrder":         "patient",
-		"Observation":            "subject",
-		"Procedure":              "subject",
-		"QuestionnaireResponse":  "subject",
-		"RequestGroup":           "subject",
-		"ResearchSubject":        "individual",
-		"RiskAssessment":         "subject",
-		"ServiceRequest":         "subject",
-		"Specimen":               "subject",
-		"SupplyDelivery":         "patient",
-	}
+// PatientSearchParamResolver resolves the FHIR search parameter code that scopes
+// one resource type to a single Patient reference. Registry snapshots implement
+// this from installed SearchParameters; maps can be used for tests and overrides.
+type PatientSearchParamResolver interface {
+	PatientSearchParameterCode(resourceType string) (code string, ok bool)
 }
 
-// MergePatientSearchParams returns a copy of defaults with overrides applied.
-func MergePatientSearchParams(overrides map[string]string) map[string]string {
-	merged := DefaultPatientSearchParams()
-	for k, v := range overrides {
-		merged[k] = v
+// MapPatientSearchParamResolver adapts a static map for tests and host overrides.
+type MapPatientSearchParamResolver map[string]string
+
+func (m MapPatientSearchParamResolver) PatientSearchParameterCode(resourceType string) (string, bool) {
+	if m == nil {
+		return "", false
 	}
-	return merged
+	code, ok := m[resourceType]
+	return code, ok
+}
+
+// OverridePatientSearchParamResolver applies map overrides before delegating to base.
+type OverridePatientSearchParamResolver struct {
+	Base      PatientSearchParamResolver
+	Overrides MapPatientSearchParamResolver
+}
+
+func (r OverridePatientSearchParamResolver) PatientSearchParameterCode(resourceType string) (string, bool) {
+	if code, ok := r.Overrides.PatientSearchParameterCode(resourceType); ok {
+		return code, true
+	}
+	if r.Base != nil {
+		return r.Base.PatientSearchParameterCode(resourceType)
+	}
+	return "", false
 }
 
 // ApplyPatientSearchScopeToParams injects query-time patient filters into FHIR
 // search parameters. Patient searches are narrowed to _id. Other resource types
-// use the configured relationship parameter (for example subject=Patient/{id}).
-func ApplyPatientSearchScopeToParams(params url.Values, resourceType, patientID string, searchParams map[string]string) (url.Values, error) {
+// use the resolved relationship parameter (for example subject=Patient/{id}).
+func ApplyPatientSearchScopeToParams(params url.Values, resourceType, patientID string, resolver PatientSearchParamResolver) (url.Values, error) {
 	if patientID == "" {
 		return params, nil
 	}
@@ -73,11 +55,11 @@ func ApplyPatientSearchScopeToParams(params url.Values, resourceType, patientID 
 		out.Set("_id", patientID)
 		return out, nil
 	}
-	if searchParams == nil {
-		searchParams = DefaultPatientSearchParams()
+	if resolver == nil {
+		return nil, fmt.Errorf("%w for resource type %s", ErrNoPatientSearchScope, resourceType)
 	}
-	param := searchParams[resourceType]
-	if param == "" {
+	param, ok := resolver.PatientSearchParameterCode(resourceType)
+	if !ok || param == "" {
 		return nil, fmt.Errorf("%w for resource type %s", ErrNoPatientSearchScope, resourceType)
 	}
 	out.Set(param, "Patient/"+patientID)

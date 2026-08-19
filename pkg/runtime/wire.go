@@ -373,7 +373,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	var httpSearchSvc hahttp.SearchService
 	if state.services.SearchService != nil {
-		httpSearchSvc = hahttp.SearchServiceAdapter{Svc: state.services.SearchService}
+		httpSearchSvc = hahttp.SearchServiceAdapter{
+			Svc:                       state.services.SearchService,
+			PatientSearchParamResolver: snapshot,
+		}
 	}
 
 	sdcService := b.sdcService

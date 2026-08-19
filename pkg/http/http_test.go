@@ -722,7 +722,12 @@ func TestAuthDeniedReadWriteSearch(t *testing.T) {
 
 func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
 	backend := &recordingSearchService{}
-	searchSvc := hahttp.SearchServiceAdapter{Svc: backend}
+	searchSvc := hahttp.SearchServiceAdapter{
+		Svc: backend,
+		PatientSearchParamResolver: auth.MapPatientSearchParamResolver{
+			"Observation": "subject",
+		},
+	}
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		SearchService:   searchSvc,
