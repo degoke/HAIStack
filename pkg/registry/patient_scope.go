@@ -11,6 +11,8 @@ var patientSearchParamPriority = []string{
 
 // PatientSearchParameterCode returns the FHIR search parameter code that scopes
 // resourceType to one Patient, derived from installed reference SearchParameters.
+// Resource-specific parameters are preferred over cross-resource definitions such
+// as clinical-patient so the chosen code matches indexed search fields.
 func (s *Snapshot) PatientSearchParameterCode(resourceType string) (string, bool) {
 	if s == nil || resourceType == "" || resourceType == "Patient" {
 		return "", false
@@ -32,22 +34,41 @@ func (s *Snapshot) PatientSearchParameterCode(resourceType string) (string, bool
 	if len(candidates) == 0 {
 		return "", false
 	}
-	for _, code := range patientSearchParamPriority {
+	if code, ok := selectPatientSearchParamCode(candidates, true); ok {
+		return code, true
+	}
+	return selectPatientSearchParamCode(candidates, false)
+}
+
+func selectPatientSearchParamCode(candidates []SearchParameterInfo, dedicatedOnly bool) (string, bool) {
+	filtered := candidates
+	if dedicatedOnly {
+		filtered = make([]SearchParameterInfo, 0, len(candidates))
 		for _, param := range candidates {
+			if param.BaseCount == 1 {
+				filtered = append(filtered, param)
+			}
+		}
+		if len(filtered) == 0 {
+			return "", false
+		}
+	}
+	for _, code := range patientSearchParamPriority {
+		for _, param := range filtered {
 			if param.Code == code {
 				return param.Code, true
 			}
 		}
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		left := patientSearchParamRank(candidates[i])
-		right := patientSearchParamRank(candidates[j])
+	sort.Slice(filtered, func(i, j int) bool {
+		left := patientSearchParamRank(filtered[i])
+		right := patientSearchParamRank(filtered[j])
 		if left != right {
 			return left > right
 		}
-		return candidates[i].Code < candidates[j].Code
+		return filtered[i].Code < filtered[j].Code
 	})
-	return candidates[0].Code, true
+	return filtered[0].Code, true
 }
 
 func searchParameterTargetsPatient(targets []string) bool {
@@ -63,11 +84,14 @@ func searchParameterTargetsPatient(targets []string) bool {
 }
 
 func patientSearchParamRank(param SearchParameterInfo) int {
+	score := 0
+	if param.BaseCount == 1 {
+		score += 200
+	}
 	if len(param.Target) == 1 && param.Target[0] == "Patient" {
-		return 100
+		score += 100
+	} else if searchParameterTargetsPatient(param.Target) {
+		score += 50
 	}
-	if searchParameterTargetsPatient(param.Target) {
-		return 50
-	}
-	return 0
+	return score
 }

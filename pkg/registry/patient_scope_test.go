@@ -26,7 +26,7 @@ func TestSnapshotPatientSearchParameterCodeFromInstalledSearchParameters(t *test
 	}
 
 	cases := map[string]string{
-		"Observation": "patient",
+		"Observation": "subject",
 		"Appointment": "patient",
 	}
 	for resourceType, want := range cases {

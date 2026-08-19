@@ -72,8 +72,11 @@ func openIntegrationStack(t *testing.T) (http.Handler, *core.ResourceService) {
 	}
 
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:  hahttp.CoreResourceService{Svc: svc},
-		SearchService:    hahttp.SearchServiceAdapter{Svc: searchSvc},
+		ResourceService: hahttp.CoreResourceService{Svc: svc},
+		SearchService: hahttp.SearchServiceAdapter{
+			Svc:                        searchSvc,
+			PatientSearchParamResolver: snapshot,
+		},
 		CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: snapshot},
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-http",
