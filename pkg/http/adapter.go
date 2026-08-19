@@ -69,7 +69,7 @@ type searchBundleExecutor interface {
 // PatientScopedSearchService. PatientSearchParamResolver derives scope
 // parameters from installed registry SearchParameters when configured.
 type SearchServiceAdapter struct {
-	Svc                       searchBundleExecutor
+	Svc                        searchBundleExecutor
 	PatientSearchParamResolver auth.PatientSearchParamResolver
 }
 
