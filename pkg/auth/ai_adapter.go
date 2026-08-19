@@ -27,11 +27,22 @@ type AIPolicyAdapter struct {
 	Resolve     ActorResolver
 	TenantID    string
 	Constraints *AIConstraints
+	// PatientSearchParams maps a searchable resource type to the FHIR search
+	// parameter that scopes it to the resolved patient. Patient searches use
+	// _id automatically. Other resource types are denied for a scoped subject
+	// unless this map contains an explicit relationship parameter.
+	PatientSearchParams map[string]string
+	// PatientViewScope must inject/validate a patient scope parameter for views.
+	// Scoped view calls are denied when it is nil because ViewDefinitions are
+	// otherwise free to scan unrelated patients.
+	PatientViewScope func(ctx context.Context, req ai.ViewPolicyRequest, patientID string) (map[string]any, error)
 }
 
 var _ ai.PolicyEngine = (*AIPolicyAdapter)(nil)
 var _ ai.SearchCountPolicy = (*AIPolicyAdapter)(nil)
 var _ ai.ViewDecisionPolicy = (*AIPolicyAdapter)(nil)
+var _ ai.ViewDecisionPolicyContext = (*AIPolicyAdapter)(nil)
+var _ ai.ViewScopePolicy = (*AIPolicyAdapter)(nil)
 
 // CheckRead implements ai.PolicyEngine.
 func (a *AIPolicyAdapter) CheckRead(ctx context.Context, req ai.ReadPolicyRequest) (*ai.ReadPolicyDecision, error) {
@@ -82,7 +93,7 @@ func (a *AIPolicyAdapter) CheckSearch(ctx context.Context, req ai.SearchPolicyRe
 
 	out := &ai.SearchPolicyDecision{Allowed: true, Params: cloneValues(req.Params)}
 	if a.Constraints == nil {
-		return out, nil
+		return a.applyPatientSearchScope(out, req.ResourceType, tenant)
 	}
 	cfg, ok := a.Constraints.Search[req.ResourceType]
 	if !ok {
@@ -96,7 +107,10 @@ func (a *AIPolicyAdapter) CheckSearch(ctx context.Context, req ai.SearchPolicyRe
 	for key, values := range req.Params {
 		base := searchParamBase(key)
 		if _, ok := allowed[base]; !ok {
-			continue
+			return &ai.SearchPolicyDecision{Allowed: false}, fmt.Errorf("%w: search parameter %q is not allowed", ai.ErrPolicyDenied, key)
+		}
+		if valueErr := ai.ValidateSearchParameterValues(cfg, key, values); valueErr != nil {
+			return &ai.SearchPolicyDecision{Allowed: false}, valueErr
 		}
 		for _, v := range values {
 			narrowed.Add(key, v)
@@ -105,11 +119,16 @@ func (a *AIPolicyAdapter) CheckSearch(ctx context.Context, req ai.SearchPolicyRe
 	if len(narrowed) == 0 && len(req.Params) > 0 {
 		return &ai.SearchPolicyDecision{Allowed: false}, nil
 	}
-	return &ai.SearchPolicyDecision{
-		Allowed:    true,
-		Params:     narrowed,
-		Deidentify: cfg.Deidentify,
-	}, nil
+	out = &ai.SearchPolicyDecision{
+		Allowed:        true,
+		Params:         narrowed,
+		AllowedFields:  append([]string(nil), cfg.AllowedFields...),
+		AllowAllFields: cfg.AllowAllFields,
+		Deidentify:     cfg.Deidentify,
+	}
+	var scopeErr error
+	out.Params, scopeErr = a.applyPatientSearchScopeToParams(narrowed, req.ResourceType, tenant)
+	return out, scopeErr
 }
 
 // CheckView implements ai.PolicyEngine.
@@ -122,6 +141,32 @@ func (a *AIPolicyAdapter) CheckView(ctx context.Context, req ai.ViewPolicyReques
 // with optional AI-only de-identification hints.
 func (a *AIPolicyAdapter) CheckViewDecision(req ai.ViewPolicyRequest) (*ai.ViewPolicyDecision, error) {
 	return a.checkViewDecision(context.Background(), req)
+}
+
+// CheckViewDecisionContext is the context-aware view decision entrypoint used
+// by ai.Executor so actor/subject resolution is preserved for de-identification.
+func (a *AIPolicyAdapter) CheckViewDecisionContext(ctx context.Context, req ai.ViewPolicyRequest) (*ai.ViewPolicyDecision, error) {
+	return a.checkViewDecision(ctx, req)
+}
+
+// ApplyViewScope enforces a fail-closed rule for patient-scoped principals.
+func (a *AIPolicyAdapter) ApplyViewScope(ctx context.Context, req ai.ViewPolicyRequest) (*ai.ViewPolicyRequest, error) {
+	_, tenant, err := a.resolve(ctx, req.Actor, req.Subject)
+	if err != nil {
+		return nil, err
+	}
+	if tenant.PatientScope == "" {
+		return &req, nil
+	}
+	if a.PatientViewScope == nil {
+		return nil, fmt.Errorf("%w: patient-scoped view execution requires a view scope enforcer", ai.ErrPolicyDenied)
+	}
+	params, err := a.PatientViewScope(ctx, req, tenant.PatientScope)
+	if err != nil {
+		return nil, err
+	}
+	req.Parameters = params
+	return &req, nil
 }
 
 // MaxSearchCount implements ai.SearchCountPolicy.
@@ -161,11 +206,13 @@ func (a *AIPolicyAdapter) checkViewDecision(ctx context.Context, req ai.ViewPoli
 	if req.Version != "" {
 		if cfg, ok := a.Constraints.Views[req.ViewName+"|"+req.Version]; ok {
 			out.Deidentify = cfg.Deidentify
+			out.MaxCount = cfg.MaxCount
 			return out, nil
 		}
 	}
 	if cfg, ok := a.Constraints.Views[req.ViewName]; ok {
 		out.Deidentify = cfg.Deidentify
+		out.MaxCount = cfg.MaxCount
 	}
 	return out, nil
 }
@@ -221,8 +268,36 @@ func (a *AIPolicyAdapter) CheckWrite(ctx context.Context, req ai.WritePolicyRequ
 	return &ai.WritePolicyDecision{
 		Allowed:          true,
 		AllowedFields:    allowedFields,
-		RequiresApproval: requiresApproval,
+		RequiresApproval: d.RequiresApproval || requiresApproval,
 	}, nil
+}
+
+func (a *AIPolicyAdapter) applyPatientSearchScope(out *ai.SearchPolicyDecision, resourceType string, tenant TenantContext) (*ai.SearchPolicyDecision, error) {
+	if tenant.PatientScope == "" {
+		return out, nil
+	}
+	var err error
+	out.Params, err = a.applyPatientSearchScopeToParams(out.Params, resourceType, tenant)
+	return out, err
+}
+
+func (a *AIPolicyAdapter) applyPatientSearchScopeToParams(params url.Values, resourceType string, tenant TenantContext) (url.Values, error) {
+	if tenant.PatientScope == "" {
+		return params, nil
+	}
+	if params == nil {
+		params = url.Values{}
+	}
+	if resourceType == "Patient" {
+		params.Set("_id", tenant.PatientScope)
+		return params, nil
+	}
+	param := a.PatientSearchParams[resourceType]
+	if param == "" {
+		return nil, fmt.Errorf("%w: no patient search scope configured for %s", ai.ErrPolicyDenied, resourceType)
+	}
+	params.Set(param, "Patient/"+tenant.PatientScope)
+	return params, nil
 }
 
 func (a *AIPolicyAdapter) resolve(ctx context.Context, actor, subject string) (Principal, TenantContext, error) {

@@ -35,6 +35,29 @@ func TestParseQueryRepeatedAndCommaOR(t *testing.T) {
 	}
 }
 
+func TestParseQueryExplicitZeroCount(t *testing.T) {
+	q, err := search.ParseQueryValues("Patient", map[string][]string{"_count": {"0"}})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if q.Count != 0 {
+		t.Fatalf("count = %d, want 0", q.Count)
+	}
+
+	snapshot := testSnapshot(t, "Patient")
+	resolved, err := search.ResolveQuery(search.NewSnapshotRegistry(snapshot), q)
+	if err != nil {
+		t.Fatalf("ResolveQuery: %v", err)
+	}
+	plan, err := search.BuildPlan(resolved)
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if plan.Count != 0 {
+		t.Fatalf("plan count = %d, want 0", plan.Count)
+	}
+}
+
 func TestParseQueryAdvancedFeatures(t *testing.T) {
 	q, err := search.ParseQueryValues("Patient", map[string][]string{
 		"_include":   {"Patient:general-practitioner"},

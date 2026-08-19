@@ -67,8 +67,8 @@ Early-stage, under active development.
 | | |
 |---|---|
 | **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions`, `http`, `runtime`, `client` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), change-triggered workflows with webhook/local delivery, FHIR REST HTTP adapter, runtime composition, and Go client SDK |
-| **Partial** | `cli` (MVP usable) |
-| **Next (Stage 1)** | `testkit`, CLI polish (export, audit inspection, backup/restore) |
+| **Partial** | `cli` (operator surface usable; backup/restore and conflict drill-down remain) |
+| **Next (Stage 1)** | `testkit`, CLI backup/restore and conflict drill-down |
 
 Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlite`. Shared runtime helpers live in `pkg/jobs` and `pkg/audit`. See [Roadmap](#roadmap) for the full plan.
 
@@ -168,7 +168,7 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-http | `pkg/http` | Done | FHIR REST API adapter |
 | haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
 | haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
-| haistack-cli | `cmd/haistack` | MVP | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |
+| haistack-cli | `cmd/haistack` | Partial | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |
 | haistack-testkit | `pkg/testkit` | Planned | Fixtures, fakes, scenario runners |
 
 ---
@@ -377,7 +377,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 
 ### Planned package notes
 
-- **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs via `pkg/jobs`; deferred: chained search, `_include`, OpenSearch, HTTP `_search`
+- **search** — MVP done: registry-driven indexer, parser/executor, Postgres backend, reindex jobs via `pkg/jobs`; deferred: OpenSearch, HTTP `_search`
 - **sync** — push/pull engine, stale-base detection, conflict job hooks via `pkg/jobs`, and audit via `pkg/audit`; merge policy lives in `pkg/conflict`
 - **conflict** — Done in v1: `Engine.Detect`, `CanAutoMerge`, and `Merge`; built-in strict safe-list policy; FHIR Patch rebase artifacts; sync integration via `ConflictResolutionHandler`
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions
@@ -389,7 +389,7 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 - **smart** — Done in v1: SMART scope parsing/matching, launch context, token claim validation, backend-service assertions, `AuthAdapter` into `pkg/auth`; no EHR/standalone launch runtime, dynamic registration, or refresh-token lifecycle
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
-- **cli** — MVP: `init`, `serve`, `validate`, `import`, `search`, `fhirpath eval`, `sync push/pull/status`, `module install`, `reindex`; YAML config with flag/env overrides; SQLite-first with Postgres support
+- **cli** — `init`, `serve`, `validate`, `import`, `read`, `delete`, `export`, `search`, `fhirpath eval`, `sync push/pull/status`, module lifecycle, config inspection, audit inspection, and reindex dry-run; YAML config with flag/env overrides; SQLite-first with Postgres support
 
 Target layout when complete: `cmd/haistack*`, `pkg/*`, `modules/*`, `examples/*`.
 

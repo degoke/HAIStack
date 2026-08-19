@@ -44,20 +44,44 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | Method | Path | Action | Success |
 |--------|------|--------|---------|
 | `GET` | `/fhir/metadata` | Server capability statement | 200 + CapabilityStatement |
-| `POST` | `/fhir` | Transaction bundle | 200 + transaction-response Bundle |
+| `POST` | `/fhir` | Transaction or batch bundle | 200 + response Bundle |
 | `GET` | `/fhir/{ResourceType}` | Type-level search | 200 + searchset Bundle |
-| `POST` | `/fhir/{ResourceType}` | Create resource | 201 + resource, `Location` header |
+| `POST` | `/fhir/{ResourceType}/_search` | POST search | 200 + searchset Bundle |
+| `POST` | `/fhir/{ResourceType}` | Create (or conditional create) | 201 or 200 + resource |
+| `PUT` | `/fhir/{ResourceType}?...` | Conditional update | 201/200 + resource |
+| `DELETE` | `/fhir/{ResourceType}?...` | Conditional delete | 204 No Content |
 | `GET` | `/fhir/{ResourceType}/{id}` | Read resource | 200 + resource, `ETag`, `Last-Modified` |
 | `PUT` | `/fhir/{ResourceType}/{id}` | Update resource | 200 + resource |
+| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch update | 200 + resource |
 | `DELETE` | `/fhir/{ResourceType}/{id}` | Delete resource | 204 No Content |
 | `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history | 200 + history Bundle |
+| `GET` | `/fhir/$export` | System bulk export kickoff | 501 Not Implemented |
+| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 501 Not Implemented |
+| `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
+| `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
+| `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
+
+`POST /fhir` accepts transaction and batch Bundles. JSON projections
+(`_summary`, `_elements`) and JSON/XML content negotiation are supported.
+Unsupported `Accept` or `_format` values return 406. JSON and XML request bodies
+are accepted for resource and Bundle writes.
+
+Set `Config.RateLimit` to enable a process-local fixed-window limiter. It emits
+429 `OperationOutcome` responses with `Retry-After` and rate-limit headers;
+multi-instance deployments should enforce an equivalent limit at a shared edge.
+
+When exposing sync routes, apply authentication with
+`NewRootHandlerWithSyncMiddleware` or `RootConfig.SyncMiddleware`. A
+tenant-aware hub should implement `sync.ScopedHubServer`; the Postgres hub
+also requires a registered node for the tenant.
+
+SDC operations (`$populate`, `$assemble`, `$validate`, `$extract`, adaptive questionnaire routes) are supported on `Questionnaire` and `QuestionnaireResponse`.
 
 ### Deferred
 
-- `PATCH`, batch bundles, custom operations, bulk export
-- `POST /{type}/_search` (only `GET` type-level search in MVP)
-- SMART metadata and built-in token runtime
+- Bulk export implementation (routes return 501)
 - Full CapabilityStatement conformance coverage
+- SMART metadata and built-in token runtime
 
 ## When to use it
 
@@ -113,7 +137,7 @@ type myResources struct{}
 
 func (m myResources) Create(ctx context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) { ... }
 func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.ResourceEnvelope, error) { ... }
-// ... Update, Delete, History, ProcessTransactionBundle
+// ... Update, Delete, History, ProcessTransactionBundle, ProcessBatchBundle, Patch
 ```
 
 ## Configuration reference
@@ -121,7 +145,7 @@ func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `BasePath` | no | `/fhir` | FHIR REST root path |
-| `ResourceService` | **yes** | — | CRUD, history, transaction bundles |
+| `ResourceService` | **yes** | — | CRUD, history, transaction/batch bundles, JSON Patch |
 | `SearchService` | no | nil | Enables `GET /{type}` search |
 | `CapabilitySource` | no | nil | Enables `GET /metadata` |
 | `ServerMetadata` | no | empty | Software/server fields in CapabilityStatement |
@@ -129,10 +153,12 @@ func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.
 | `AuthMiddleware` | no | nil | Custom outer middleware |
 | `PrincipalResolver` | no | nil | Identity extraction when auth enabled |
 | `AuthChecker` | no | nil | Read/write/search authorization |
+| `OperationService` | no | nil | Generic custom `$operation` execution |
+| `RateLimit` | no | disabled | Process-local fixed-window request limiter |
 
 ## Error responses
 
-All handler failures return `application/fhir+json` OperationOutcome bodies.
+Handler failures return negotiated FHIR JSON or XML `OperationOutcome` bodies.
 
 | Source | HTTP status | Issue code (typical) |
 |--------|-------------|----------------------|
@@ -144,7 +170,8 @@ All handler failures return `application/fhir+json` OperationOutcome bodies.
 | `search.ErrInvalidQuery` and related | 400 | `invalid` |
 | `auth.ErrDenied` | 403 | `forbidden` |
 | Missing credentials (auth enabled) | 401 | `security` |
-| Unsupported HTTP method | 400 | `not-supported` |
+| Unsupported HTTP method | 405 | `not-supported` |
+| Rate limit exceeded | 429 | `throttled` |
 
 Path/body validation at the HTTP layer (malformed ids, id mismatch on update, non-transaction POST to `/fhir`) is mapped to `invalid` or `not-supported` before reaching core.
 
@@ -152,7 +179,7 @@ Path/body validation at the HTTP layer (malformed ids, id mismatch on update, no
 
 | Header | When set |
 |--------|----------|
-| `Content-Type: application/fhir+json` | All JSON responses |
+| `Content-Type: application/fhir+json` / `application/fhir+xml` | Negotiated FHIR responses |
 | `Location` | 201 Created |
 | `ETag: W/"{versionId}"` | Read/update when version metadata present |
 | `Last-Modified` | Read/update when `LastUpdated` present |

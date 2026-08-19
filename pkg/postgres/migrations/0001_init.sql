@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS hai_resource_history (
     timestamp     TIMESTAMPTZ NOT NULL,
     hash          TEXT,
     deleted       BOOLEAN NOT NULL DEFAULT false,
-    json          JSONB,
+    json          TEXT,
     UNIQUE (tenant_id, resource_type, resource_id, version_id)
 );
 

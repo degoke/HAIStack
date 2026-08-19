@@ -32,4 +32,30 @@ var (
 	// ErrMissingDependency is returned when a tool's backing service is not
 	// configured on the Executor.
 	ErrMissingDependency = errors.New("ai: missing backing dependency")
+
+	// ErrMissingDeidentifier is returned when policy requires de-identification
+	// but no scrubbing implementation is configured.
+	ErrMissingDeidentifier = errors.New("ai: missing deidentifier")
+
+	// ErrMissingAudit is returned when audit is required but not configured.
+	ErrMissingAudit = errors.New("ai: missing audit logger")
+
+	// ErrMissingConversationID is returned when deployment policy requires a
+	// correlation ID but the request does not provide one.
+	ErrMissingConversationID = errors.New("ai: missing conversation id")
+
+	// ErrAuditFailed is returned when required audit persistence fails.
+	ErrAuditFailed = errors.New("ai: audit persistence failed")
+
+	// ErrApprovalTokenRequired is returned when an approval provider approves a
+	// write without returning a verifiable token.
+	ErrApprovalTokenRequired = errors.New("ai: approval token required")
+
+	// ErrApprovalTokenInvalid is returned when an approval token cannot be
+	// verified for the exact requested write.
+	ErrApprovalTokenInvalid = errors.New("ai: invalid approval token")
+
+	// ErrMissingApprovalStore is returned when a required approval cannot be
+	// verified because no approval store is configured.
+	ErrMissingApprovalStore = errors.New("ai: missing approval store")
 )

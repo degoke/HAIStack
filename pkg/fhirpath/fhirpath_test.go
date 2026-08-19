@@ -218,6 +218,26 @@ func TestEvalString(t *testing.T) {
 	}
 }
 
+func TestValueStringSupportsTemporalFHIRPathValues(t *testing.T) {
+	cases := []struct {
+		name  string
+		value fhirpath.Value
+		want  string
+	}{
+		{name: "date", value: fhirpath.NewValue(system.MustParseDate("2025-01-15")), want: "2025-01-15"},
+		{name: "time", value: fhirpath.NewValue(system.MustParseTime("12:30:00")), want: "12:30:00"},
+		{name: "datetime", value: fhirpath.NewValue(system.MustParseDateTime("2025-01-15T12:30:00Z")), want: "2025-01-15T12:30:00Z"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.value.String()
+			if err != nil || got != tc.want {
+				t.Fatalf("String()=%q err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestEnvelopeUsesProtoWhenPresent(t *testing.T) {
 	eng := defaultEngine(t)
 	ctx := context.Background()

@@ -15,24 +15,43 @@ type QuestionnaireResolver interface {
 }
 type Assembler struct{ Resolver QuestionnaireResolver }
 
+// AssembleResource performs modular assembly for a canonical Questionnaire
+// envelope using this assembler's resolver.
+func (a Assembler) AssembleResource(ctx context.Context, env *types.ResourceEnvelope) (*types.ResourceEnvelope, Outcome) {
+	return AssembleQuestionnaireResource(ctx, env, a.Resolver)
+}
+
 func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire, Outcome) {
 	o := ValidateQuestionnaire(q, ValidationOptions{})
 	if len(o.Issue) > 0 {
 		return q, o
 	}
 	out := q
+	resolving := map[string]bool{}
 	var expand func([]Item) []Item
 	expand = func(items []Item) []Item {
 		var r []Item
 		for _, it := range items {
-			if strings.HasPrefix(it.Definition, "http") && a.Resolver != nil {
+			if strings.TrimSpace(it.Definition) != "" {
+				if a.Resolver == nil {
+					o.add("error", "exception", "questionnaire resolver is unavailable", it.LinkID)
+					r = append(r, it)
+					continue
+				}
+				if resolving[it.Definition] {
+					o.add("error", "invariant", "cyclic questionnaire definition: "+it.Definition, it.LinkID)
+					r = append(r, it)
+					continue
+				}
+				resolving[it.Definition] = true
 				ref, e := a.Resolver.Resolve(ctx, it.Definition)
+				delete(resolving, it.Definition)
 				if e != nil {
 					o.add("error", "not-found", e.Error(), it.LinkID)
 					r = append(r, it)
 					continue
 				}
-				r = append(r, ref.Item...)
+				r = append(r, expand(ref.Item)...)
 				continue
 			}
 			it.Item = expand(it.Item)
@@ -43,6 +62,11 @@ func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire
 	out.Item = expand(out.Item)
 	if _, e := Normalize(out); e != nil {
 		o.add("error", "duplicate", e.Error(), "Questionnaire.item")
+	}
+	if len(o.Issue) == 0 {
+		if final := ValidateQuestionnaire(out, ValidationOptions{}); len(final.Issue) > 0 {
+			o.Issue = append(o.Issue, final.Issue...)
+		}
 	}
 	return out, o
 }
@@ -86,42 +110,74 @@ func (e DefinitionExtractor) Extract(ctx context.Context, q Questionnaire, r Que
 		}
 		return a.Path < b.Path
 	})
+	linkMappingCount := map[string]int{}
 	for _, m := range mappings {
-		ri := findResponse(r.Item, m.LinkID)
-		if ri == nil || len(ri.Answer) == 0 {
+		linkMappingCount[m.LinkID]++
+	}
+	linkMappingOrdinal := map[string]int{}
+	seenFullURLs := map[string]int{}
+	for _, m := range mappings {
+		if m.ResourceType == "" {
+			return ExtractionResult{}, fmt.Errorf("definition mapping %q has no resource type", m.LinkID)
+		}
+		responses := findResponsesDeep(r.Item, m.LinkID)
+		if len(responses) == 0 {
 			continue
 		}
-		for n, answer := range ri.Answer {
-			res := map[string]any{"resourceType": m.ResourceType}
-			if m.Identity != "" {
-				identity := strings.TrimPrefix(m.Identity, m.ResourceType+"/")
-				if identity != "" {
-					res["id"] = identity
+		linkMappingOrdinal[m.LinkID]++
+		mappingOrdinal := linkMappingOrdinal[m.LinkID]
+		for responseOrdinal, ri := range responses {
+			for n, answer := range ri.Answer {
+				answerValue := answer.Value
+				if m.ValuePath != "" {
+					var ok bool
+					answerValue, ok = valueAtPath(answer.Value, m.ValuePath)
+					if !ok {
+						return ExtractionResult{}, fmt.Errorf("value path %q not found for mapping %q", m.ValuePath, m.LinkID)
+					}
 				}
-			}
-			if m.Path != "" {
-				setPath(res, m.Path, answer.Value)
-			}
-			b, _ := json.Marshal(res)
-			id, _ := res["id"].(string)
-			method, url := "POST", m.ResourceType
-			if id != "" {
-				url += "/" + id
-			}
-			if e.Existing != nil && id != "" {
-				ok, err := e.Existing(ctx, m.ResourceType, id)
-				if err != nil {
-					return ExtractionResult{}, err
+				res := map[string]any{"resourceType": m.ResourceType}
+				if m.Identity != "" {
+					identity := strings.TrimPrefix(m.Identity, m.ResourceType+"/")
+					if identity != "" {
+						res["id"] = identity
+					}
 				}
-				if ok {
-					method = "PUT"
+				if m.Path != "" {
+					setPath(res, m.Path, answerValue)
 				}
+				b, _ := json.Marshal(res)
+				id, _ := res["id"].(string)
+				method, url := "POST", m.ResourceType
+				if id != "" {
+					url += "/" + id
+				}
+				if e.Existing != nil && id != "" {
+					ok, err := e.Existing(ctx, m.ResourceType, id)
+					if err != nil {
+						return ExtractionResult{}, err
+					}
+					if ok {
+						method = "PUT"
+					}
+				}
+				full := "urn:uuid:" + m.LinkID
+				if linkMappingCount[m.LinkID] > 1 {
+					full = fmt.Sprintf("%s-m%d", full, mappingOrdinal)
+				}
+				if len(responses) > 1 {
+					full = fmt.Sprintf("%s-r%d", full, responseOrdinal)
+				}
+				if n > 0 {
+					full = fmt.Sprintf("%s-%d", full, n)
+				}
+				if seenFullURLs[full] > 0 {
+					seenFullURLs[full]++
+					full = fmt.Sprintf("%s-%d", full, seenFullURLs[full])
+				}
+				seenFullURLs[full] = 1
+				entries = append(entries, map[string]any{"fullUrl": full, "resource": json.RawMessage(b), "request": map[string]any{"method": method, "url": url}})
 			}
-			full := "urn:uuid:" + m.LinkID
-			if n > 0 {
-				full = fmt.Sprintf("%s-%d", full, n)
-			}
-			entries = append(entries, map[string]any{"fullUrl": full, "resource": json.RawMessage(b), "request": map[string]any{"method": method, "url": url}})
 		}
 	}
 	env, err := transactionEnvelope(entries)
@@ -130,6 +186,32 @@ func (e DefinitionExtractor) Extract(ctx context.Context, q Questionnaire, r Que
 	}
 	return ExtractionResult{Bundle: env}, nil
 }
+
+func valueAtPath(value any, path string) (any, bool) {
+	if path == "" {
+		return value, true
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var current any
+	if err := json.Unmarshal(b, &current); err != nil {
+		return nil, false
+	}
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
 func setPath(m map[string]any, path string, v any) {
 	parts := strings.Split(path, ".")
 	cur := m
@@ -215,6 +297,129 @@ type AdaptiveEngine interface {
 	NextQuestion(context.Context, *AdaptiveSession) (*Item, error)
 	SubmitAnswer(context.Context, *AdaptiveSession, ResponseItem) (*Item, error)
 }
+
+// SequentialAdaptiveEngine is a small deterministic adaptive engine for
+// applications that do not need a policy-specific next-question service. It
+// searches a supplied catalog, walks enabled question items in questionnaire
+// order, and stores submitted answers in the session. Applications with
+// branching, scoring, or remote policy can continue to inject their own
+// AdaptiveEngine.
+type SequentialAdaptiveEngine struct {
+	Questionnaires []Questionnaire
+	Resolver       QuestionnaireResolver
+}
+
+func (e SequentialAdaptiveEngine) Search(ctx context.Context, request AdaptiveSearchRequest) ([]Questionnaire, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	query := strings.ToLower(strings.TrimSpace(request.Query))
+	var matches []Questionnaire
+	for _, q := range e.Questionnaires {
+		if query == "" || questionnaireMatches(q, query) {
+			matches = append(matches, q)
+		}
+	}
+	return matches, nil
+}
+
+func (e SequentialAdaptiveEngine) NextQuestion(ctx context.Context, session *AdaptiveSession) (*Item, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	q, err := e.sessionQuestionnaire(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	var next func([]Item) *Item
+	next = func(items []Item) *Item {
+		for _, item := range items {
+			if !Enabled(item, session.Response) {
+				continue
+			}
+			if item.Type != "group" && item.Type != "display" && findResponseDeep(session.Response.Item, item.LinkID) == nil {
+				copy := item
+				return &copy
+			}
+			if child := next(item.Item); child != nil {
+				return child
+			}
+		}
+		return nil
+	}
+	return next(q.Item), nil
+}
+
+func (e SequentialAdaptiveEngine) SubmitAnswer(ctx context.Context, session *AdaptiveSession, answer ResponseItem) (*Item, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("adaptive session is nil")
+	}
+	if answer.LinkID == "" {
+		return nil, fmt.Errorf("adaptive answer linkId is required")
+	}
+	q, err := e.sessionQuestionnaire(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := Normalize(q)
+	if err != nil {
+		return nil, err
+	}
+	if len(tree.Resolve(answer.LinkID)) == 0 {
+		return nil, fmt.Errorf("unknown adaptive answer linkId: %s", answer.LinkID)
+	}
+	if existing := findResponseDeep(session.Response.Item, answer.LinkID); existing != nil {
+		*existing = answer
+	} else {
+		session.Response.Item = append(session.Response.Item, answer)
+	}
+	return e.NextQuestion(ctx, session)
+}
+
+func questionnaireMatches(q Questionnaire, query string) bool {
+	if strings.Contains(strings.ToLower(q.ID), query) || strings.Contains(strings.ToLower(q.URL), query) || strings.Contains(strings.ToLower(q.Status), query) {
+		return true
+	}
+	var walk func([]Item) bool
+	walk = func(items []Item) bool {
+		for _, item := range items {
+			if strings.Contains(strings.ToLower(item.LinkID), query) || strings.Contains(strings.ToLower(item.Text), query) || walk(item.Item) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(q.Item)
+}
+
+func (e SequentialAdaptiveEngine) sessionQuestionnaire(ctx context.Context, session *AdaptiveSession) (Questionnaire, error) {
+	if session == nil {
+		return Questionnaire{}, fmt.Errorf("adaptive session is nil")
+	}
+	if session.State != nil {
+		switch value := session.State["questionnaire"].(type) {
+		case Questionnaire:
+			return value, nil
+		case *Questionnaire:
+			if value != nil {
+				return *value, nil
+			}
+		}
+	}
+	if e.Resolver != nil {
+		return e.Resolver.Resolve(ctx, session.Questionnaire)
+	}
+	for _, q := range e.Questionnaires {
+		if Canonical(q) == session.Questionnaire || q.URL == session.Questionnaire {
+			return q, nil
+		}
+	}
+	return Questionnaire{}, fmt.Errorf("adaptive questionnaire not found: %s", session.Questionnaire)
+}
+
 type AdaptiveService struct{ Engine AdaptiveEngine }
 
 func (s AdaptiveService) Search(ctx context.Context, r AdaptiveSearchRequest) ([]Questionnaire, error) {

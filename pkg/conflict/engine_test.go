@@ -55,6 +55,29 @@ func TestClassificationSafeNonOverlappingPatient(t *testing.T) {
 	}
 }
 
+func TestClassificationRequiresExplicitPolicyForBothSides(t *testing.T) {
+	base := resourceEnvelope(t, "Patient", "p1", "v1", map[string]any{})
+	local := resourceEnvelope(t, "Patient", "p1", "v2", map[string]any{
+		"telecom": []any{map[string]any{"system": "phone", "value": "111"}},
+	})
+	current := resourceEnvelope(t, "Patient", "p1", "v3", map[string]any{
+		"gender": "female",
+	})
+
+	result := conflict.NewDefaultEngine().Detect(
+		localUpdate("Patient", "p1", "v1", "v2", local),
+		base,
+		current,
+	)
+
+	if result.AutoMergeable {
+		t.Fatal("expected an unruled remote field to require review")
+	}
+	if result.Risk != conflict.RiskLevelReview {
+		t.Fatalf("risk = %q, want review", result.Risk)
+	}
+}
+
 func TestClassificationClinicalHotSpot(t *testing.T) {
 	base := resourceEnvelope(t, "Patient", "p1", "v1", map[string]any{
 		"birthDate": "2000-01-01",

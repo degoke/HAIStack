@@ -3,6 +3,7 @@ package ai_test
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
@@ -140,6 +141,13 @@ func TestSearchFhirResources_AllowedParams(t *testing.T) {
 	if !ok || len(resources) == 0 {
 		t.Fatalf("resources = %#v", data["resources"])
 	}
+	first, ok := resources[0].(map[string]any)
+	if !ok {
+		t.Fatalf("resource = %#v", resources[0])
+	}
+	if _, exposed := first["telecom"]; exposed {
+		t.Fatal("search returned telecom without an explicit search field allow-list")
+	}
 	if len(res.Citations) < 2 {
 		t.Fatalf("expected search + resource citations, got %#v", res.Citations)
 	}
@@ -165,6 +173,37 @@ func TestSearchFhirResources_BlockedParams(t *testing.T) {
 	})
 	if !errors.Is(err, ai.ErrPolicyDenied) {
 		t.Fatalf("err = %v, want ErrPolicyDenied", err)
+	}
+}
+
+func TestSearchFhirResources_MixedBlockedParamsDenied(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{seedPatients: true, withSearch: true, allowPatientSearch: true})
+	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolSearchFhirResources,
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"params": map[string][]string{
+				"name":      {"Doe"},
+				"birthdate": {"1990-01-01"},
+			},
+		},
+	})
+	if !errors.Is(err, ai.ErrPolicyDenied) {
+		t.Fatalf("err = %v, want mixed-parameter denial", err)
+	}
+}
+
+func TestSearchFhirResources_RejectsInvalidPaging(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{seedPatients: true, withSearch: true, allowPatientSearch: true})
+	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolSearchFhirResources,
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"count":        "not-a-number",
+		},
+	})
+	if !errors.Is(err, ai.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -559,6 +598,29 @@ func TestAllowListPolicy_CheckWriteBlockedField(t *testing.T) {
 	}
 }
 
+func TestAllowListPolicy_RequiresExactIncludeDirectives(t *testing.T) {
+	policy := ai.NewAllowListPolicy()
+	policy.Search["Observation"] = ai.SearchTypePolicy{AllowedParams: []string{"_include"}}
+	_, err := policy.CheckSearch(context.Background(), ai.SearchPolicyRequest{
+		ResourceType: "Observation",
+		Params:       url.Values{"_include": {"Observation:subject"}},
+	})
+	if !errors.Is(err, ai.ErrPolicyDenied) {
+		t.Fatalf("err = %v, want exact-directive denial", err)
+	}
+	policy.Search["Observation"] = ai.SearchTypePolicy{
+		AllowedParams:   []string{"_include"},
+		AllowedIncludes: []string{"Observation:subject"},
+	}
+	decision, err := policy.CheckSearch(context.Background(), ai.SearchPolicyRequest{
+		ResourceType: "Observation",
+		Params:       url.Values{"_include": {"Observation:subject"}},
+	})
+	if err != nil || !decision.Allowed {
+		t.Fatalf("allowed include = %#v err=%v", decision, err)
+	}
+}
+
 func TestGenericToolDescriptors(t *testing.T) {
 	descriptors := ai.GenericToolDescriptors()
 	if len(descriptors) != 4 {
@@ -599,6 +661,27 @@ func TestSearchMaxCountClampedByPolicy(t *testing.T) {
 	}
 }
 
+func TestSearchFhirResources_OffsetPaging(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{seedPatients: true, withSearch: true, allowPatientSearch: true})
+	res, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolSearchFhirResources,
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"params":       map[string][]string{"name": {"Doe"}},
+			"count":        1,
+			"offset":       1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	data := dataMap(t, res.Data)
+	resources, ok := data["resources"].([]any)
+	if !ok || len(resources) != 0 {
+		t.Fatalf("paged resources = %#v, want empty second page", data["resources"])
+	}
+}
+
 func TestRunView_DeidentifyWhenPolicyRequires(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:            true,
@@ -623,6 +706,33 @@ func TestRunView_DeidentifyWhenPolicyRequires(t *testing.T) {
 	}
 	if len(res.Redactions) == 0 {
 		t.Fatal("expected redactions on view output")
+	}
+	if h.deid.last.ResourceType != "Patient" || h.deid.last.ViewName != "patient_summary_view" {
+		t.Fatalf("deidentify request = %#v, want view identity and resource type", h.deid.last)
+	}
+}
+
+func TestRunView_ClampsLimitByPolicy(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients:            true,
+		withViews:               true,
+		allowPatientSummaryView: true,
+	})
+	h.policy.Views["patient_summary_view"] = ai.ViewTypePolicy{MaxCount: 1}
+	res, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolRunView,
+		Input: map[string]any{
+			"viewName": "patient_summary_view",
+			"limit":    1000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	data := dataMap(t, res.Data)
+	rows, ok := data["rows"].([]any)
+	if !ok || len(rows) > 1 {
+		t.Fatalf("rows = %#v, want at most one row", data["rows"])
 	}
 }
 
@@ -685,5 +795,108 @@ func TestApprovalRequiredAuditOutcome(t *testing.T) {
 	}
 	if res.AuditMeta.Outcome != "approval-required" {
 		t.Fatalf("outcome = %q, want approval-required", res.AuditMeta.Outcome)
+	}
+}
+
+func TestApprovalStoreRequiresApprovalBeforeCommit(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+	})
+	store := ai.NewMemoryApprovalStore()
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Core:          h.core,
+		Policy:        h.policy,
+		Audit:         h.audit,
+		ApprovalStore: store,
+		Now:           h.clock.Now,
+	})
+	req := ai.ToolRequest{
+		ToolName: ai.ToolWriteFhirResource,
+		Input: map[string]any{
+			"operation":    "create",
+			"resourceType": "Patient",
+			"fields":       map[string]any{"name": []map[string]string{{"family": "Pending"}}},
+		},
+	}
+	pending, err := h.exec.ExecuteTool(context.Background(), req)
+	if err != nil {
+		t.Fatalf("pending ExecuteTool: %v", err)
+	}
+	if !pending.ApprovalRequired || pending.ApprovalToken == "" {
+		t.Fatalf("pending result = %#v", pending)
+	}
+	if err := store.Approve(pending.ApprovalToken); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	req.ApprovalToken = pending.ApprovalToken
+	committed, err := h.exec.ExecuteTool(context.Background(), req)
+	if err != nil {
+		t.Fatalf("approved ExecuteTool: %v", err)
+	}
+	if committed.ApprovalRequired {
+		t.Fatal("approved write remained pending")
+	}
+	if _, err := h.exec.ExecuteTool(context.Background(), req); !errors.Is(err, ai.ErrApprovalTokenInvalid) {
+		t.Fatalf("replay err = %v, want ErrApprovalTokenInvalid", err)
+	}
+}
+
+func TestNewExecutorRequiresAuditWhenConfigured(t *testing.T) {
+	_, err := ai.NewExecutor(ai.Config{Policy: ai.NewAllowListPolicy(), AuditRequired: true})
+	if !errors.Is(err, ai.ErrMissingAudit) {
+		t.Fatalf("err = %v, want ErrMissingAudit", err)
+	}
+}
+
+func TestExecutorRequiresConversationIDWhenConfigured(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{seedPatients: true, allowPatientRead: true})
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Resources:             h.resources,
+		Policy:                h.policy,
+		Audit:                 h.audit,
+		RequireConversationID: true,
+		Now:                   h.clock.Now,
+	})
+	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolReadFhirResource,
+		Input:    map[string]any{"resourceType": "Patient", "id": "pat-jane"},
+	})
+	if !errors.Is(err, ai.ErrMissingConversationID) {
+		t.Fatalf("err = %v, want ErrMissingConversationID", err)
+	}
+}
+
+func TestDeidentificationRequiresExplicitImplementation(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{seedPatients: true, allowPatientRead: true})
+	h.policy.Read["Patient"] = ai.ReadTypePolicy{Deidentify: true}
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Resources: h.resources,
+		Policy:    h.policy,
+		Audit:     h.audit,
+		Now:       h.clock.Now,
+	})
+	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolReadFhirResource,
+		Input:    map[string]any{"resourceType": "Patient", "id": "pat-jane"},
+	})
+	if !errors.Is(err, ai.ErrMissingDeidentifier) {
+		t.Fatalf("err = %v, want ErrMissingDeidentifier", err)
+	}
+}
+
+func TestWriteRejectsReservedFields(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true})
+	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+		ToolName: ai.ToolWriteFhirResource,
+		Input: map[string]any{
+			"operation":    "create",
+			"resourceType": "Patient",
+			"fields":       map[string]any{"id": "forged"},
+		},
+	})
+	if !errors.Is(err, ai.ErrPolicyDenied) {
+		t.Fatalf("err = %v, want ErrPolicyDenied", err)
 	}
 }

@@ -19,7 +19,7 @@ It does **not**:
 - Replace `pkg/runtime` composition logic (commands call the runtime builder)
 - Implement FHIR business rules or persistence (those live in `pkg/*`)
 - Call remote sync hubs for health checks (`sync status` is local-store only)
-- Provide export, audit inspection, backup/restore, or conflict drill-down (planned later)
+- Provide backup/restore or conflict drill-down (planned later)
 
 ## When to use it
 
@@ -46,15 +46,18 @@ make build
 # 1. Create workspace config and data directory
 haistack init
 
-# 2. Import a resource
+# 2. Optional: install the local module that enables the resource types you use
+haistack module install modules/core
+
+# 3. Import a resource
 haistack import patient.json
 
-# 3. Validate, search, and evaluate FHIRPath
+# 4. Validate, search, and evaluate FHIRPath
 haistack validate patient.json
 haistack search Patient name=Smith
 haistack fhirpath eval patient.json 'Patient.name.family'
 
-# 4. Start the HTTP server (blocks until interrupted)
+# 5. Start the HTTP server (blocks until interrupted)
 haistack serve
 ```
 
@@ -65,13 +68,21 @@ haistack serve
 | `haistack init` | Write starter `haistack.yaml` and create `.haistack/`. Use `--force` to overwrite. |
 | `haistack serve` | Build `pkg/runtime`, start HTTP, print bound address. |
 | `haistack validate <file>` | Structural validation via `validate.Engine`. Exits non-zero when invalid. |
-| `haistack import <file>` | Upsert one JSON resource (create or update by type/id). |
+| `haistack import <file>` | Import one JSON resource; use `--create-only` or `--update-only` to control conflicts. |
+| `haistack read <ResourceType/id>` | Read one stored resource. |
+| `haistack delete <ResourceType/id> --force` | Delete one stored resource. |
+| `haistack export <ResourceType[/id]>` | Export one resource or a resource collection as JSON. |
 | `haistack search <ResourceType> [key=value ...]` | FHIR search via `search.Service.SearchBundle`. |
 | `haistack fhirpath eval <file> <expression>` | Evaluate FHIRPath against a JSON resource file. |
 | `haistack sync push` | One push pass via `sync.Engine`. Requires `sync.hubURL`. |
 | `haistack sync pull` | One pull pass via `sync.Engine`. Requires `sync.hubURL`. |
 | `haistack sync status` | Local sync view: node ID, hub URL, pull cursor, pending retry-push jobs, unresolved conflicts. |
-| `haistack module install <path>` | Install a local module directory via `modules.Manager`. |
+| `haistack module install <path>` | Install or upgrade a local module directory via `modules.Manager`. |
+| `haistack module upgrade <path>` | Explicitly upgrade an installed module. |
+| `haistack module plan <path>` | Preview module installation or upgrade changes. |
+| `haistack module list` / `inspect` / `uninstall` | Inspect and manage installed modules. |
+| `haistack config show` / `validate` | Inspect or validate resolved configuration. |
+| `haistack audit list` | Inspect persisted audit records. |
 | `haistack reindex [ResourceType]` | Synchronous search reindex for one type or all enabled types. |
 
 Run `haistack <command> --help` for flags and examples on each command.
@@ -86,13 +97,14 @@ Configuration is read from `haistack.yaml` in the working directory by default (
 storage:
   driver: sqlite          # sqlite or postgres
   sqlitePath: .haistack/haistack.db
+  sqliteTenantID: local
+  sqliteTerminologyScope: default
   postgresDSN: ""
   tenantID: ""
 runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
-  modulePaths:
-    - modules/core
+  modulePaths: []
 sync:
   hubURL: ""
   nodeID: runtime-node
@@ -107,7 +119,7 @@ sync:
 
 Relative `sqlitePath` and `modulePaths` entries in a config file are resolved against the config file's directory.
 
-If the default `haistack.yaml` is missing, built-in defaults are used so commands can run before `haistack init`.
+If the default `haistack.yaml` is missing, built-in defaults are used so commands can run before `haistack init`. Module paths are opt-in; use `--module-path` or configure `runtime.modulePaths` to load local modules.
 
 ### Environment variables
 
@@ -115,6 +127,8 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 |----------|---------|
 | `HAISTACK_STORAGE_DRIVER` | `storage.driver` |
 | `HAISTACK_SQLITE_PATH` | `storage.sqlitePath` |
+| `HAISTACK_SQLITE_TENANT_ID` | `storage.sqliteTenantID` |
+| `HAISTACK_SQLITE_TERMINOLOGY_SCOPE` | `storage.sqliteTerminologyScope` |
 | `HAISTACK_POSTGRES_DSN` | `storage.postgresDSN` |
 | `HAISTACK_TENANT_ID` | `storage.tenantID` |
 | `HAISTACK_HTTP_ADDR` | `runtime.httpAddr` |
@@ -131,10 +145,14 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `--output` | `text` (default) or `json` |
 | `--storage-driver` | Override storage driver |
 | `--sqlite-path` | Override SQLite database path |
+| `--sqlite-tenant-id` | Override SQLite sync tenant namespace |
+| `--sqlite-terminology-scope` | Override SQLite terminology namespace |
 | `--postgres-dsn` | Override Postgres DSN |
 | `--tenant-id` | Override Postgres tenant ID |
 | `--http-addr` | Override HTTP listen address |
 | `--enable-search` | Override search enablement (`true`/`false`) |
+| `--no-search` | Disable search for this command |
+| `--no-modules` | Disable module loading for this command |
 | `--module-path` | Override module path (repeatable) |
 | `--sync-hub-url` | Override sync hub URL |
 | `--sync-node-id` | Override sync node ID |
@@ -165,7 +183,7 @@ Postgres mode uses tenant-scoped stores and supports background reindex workers 
 - **Text (default):** concise human-readable summaries on stdout; errors on stderr
 - **JSON (`--output json`):** structured payloads for scripting; errors as `{"error":"..."}`
 
-Server commands (`serve`) print startup metadata; blocking commands return results and exit.
+Server commands (`serve`) print startup metadata and expose `/healthz` and `/readyz`; blocking commands return results and exit. `--output json` is supported by all command results, including `init`, `serve`, and sync push/pull.
 
 ## Package layout
 

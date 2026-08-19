@@ -13,3 +13,12 @@ type InboxStore interface {
 	IsApplied(ctx context.Context, id string) (bool, error)
 	AppliedAt(ctx context.Context, id string) (*time.Time, error)
 }
+
+// PushInboxStore extends InboxStore with durable acknowledgement storage for
+// hub-side push idempotency. The payload is an opaque protocol acknowledgement
+// so store does not depend on pkg/sync.
+type PushInboxStore interface {
+	InboxStore
+	GetAckPayload(ctx context.Context, id string) ([]byte, bool, error)
+	MarkAppliedWithPayload(ctx context.Context, id string, payload []byte, appliedAt time.Time) error
+}

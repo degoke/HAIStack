@@ -19,5 +19,6 @@
 // resources, conflicts, and audit records for assertions.
 //
 // ReferenceResolved checks that a FHIR reference in a pulled envelope points to a
-// resource that exists in the target device's local store.
+// resource that exists in the target device's local store. Paths support dotted
+// object traversal and arbitrary array indices, such as participant[0].actor.
 package synctest

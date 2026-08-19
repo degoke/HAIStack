@@ -26,9 +26,10 @@ The package has two layers:
 1. **Outbox (write path)** — `Outbox`, `EventStoreOutbox`, `WithWriteSession` integrate with `pkg/core` so successful writes emit `store.ResourceEvent` inside the same transaction.
 2. **Sync engine (replication)** — `Engine`, `Hub`, `PostgresHub` orchestrate push/pull, cursors, inbox idempotency, conflicts, jobs, and audit.
 
-It does **not**:
+It does **not** parse FHIR on the device-side orchestration path or assign version IDs (that is
+`pkg/core` + backends). `PostgresHub` validates pushed FHIR payloads before canonical acceptance.
 
-- Parse FHIR or assign version IDs (that is `pkg/core` + backends)
+It does **not**:
 - Implement HTTP/MQTT transport (`Hub` is an in-process protocol boundary today)
 - Resolve merge conflicts (`haistack-conflict` is planned; v1 detects and records only)
 - Replace `pkg/store` persistence (it reuses existing contracts)
@@ -76,10 +77,11 @@ engine := hasync.NewEngine(hasync.Config{
     TenantID:  "tenant-a",
     Events:    sqliteDB.OutboxStore(),
     Cursors:   sqliteDB.CursorStore(),
-    Inbox:     sqliteDB.InboxStore(),
-    Resources: sqliteDB.ResourceStore(),
-    History:   sqliteDB.HistoryStore(),
-    Conflicts: sqliteDB.ConflictStore(),
+	Inbox:     sqliteDB.InboxStore(),
+	Resources: sqliteDB.ResourceStore(),
+	History:   sqliteDB.HistoryStore(),
+	Sessions:  sqliteDB,
+	Conflicts: sqliteDB.ConflictStore(),
     Jobs:      jobStore,  // optional
     Audit:     auditStore, // optional
     Hub:       hub,
@@ -108,11 +110,13 @@ canonical, err := hub.Pull(ctx, afterSequence, limit)
 
 ### 4. Optional: search on pull apply
 
-If pulls should update the local search index, wire a `SearchIndexer` (for example from `pkg/search`):
+If pulls should update the local search index atomically with resource/history/inbox changes, wire
+both the database session provider and a `SearchIndexer` (for example from `pkg/search`):
 
 ```go
 engine := hasync.NewEngine(hasync.Config{
     // …
+    Sessions:      sqliteDB,
     Search:        sqliteDB.SearchStore(),
     SearchIndexer: indexer, // implements hasync.SearchIndexer
 })
@@ -135,7 +139,7 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 
 1. Read pending outbox events after the push cursor
 2. Enrich into `LocalEvent` (stable `event_id`, base cloud version, payload)
-3. Batch to hub (creates/updates before deletes)
+3. Batch to hub in outbox sequence order
 4. Handle ack per event: accepted, rejected, conflicted, already_processed, needs_retry
 5. Record conflicts, audit, and retry jobs as needed
 6. Advance push cursor only for terminal acks (not `needs_retry`)
@@ -152,7 +156,7 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 | Direction | Key |
 |-----------|-----|
 | Push dedupe | `OutboxEventID(nodeID, tenantID, outboxSequence)` |
-| Pull dedupe | `CanonicalEventID(canonicalSequence)` |
+| Pull dedupe | `CanonicalEventID(tenantID, canonicalSequence)` |
 
 ## Config reference
 
@@ -162,6 +166,7 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 | `Events` | Yes (push) | Local outbox (`store.EventStore`) |
 | `Hub` | Yes | Push/pull protocol adapter |
 | `Resources`, `History` | Yes (pull) | Local apply target |
+| `Sessions` | Recommended (pull) | Atomic resource/history/search/inbox apply |
 | `Cursors` | No | Push/pull checkpoints (`sync.push`, `sync.pull`) |
 | `Inbox` | No | Pull apply idempotency |
 | `Conflicts`, `Jobs`, `Audit` | No | Side effects on push conflict/retry |

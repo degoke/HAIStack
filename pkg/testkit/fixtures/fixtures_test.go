@@ -39,6 +39,21 @@ func TestObservationForPatient(t *testing.T) {
 	}
 }
 
+func TestParameterizedFixturesEscapeIDs(t *testing.T) {
+	patient := fixtures.SamplePatient(t, `p"quoted`)
+	if patient.ID != `p"quoted` {
+		t.Fatalf("patient id = %q", patient.ID)
+	}
+	appt := fixtures.AppointmentForPatient(t, `p"quoted`)
+	if appt == nil || len(appt.JSON) == 0 {
+		t.Fatal("appointment fixture is empty")
+	}
+	obs := fixtures.ObservationForPatient(t, `p"quoted`)
+	if obs == nil || len(obs.JSON) == 0 {
+		t.Fatal("observation fixture is empty")
+	}
+}
+
 func TestOfflinePatientCreatePreset(t *testing.T) {
 	offline := fixtures.OfflinePatientCreate(t)
 	jane := fixtures.PatientJane(t)

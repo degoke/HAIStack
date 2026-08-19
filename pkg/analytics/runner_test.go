@@ -45,6 +45,41 @@ func TestRunner_RefreshWritesReportingRows(t *testing.T) {
 	}
 }
 
+func TestRunner_UsesConfiguredClockForResultAndRefreshMetadata(t *testing.T) {
+	ctx := context.Background()
+	now := fixedNow()
+	reporting := newMemReportingTableStore()
+	runner, err := analytics.NewRunner(analytics.Config{
+		Executor: newTestExecutor(t, newMemResourceStore()),
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	result, err := runner.Run(ctx, analytics.RunRequest{
+		ViewName: analytics.ViewPatientSummary,
+		Mode:     analytics.ModeRefresh,
+		Destination: analytics.Destination{
+			Reporting: analytics.NewReportingTarget(reporting),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Metadata.ExecutedAt.Equal(now()) {
+		t.Fatalf("ExecutedAt = %v, want %v", result.Metadata.ExecutedAt, now())
+	}
+
+	meta, err := reporting.GetMeta(ctx, analytics.ViewPatientSummary, "1.0.0")
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if !meta.RefreshedAt.Equal(now()) {
+		t.Fatalf("RefreshedAt = %v, want %v", meta.RefreshedAt, now())
+	}
+}
+
 func TestRunner_ExportWritesCSV(t *testing.T) {
 	ctx := context.Background()
 	resources := newMemResourceStore()
@@ -145,6 +180,53 @@ func TestRunner_UnsupportedDestination(t *testing.T) {
 	})
 	if !errors.Is(err, analytics.ErrUnsupportedDestination) {
 		t.Fatalf("Run err = %v, want ErrUnsupportedDestination", err)
+	}
+
+	var buf bytes.Buffer
+	_, err = runner.Run(ctx, analytics.RunRequest{
+		ViewName: analytics.ViewPatientSummary,
+		Mode:     analytics.ModeRefresh,
+		Destination: analytics.Destination{
+			Reporting: analytics.NewReportingTarget(newMemReportingTableStore()),
+			Sink:      analytics.NewCSVSink(&buf),
+		},
+	})
+	if !errors.Is(err, analytics.ErrUnsupportedDestination) {
+		t.Fatalf("Run with both destinations err = %v, want ErrUnsupportedDestination", err)
+	}
+}
+
+func TestRunner_RejectsCustomDefinitionUsingBuiltInName(t *testing.T) {
+	ctx := context.Background()
+	resources := newMemResourceStore()
+	reg := view.NewRegistry()
+	engine := defaultEngine(t)
+	custom := bytes.Replace(view.PatientSummaryView(), []byte(`"path": "Patient.gender"`), []byte(`"path": "Patient.id"`), 1)
+	if _, err := reg.Register(custom, engine); err != nil {
+		t.Fatalf("Register custom definition: %v", err)
+	}
+	exec, err := view.NewExecutor(view.Config{
+		Resources: resources,
+		Engine:    engine,
+		Registry:  reg,
+	})
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+	runner, err := analytics.NewRunner(analytics.Config{Executor: exec})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	_, err = runner.Run(ctx, analytics.RunRequest{
+		ViewName: analytics.ViewPatientSummary,
+		Mode:     analytics.ModeRefresh,
+		Destination: analytics.Destination{
+			Reporting: analytics.NewReportingTarget(newMemReportingTableStore()),
+		},
+	})
+	if !errors.Is(err, analytics.ErrUnsupportedView) {
+		t.Fatalf("Run err = %v, want ErrUnsupportedView", err)
 	}
 }
 

@@ -6,7 +6,8 @@
 //
 // # Session lifecycle
 //
-// One-shot commands (validate, import, search, sync, module install, reindex)
+// One-shot commands (validate, import, read, delete, export, search, sync,
+// module lifecycle, config, audit, and reindex)
 // call OpenSession, which builds a runtime.Runtime without starting HTTP,
 // and Close on exit to shut down persistence backends.
 //

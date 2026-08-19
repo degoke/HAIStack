@@ -13,6 +13,8 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 // Memory store implementations for fast manager tests.
@@ -275,6 +277,97 @@ func TestManagerInstallClinicalLiteFailsWithoutCore(t *testing.T) {
 	}
 	if !isError(err, modules.ErrMissingDependency) {
 		t.Errorf("error = %v, want ErrMissingDependency", err)
+	}
+}
+
+func TestManagerInstallRollsBackRegistryChangesOnApplyFailure(t *testing.T) {
+	ctx := context.Background()
+	moduleStore := newMemModuleStore()
+	defs := newMemDefinitionStore()
+	installs := newMemRegistryInstallStore()
+	reg := registry.NewManager(registry.Config{Definitions: defs, Installs: installs})
+	mgr := modules.NewManager(modules.Config{
+		ModuleStore:          moduleStore,
+		DefinitionStore:      defs,
+		RegistryInstallStore: installs,
+		RegistryManager:      reg,
+	})
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{
+		"name":"broken","version":"1.0.0",
+		"resources":["Appointment","NotARealFHIRResource"]
+	}`))
+	if _, err := mgr.Install(ctx, dir); err == nil {
+		t.Fatal("expected install failure")
+	}
+	if got := len(moduleStore.modules); got != 0 {
+		t.Fatalf("modules after failed install = %d, want 0", got)
+	}
+	rows, err := installs.ListInstalled(ctx, store.RegistryInstallFilter{})
+	if err != nil {
+		t.Fatalf("ListInstalled: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("registry installs after failed install = %d, want 0", len(rows))
+	}
+}
+
+func TestManagerUpgradeUsesCandidateManifestForCycleDetection(t *testing.T) {
+	ctx := context.Background()
+	moduleStore := newMemModuleStore()
+	registerModule(t, moduleStore, "a", "1.0.0", nil)
+	registerModule(t, moduleStore, "b", "1.0.0", []modules.DependencyRef{{Name: "a", Version: "1.0.0"}})
+	defs := newMemDefinitionStore()
+	installs := newMemRegistryInstallStore()
+	reg := registry.NewManager(registry.Config{Definitions: defs, Installs: installs})
+	mgr := modules.NewManager(modules.Config{
+		ModuleStore:          moduleStore,
+		DefinitionStore:      defs,
+		RegistryInstallStore: installs,
+		RegistryManager:      reg,
+	})
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{
+		"name":"a","version":"1.1.0",
+		"dependencies":[{"name":"b","version":"1.0.0"}]
+	}`))
+	if _, err := mgr.Upgrade(ctx, dir); err == nil {
+		t.Fatal("expected circular dependency error")
+	} else if !isError(err, modules.ErrCircularDependency) {
+		t.Fatalf("error = %v, want ErrCircularDependency", err)
+	}
+}
+
+func TestManagerUninstallRejectsPersistedResources(t *testing.T) {
+	ctx := context.Background()
+	moduleStore := newMemModuleStore()
+	defs := newMemDefinitionStore()
+	installs := newMemRegistryInstallStore()
+	resources := storetest.NewResourceStore()
+	reg := registry.NewManager(registry.Config{Definitions: defs, Installs: installs})
+	mgr := modules.NewManager(modules.Config{
+		ModuleStore:          moduleStore,
+		DefinitionStore:      defs,
+		RegistryInstallStore: installs,
+		RegistryManager:      reg,
+		ResourceStore:        resources,
+	})
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{"name":"patients","version":"1.0.0","resources":["Patient"]}`))
+	if _, err := mgr.Install(ctx, dir); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Patient", ID: "p1"}); err != nil {
+		t.Fatalf("create resource: %v", err)
+	}
+	if err := mgr.Uninstall(ctx, "patients"); err == nil || !isError(err, modules.ErrResourceTypeInUse) {
+		t.Fatalf("Uninstall error = %v, want ErrResourceTypeInUse", err)
+	}
+	if _, err := mgr.Inspect(ctx, "patients"); err != nil {
+		t.Fatalf("module should remain installed after blocked uninstall: %v", err)
 	}
 }
 

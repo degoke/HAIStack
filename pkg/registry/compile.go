@@ -45,7 +45,10 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 	if err := json.Unmarshal(jsonData, &envelope); err != nil {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: decode json: %v", ErrInvalidDefinition, err)
 	}
-	if envelope.URL == "" {
+	if strings.TrimSpace(envelope.ResourceType) == "" {
+		return ParsedDefinition{}, nil, fmt.Errorf("%w: missing resourceType", ErrInvalidDefinition)
+	}
+	if strings.TrimSpace(envelope.URL) == "" {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: missing url", ErrInvalidDefinition)
 	}
 	if envelope.Version == "" {
@@ -67,6 +70,9 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 	switch envelope.ResourceType {
 	case "StructureDefinition":
 		parsed.DefinitionKind = store.DefinitionKindStructureDefinition
+		if envelope.Kind == "" {
+			return ParsedDefinition{}, nil, fmt.Errorf("%w: structure definition missing kind", ErrInvalidDefinition)
+		}
 		if envelope.Kind == "resource" && envelope.Type != "" {
 			targets := []store.DefinitionTargetRecord{{
 				CanonicalURL:       envelope.URL,
@@ -76,14 +82,26 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 			}}
 			return parsed, targets, nil
 		}
+		if envelope.Kind == "resource" {
+			return ParsedDefinition{}, nil, fmt.Errorf("%w: resource structure definition missing type", ErrInvalidDefinition)
+		}
 		return parsed, nil, nil
 	case "SearchParameter":
 		parsed.DefinitionKind = store.DefinitionKindSearchParameter
 		if len(envelope.Base) == 0 {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing base", ErrInvalidDefinition)
 		}
+		if envelope.Code == "" {
+			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing code", ErrInvalidDefinition)
+		}
+		if envelope.Type == "" {
+			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing type", ErrInvalidDefinition)
+		}
 		targets := make([]store.DefinitionTargetRecord, 0, len(envelope.Base))
 		for _, base := range envelope.Base {
+			if strings.TrimSpace(base) == "" {
+				return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter has empty base", ErrInvalidDefinition)
+			}
 			targets = append(targets, store.DefinitionTargetRecord{
 				CanonicalURL:       envelope.URL,
 				Version:            envelope.Version,
@@ -117,6 +135,12 @@ func CompileSnapshot(
 	if err != nil {
 		return nil, err
 	}
+	sort.Slice(allDefinitions, func(i, j int) bool {
+		if allDefinitions[i].CanonicalURL != allDefinitions[j].CanonicalURL {
+			return allDefinitions[i].CanonicalURL < allDefinitions[j].CanonicalURL
+		}
+		return allDefinitions[i].Version < allDefinitions[j].Version
+	})
 	enabledRows, err := installs.ListEnabled(ctx)
 	if err != nil {
 		return nil, err
@@ -372,15 +396,20 @@ func (s *Snapshot) CapabilitySnapshot() CapabilitySnapshot {
 
 // loadR4Bundle reads embedded base R4 definitions.
 func loadR4Bundle() ([][]byte, error) {
+	return LoadDefinitionJSONs(r4BundleFS, "internal/bundles/r4")
+}
+
+// LoadDefinitionJSONs reads every .json file under root from fsys in walk order.
+func LoadDefinitionJSONs(fsys fs.FS, root string) ([][]byte, error) {
 	var out [][]byte
-	err := fs.WalkDir(r4BundleFS, "internal/bundles/r4", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || !strings.HasSuffix(path, ".json") {
 			return nil
 		}
-		data, err := r4BundleFS.ReadFile(path)
+		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}

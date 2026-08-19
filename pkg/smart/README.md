@@ -11,13 +11,17 @@ v1 centers on interpretation and adaptation:
 - `ParseScopes` / `ScopeSet` — normalize and match `patient|user|system` scopes
 - `LaunchContext` / `BuildLaunchContext` — patient, encounter, user, tenant hints
 - `TokenValidator` / `ValidateToken` — JWT structure, iss/aud/exp/nbf, scope extraction
-- `BackendServiceAuth` / `ValidateBackendAssertion` — signed backend client assertions
+- `BackendServiceAuth` / `ValidateBackendAssertion` — signed backend client assertions,
+  mandatory `jti` replay protection, and strict assertion time checks
 - `AuthAdapter` — translate SMART inputs into `pkg/auth` principals and requests
 - `ClientRegistration` — minimal static client metadata for later expansion
 
-Explicitly out of v1: EHR/standalone launch orchestration, dynamic client
-registration, refresh-token lifecycle, SMART UI/session management, and HTTP
-middleware as the package center.
+Hosts may use `NewFileBackendClientStore` and `NewFileReplayStore` for persisted
+single-instance deployments, or inject shared transactional implementations via
+`BackendClientStore` and `ReplayStore` for multi-instance deployments.
+
+Explicitly out of v1: EHR/standalone launch orchestration, refresh-token
+lifecycle, SMART UI/session management, and HTTP middleware as the package center.
 
 ## Usage
 

@@ -112,6 +112,7 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 			{"code": "read"},
 			{"code": "create"},
 			{"code": "update"},
+			{"code": "patch"},
 			{"code": "delete"},
 			{"code": "history-instance"},
 		}
@@ -151,7 +152,7 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 		"date":         snapshot.CompiledAt.UTC().Format(time.RFC3339),
 		"kind":         "instance",
 		"fhirVersion":  snapshot.FHIRVersion,
-		"format":       []string{"application/fhir+json"},
+		"format":       []string{"application/fhir+json", "application/fhir+xml"},
 		"rest":         rest,
 	}
 	if len(software) > 0 {
@@ -181,18 +182,34 @@ func searchParamsForCapability(params []registry.SearchParameterInfo) []map[stri
 }
 
 func isTransactionBundle(data []byte) (bool, error) {
-	normalized, err := types.NormalizeJSON(data)
+	bundleType, err := bundleTypeFromBody(data)
 	if err != nil {
 		return false, err
 	}
+	return bundleType == "transaction", nil
+}
+
+func isBatchBundle(data []byte) (bool, error) {
+	bundleType, err := bundleTypeFromBody(data)
+	if err != nil {
+		return false, err
+	}
+	return bundleType == "batch", nil
+}
+
+func bundleTypeFromBody(data []byte) (string, error) {
+	normalized, err := types.NormalizeJSON(data)
+	if err != nil {
+		return "", err
+	}
 	var obj map[string]interface{}
 	if err := json.Unmarshal(normalized, &obj); err != nil {
-		return false, err
+		return "", err
 	}
 	resourceType, _ := obj["resourceType"].(string)
 	if resourceType != "Bundle" {
-		return false, nil
+		return "", nil
 	}
 	bundleType, _ := obj["type"].(string)
-	return bundleType == "transaction", nil
+	return bundleType, nil
 }

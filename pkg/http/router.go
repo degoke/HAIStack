@@ -18,10 +18,13 @@ const (
 	routeUnknown routeKind = iota
 	routeMetadata
 	routeTransaction
+	routeSystemSearch
 	routeType
+	routeTypeSearch
 	routeInstance
 	routeHistory
 	routeOperation
+	routeSystemOperation
 )
 
 type parsedRoute struct {
@@ -39,6 +42,9 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 	if rel == "" {
 		return parsedRoute{kind: routeTransaction}, nil
 	}
+	if rel == "_search" {
+		return parsedRoute{kind: routeSystemSearch}, nil
+	}
 
 	parts := strings.Split(rel, "/")
 	switch len(parts) {
@@ -46,11 +52,23 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 		if parts[0] == "metadata" {
 			return parsedRoute{kind: routeMetadata}, nil
 		}
+		if strings.HasPrefix(parts[0], "$") {
+			if !validOperation(parts[0]) {
+				return parsedRoute{}, fmt.Errorf("invalid operation %q", parts[0])
+			}
+			return parsedRoute{kind: routeSystemOperation, operation: parts[0]}, nil
+		}
 		if !validResourceType(parts[0]) {
 			return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
 		}
 		return parsedRoute{kind: routeType, resourceType: parts[0]}, nil
 	case 2:
+		if parts[1] == "_search" {
+			if !validResourceType(parts[0]) {
+				return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
+			}
+			return parsedRoute{kind: routeTypeSearch, resourceType: parts[0]}, nil
+		}
 		if strings.HasPrefix(parts[1], "$") {
 			if !validOperation(parts[1]) {
 				return parsedRoute{}, fmt.Errorf("invalid operation %q", parts[1])
@@ -126,7 +144,10 @@ func validResourceType(resourceType string) bool {
 	if resourceType == "" {
 		return false
 	}
-	for _, r := range resourceType {
+	for i, r := range resourceType {
+		if i == 0 && (r < 'A' || r > 'Z') {
+			return false
+		}
 		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
 			return false
 		}
@@ -145,10 +166,13 @@ func validateID(id string) error {
 }
 
 func methodNotAllowed(method string) error {
-	return &core.ServiceError{
-		Kind:    core.ErrorKindNotSupported,
-		Message: fmt.Sprintf("method %s is not supported for this endpoint", method),
-	}
+	return &methodNotAllowedError{method: method}
+}
+
+type methodNotAllowedError struct{ method string }
+
+func (e *methodNotAllowedError) Error() string {
+	return fmt.Sprintf("method %s is not supported for this endpoint", e.method)
 }
 
 func unsupportedEndpoint(path string) error {
@@ -156,6 +180,18 @@ func unsupportedEndpoint(path string) error {
 		Kind:    core.ErrorKindNotSupported,
 		Message: fmt.Sprintf("endpoint %q is not supported", path),
 	}
+}
+
+func notImplementedEndpoint(path string) error {
+	return &notImplementedError{path: path}
+}
+
+type notImplementedError struct {
+	path string
+}
+
+func (e *notImplementedError) Error() string {
+	return fmt.Sprintf("endpoint %q is not implemented", e.path)
 }
 
 func invalidRequest(message string, cause error, expression ...string) error {
@@ -195,6 +231,13 @@ func contentTypeFHIRJSON() string {
 	return "application/fhir+json"
 }
 
-func writeMethodNotAllowed(w http.ResponseWriter, method string) {
+func contentTypeFHIRXML() string {
+	return "application/fhir+xml"
+}
+
+func writeMethodNotAllowed(w http.ResponseWriter, method string, allowed ...string) {
+	if len(allowed) > 0 {
+		w.Header().Set("Allow", strings.Join(allowed, ", "))
+	}
 	writeError(w, methodNotAllowed(method))
 }

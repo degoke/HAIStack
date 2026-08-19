@@ -50,6 +50,11 @@ func ToEnvelope(resource any) (*types.ResourceEnvelope, error) {
 	return defaultGoogleR4Codec.ProtoToEnvelope(resourceType, resource)
 }
 
+// ParseJSONToEnvelope parses FHIR JSON and returns a fully populated envelope with Proto attached.
+func ParseJSONToEnvelope(resourceType string, data []byte) (*types.ResourceEnvelope, error) {
+	return defaultGoogleR4Codec.ParseJSONToEnvelope(resourceType, data)
+}
+
 // ToJSON converts a typed Google FHIR R4 resource to canonical FHIR JSON.
 func ToJSON(resource any) ([]byte, error) {
 	resourceType, err := ResourceType(resource)

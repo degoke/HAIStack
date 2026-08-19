@@ -23,10 +23,12 @@ const (
 type ToolRequest struct {
 	ToolName       string
 	Actor          string
+	TenantID       string
 	Subject        string
 	Input          map[string]any
 	ConversationID string
 	ModelHint      string
+	ApprovalToken  string
 }
 
 // ToolResult is the structured output of a tool invocation.
@@ -37,6 +39,7 @@ type ToolResult struct {
 	Citations        []Citation
 	AuditMeta        AuditMeta
 	ApprovalRequired bool
+	ApprovalToken    string
 	Redactions       []string
 }
 

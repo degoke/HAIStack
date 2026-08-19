@@ -65,11 +65,18 @@
 //
 // Manager methods:
 //   - Install loads a module directory and applies it to the registry.
+//   - InstallAll applies a build-time module set as one compensating
+//     transaction.
 //   - Upgrade loads a module directory and upgrades an already-installed module.
 //   - Uninstall removes a module and its registry contributions.
 //   - List returns all installed modules with their runtime contributions.
 //   - Inspect returns one installed module.
 //   - PlanInstall returns the intended install or upgrade plan without mutating state.
+//
+// Deployments that distribute modules from an untrusted source should set
+// modules.Config.Verifier. Ed25519ModuleVerifier verifies a detached
+// module.json.sig over the exact manifest and definition bytes; custom
+// ModuleVerifier implementations can enforce another trust root or format.
 //
 // Install/upgrade behavior:
 //   - Dependencies are validated for exact name match and minimum semver version.
@@ -83,6 +90,8 @@
 //
 // Uninstall behavior:
 //   - Refuses if another installed module depends on the target.
+//   - Refuses to disable a resource type that still has persisted resources
+//     when ResourceStore is configured.
 //   - Disables resources contributed by the target that are not still required.
 //   - Removes registry install rows and definition records owned by the target.
 //   - Removes the ModuleStore entry last, after registry state is safely updated.

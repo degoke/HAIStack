@@ -8,12 +8,13 @@
 //
 // Top-level sections:
 //
-//   - storage — driver (sqlite or postgres), paths, DSN, tenant ID
+//   - storage — driver (sqlite or postgres), paths, DSN, and tenant namespaces
 //   - runtime — HTTP address, search enablement, module install paths
 //   - sync — hub URL and device node ID
 //
 // Defaults target a local SQLite workspace at .haistack/haistack.db with
-// modules/core installed and search enabled.
+// search enabled. Modules are opt-in because module paths are resolved from
+// the config location and may not exist in an arbitrary working directory.
 //
 // # File resolution
 //
@@ -35,6 +36,8 @@
 //
 //   - HAISTACK_STORAGE_DRIVER
 //   - HAISTACK_SQLITE_PATH
+//   - HAISTACK_SQLITE_TENANT_ID
+//   - HAISTACK_SQLITE_TERMINOLOGY_SCOPE
 //   - HAISTACK_POSTGRES_DSN
 //   - HAISTACK_TENANT_ID
 //   - HAISTACK_HTTP_ADDR

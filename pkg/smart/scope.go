@@ -302,7 +302,7 @@ func (p *ScopeParser) Parse(raw string) (ScopeSet, error) {
 func normalizeKey(sc Scope) string {
 	switch sc.Kind {
 	case ScopeKindResource:
-		return fmt.Sprintf("resource:%s:%s:%s", sc.Actor, strings.ToLower(sc.Resource), sc.Verb)
+		return fmt.Sprintf("resource:%s:%s", sc.Actor, strings.ToLower(sc.Resource))
 	case ScopeKindLaunch:
 		return "launch:" + sc.LaunchType
 	case ScopeKindSpecialty:

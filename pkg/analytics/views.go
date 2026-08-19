@@ -1,5 +1,11 @@
 package analytics
 
+import (
+	"bytes"
+
+	"github.com/degoke/health-ai-stack/pkg/view"
+)
+
 // Supported view names for the first analytics milestone.
 const (
 	ViewPatientSummary = "patient_summary_view"
@@ -22,4 +28,25 @@ func IsSupportedView(name string) bool {
 		}
 	}
 	return false
+}
+
+func packagedViewDefinition(name string) []byte {
+	switch name {
+	case ViewPatientSummary:
+		return view.PatientSummaryView()
+	case ViewAppointment:
+		return view.AppointmentView()
+	case ViewObservation:
+		return view.ObservationView()
+	default:
+		return nil
+	}
+}
+
+func isPackagedView(spec *view.ViewSpec) bool {
+	if spec == nil || spec.Version != "1.0.0" {
+		return false
+	}
+	definition := packagedViewDefinition(spec.Name)
+	return len(definition) > 0 && bytes.Equal(spec.Raw, definition)
 }

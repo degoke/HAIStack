@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
@@ -35,7 +36,8 @@ type wireState struct {
 }
 
 type cleanupStack struct {
-	fns []func()
+	fns  []func()
+	once sync.Once
 }
 
 func (c *cleanupStack) add(fn func()) {
@@ -43,9 +45,11 @@ func (c *cleanupStack) add(fn func()) {
 }
 
 func (c *cleanupStack) run() {
-	for i := len(c.fns) - 1; i >= 0; i-- {
-		c.fns[i]()
-	}
+	c.once.Do(func() {
+		for i := len(c.fns) - 1; i >= 0; i-- {
+			c.fns[i]()
+		}
+	})
 }
 
 func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
@@ -80,14 +84,16 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	}
 
 	rt.services = state.services
-	rt.handler = state.httpHandler
+	rt.handler = hahttp.WithHealthEndpoints(state.httpHandler, rt.IsStarted)
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
 	rt.reindexWorker = state.reindexWorker
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
 	rt.postgresDB = state.postgresDB
-	rt.cleanup = state.cleanup
+	// Transfer only the cleanup functions. Copying cleanupStack itself would
+	// copy its sync.Once state, which is both unsafe and rejected by vet.
+	rt.cleanup.fns = state.cleanup.fns
 	return nil
 }
 
@@ -103,6 +109,15 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		return fmt.Errorf("runtime: migrate sqlite: %w", err)
 	}
 
+	syncTenantID := b.sqliteTenantID
+	if syncTenantID == "" {
+		syncTenantID = "local"
+	}
+	terminologyScope := b.sqliteTerminologyScope
+	if terminologyScope == "" {
+		terminologyScope = "default"
+	}
+
 	return b.wireCommon(ctx, state, persistenceContext{
 		definitions:      db.DefinitionStore(),
 		installs:         db.RegistryInstallStore(),
@@ -113,8 +128,8 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		searchStore:      db.SearchStore(),
 		sessions:         db,
 		outboxEvents:     db.OutboxStore(),
-		syncTenantID:     "local",
-		terminologyScope: "default",
+		syncTenantID:     syncTenantID,
+		terminologyScope: terminologyScope,
 		syncEvents:       db.OutboxStore(),
 		syncCursors:      db.CursorStore(),
 		syncInbox:        db.InboxStore(),
@@ -212,21 +227,28 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err := regManager.SeedBundled(ctx); err != nil {
 		return fmt.Errorf("runtime: seed registry: %w", err)
 	}
+	// Subscription is part of the REST surface used by the client sub-client;
+	// enable its base definition in every runtime so Subscription search does
+	// not depend on an unrelated demo/module selection.
+	if err := regManager.EnableResource(ctx, "Subscription"); err != nil {
+		return fmt.Errorf("runtime: enable Subscription: %w", err)
+	}
 
 	modManager := modules.NewManager(modules.Config{
 		ModuleStore:          pc.moduleStore,
 		DefinitionStore:      pc.definitions,
 		RegistryInstallStore: pc.installs,
 		RegistryManager:      regManager,
+		ResourceStore:        pc.resources,
+		Authorizer:           b.moduleAuthorizer,
+		Verifier:             b.moduleVerifier,
 		Now:                  now,
 	})
 	state.services.ModuleManager = modManager
 	state.services.RegistryManager = regManager
 
-	for _, path := range b.modulePaths {
-		if _, err := modManager.Install(ctx, path); err != nil {
-			return fmt.Errorf("runtime: install module %q: %w", path, err)
-		}
+	if err := modManager.InstallAll(ctx, b.modulePaths...); err != nil {
+		return fmt.Errorf("runtime: install modules: %w", err)
 	}
 
 	snapshot, err := regManager.RebuildSnapshot(ctx)
@@ -319,6 +341,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Inbox:     pc.syncInbox,
 			Resources: pc.resources,
 			History:   pc.history,
+			Sessions:  pc.sessions,
 			Conflicts: pc.syncConflicts,
 			Jobs:      pc.jobStore,
 			Audit:     pc.syncAudit,
@@ -358,10 +381,14 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
 	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:  hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:    httpSearchSvc,
-		SDCService:       sdcService,
-		CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
+		ResourceService:   hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:     httpSearchSvc,
+		SDCService:        sdcService,
+		CapabilitySource:  hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
+		AuthMiddleware:    b.httpMiddleware,
+		PrincipalResolver: b.httpPrincipalResolver,
+		AuthChecker:       b.httpAuthChecker,
+		RateLimit:         b.httpRateLimit,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
 			SoftwareVersion: "1.0.0",
@@ -370,6 +397,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
-	state.httpHandler = handler
+	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
+		state.httpHandler = hahttp.NewRootHandlerWithSyncMiddleware(handler, hubServer, b.syncMiddleware)
+	} else if b.syncServer != nil {
+		state.httpHandler = hahttp.NewRootHandlerWithSyncMiddleware(handler, b.syncServer, b.syncMiddleware)
+	} else {
+		state.httpHandler = handler
+	}
 	return nil
 }

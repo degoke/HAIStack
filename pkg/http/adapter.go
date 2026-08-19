@@ -41,6 +41,26 @@ func (a CoreResourceService) ProcessTransactionBundle(ctx context.Context, bundl
 	return a.Svc.ProcessTransactionBundle(ctx, bundle)
 }
 
+func (a CoreResourceService) ProcessBatchBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	return a.Svc.ProcessBatchBundle(ctx, bundle)
+}
+
+func (a CoreResourceService) Patch(ctx context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error) {
+	return a.Svc.Patch(ctx, resourceType, id, patchJSON)
+}
+
+func (a CoreResourceService) UpdateIfMatch(ctx context.Context, resource *types.ResourceEnvelope, expectedVersion string) (*types.ResourceEnvelope, error) {
+	return a.Svc.UpdateIfMatch(ctx, resource, expectedVersion)
+}
+
+func (a CoreResourceService) DeleteIfMatch(ctx context.Context, resourceType, id, expectedVersion string) error {
+	return a.Svc.DeleteIfMatch(ctx, resourceType, id, expectedVersion)
+}
+
+func (a CoreResourceService) PatchIfMatch(ctx context.Context, resourceType, id string, patchJSON []byte, expectedVersion string) (*types.ResourceEnvelope, error) {
+	return a.Svc.PatchIfMatch(ctx, resourceType, id, patchJSON, expectedVersion)
+}
+
 // SearchServiceAdapter adapts *search.Service to SearchService.
 type SearchServiceAdapter struct {
 	Svc *search.Service

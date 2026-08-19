@@ -67,9 +67,11 @@ type transactionBundle struct {
 }
 
 type bundleRequestEntry struct {
-	Method   string
-	URL      string
-	Resource *types.ResourceEnvelope
+	Method      string
+	URL         string
+	Resource    *types.ResourceEnvelope
+	IfMatch     string
+	IfNoneExist string
 }
 
 type bundleResponseEntry struct {
@@ -121,6 +123,8 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		method = strings.ToUpper(strings.TrimSpace(method))
 		url, _ := requestRaw["url"].(string)
 		url = strings.TrimSpace(url)
+		ifMatch, _ := requestRaw["ifMatch"].(string)
+		ifNoneExist, _ := requestRaw["ifNoneExist"].(string)
 
 		switch method {
 		case "POST", "PUT", "DELETE":
@@ -132,6 +136,9 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		}
 		if strings.Contains(url, "?") {
 			return nil, notSupportedErr("conditional bundle URLs are not supported", nil)
+		}
+		if strings.TrimSpace(ifNoneExist) != "" {
+			return nil, notSupportedErr("conditional bundle requests are not supported", nil)
 		}
 
 		var resourceEnv *types.ResourceEnvelope
@@ -148,9 +155,11 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		}
 
 		entries = append(entries, bundleRequestEntry{
-			Method:   method,
-			URL:      url,
-			Resource: resourceEnv,
+			Method:      method,
+			URL:         url,
+			Resource:    resourceEnv,
+			IfMatch:     strings.TrimSpace(ifMatch),
+			IfNoneExist: strings.TrimSpace(ifNoneExist),
 		})
 	}
 
@@ -179,6 +188,9 @@ func (s *ResourceService) executeBundleCreate(
 	session store.WriteSession,
 	entry bundleRequestEntry,
 ) (bundleResponseEntry, error) {
+	if entry.IfMatch != "" {
+		return bundleResponseEntry{}, notSupportedErr("If-Match is not valid for bundle create", nil)
+	}
 	expectedType := entry.URL
 	if strings.Contains(expectedType, "/") {
 		return bundleResponseEntry{}, invalidErr("POST url must be a resource type", nil, "Bundle.entry.request.url")
@@ -284,6 +296,24 @@ func (s *ResourceService) executeBundleUpdate(
 	if !exists {
 		return bundleResponseEntry{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), nil)
 	}
+	if entry.IfMatch != "" {
+		expected, ok := versionFromETag(entry.IfMatch)
+		if !ok {
+			return bundleResponseEntry{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
+		}
+		current, err := session.ResourceStore().Read(ctx, resourceType, id)
+		if err != nil {
+			return bundleResponseEntry{}, exceptionErr("read current resource for ifMatch", err)
+		}
+		if expected != "*" && expected != current.VersionID {
+			return bundleResponseEntry{}, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expected), nil)
+		}
+		written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expected)
+		if err != nil {
+			return bundleResponseEntry{}, err
+		}
+		return bundleResponseFromWrite("200 OK", written), nil
+	}
 
 	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
 	if err != nil {
@@ -313,10 +343,40 @@ func (s *ResourceService) executeBundleDelete(
 		return bundleResponseEntry{}, exceptionErr("read resource for delete", err)
 	}
 
-	if err := s.applyDelete(ctx, session, current); err != nil {
+	expected := ""
+	if entry.IfMatch != "" {
+		var ok bool
+		expected, ok = versionFromETag(entry.IfMatch)
+		if !ok {
+			return bundleResponseEntry{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
+		}
+	}
+	if err := s.applyDeleteExpectedVersion(ctx, session, current, expected); err != nil {
 		return bundleResponseEntry{}, err
 	}
 	return bundleResponseEntry{Status: "204 No Content"}, nil
+}
+
+func versionFromETag(raw string) (string, bool) {
+	parts := strings.Split(raw, ",")
+	if len(parts) != 1 {
+		return "", false
+	}
+	tag := strings.TrimSpace(parts[0])
+	if tag == "*" {
+		return tag, true
+	}
+	if strings.HasPrefix(tag, "W/") {
+		tag = strings.TrimSpace(strings.TrimPrefix(tag, "W/"))
+	}
+	if len(tag) < 2 || tag[0] != '"' || tag[len(tag)-1] != '"' {
+		return "", false
+	}
+	version := tag[1 : len(tag)-1]
+	if version == "" {
+		return "", false
+	}
+	return version, true
 }
 
 func parseResourceURL(url string) (resourceType, id string, err error) {

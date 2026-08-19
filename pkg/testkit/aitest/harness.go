@@ -2,9 +2,7 @@ package aitest
 
 import (
 	"context"
-	"fmt"
 	"net/url"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,10 +11,8 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
 	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
-	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
@@ -78,6 +74,8 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	}
 
 	var searchSvc *search.Service
+	var indexedStore *storetest.SearchStore
+	var searchIndexer search.Indexer
 	if opts.WithSearch {
 		snapshot := testSnapshot(t, "Patient")
 		reg := search.NewSnapshotRegistry(snapshot)
@@ -88,19 +86,20 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 		if err != nil {
 			t.Fatalf("NewRegistryIndexer: %v", err)
 		}
-		searchStore := &searchBackend{}
+		searchIndexer = indexer
+		indexedStore = storetest.NewSearchStore()
 		for _, res := range resources.All() {
 			entries, err := indexer.Build(ctx, res)
 			if err != nil {
 				t.Fatalf("index build: %v", err)
 			}
 			for _, entry := range entries {
-				if err := searchStore.Index(ctx, entry); err != nil {
+				if err := indexedStore.Index(ctx, entry); err != nil {
 					t.Fatalf("index: %v", err)
 				}
 			}
 		}
-		executor := search.NewStoreExecutor(searchStore, resources)
+		executor := search.NewStoreExecutor(indexedStore, resources)
 		searchSvc, err = search.NewService(search.ServiceConfig{
 			Registry:  reg,
 			Executor:  executor,
@@ -135,11 +134,12 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	var coreSvc *core.ResourceService
 	var validator validate.Engine
 	if opts.WithCore {
-		mem := newCoreBackend()
-		for _, res := range resources.All() {
-			if err := mem.Create(ctx, res); err != nil {
-				t.Fatalf("seed core: %v", err)
-			}
+		sessions := storetest.NewWriteSessionProvider()
+		// Share the current resource store with AI reads so writes performed by
+		// Core are immediately visible through the harness read path.
+		sessions.Resources = resources
+		if indexedStore != nil {
+			sessions.Search = indexedStore
 		}
 		var coreValidator validate.Validator
 		if opts.WithValidator {
@@ -152,10 +152,11 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 		}
 		var err error
 		coreSvc, err = core.NewResourceService(core.ResourceServiceConfig{
-			Resources: mem,
-			History:   mem,
-			Sessions:  mem,
+			Resources: resources,
+			History:   sessions.History,
+			Sessions:  sessions,
 			Validator: coreValidator,
+			Indexer:   searchIndexer,
 		})
 		if err != nil {
 			t.Fatalf("NewResourceService: %v", err)
@@ -180,25 +181,29 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 			CreateFields:   []string{"name", "gender"},
 			UpdateFields:   []string{"name"},
 			CreateApproval: opts.WriteRequiresApproval,
+			UpdateApproval: opts.WriteRequiresApproval,
 		}
 	}
 
 	audit := &FakeAuditLogger{}
-	approval := &FakeApprovalHook{Approved: opts.ApprovalGranted}
+	approvalStore := ai.NewMemoryApprovalStore()
+	approval := &FakeApprovalHook{Approved: opts.ApprovalGranted, Store: approvalStore}
 	deid := &FakeDeidentifier{}
 	model := &FakeModelAdapter{AdapterName: "test-model"}
 
 	exec, err := ai.NewExecutor(ai.Config{
-		Resources:  resources,
-		Search:     searchSvc,
-		Views:      viewExec,
-		Core:       coreSvc,
-		Validator:  validator,
-		Policy:     policy,
-		Audit:      audit,
-		Approval:   approval,
-		Deidentify: deid,
-		Now:        clock.Now,
+		Resources:     resources,
+		Search:        searchSvc,
+		Views:         viewExec,
+		Core:          coreSvc,
+		Validator:     validator,
+		Policy:        policy,
+		Audit:         audit,
+		Approval:      approval,
+		ApprovalStore: approvalStore,
+		Deidentify:    deid,
+		ModelRouter:   &ai.ModelRouter{Local: model},
+		Now:           clock.Now,
 	})
 	if err != nil {
 		t.Fatalf("NewExecutor ai: %v", err)
@@ -259,169 +264,3 @@ func URLValues(params map[string]string) url.Values {
 	}
 	return values
 }
-
-type searchBackend struct {
-	entries []store.SearchIndexEntry
-}
-
-func (m *searchBackend) Index(_ context.Context, entry store.SearchIndexEntry) error {
-	m.entries = append(m.entries, entry)
-	return nil
-}
-
-func (m *searchBackend) RemoveIndex(_ context.Context, resourceType, id string) error {
-	var kept []store.SearchIndexEntry
-	for _, e := range m.entries {
-		if e.ResourceType == resourceType && e.ID == id {
-			continue
-		}
-		kept = append(kept, e)
-	}
-	m.entries = kept
-	return nil
-}
-
-func (m *searchBackend) Lookup(_ context.Context, key, value string) ([]string, error) {
-	return m.LookupMatch(context.Background(), store.SearchMatch{FieldKey: key, Value: value})
-}
-
-func (m *searchBackend) QueryPrepared(context.Context, store.PreparedQuery, map[string]string) ([]string, error) {
-	return nil, nil
-}
-
-func (m *searchBackend) LookupMatch(_ context.Context, match store.SearchMatch) ([]string, error) {
-	seen := make(map[string]struct{})
-	var ids []string
-	for _, entry := range m.entries {
-		if match.ResourceType != "" && entry.ResourceType != match.ResourceType {
-			continue
-		}
-		for key, value := range entry.Fields {
-			if key == match.FieldKey && value == match.Value {
-				if _, ok := seen[entry.ID]; ok {
-					continue
-				}
-				seen[entry.ID] = struct{}{}
-				ids = append(ids, entry.ID)
-			}
-		}
-	}
-	return ids, nil
-}
-
-func (m *searchBackend) FieldValues(_ context.Context, resourceType, fieldKey string, resourceIDs []string) (map[string]string, error) {
-	out := make(map[string]string)
-	for _, entry := range m.entries {
-		if resourceType != "" && entry.ResourceType != resourceType {
-			continue
-		}
-		for key, value := range entry.Fields {
-			if key != fieldKey {
-				continue
-			}
-			for _, id := range resourceIDs {
-				if entry.ID == id {
-					out[id] = value
-				}
-			}
-		}
-	}
-	return out, nil
-}
-
-type coreBackend struct {
-	mu        sync.Mutex
-	resources map[string]*types.ResourceEnvelope
-	history   map[string][]store.ResourceVersion
-}
-
-func newCoreBackend() *coreBackend {
-	return &coreBackend{
-		resources: make(map[string]*types.ResourceEnvelope),
-		history:   make(map[string][]store.ResourceVersion),
-	}
-}
-
-func (m *coreBackend) key(resourceType, id string) string { return resourceType + "/" + id }
-
-func (m *coreBackend) Create(_ context.Context, res *types.ResourceEnvelope) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	k := m.key(res.ResourceType, res.ID)
-	if _, ok := m.resources[k]; ok {
-		return fmt.Errorf("resource already exists")
-	}
-	cp := *res
-	m.resources[k] = &cp
-	return nil
-}
-
-func (m *coreBackend) Read(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	res, ok := m.resources[m.key(resourceType, id)]
-	if !ok {
-		return nil, fmt.Errorf("not found")
-	}
-	cp := *res
-	return &cp, nil
-}
-
-func (m *coreBackend) Update(_ context.Context, res *types.ResourceEnvelope) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	k := m.key(res.ResourceType, res.ID)
-	if _, ok := m.resources[k]; !ok {
-		return fmt.Errorf("not found")
-	}
-	cp := *res
-	m.resources[k] = &cp
-	return nil
-}
-
-func (m *coreBackend) Delete(_ context.Context, resourceType, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.resources, m.key(resourceType, id))
-	return nil
-}
-
-func (m *coreBackend) Exists(_ context.Context, resourceType, id string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, ok := m.resources[m.key(resourceType, id)]
-	return ok, nil
-}
-
-func (m *coreBackend) ListIDs(context.Context, string, int, int) ([]string, error) {
-	return nil, nil
-}
-
-func (m *coreBackend) GetHistory(_ context.Context, resourceType, id string) ([]store.ResourceVersion, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]store.ResourceVersion(nil), m.history[m.key(resourceType, id)]...), nil
-}
-
-func (m *coreBackend) AppendVersion(_ context.Context, version store.ResourceVersion) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := m.key(version.ResourceType, version.ID)
-	m.history[key] = append(m.history[key], version)
-	return nil
-}
-
-func (m *coreBackend) BeginWrite(context.Context) (store.WriteSession, error) {
-	return &coreWriteSession{backend: m}, nil
-}
-
-type coreWriteSession struct {
-	backend *coreBackend
-}
-
-func (s *coreWriteSession) ResourceStore() store.ResourceStore { return s.backend }
-func (s *coreWriteSession) HistoryStore() store.HistoryStore   { return s.backend }
-func (s *coreWriteSession) SearchStore() store.SearchStore     { return nil }
-func (s *coreWriteSession) EventStore() store.EventStore       { return nil }
-func (s *coreWriteSession) Commit(context.Context) error       { return nil }
-func (s *coreWriteSession) Rollback(context.Context) error     { return nil }

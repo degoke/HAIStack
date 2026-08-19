@@ -11,7 +11,7 @@ import (
 )
 
 func TestR4FacadeAndConvenienceHelpers(t *testing.T) {
-	patient := &protor4.Patient{Id: &protor4.Id{Value: "pat-1"}}
+	patient := protor4.NewPatient("pat-1")
 
 	resourceType, err := proto.ResourceType(patient)
 	if err != nil {
@@ -60,11 +60,7 @@ func TestR4FacadeAndConvenienceHelpers(t *testing.T) {
 }
 
 func TestConvenienceHelpersSupportObservation(t *testing.T) {
-	observation := &protor4.Observation{
-		Id:     &protor4.Id{Value: "obs-1"},
-		Status: &protor4.Observation_StatusCode{Value: protor4.ObservationStatusCode_FINAL},
-		Code:   &protor4.CodeableConcept{Text: &protor4.String{Value: "Heart rate"}},
-	}
+	observation := protor4.NewObservation("obs-1", "Heart rate")
 
 	envelope, err := proto.ToEnvelope(observation)
 	if err != nil {

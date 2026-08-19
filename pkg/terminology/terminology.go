@@ -109,6 +109,28 @@ type LocalService struct {
 	expandCache  map[string]*Expansion
 }
 
+// LocalServiceOption configures NewLocalService.
+type LocalServiceOption func(*LocalService)
+
+// WithMaxExpansion sets the maximum number of codes returned by Expand.
+func WithMaxExpansion(max int) LocalServiceOption {
+	return func(s *LocalService) {
+		s.MaxExpansion = max
+	}
+}
+
+// NewLocalService constructs a scoped terminology service backed by store projections.
+func NewLocalService(st store.TerminologyStore, scopeID string, opts ...LocalServiceOption) *LocalService {
+	s := &LocalService{
+		Store:   st,
+		ScopeID: scopeID,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
 func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

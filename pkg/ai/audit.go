@@ -12,6 +12,7 @@ import (
 type AuditRecord struct {
 	ToolName       string            `json:"toolName"`
 	Actor          string            `json:"actor"`
+	Tenant         string            `json:"tenant,omitempty"`
 	Subject        string            `json:"subject,omitempty"`
 	Outcome        string            `json:"outcome"`
 	Details        map[string]string `json:"details,omitempty"`
@@ -48,6 +49,7 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 	}
 	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.AIToolCallEvent{
 		Actor:          rec.Actor,
+		Tenant:         rec.Tenant,
 		Subject:        rec.Subject,
 		ToolName:       rec.ToolName,
 		Outcome:        rec.Outcome,

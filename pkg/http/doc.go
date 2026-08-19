@@ -6,6 +6,10 @@
 // middleware. Resource lifecycle, persistence, indexing, sync, and AI logic remain
 // in lower layers.
 //
+// The handler also exposes unauthenticated /health and /healthz liveness
+// probes. Readiness depends on the runtime successfully constructing the
+// handler and its backing services.
+//
 // Import this package with an alias because its name shadows net/http:
 //
 //	import (
@@ -26,12 +30,13 @@
 //
 // Narrow dependency interfaces:
 //
-//   - ResourceService — Create, Read, Update, Delete, History,
-//     ProcessTransactionBundle.
+//   - ResourceService — Create, Read, Update, Delete, History, transaction and
+//     batch bundle processing, and JSON Patch.
 //   - SearchService — SearchBundle.
 //   - CapabilitySource — CapabilitySnapshot for /metadata.
 //   - SDCService — optional SDC operation adapter for population, validation,
 //     assembly, extraction, and adaptive routes.
+//   - OperationService — optional generic custom-operation adapter.
 //   - AuthChecker — AuthorizeRead, AuthorizeWrite, AuthorizeSearch.
 //
 // Concrete adapters (CoreResourceService, SearchServiceAdapter,
@@ -40,9 +45,10 @@
 //
 // FHIR-first responses:
 //
-//   - Success responses use application/fhir+json.
-//   - Failures map service, search, and auth errors to OperationOutcome JSON
-//     with appropriate HTTP status codes.
+//   - Success and OperationOutcome responses negotiate application/fhir+json or
+//     application/fhir+xml from Accept or _format.
+//   - Failures map service, search, auth, and rate-limit errors to OperationOutcome
+//     resources with appropriate HTTP status codes.
 //   - Create responses include Location; read/update responses include ETag and
 //     Last-Modified when version metadata is available.
 //
@@ -51,7 +57,7 @@
 //   - NewHandler(Config) (net/http.Handler, error) — constructs the FHIR REST
 //     handler tree.
 //   - Config — BasePath (default /fhir), ResourceService, optional SearchService,
-//     CapabilitySource, ServerMetadata, Codec, and auth hooks.
+//     CapabilitySource, ServerMetadata, Codec, auth hooks, and RateLimit.
 //   - ServerMetadata — software name/version and server description for
 //     CapabilityStatement generation.
 //   - PrincipalResolver — extracts auth.Principal and auth.TenantContext from a
@@ -61,13 +67,22 @@
 // # Supported endpoints (MVP)
 //
 //   - GET    /fhir/metadata                  — CapabilityStatement
-//   - POST   /fhir                           — transaction Bundle only
+//   - POST   /fhir                           — transaction or batch Bundle
 //   - GET    /fhir/{ResourceType}            — type-level search (searchset Bundle)
-//   - POST   /fhir/{ResourceType}            — create
+//   - POST   /fhir/{ResourceType}/_search    — POST search
+//   - POST   /fhir/{ResourceType}            — create (conditional create via search params / If-None-Exist)
+//   - PUT    /fhir/{ResourceType}?...          — conditional update
+//   - DELETE /fhir/{ResourceType}?...          — conditional delete
 //   - GET    /fhir/{ResourceType}/{id}       — read
 //   - PUT    /fhir/{ResourceType}/{id}       — update
+//   - PATCH  /fhir/{ResourceType}/{id}       — JSON Patch update
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
 //   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle
+//   - GET    /fhir/$export                     — bulk export (501 until implemented)
+//   - GET    /fhir/Group/{id}/$export          — group bulk export (501 until implemented)
+//   - GET/POST /fhir/$operation and resource operation paths — custom operations
+//   - POST   /sync/push, GET /sync/pull        — optional sync hub routes via NewRootHandlerWithSyncMiddleware;
+//     pull defaults to 100 events and accepts limits from 1 through 1000
 //   - POST   /fhir/Questionnaire/$populate, $assemble
 //   - POST   /fhir/QuestionnaireResponse/$validate, $extract
 //   - POST   /fhir/Questionnaire/$next-question, $next, $answer (adaptive adapter)
@@ -98,6 +113,8 @@
 // Alternatively, set AuthMiddleware to wrap the handler with custom logic (for
 // example SMART token validation). PolicyAuthChecker adapts auth.PolicyEngine;
 // search authorization uses CanReadResource per resource type.
+// Sync routes are mounted separately and do not inherit FHIR middleware;
+// protect them with RootConfig.SyncMiddleware and use a scoped sync hub.
 //
 // # Typical usage
 //
@@ -119,9 +136,9 @@
 //
 // # Out of scope (MVP)
 //
-//   - PATCH, batch bundles, custom operations, bulk export
-//   - POST _search, SMART metadata, built-in OAuth2/SMART token runtime
+//   - Bulk export implementation (routes return 501)
 //   - Full CapabilityStatement conformance testing
+//   - SMART metadata, built-in OAuth2/SMART token runtime
 //   - gRPC or non-FHIR content types
 //
 // See README.md in this directory for endpoint tables, wiring examples, and test

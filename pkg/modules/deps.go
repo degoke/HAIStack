@@ -62,7 +62,10 @@ func (r *DependencyResolver) Resolve(ctx context.Context, mod *Module) error {
 	}
 
 	// Cycle detection across the new module and all installed modules.
-	graph := buildDependencyGraph(mod, installed)
+	graph, err := buildDependencyGraph(mod, installed)
+	if err != nil {
+		return err
+	}
 	if cycle := findCycle(graph); cycle != nil {
 		return fmt.Errorf("%w: %s", ErrCircularDependency, cycleString(cycle))
 	}
@@ -73,14 +76,22 @@ func (r *DependencyResolver) Resolve(ctx context.Context, mod *Module) error {
 // dependencyGraph maps a module name to the names it depends on.
 type dependencyGraph map[string][]string
 
-func buildDependencyGraph(mod *Module, installed []store.ModuleRecord) dependencyGraph {
+func buildDependencyGraph(mod *Module, installed []store.ModuleRecord) (dependencyGraph, error) {
 	graph := make(dependencyGraph)
-	graph[mod.Manifest.Name] = dependencyNames(mod.Manifest.Dependencies)
 	for _, rec := range installed {
-		manifest, _ := manifestFromMetadata(rec.Metadata)
+		if rec.Name == mod.Manifest.Name {
+			// During an upgrade the candidate manifest must replace the
+			// installed manifest in the graph.
+			continue
+		}
+		manifest, err := manifestFromMetadata(rec.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("decode manifest for %q: %w", rec.Name, err)
+		}
 		graph[rec.Name] = dependencyNames(manifest.Dependencies)
 	}
-	return graph
+	graph[mod.Manifest.Name] = dependencyNames(mod.Manifest.Dependencies)
+	return graph, nil
 }
 
 func dependencyNames(deps []DependencyRef) []string {

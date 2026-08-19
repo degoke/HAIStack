@@ -5,9 +5,11 @@ type Config struct {
 	Mode Mode
 
 	// Storage
-	SQLitePath  string
-	PostgresDSN string
-	TenantID    string
+	SQLitePath             string
+	SQLiteTenantID         string
+	SQLiteTerminologyScope string
+	PostgresDSN            string
+	TenantID               string
 
 	// Capabilities
 	SearchEnabled bool

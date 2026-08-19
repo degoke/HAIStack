@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/modules"
@@ -92,6 +93,31 @@ func TestLoaderDefinitionFileEscapesModuleDir(t *testing.T) {
 	}
 	if !isError(err, modules.ErrInvalidManifest) {
 		t.Errorf("error = %v, want ErrInvalidManifest", err)
+	}
+}
+
+func TestLoaderRejectsOversizedManifest(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{"name":"x","version":"1.0.0","description":"`+strings.Repeat("x", 1<<20)+`"}`))
+	_, err := modules.NewLoader().Load(dir)
+	if err == nil || !errors.Is(err, modules.ErrModuleFileTooLarge) {
+		t.Fatalf("Load oversized manifest error = %v, want ErrModuleFileTooLarge", err)
+	}
+}
+
+func TestLoaderRejectsDefinitionSymlinkOutsideModule(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	mustWriteFile(t, filepath.Join(outside, "definition.json"), []byte(`{"resourceType":"SearchParameter"}`))
+	if err := os.Symlink(filepath.Join(outside, "definition.json"), filepath.Join(dir, "definition.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{
+		"name":"x","version":"1.0.0","definitionFiles":["definition.json"]
+	}`))
+	_, err := modules.NewLoader().Load(dir)
+	if err == nil || !errors.Is(err, modules.ErrInvalidManifest) {
+		t.Fatalf("Load symlinked definition error = %v, want ErrInvalidManifest", err)
 	}
 }
 

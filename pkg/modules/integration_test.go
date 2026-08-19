@@ -29,7 +29,7 @@ func TestSQLiteModuleInstallAndInspect(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	mgr := newManagerFromDB(db.ModuleStore(), db.DefinitionStore(), db.RegistryInstallStore())
+	mgr := newManagerFromDB(db.ModuleStore(), db.DefinitionStore(), db.RegistryInstallStore(), db.ResourceStore())
 	runModuleInstallAndInspect(t, ctx, mgr)
 }
 
@@ -49,11 +49,11 @@ func TestPostgresModuleInstallAndInspect(t *testing.T) {
 		t.Fatalf("EnsureTenant: %v", err)
 	}
 	tenant := pgDB.Tenant(tenantID)
-	mgr := newManagerFromDB(tenant.ModuleStore(), pgDB.DefinitionStore(), tenant.RegistryInstallStore())
+	mgr := newManagerFromDB(tenant.ModuleStore(), pgDB.DefinitionStore(), tenant.RegistryInstallStore(), tenant.ResourceStore())
 	runModuleInstallAndInspect(t, ctx, mgr)
 }
 
-func newManagerFromDB(moduleStore store.ModuleStore, defs store.DefinitionStore, installs store.RegistryInstallStore) *modules.Manager {
+func newManagerFromDB(moduleStore store.ModuleStore, defs store.DefinitionStore, installs store.RegistryInstallStore, resources store.ResourceStore) *modules.Manager {
 	reg := registry.NewManager(registry.Config{
 		Definitions: defs,
 		Installs:    installs,
@@ -63,6 +63,7 @@ func newManagerFromDB(moduleStore store.ModuleStore, defs store.DefinitionStore,
 		DefinitionStore:      defs,
 		RegistryInstallStore: installs,
 		RegistryManager:      reg,
+		ResourceStore:        resources,
 		Now:                  func() time.Time { return time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC) },
 	})
 }

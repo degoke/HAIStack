@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
 	"github.com/degoke/health-ai-stack/pkg/core"
@@ -88,7 +89,9 @@ func BuildRuntime(ctx context.Context, cfg config.Config, httpAddr string) (*run
 	case config.DriverPostgres:
 		b.WithPostgresAllInOne(cfg.Storage.PostgresDSN, cfg.Storage.TenantID)
 	default:
-		b.WithSQLite(cfg.Storage.SQLitePath)
+		b.WithSQLite(cfg.Storage.SQLitePath).
+			WithSQLiteTenant(cfg.Storage.SQLiteTenantID).
+			WithSQLiteTerminologyScope(cfg.Storage.SQLiteTerminologyScope)
 	}
 	if cfg.Runtime.EnableSearch {
 		b.WithSearch()
@@ -116,18 +119,57 @@ func ReadResourceFile(path string) (*types.ResourceEnvelope, error) {
 
 // UpsertResource creates or updates a resource by existence check.
 func UpsertResource(ctx context.Context, svc *core.ResourceService, env *types.ResourceEnvelope) (action string, result *types.ResourceEnvelope, err error) {
+	return ImportResource(ctx, svc, env, false, false)
+}
+
+// ImportResource creates or updates a resource according to the supplied
+// conflict policy. Exactly one of createOnly and updateOnly may be true.
+func ImportResource(ctx context.Context, svc *core.ResourceService, env *types.ResourceEnvelope, createOnly, updateOnly bool) (action string, result *types.ResourceEnvelope, err error) {
+	if env == nil {
+		return "", nil, fmt.Errorf("resource envelope is required")
+	}
+	if createOnly && updateOnly {
+		return "", nil, fmt.Errorf("create-only and update-only cannot be used together")
+	}
+	if updateOnly && (env == nil || env.ID == "") {
+		return "", nil, fmt.Errorf("update-only requires a resource with an id")
+	}
 	if env.ID != "" {
 		_, readErr := svc.Read(ctx, env.ResourceType, env.ID)
 		if readErr == nil {
+			if createOnly {
+				return "", nil, fmt.Errorf("resource already exists: %s/%s", env.ResourceType, env.ID)
+			}
 			updated, err := svc.Update(ctx, env)
 			return "update", updated, err
 		}
 		if !core.IsNotFound(readErr) {
 			return "", nil, readErr
 		}
+		if updateOnly {
+			return "", nil, fmt.Errorf("resource not found: %s/%s", env.ResourceType, env.ID)
+		}
 	}
 	created, err := svc.Create(ctx, env)
 	return "create", created, err
+}
+
+// ParseResourceReference parses ResourceType/id references used by operator
+// commands. A resource type without an id is also accepted by export.
+func ParseResourceReference(value string) (resourceType, id string, err error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", "", fmt.Errorf("resource reference is required")
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) > 2 || parts[0] == "" || (len(parts) == 2 && parts[1] == "") {
+		return "", "", fmt.Errorf("invalid resource reference %q, expected ResourceType[/id]", value)
+	}
+	resourceType = parts[0]
+	if len(parts) == 2 {
+		id = parts[1]
+	}
+	return resourceType, id, nil
 }
 
 // ParseSearchParams parses repeated key=value CLI arguments into url.Values-like map.

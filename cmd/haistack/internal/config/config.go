@@ -12,54 +12,60 @@ import (
 )
 
 const (
-	DefaultConfigFile = "haistack.yaml"
-	DefaultSQLitePath = ".haistack/haistack.db"
-	DefaultHTTPAddr   = "127.0.0.1:8080"
-	DefaultSyncNodeID = "runtime-node"
-	DefaultCoreModule = "modules/core"
-	DriverSQLite      = "sqlite"
-	DriverPostgres    = "postgres"
+	DefaultConfigFile             = "haistack.yaml"
+	DefaultSQLitePath             = ".haistack/haistack.db"
+	DefaultSQLiteTenantID         = "local"
+	DefaultSQLiteTerminologyScope = "default"
+	DefaultHTTPAddr               = "127.0.0.1:8080"
+	DefaultSyncNodeID             = "runtime-node"
+	DefaultCoreModule             = "modules/core"
+	DriverSQLite                  = "sqlite"
+	DriverPostgres                = "postgres"
 )
 
 // Config is the top-level haistack CLI configuration.
 type Config struct {
-	Storage StorageConfig `yaml:"storage"`
-	Runtime RuntimeConfig `yaml:"runtime"`
-	Sync    SyncConfig    `yaml:"sync"`
+	Storage StorageConfig `yaml:"storage" json:"storage"`
+	Runtime RuntimeConfig `yaml:"runtime" json:"runtime"`
+	Sync    SyncConfig    `yaml:"sync" json:"sync"`
 }
 
 // StorageConfig selects the persistence backend.
 type StorageConfig struct {
-	Driver      string `yaml:"driver"`
-	SQLitePath  string `yaml:"sqlitePath"`
-	PostgresDSN string `yaml:"postgresDSN"`
-	TenantID    string `yaml:"tenantID"`
+	Driver                 string `yaml:"driver" json:"driver"`
+	SQLitePath             string `yaml:"sqlitePath" json:"sqlitePath"`
+	SQLiteTenantID         string `yaml:"sqliteTenantID" json:"sqliteTenantID"`
+	SQLiteTerminologyScope string `yaml:"sqliteTerminologyScope" json:"sqliteTerminologyScope"`
+	PostgresDSN            string `yaml:"postgresDSN" json:"postgresDSN"`
+	TenantID               string `yaml:"tenantID" json:"tenantID"`
 }
 
 // RuntimeConfig controls local runtime capabilities.
 type RuntimeConfig struct {
-	HTTPAddr     string   `yaml:"httpAddr"`
-	EnableSearch bool     `yaml:"enableSearch"`
-	ModulePaths  []string `yaml:"modulePaths"`
+	HTTPAddr     string   `yaml:"httpAddr" json:"httpAddr"`
+	EnableSearch bool     `yaml:"enableSearch" json:"enableSearch"`
+	ModulePaths  []string `yaml:"modulePaths" json:"modulePaths"`
 }
 
 // SyncConfig configures device-to-hub synchronization.
 type SyncConfig struct {
-	HubURL string `yaml:"hubURL"`
-	NodeID string `yaml:"nodeID"`
+	HubURL string `yaml:"hubURL" json:"hubURL"`
+	NodeID string `yaml:"nodeID" json:"nodeID"`
 }
 
 // Defaults returns a new config populated with CLI defaults.
 func Defaults() Config {
 	return Config{
 		Storage: StorageConfig{
-			Driver:     DriverSQLite,
-			SQLitePath: DefaultSQLitePath,
+			Driver:                 DriverSQLite,
+			SQLitePath:             DefaultSQLitePath,
+			SQLiteTenantID:         DefaultSQLiteTenantID,
+			SQLiteTerminologyScope: DefaultSQLiteTerminologyScope,
 		},
 		Runtime: RuntimeConfig{
 			HTTPAddr:     DefaultHTTPAddr,
 			EnableSearch: true,
-			ModulePaths:  []string{DefaultCoreModule},
+			ModulePaths:  []string{},
 		},
 		Sync: SyncConfig{
 			NodeID: DefaultSyncNodeID,
@@ -98,6 +104,12 @@ func (c *Config) Normalize() {
 	if c.Sync.NodeID == "" {
 		c.Sync.NodeID = DefaultSyncNodeID
 	}
+	if c.Storage.SQLiteTenantID == "" {
+		c.Storage.SQLiteTenantID = DefaultSQLiteTenantID
+	}
+	if c.Storage.SQLiteTerminologyScope == "" {
+		c.Storage.SQLiteTerminologyScope = DefaultSQLiteTerminologyScope
+	}
 	if c.Runtime.ModulePaths == nil {
 		c.Runtime.ModulePaths = []string{}
 	} else {
@@ -109,15 +121,17 @@ func (c *Config) Normalize() {
 type Overrides struct {
 	ConfigPath string
 
-	StorageDriver *string
-	SQLitePath    *string
-	PostgresDSN   *string
-	TenantID      *string
-	HTTPAddr      *string
-	EnableSearch  *bool
-	ModulePaths   *[]string
-	SyncHubURL    *string
-	SyncNodeID    *string
+	StorageDriver          *string
+	SQLitePath             *string
+	SQLiteTenantID         *string
+	SQLiteTerminologyScope *string
+	PostgresDSN            *string
+	TenantID               *string
+	HTTPAddr               *string
+	EnableSearch           *bool
+	ModulePaths            *[]string
+	SyncHubURL             *string
+	SyncNodeID             *string
 }
 
 // Load reads configuration from path, applies defaults, env, and overrides.
@@ -137,7 +151,9 @@ func Load(path string, overrides Overrides) (Config, error) {
 		}
 	}
 	cfg.Normalize()
-	applyEnv(&cfg)
+	if err := applyEnv(&cfg); err != nil {
+		return Config{}, err
+	}
 	applyOverrides(&cfg, overrides)
 	cfg.Normalize()
 	if err := cfg.Validate(); err != nil {
@@ -169,25 +185,32 @@ func StarterYAML() []byte {
 	return []byte(`storage:
   driver: sqlite
   sqlitePath: .haistack/haistack.db
+  sqliteTenantID: local
+  sqliteTerminologyScope: default
   postgresDSN: ""
   tenantID: ""
 runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
-  modulePaths:
-    - modules/core
+  modulePaths: []
 sync:
   hubURL: ""
   nodeID: runtime-node
 `)
 }
 
-func applyEnv(cfg *Config) {
+func applyEnv(cfg *Config) error {
 	if v := os.Getenv("HAISTACK_STORAGE_DRIVER"); v != "" {
 		cfg.Storage.Driver = v
 	}
 	if v := os.Getenv("HAISTACK_SQLITE_PATH"); v != "" {
 		cfg.Storage.SQLitePath = v
+	}
+	if v := os.Getenv("HAISTACK_SQLITE_TENANT_ID"); v != "" {
+		cfg.Storage.SQLiteTenantID = v
+	}
+	if v := os.Getenv("HAISTACK_SQLITE_TERMINOLOGY_SCOPE"); v != "" {
+		cfg.Storage.SQLiteTerminologyScope = v
 	}
 	if v := os.Getenv("HAISTACK_POSTGRES_DSN"); v != "" {
 		cfg.Storage.PostgresDSN = v
@@ -199,9 +222,11 @@ func applyEnv(cfg *Config) {
 		cfg.Runtime.HTTPAddr = v
 	}
 	if v := os.Getenv("HAISTACK_ENABLE_SEARCH"); v != "" {
-		if parsed, err := strconv.ParseBool(v); err == nil {
-			cfg.Runtime.EnableSearch = parsed
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_ENABLE_SEARCH must be true or false: %w", err)
 		}
+		cfg.Runtime.EnableSearch = parsed
 	}
 	if v := os.Getenv("HAISTACK_MODULE_PATHS"); v != "" {
 		cfg.Runtime.ModulePaths = splitList(v)
@@ -212,6 +237,7 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("HAISTACK_SYNC_NODE_ID"); v != "" {
 		cfg.Sync.NodeID = v
 	}
+	return nil
 }
 
 func applyOverrides(cfg *Config, o Overrides) {
@@ -220,6 +246,12 @@ func applyOverrides(cfg *Config, o Overrides) {
 	}
 	if o.SQLitePath != nil {
 		cfg.Storage.SQLitePath = *o.SQLitePath
+	}
+	if o.SQLiteTenantID != nil {
+		cfg.Storage.SQLiteTenantID = *o.SQLiteTenantID
+	}
+	if o.SQLiteTerminologyScope != nil {
+		cfg.Storage.SQLiteTerminologyScope = *o.SQLiteTerminologyScope
 	}
 	if o.PostgresDSN != nil {
 		cfg.Storage.PostgresDSN = *o.PostgresDSN

@@ -25,8 +25,7 @@ func (a *StoreAdapter) Log(ctx context.Context, event Event) error {
 	return a.Store.Append(ctx, rec)
 }
 
-// List returns store records matching the subset of filters supported by
-// store.AuditQuery.
+// List returns store records matching store.AuditQuery filters.
 func (a *StoreAdapter) List(ctx context.Context, query store.AuditQuery) ([]store.AuditRecord, error) {
 	if a == nil || a.Store == nil {
 		return nil, ErrNilStore
@@ -34,50 +33,31 @@ func (a *StoreAdapter) List(ctx context.Context, query store.AuditQuery) ([]stor
 	return a.Store.List(ctx, query)
 }
 
-// ListEvents lists and converts records, applying Action/Outcome/Tenant filters
-// that are not part of store.AuditQuery.
+// ListEvents lists and converts records using store-level filters where supported.
 func (a *StoreAdapter) ListEvents(ctx context.Context, query Query) ([]Event, error) {
 	if a == nil || a.Store == nil {
 		return nil, ErrNilStore
 	}
-	limit := query.Limit
-	fetchLimit := limit
-	if query.Action != "" || query.Outcome != "" || query.Tenant != "" {
-		// Over-fetch when post-filtering; callers can pass a higher Limit.
-		if fetchLimit > 0 {
-			fetchLimit = fetchLimit * 4
-			if fetchLimit < 64 {
-				fetchLimit = 64
-			}
-		}
-	}
 	records, err := a.Store.List(ctx, store.AuditQuery{
-		ResourceType: query.ResourceType,
-		ResourceID:   query.ResourceID,
-		Actor:        query.Actor,
-		After:        query.After,
-		Before:       query.Before,
-		Limit:        fetchLimit,
+		ResourceType:   query.ResourceType,
+		ResourceID:     query.ResourceID,
+		Actor:          query.Actor,
+		Action:         query.Action,
+		Outcome:        query.Outcome,
+		Tenant:         query.Tenant,
+		ViewName:       query.ViewName,
+		ToolName:       query.ToolName,
+		ConversationID: query.ConversationID,
+		After:          query.After,
+		Before:         query.Before,
+		Limit:          query.Limit,
 	})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Event, 0, len(records))
 	for _, rec := range records {
-		ev := FromStoreRecord(rec)
-		if query.Action != "" && ev.Action != query.Action {
-			continue
-		}
-		if query.Outcome != "" && ev.Outcome != query.Outcome {
-			continue
-		}
-		if query.Tenant != "" && ev.Tenant != query.Tenant {
-			continue
-		}
-		out = append(out, ev)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
+		out = append(out, FromStoreRecord(rec))
 	}
 	return out, nil
 }
@@ -100,60 +80,67 @@ func (a *StoreAdapter) normalize(event Event) Event {
 	return event
 }
 
-// ToStoreRecord converts an Event into store.AuditRecord, folding extended
-// fields into Details.
+// ToStoreRecord converts an Event into store.AuditRecord using first-class fields.
+// Legacy detail keys are still lifted on read via FromStoreRecord when columns are empty.
 func ToStoreRecord(event Event) store.AuditRecord {
-	details := cloneDetails(event.Details)
-	if event.Tenant != "" {
-		details["tenant"] = event.Tenant
-	}
-	if event.Subject != "" {
-		details["subject"] = event.Subject
-	}
-	if event.ViewName != "" {
-		details["viewName"] = event.ViewName
-	}
-	if event.ToolName != "" {
-		details["toolName"] = event.ToolName
-	}
-	if event.ModuleName != "" {
-		details["moduleName"] = event.ModuleName
-	}
-	if event.BlobKey != "" {
-		details["blobKey"] = event.BlobKey
-	}
 	return store.AuditRecord{
-		ID:           event.ID,
-		Timestamp:    event.Timestamp,
-		Actor:        event.Actor,
-		Action:       event.Action,
-		ResourceType: event.ResourceType,
-		ResourceID:   event.ResourceID,
-		Outcome:      event.Outcome,
-		Details:      details,
+		ID:             event.ID,
+		Timestamp:      event.Timestamp,
+		Actor:          event.Actor,
+		Action:         event.Action,
+		ResourceType:   event.ResourceType,
+		ResourceID:     event.ResourceID,
+		Outcome:        event.Outcome,
+		Tenant:         event.Tenant,
+		Subject:        event.Subject,
+		ViewName:       event.ViewName,
+		ToolName:       event.ToolName,
+		ConversationID: event.ConversationID,
+		ModuleName:     event.ModuleName,
+		BlobKey:        event.BlobKey,
+		Details:        cloneDetails(event.Details),
 	}
 }
 
-// FromStoreRecord converts a store.AuditRecord into Event, lifting known detail
-// keys into first-class fields.
+// FromStoreRecord converts a store.AuditRecord into Event, lifting legacy detail
+// keys when first-class columns are empty.
 func FromStoreRecord(rec store.AuditRecord) Event {
 	details := cloneDetails(rec.Details)
 	ev := Event{
-		ID:           rec.ID,
-		Timestamp:    rec.Timestamp,
-		Actor:        rec.Actor,
-		Action:       rec.Action,
-		ResourceType: rec.ResourceType,
-		ResourceID:   rec.ResourceID,
-		Outcome:      rec.Outcome,
-		Details:      details,
+		ID:             rec.ID,
+		Timestamp:      rec.Timestamp,
+		Actor:          rec.Actor,
+		Action:         rec.Action,
+		ResourceType:   rec.ResourceType,
+		ResourceID:     rec.ResourceID,
+		Outcome:        rec.Outcome,
+		Tenant:         rec.Tenant,
+		Subject:        rec.Subject,
+		ViewName:       rec.ViewName,
+		ToolName:       rec.ToolName,
+		ConversationID: rec.ConversationID,
+		ModuleName:     rec.ModuleName,
+		BlobKey:        rec.BlobKey,
+		Details:        details,
 	}
-	ev.Tenant = popDetail(details, "tenant")
-	ev.Subject = popDetail(details, "subject")
-	ev.ViewName = popDetail(details, "viewName")
-	ev.ToolName = popDetail(details, "toolName")
-	ev.ModuleName = popDetail(details, "moduleName")
-	ev.BlobKey = popDetail(details, "blobKey")
+	if ev.Tenant == "" {
+		ev.Tenant = popDetail(details, "tenant")
+	}
+	if ev.Subject == "" {
+		ev.Subject = popDetail(details, "subject")
+	}
+	if ev.ViewName == "" {
+		ev.ViewName = popDetail(details, "viewName")
+	}
+	if ev.ToolName == "" {
+		ev.ToolName = popDetail(details, "toolName")
+	}
+	if ev.ModuleName == "" {
+		ev.ModuleName = popDetail(details, "moduleName")
+	}
+	if ev.BlobKey == "" {
+		ev.BlobKey = popDetail(details, "blobKey")
+	}
 	if len(details) == 0 {
 		ev.Details = nil
 	} else {

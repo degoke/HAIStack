@@ -9,11 +9,14 @@
 //   - init — write starter haistack.yaml and .haistack/
 //   - serve — start managed HTTP runtime
 //   - validate — structural FHIR validation
-//   - import — upsert one JSON resource file
+//   - import — create or update one JSON resource file with an explicit conflict policy
+//   - read, delete, export — resource inspection and file-safe data operations
 //   - search — FHIR search with key=value parameters
 //   - fhirpath eval — evaluate a FHIRPath expression
 //   - sync push, sync pull, sync status — device synchronization
-//   - module install — install a local module directory
+//   - module install, upgrade, plan, list, inspect, uninstall — module lifecycle
+//   - config show, config validate — resolved configuration inspection
+//   - audit list — persisted audit inspection
 //   - reindex — synchronous search index rebuild
 //
 // # Persistent flags

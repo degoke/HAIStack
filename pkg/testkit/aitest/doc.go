@@ -7,10 +7,11 @@
 //   - WithSearch, WithViews, WithCore, WithValidator — optional integrations
 //   - AllowPatientRead, AllowPatientSearch, AllowPatientSummaryView, etc. — policy flags
 //   - ApprovalGranted, WriteRequiresApproval — approval flow controls
+//   - At, NewFixedClock — deterministic time helpers
 //
 // Exported fakes implement ai.AuditLogger, ai.ApprovalHook, ai.Deidentifier, and
 // ai.ModelAdapter for direct assertion on tool access, approval calls, and de-id.
 //
 // Harness exposes Resources, Search, Views, Core, Policy, Audit, Approval, Deid,
-// Executor, and Clock so tests can assert both executor behavior and side effects.
+// Model, Executor, and Clock so tests can assert both executor behavior and side effects.
 package aitest

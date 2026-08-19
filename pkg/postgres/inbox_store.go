@@ -22,6 +22,32 @@ func newInboxStore(pool *pgxpool.Pool, tenantID string) *InboxStore {
 	return &InboxStore{exec: pool, tenantID: tenantID}
 }
 
+func newInboxStoreTx(tx pgx.Tx, tenantID string) *InboxStore {
+	return &InboxStore{exec: tx, tenantID: tenantID}
+}
+
+// ClaimPush atomically claims a previously unseen push event ID for this
+// transaction. PostgreSQL waits for a concurrent claimant to commit or roll
+// back before resolving the conflict, so only one transaction performs the
+// resource/conflict side effects for a first delivery.
+func (s *InboxStore) ClaimPush(ctx context.Context, id string, claimedAt time.Time) (bool, error) {
+	var claimed bool
+	err := s.exec.QueryRow(ctx, `
+		INSERT INTO hai_sync_inbox_applied (tenant_id, id, applied_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (tenant_id, id) DO NOTHING
+		RETURNING true`,
+		s.tenantID, id, claimedAt,
+	).Scan(&claimed)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("claim push inbox event: %w", err)
+	}
+	return claimed, nil
+}
+
 // MarkApplied records that a remote operation has been applied.
 func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.Time) error {
 	_, err := s.exec.Exec(ctx, `
@@ -34,6 +60,39 @@ func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.
 		return fmt.Errorf("mark inbox applied: %w", err)
 	}
 	return nil
+}
+
+// MarkAppliedWithPayload records a hub acknowledgement together with the
+// idempotency marker. Existing acknowledgement payloads are preserved on an
+// idempotent retry.
+func (s *InboxStore) MarkAppliedWithPayload(ctx context.Context, id string, payload []byte, appliedAt time.Time) error {
+	_, err := s.exec.Exec(ctx, `
+		INSERT INTO hai_sync_inbox_applied (tenant_id, id, applied_at, ack_payload)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (tenant_id, id) DO UPDATE SET applied_at = EXCLUDED.applied_at,
+			ack_payload = COALESCE(hai_sync_inbox_applied.ack_payload, EXCLUDED.ack_payload)`,
+		s.tenantID, id, appliedAt, payload,
+	)
+	if err != nil {
+		return fmt.Errorf("mark inbox applied with payload: %w", err)
+	}
+	return nil
+}
+
+// GetAckPayload returns the stored push acknowledgement, if the inbox row
+// exists. Pull inbox rows have no acknowledgement payload.
+func (s *InboxStore) GetAckPayload(ctx context.Context, id string) ([]byte, bool, error) {
+	var payload []byte
+	err := s.exec.QueryRow(ctx, `
+		SELECT ack_payload FROM hai_sync_inbox_applied
+		WHERE tenant_id = $1 AND id = $2`, s.tenantID, id).Scan(&payload)
+	if err == pgx.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read inbox acknowledgement: %w", err)
+	}
+	return payload, true, nil
 }
 
 // IsApplied reports whether a remote operation has already been applied.

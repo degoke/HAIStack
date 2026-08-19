@@ -48,6 +48,16 @@ func TestServeBuildsAndStartsSQLite(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metadata status = %d", resp.StatusCode)
 	}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		probe, err := http.Get("http://" + rt.HTTPAddr().String() + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = probe.Body.Close()
+		if probe.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status = %d", path, probe.StatusCode)
+		}
+	}
 }
 
 func TestModuleInstallAndReindexSQLite(t *testing.T) {
@@ -67,6 +77,15 @@ func TestModuleInstallAndReindexSQLite(t *testing.T) {
 	}
 	if _, _, err := runCLI(t, dir, "module", "install", coreModule); err != nil {
 		t.Fatalf("module install: %v", err)
+	}
+	if stdout, _, err := runCLI(t, dir, "module", "list", "--output", "json"); err != nil || !strings.Contains(stdout, `"name": "core"`) {
+		t.Fatalf("module list: output=%q err=%v", stdout, err)
+	}
+	if stdout, _, err := runCLI(t, dir, "module", "inspect", "core", "--output", "json"); err != nil || !strings.Contains(stdout, `"version": "1.0.0"`) {
+		t.Fatalf("module inspect: output=%q err=%v", stdout, err)
+	}
+	if stdout, _, err := runCLI(t, dir, "module", "plan", coreModule, "--output", "json"); err != nil || !strings.Contains(stdout, `"action": "noop"`) {
+		t.Fatalf("module plan: output=%q err=%v", stdout, err)
 	}
 	if _, _, err := runCLI(t, dir, "reindex", "Patient"); err != nil {
 		t.Fatalf("reindex: %v", err)
@@ -109,6 +128,7 @@ func TestSyncPushPullStatusSQLite(t *testing.T) {
 	}
 	rt, err := runtime.New().
 		WithSQLite(cfg.Storage.SQLitePath).
+		WithSQLiteTenant(hubTenant).
 		WithSearch().
 		WithModules(cfg.Runtime.ModulePaths...).
 		WithSyncHub(hub).

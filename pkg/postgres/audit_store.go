@@ -29,18 +29,29 @@ func (s *AuditStore) Append(ctx context.Context, record store.AuditRecord) error
 	if err != nil {
 		return fmt.Errorf("marshal audit details: %w", err)
 	}
+	tenant := s.tenantID
+	if record.Tenant != "" {
+		tenant = record.Tenant
+	}
 	_, err = s.exec.Exec(ctx, `
 		INSERT INTO hai_audit_log (
-			id, tenant_id, timestamp, actor, action, resource_type, resource_id, outcome, details
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			id, tenant_id, timestamp, actor, action, resource_type, resource_id, outcome,
+			subject, view_name, tool_name, conversation_id, module_name, blob_key, details
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		record.ID,
-		s.tenantID,
+		tenant,
 		record.Timestamp,
 		record.Actor,
 		record.Action,
 		nullString(record.ResourceType),
 		nullString(record.ResourceID),
 		nullString(record.Outcome),
+		nullString(record.Subject),
+		nullString(record.ViewName),
+		nullString(record.ToolName),
+		nullString(record.ConversationID),
+		nullString(record.ModuleName),
+		nullString(record.BlobKey),
 		details,
 	)
 	if err != nil {
@@ -57,24 +68,30 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 	)
 
 	clauses = append(clauses, fmt.Sprintf("tenant_id = $%d", argN))
-	args = append(args, s.tenantID)
+	tenant := s.tenantID
+	if query.Tenant != "" {
+		tenant = query.Tenant
+	}
+	args = append(args, tenant)
 	argN++
 
-	if query.ResourceType != "" {
-		clauses = append(clauses, fmt.Sprintf("resource_type = $%d", argN))
-		args = append(args, query.ResourceType)
+	appendFilter := func(column, value string) {
+		if value == "" {
+			return
+		}
+		clauses = append(clauses, fmt.Sprintf("%s = $%d", column, argN))
+		args = append(args, value)
 		argN++
 	}
-	if query.ResourceID != "" {
-		clauses = append(clauses, fmt.Sprintf("resource_id = $%d", argN))
-		args = append(args, query.ResourceID)
-		argN++
-	}
-	if query.Actor != "" {
-		clauses = append(clauses, fmt.Sprintf("actor = $%d", argN))
-		args = append(args, query.Actor)
-		argN++
-	}
+	appendFilter("resource_type", query.ResourceType)
+	appendFilter("resource_id", query.ResourceID)
+	appendFilter("actor", query.Actor)
+	appendFilter("action", query.Action)
+	appendFilter("outcome", query.Outcome)
+	appendFilter("subject", query.Subject)
+	appendFilter("view_name", query.ViewName)
+	appendFilter("tool_name", query.ToolName)
+	appendFilter("conversation_id", query.ConversationID)
 	if !query.After.IsZero() {
 		clauses = append(clauses, fmt.Sprintf("timestamp >= $%d", argN))
 		args = append(args, query.After)
@@ -86,7 +103,8 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 	}
 
 	sql := fmt.Sprintf(`
-		SELECT id, timestamp, actor, action, resource_type, resource_id, outcome, details
+		SELECT id, timestamp, actor, action, resource_type, resource_id, outcome,
+		       tenant_id, subject, view_name, tool_name, conversation_id, module_name, blob_key, details
 		FROM hai_audit_log
 		WHERE %s
 		ORDER BY timestamp ASC`, strings.Join(clauses, " AND "))
@@ -103,15 +121,23 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 	var out []store.AuditRecord
 	for rows.Next() {
 		var (
-			record       store.AuditRecord
-			resourceType *string
-			resourceID   *string
-			outcome      *string
-			detailsJSON  []byte
+			record         store.AuditRecord
+			resourceType   *string
+			resourceID     *string
+			outcome        *string
+			tenantID       string
+			subject        *string
+			viewName       *string
+			toolName       *string
+			conversationID *string
+			moduleName     *string
+			blobKey        *string
+			detailsJSON    []byte
 		)
 		if err := rows.Scan(
 			&record.ID, &record.Timestamp, &record.Actor, &record.Action,
-			&resourceType, &resourceID, &outcome, &detailsJSON,
+			&resourceType, &resourceID, &outcome,
+			&tenantID, &subject, &viewName, &toolName, &conversationID, &moduleName, &blobKey, &detailsJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan audit row: %w", err)
 		}
@@ -123,6 +149,25 @@ func (s *AuditStore) List(ctx context.Context, query store.AuditQuery) ([]store.
 		}
 		if outcome != nil {
 			record.Outcome = *outcome
+		}
+		record.Tenant = tenantID
+		if subject != nil {
+			record.Subject = *subject
+		}
+		if viewName != nil {
+			record.ViewName = *viewName
+		}
+		if toolName != nil {
+			record.ToolName = *toolName
+		}
+		if conversationID != nil {
+			record.ConversationID = *conversationID
+		}
+		if moduleName != nil {
+			record.ModuleName = *moduleName
+		}
+		if blobKey != nil {
+			record.BlobKey = *blobKey
 		}
 		if len(detailsJSON) > 0 {
 			_ = json.Unmarshal(detailsJSON, &record.Details)

@@ -29,6 +29,8 @@ type fakeResourceService struct {
 	deleteFn    func(ctx context.Context, resourceType, id string) error
 	historyFn   func(ctx context.Context, resourceType, id string) ([]store.ResourceVersion, error)
 	transaction func(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error)
+	batch       func(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error)
+	patchFn     func(ctx context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error)
 }
 
 func (f *fakeResourceService) Create(ctx context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
@@ -69,6 +71,20 @@ func (f *fakeResourceService) History(ctx context.Context, resourceType, id stri
 func (f *fakeResourceService) ProcessTransactionBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
 	if f.transaction != nil {
 		return f.transaction(ctx, bundle)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeResourceService) ProcessBatchBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if f.batch != nil {
+		return f.batch(ctx, bundle)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeResourceService) Patch(ctx context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error) {
+	if f.patchFn != nil {
+		return f.patchFn(ctx, resourceType, id, patchJSON)
 	}
 	return nil, fmt.Errorf("not implemented")
 }
@@ -133,14 +149,21 @@ func newTestHandler(t *testing.T, cfg hahttp.Config) http.Handler {
 }
 
 func doRequest(t *testing.T, handler http.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
+	return doRequestWithHeaders(t, handler, method, path, body, nil)
+}
+
+func doRequestWithHeaders(t *testing.T, handler http.Handler, method, path string, body []byte, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
 	req := httptest.NewRequest(method, path, reader)
-	if body != nil {
+	if body != nil && (headers == nil || headers["Content-Type"] == "") {
 		req.Header.Set("Content-Type", "application/fhir+json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -362,6 +385,27 @@ func TestSearchDelegatesQueryParams(t *testing.T) {
 	}
 }
 
+func TestSearchTransportParamsAreNotSentToSearchPlanner(t *testing.T) {
+	var captured url.Values
+	searchSvc := &fakeSearchService{
+		searchFn: func(_ context.Context, _ string, params url.Values) (*search.SearchBundle, error) {
+			captured = params
+			return &search.SearchBundle{ResourceType: "Patient"}, nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		SearchService:   searchSvc,
+	})
+	rec := doRequestWithHeaders(t, handler, http.MethodGet, "/fhir/Patient?_format=xml&_pretty=true&family=Doe", nil, nil)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/fhir+xml" {
+		t.Fatalf("search response = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if captured.Get("family") != "Doe" || captured.Get("_format") != "" || captured.Get("_pretty") != "" {
+		t.Fatalf("planner params = %#v", captured)
+	}
+}
+
 func TestMetadataReflectsCapabilitySnapshot(t *testing.T) {
 	snapshot := registry.CapabilitySnapshot{
 		FHIRVersion: "4.0.1",
@@ -451,6 +495,12 @@ func TestTransactionBundleOnly(t *testing.T) {
 				JSON:         []byte(`{"resourceType":"Bundle","type":"transaction-response","entry":[]}`),
 			}, nil
 		},
+		batch: func(_ context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+			return &types.ResourceEnvelope{
+				ResourceType: "Bundle",
+				JSON:         []byte(`{"resourceType":"Bundle","type":"batch-response","entry":[]}`),
+			}, nil
+		},
 	}
 	handler := newTestHandler(t, hahttp.Config{ResourceService: svc})
 
@@ -465,12 +515,8 @@ func TestTransactionBundleOnly(t *testing.T) {
 
 	batchBody := []byte(`{"resourceType":"Bundle","type":"batch","entry":[]}`)
 	rec = doRequest(t, handler, http.MethodPost, "/fhir", batchBody)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
-	}
-	outcome := decodeOutcome(t, rec.Body.Bytes())
-	if !strings.Contains(outcome.Issue[0].Diagnostics, "transaction") {
-		t.Fatalf("diagnostics = %q", outcome.Issue[0].Diagnostics)
 	}
 }
 
@@ -495,13 +541,98 @@ func TestTransactionBundleRequiresAuthorizationWhenConfigured(t *testing.T) {
 
 func TestUnsupportedMethodReturnsOperationOutcome(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{ResourceService: &fakeResourceService{}})
-	rec := doRequest(t, handler, http.MethodPatch, "/fhir/Patient/pat-1", nil)
-	if rec.Code != http.StatusBadRequest {
+	rec := doRequest(t, handler, http.MethodOptions, "/fhir/Patient/pat-1", nil)
+	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET, PUT, PATCH, DELETE" {
+		t.Fatalf("Allow = %q", got)
 	}
 	outcome := decodeOutcome(t, rec.Body.Bytes())
 	if outcome.Issue[0].Code != "not-supported" {
 		t.Fatalf("code = %q", outcome.Issue[0].Code)
+	}
+}
+
+func TestPatchDelegatesToResourceService(t *testing.T) {
+	var called bool
+	svc := &fakeResourceService{
+		patchFn: func(_ context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error) {
+			called = true
+			if resourceType != "Patient" || id != "pat-1" {
+				t.Fatalf("patch target = %s/%s", resourceType, id)
+			}
+			return patientEnvelope("pat-1", "Patched"), nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{ResourceService: svc})
+	req := httptest.NewRequest(http.MethodPatch, "/fhir/Patient/pat-1", bytes.NewReader([]byte(`[{"op":"replace","path":"/name/0/family","value":"Patched"}]`)))
+	req.Header.Set("Content-Type", "application/json-patch+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Fatal("expected patch handler to be called")
+	}
+}
+
+func TestBatchBundleAccepted(t *testing.T) {
+	var called bool
+	svc := &fakeResourceService{
+		batch: func(_ context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+			called = true
+			return &types.ResourceEnvelope{
+				ResourceType: "Bundle",
+				JSON:         []byte(`{"resourceType":"Bundle","type":"batch-response","entry":[]}`),
+			}, nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{ResourceService: svc})
+
+	batchBody := []byte(`{"resourceType":"Bundle","type":"batch","entry":[]}`)
+	rec := doRequest(t, handler, http.MethodPost, "/fhir", batchBody)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Fatal("expected batch handler to be called")
+	}
+}
+
+func TestBulkExportReturnsNotImplemented(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{ResourceService: &fakeResourceService{}})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/$export", nil)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostSearchDelegatesToSearchService(t *testing.T) {
+	var called bool
+	searchSvc := &fakeSearchService{
+		searchFn: func(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
+			called = true
+			if resourceType != "Patient" || params.Get("name") != "Doe" {
+				t.Fatalf("search params = %#v", params)
+			}
+			return &search.SearchBundle{ResourceType: resourceType}, nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		SearchService:   searchSvc,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/fhir/Patient/_search", strings.NewReader("name=Doe"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Fatal("expected search handler to be called")
 	}
 }
 
@@ -599,6 +730,63 @@ func TestDeleteUsesDeleteAuthorizationOperation(t *testing.T) {
 	}
 }
 
+func TestIfMatchRequiresAtomicResourceService(t *testing.T) {
+	svc := &fakeResourceService{
+		readFn: func(_ context.Context, _, id string) (*types.ResourceEnvelope, error) {
+			return patientEnvelope(id, "Doe"), nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{ResourceService: svc})
+
+	rec := doRequestWithHeaders(t, handler, http.MethodPut, "/fhir/Patient/pat-1", patientJSON("pat-1", "Updated"), map[string]string{
+		"If-Match": `W/"1"`,
+	})
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithHeaders(t, handler, http.MethodPatch, "/fhir/Patient/pat-1", []byte(`[{"op":"replace","path":"/name/0/family","value":"Updated"}]`), map[string]string{
+		"Content-Type": "application/json-patch+json",
+		"If-Match":     `W/"1"`,
+	})
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("patch status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithHeaders(t, handler, http.MethodDelete, "/fhir/Patient/pat-1", nil, map[string]string{
+		"If-Match": `W/"1"`,
+	})
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	searchSvc := &fakeSearchService{
+		searchFn: func(_ context.Context, resourceType string, _ url.Values) (*search.SearchBundle, error) {
+			return &search.SearchBundle{
+				ResourceType: resourceType,
+				Entries:      []search.BundleEntry{{Resource: patientEnvelope("pat-1", "Doe")}},
+			}, nil
+		},
+	}
+	conditionalHandler := newTestHandler(t, hahttp.Config{
+		ResourceService: svc,
+		SearchService:   searchSvc,
+	})
+	rec = doRequestWithHeaders(t, conditionalHandler, http.MethodPut, "/fhir/Patient?family=Doe", patientJSON("pat-1", "Updated"), map[string]string{
+		"If-Match": `W/"1"`,
+	})
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("conditional update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithHeaders(t, conditionalHandler, http.MethodDelete, "/fhir/Patient?family=Doe", nil, map[string]string{
+		"If-Match": `W/"1"`,
+	})
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("conditional delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuthAllowedWhenConfigured(t *testing.T) {
 	checker := &recordingAuthChecker{allow: true}
 	resolver := func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
@@ -647,5 +835,16 @@ func TestNewHandlerRequiresResourceService(t *testing.T) {
 	_, err := hahttp.NewHandler(hahttp.Config{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{ResourceService: &fakeResourceService{}})
+	rec := doRequest(t, handler, http.MethodGet, "/healthz", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"status":"ok"}` {
+		t.Fatalf("body = %s, want health response", got)
 	}
 }

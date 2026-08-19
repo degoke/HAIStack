@@ -96,7 +96,8 @@ appt, err := factories.NewAppointment(
 ```
 
 Prefer **fixtures** for stable cross-package scenarios; use **factories** when
-parameterizing ids, references, status, or timestamps.
+parameterizing ids, references, status, timestamps, or arbitrary FHIR metadata
+(`WithPatientMeta`, `WithAppointmentMeta`, and `WithObservationMeta`).
 
 ## storetest
 
@@ -109,6 +110,9 @@ strict := storetest.NewStrictBackend()  // errors on missing resources
 
 `Backend` exposes: `Resources`, `History`, `Events`, `Cursors`, `Inbox`,
 `Conflicts`, `Search`, `Audit`, and `Jobs` (`jobs.NewInMemoryJobStore`).
+
+`ListIDs` is sorted and paged deterministically. `WriteSessionProvider` commits
+resource, history, search, and event snapshots together; `Rollback` discards them.
 
 ### Strict vs lenient `ResourceStore`
 

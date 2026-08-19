@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -32,6 +33,13 @@ func New(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("client: BaseURL is required")
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	parsedBase, err := url.Parse(baseURL)
+	if err != nil || parsedBase.Scheme == "" || parsedBase.Host == "" || parsedBase.User != nil || parsedBase.RawQuery != "" || parsedBase.Fragment != "" || (parsedBase.Path != "" && parsedBase.Path != "/") {
+		return nil, fmt.Errorf("client: BaseURL must be an HTTP server origin without a path, query, or fragment")
+	}
+	if !strings.EqualFold(parsedBase.Scheme, "http") && !strings.EqualFold(parsedBase.Scheme, "https") {
+		return nil, fmt.Errorf("client: BaseURL must use http or https")
+	}
 	basePath := cfg.BasePath
 	if basePath == "" {
 		basePath = defaultBasePath

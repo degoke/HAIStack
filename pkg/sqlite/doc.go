@@ -30,11 +30,21 @@
 //
 // # Opening a database
 //
-//	db, err := sqlite.Open("/path/to/haistack.db")
+//	db, err := sqlite.OpenAndMigrate(ctx, "/path/to/haistack.db")
 //	if err != nil { … }
 //	defer db.Close()
 //
+// Or open and migrate separately:
+//
+//	db, err := sqlite.Open("/path/to/haistack.db")
+//	if err != nil { … }
+//	defer db.Close()
 //	if err := db.Migrate(ctx); err != nil { … }
+//
+// Reopening an existing file uses the same pattern: a fresh Open (or OpenAndMigrate)
+// call, then reconstruct in-memory services and snapshots. Migrate is idempotent.
+// Close leaves the database file on disk; remove the parent directory with os.RemoveAll
+// when cleaning up temporary test databases.
 //
 // Open accepts functional options such as WithBusyTimeout. Use path ":memory:" for
 // ephemeral in-memory databases (common in tests).
@@ -104,7 +114,9 @@
 //
 // ApplyLocalWrite and Session cover create, update, and delete. Delete removes current
 // resource state, appends a history tombstone, emits an outbox event, and clears search
-// index rows for the resource.
+// index rows for the resource. ApplyLocalWrite does not run validation or build search
+// entries; callers supply prepared SearchIndexEntry values. Use BeginWrite/BeginSession
+// directly when higher-level steps must roll back together with persistence.
 //
 // # Search index field keys
 //
@@ -118,6 +130,14 @@
 //
 // Keys without a prefix (for example "family") default to hai_search_string. FHIR search
 // parsing and token extraction remain in pkg/search; this package stores prepared entries.
+//
+// Search limitations on SQLite:
+//   - SearchStore implements store.SearchQueryExecutor (LookupMatch, FieldValues) only.
+//   - It does not implement store.SearchAdvancedExecutor: no LookupReferences,
+//     LookupReferencing, or LookupFullText. Queries using _include, _revinclude, or
+//     full-text search return store.ErrUnsupportedFeature.
+//   - Index skips composite.* and text.* field keys; composite and full-text parameters
+//     cannot be queried through the SQLite adapter.
 //
 // QueryPrepared supports the "by-field" plan (args: key, value) matching pkg/store test doubles.
 //

@@ -3,6 +3,8 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -203,6 +205,56 @@ func TestParseDefinitionSearchParameterMultiTarget(t *testing.T) {
 	}
 	if len(targets) != 2 {
 		t.Fatalf("targets = %d, want 2", len(targets))
+	}
+}
+
+func TestParseDefinitionRequiresResourceTypeAndSearchParameterFields(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"resourceType": []byte(`{"url":"http://example.org/definition"}`),
+		"search code":  []byte(`{"resourceType":"SearchParameter","url":"http://example.org/sp","base":["Patient"],"type":"token"}`),
+		"search type":  []byte(`{"resourceType":"SearchParameter","url":"http://example.org/sp","base":["Patient"],"code":"x"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := registry.ParseDefinition(raw); err == nil {
+				t.Fatal("ParseDefinition succeeded; want validation error")
+			} else if !errors.Is(err, registry.ErrInvalidDefinition) {
+				t.Fatalf("error = %v, want ErrInvalidDefinition", err)
+			}
+		})
+	}
+}
+
+func TestSeedBundledDoesNotOverwriteExistingDefinition(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	manager := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	custom := []byte(`{"resourceType":"StructureDefinition","id":"Patient","url":"http://hl7.org/fhir/StructureDefinition/Patient","version":"4.0.1","name":"Patient","status":"active","kind":"resource","abstract":false,"type":"Patient","baseDefinition":"http://hl7.org/fhir/StructureDefinition/DomainResource","derivation":"specialization"}`)
+	if err := definitions.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL:     "http://hl7.org/fhir/StructureDefinition/Patient",
+		Version:          "4.0.1",
+		FHIRVersion:      "4.0.1",
+		FHIRResourceType: "StructureDefinition",
+		DefinitionKind:   store.DefinitionKindStructureDefinition,
+		Name:             "Patient",
+		Status:           "active",
+		ModuleName:       "custom-owner",
+		JSONData:         custom,
+	}, []store.DefinitionTargetRecord{{CanonicalURL: "http://hl7.org/fhir/StructureDefinition/Patient", Version: "4.0.1", TargetResourceType: "Patient", TargetRole: "defines"}}); err != nil {
+		t.Fatalf("seed custom definition: %v", err)
+	}
+	if err := manager.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	record, err := definitions.Get(ctx, "http://hl7.org/fhir/StructureDefinition/Patient", "4.0.1")
+	if err != nil {
+		t.Fatalf("Get definition: %v", err)
+	}
+	if string(record.JSONData) != string(custom) || record.ModuleName != "custom-owner" {
+		t.Fatal("SeedBundled overwrote an existing definition")
+	}
+	if err := manager.InstallDefinition(ctx, custom, registry.InstallProvenance{ModuleName: "other-owner", SourceModule: "other-owner"}); err == nil || !errors.Is(err, registry.ErrDefinitionConflict) {
+		t.Fatalf("cross-module definition install error = %v, want ErrDefinitionConflict", err)
 	}
 }
 
@@ -547,5 +599,36 @@ func TestInstallSearchParameterSchedulesReindex(t *testing.T) {
 	}
 	if len(notifier.calls) != 1 || len(notifier.calls[0]) != 1 || notifier.calls[0][0] != "Patient" {
 		t.Fatalf("reindex calls = %#v", notifier.calls)
+	}
+}
+
+func TestInstallDefinitionsFromDir(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	raw := []byte(`{
+		"resourceType":"SearchParameter",
+		"url":"http://example.org/SearchParameter/dir-import",
+		"version":"1.0.0",
+		"name":"dir-import",
+		"status":"active",
+		"code":"dir-import",
+		"base":["Patient"],
+		"type":"token",
+		"expression":"Patient.id"
+	}`)
+	if err := os.WriteFile(filepath.Join(dir, "custom.json"), raw, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	manager := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	if err := manager.InstallDefinitionsFromDir(ctx, dir, registry.InstallProvenance{
+		PackageName: "example.custom",
+	}); err != nil {
+		t.Fatalf("InstallDefinitionsFromDir: %v", err)
+	}
+	if _, err := definitions.Get(ctx, "http://example.org/SearchParameter/dir-import", "1.0.0"); err != nil {
+		t.Fatalf("expected imported definition: %v", err)
 	}
 }

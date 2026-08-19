@@ -9,10 +9,12 @@
 // is needed. SDC does not define replacement FHIR resource or Bundle models.
 //
 // The package's questionnaire projection structs are compatibility views used
-// internally by the behavior engine. New integrations should use the
+// internally by the behavior engine. Their JSON methods preserve FHIR
+// polymorphic value keys and encode SDC behavior fields as extensions. New integrations should use the
 // ResourceEnvelope APIs: ValidateQuestionnaireResource,
 // ValidateQuestionnaireResponseResource, PopulateResource, ExtractResource,
-// SaveQuestionnaireResource, and SaveQuestionnaireResponseResource.
+// AssembleQuestionnaireResource, SaveQuestionnaireResource, and
+// SaveQuestionnaireResponseResource.
 //
 // # Behavior services
 //

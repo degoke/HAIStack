@@ -100,6 +100,29 @@ func (s *ResourceStore) Update(ctx context.Context, res *types.ResourceEnvelope)
 	return nil
 }
 
+// UpdateIfVersion atomically replaces a resource only when its current
+// version matches expectedVersion. The wildcard version "*" matches any
+// existing version.
+func (s *ResourceStore) UpdateIfVersion(ctx context.Context, res *types.ResourceEnvelope, expectedVersion string) (bool, error) {
+	if res == nil {
+		return false, fmt.Errorf("resource envelope is nil")
+	}
+	query := `
+		UPDATE hai_resource
+		SET version_id = $1, last_updated = $2, json = $3, hash = $4, updated_at = now()
+		WHERE tenant_id = $5 AND resource_type = $6 AND id = $7`
+	args := []any{res.VersionID, res.LastUpdated, res.JSON, nullString(res.Hash), s.tenantID, res.ResourceType, res.ID}
+	if expectedVersion != "*" {
+		query += " AND version_id = $8"
+		args = append(args, expectedVersion)
+	}
+	tag, err := s.exec.Exec(ctx, query, args...)
+	if err != nil {
+		return false, fmt.Errorf("conditional update resource: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) error {
 	tag, err := s.exec.Exec(ctx, `
 		DELETE FROM hai_resource
@@ -113,6 +136,23 @@ func (s *ResourceStore) Delete(ctx context.Context, resourceType, id string) err
 		return fmt.Errorf("resource not found: %s/%s", resourceType, id)
 	}
 	return nil
+}
+
+// DeleteIfVersion atomically deletes a resource only when its current version
+// matches expectedVersion. The wildcard version "*" matches any existing
+// version.
+func (s *ResourceStore) DeleteIfVersion(ctx context.Context, resourceType, id, expectedVersion string) (bool, error) {
+	query := `DELETE FROM hai_resource WHERE tenant_id = $1 AND resource_type = $2 AND id = $3`
+	args := []any{s.tenantID, resourceType, id}
+	if expectedVersion != "*" {
+		query += " AND version_id = $4"
+		args = append(args, expectedVersion)
+	}
+	tag, err := s.exec.Exec(ctx, query, args...)
+	if err != nil {
+		return false, fmt.Errorf("conditional delete resource: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *ResourceStore) Exists(ctx context.Context, resourceType, id string) (bool, error) {

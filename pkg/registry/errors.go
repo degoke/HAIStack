@@ -8,4 +8,5 @@ var (
 	ErrSnapshotCompile    = errors.New("snapshot compilation failed")
 	ErrResourceNotEnabled = errors.New("resource type not enabled")
 	ErrDefinitionNotFound = errors.New("definition not found")
+	ErrDefinitionConflict = errors.New("definition ownership conflict")
 )

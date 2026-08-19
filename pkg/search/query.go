@@ -83,6 +83,7 @@ type SummaryMode string
 
 const (
 	SummaryNone  SummaryMode = ""
+	SummaryFalse SummaryMode = "false"
 	SummaryTrue  SummaryMode = "true"
 	SummaryText  SummaryMode = "text"
 	SummaryData  SummaryMode = "data"
@@ -97,6 +98,7 @@ type Query struct {
 	Includes     []IncludeDirective
 	RevIncludes  []RevIncludeDirective
 	Count        int
+	CountSet     bool
 	Offset       int
 	Sort         []SortField
 	Summary      SummaryMode

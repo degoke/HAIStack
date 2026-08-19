@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -13,25 +14,35 @@ import (
 // Installer orchestrates install/upgrade/uninstall planning and execution.
 // It owns the registry applier and module store updates.
 type Installer struct {
-	modules  store.ModuleStore
-	applier  *RegistryApplier
-	installs store.RegistryInstallStore
-	defs     store.DefinitionStore
-	now      func() time.Time
+	modules   store.ModuleStore
+	applier   *RegistryApplier
+	installs  store.RegistryInstallStore
+	defs      store.DefinitionStore
+	resources store.ResourceStore
+	now       func() time.Time
 }
 
 // NewInstaller creates an installer from the same persistence pieces used by
-// the public manager.
+// the public manager. Resource usage checks are disabled when no resource
+// store is supplied; use NewInstallerWithResources for production lifecycle
+// protection.
 func NewInstaller(modules store.ModuleStore, defs store.DefinitionStore, installs store.RegistryInstallStore, reg *registry.Manager, now func() time.Time) *Installer {
+	return NewInstallerWithResources(modules, defs, installs, reg, nil, now)
+}
+
+// NewInstallerWithResources creates an installer that also checks persisted
+// resources before disabling a resource type during uninstall.
+func NewInstallerWithResources(modules store.ModuleStore, defs store.DefinitionStore, installs store.RegistryInstallStore, reg *registry.Manager, resources store.ResourceStore, now func() time.Time) *Installer {
 	if now == nil {
 		now = time.Now
 	}
 	return &Installer{
-		modules:  modules,
-		applier:  NewRegistryApplier(reg, defs, installs),
-		installs: installs,
-		defs:     defs,
-		now:      now,
+		modules:   modules,
+		applier:   NewRegistryApplier(reg, defs, installs),
+		installs:  installs,
+		defs:      defs,
+		resources: resources,
+		now:       now,
 	}
 }
 
@@ -120,7 +131,24 @@ func (i *Installer) installedDefinitionsByModule(ctx context.Context, name strin
 }
 
 // Install applies a module to the registry and registers the module.
+//
+// The persistence interfaces intentionally remain backend-neutral, so the
+// installer uses a compensating state transaction around the multi-store
+// operation. This keeps a failed install from leaving registry or module
+// records half-applied.
 func (i *Installer) Install(ctx context.Context, mod *Module) (*InstallResult, error) {
+	state, err := i.captureState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := i.install(ctx, mod)
+	if err == nil {
+		return result, nil
+	}
+	return nil, errors.Join(err, i.restoreState(state))
+}
+
+func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, error) {
 	plan, err := i.PlanInstall(ctx, mod)
 	if err != nil {
 		return nil, err
@@ -131,6 +159,7 @@ func (i *Installer) Install(ctx context.Context, mod *Module) (*InstallResult, e
 			return nil, err
 		}
 		return &InstallResult{
+			Action:   plan.Action,
 			Name:     plan.Name,
 			Version:  plan.Version,
 			Deferred: plan.Deferred,
@@ -144,6 +173,7 @@ func (i *Installer) Install(ctx context.Context, mod *Module) (*InstallResult, e
 	}
 
 	result := &InstallResult{
+		Action:   plan.Action,
 		Name:     plan.Name,
 		Version:  plan.Version,
 		Deferred: plan.Deferred,
@@ -191,6 +221,18 @@ func (i *Installer) Install(ctx context.Context, mod *Module) (*InstallResult, e
 
 // Upgrade applies a newer version of an already-installed module.
 func (i *Installer) Upgrade(ctx context.Context, mod *Module) (*UpgradeResult, error) {
+	state, err := i.captureState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := i.upgrade(ctx, mod)
+	if err == nil {
+		return result, nil
+	}
+	return nil, errors.Join(err, i.restoreState(state))
+}
+
+func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, error) {
 	existing, err := i.modules.Get(ctx, mod.Manifest.Name)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrModuleNotFound, mod.Manifest.Name)
@@ -281,6 +323,17 @@ func (i *Installer) Upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 
 // Uninstall removes a module's registry contributions and module record.
 func (i *Installer) Uninstall(ctx context.Context, name string) error {
+	state, err := i.captureState(ctx)
+	if err != nil {
+		return err
+	}
+	if err := i.uninstall(ctx, name); err != nil {
+		return errors.Join(err, i.restoreState(state))
+	}
+	return nil
+}
+
+func (i *Installer) uninstall(ctx context.Context, name string) error {
 	existing, err := i.modules.Get(ctx, name)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrModuleNotFound, name)
@@ -330,6 +383,15 @@ func (i *Installer) Uninstall(ctx context.Context, name string) error {
 	for _, resourceType := range existingManifest.Resources {
 		if _, ok := otherResources[resourceType]; ok {
 			continue
+		}
+		if i.resources != nil {
+			ids, err := i.resources.ListIDs(ctx, resourceType, 1, 0)
+			if err != nil {
+				return fmt.Errorf("check resources for %s: %w", resourceType, err)
+			}
+			if len(ids) > 0 {
+				return fmt.Errorf("%w: %s contains resource %s", ErrResourceTypeInUse, resourceType, ids[0])
+			}
 		}
 		if err := i.applier.DisableResource(ctx, resourceType); err != nil {
 			return err
@@ -394,6 +456,92 @@ func (i *Installer) registerModule(ctx context.Context, mod *Module) error {
 		return fmt.Errorf("register module: %w", err)
 	}
 	return nil
+}
+
+type installerState struct {
+	modules     []store.ModuleRecord
+	definitions []store.DefinitionResourceRecord
+	installs    []store.RegistryInstallRecord
+}
+
+func (i *Installer) captureState(ctx context.Context) (installerState, error) {
+	modules, err := i.modules.List(ctx)
+	if err != nil {
+		return installerState{}, fmt.Errorf("capture installed modules: %w", err)
+	}
+	definitions, err := i.defs.List(ctx, store.DefinitionFilter{})
+	if err != nil {
+		return installerState{}, fmt.Errorf("capture registry definitions: %w", err)
+	}
+	installs, err := i.installs.ListInstalled(ctx, store.RegistryInstallFilter{})
+	if err != nil {
+		return installerState{}, fmt.Errorf("capture registry installs: %w", err)
+	}
+	return installerState{
+		modules:     append([]store.ModuleRecord(nil), modules...),
+		definitions: append([]store.DefinitionResourceRecord(nil), definitions...),
+		installs:    append([]store.RegistryInstallRecord(nil), installs...),
+	}, nil
+}
+
+func (i *Installer) restoreState(state installerState) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := i.installs.Delete(ctx, store.RegistryInstallFilter{}); err != nil {
+		return fmt.Errorf("rollback: clear registry installs: %w", err)
+	}
+
+	currentDefinitions, err := i.defs.List(ctx, store.DefinitionFilter{})
+	if err != nil {
+		return fmt.Errorf("rollback: list definitions: %w", err)
+	}
+	for _, definition := range currentDefinitions {
+		if err := i.applier.DeleteDefinition(ctx, definition.CanonicalURL, definition.Version); err != nil {
+			return fmt.Errorf("rollback: clear definition %s: %w", definition.CanonicalURL, err)
+		}
+	}
+
+	currentModules, err := i.modules.List(ctx)
+	if err != nil {
+		return fmt.Errorf("rollback: list modules: %w", err)
+	}
+
+	var rollbackErr error
+	for _, definition := range state.definitions {
+		_, _, parseErr := registry.ParseDefinition(definition.JSONData)
+		if parseErr != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: parse definition %s: %w", definition.CanonicalURL, parseErr))
+			continue
+		}
+		if err := i.applier.InstallDefinition(ctx, definition.JSONData, registry.InstallProvenance{
+			PackageName:    definition.PackageName,
+			PackageVersion: definition.PackageVersion,
+			ModuleName:     definition.ModuleName,
+			SourceModule:   definition.ModuleName,
+		}); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: restore definition %s: %w", definition.CanonicalURL, err))
+		}
+	}
+	for _, install := range state.installs {
+		if err := i.installs.SetEnabled(ctx, install); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: restore registry install %s: %w", install.CanonicalURL, err))
+		}
+	}
+	for _, module := range currentModules {
+		if err := i.modules.Unregister(ctx, module.Name); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: clear module %s: %w", module.Name, err))
+		}
+	}
+	for _, module := range state.modules {
+		if err := i.modules.Register(ctx, module); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: restore module %s: %w", module.Name, err))
+		}
+	}
+	if _, err := i.applier.RebuildSnapshot(ctx); err != nil {
+		rollbackErr = errors.Join(rollbackErr, fmt.Errorf("rollback: rebuild registry snapshot: %w", err))
+	}
+	return rollbackErr
 }
 
 func declarationsFromManifest(m Manifest) Declarations {

@@ -26,6 +26,27 @@ func mapError(err error) (int, *types.OperationOutcome) {
 	if errors.Is(err, errUnauthenticated) {
 		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
 	}
+	var rateLimited *rateLimitError
+	if errors.As(err, &rateLimited) {
+		return http.StatusTooManyRequests, &types.OperationOutcome{
+			ResourceType: "OperationOutcome",
+			Issue:        []types.OperationIssue{{Severity: "error", Code: "throttled", Diagnostics: rateLimited.Error()}},
+		}
+	}
+	var methodErr *methodNotAllowedError
+	if errors.As(err, &methodErr) {
+		return http.StatusMethodNotAllowed, &types.OperationOutcome{
+			ResourceType: "OperationOutcome",
+			Issue:        []types.OperationIssue{{Severity: "error", Code: "not-supported", Diagnostics: methodErr.Error()}},
+		}
+	}
+	var notAcceptable *notAcceptableError
+	if errors.As(err, &notAcceptable) {
+		return http.StatusNotAcceptable, &types.OperationOutcome{
+			ResourceType: "OperationOutcome",
+			Issue:        []types.OperationIssue{{Severity: "error", Code: "not-supported", Diagnostics: notAcceptable.Error()}},
+		}
+	}
 
 	switch {
 	case errors.Is(err, search.ErrInvalidQuery),
@@ -47,7 +68,31 @@ func mapError(err error) (int, *types.OperationOutcome) {
 		return http.StatusConflict, core.OperationOutcomeFromError(err)
 	case core.ErrorKindNotSupported:
 		return http.StatusBadRequest, core.OperationOutcomeFromError(err)
+	case core.ErrorKindPrecondition:
+		return http.StatusPreconditionFailed, core.OperationOutcomeFromError(err)
 	default:
+		var notImpl *notImplementedError
+		if errors.As(err, &notImpl) {
+			return http.StatusNotImplemented, &types.OperationOutcome{
+				ResourceType: "OperationOutcome",
+				Issue: []types.OperationIssue{{
+					Severity:    "error",
+					Code:        "not-supported",
+					Diagnostics: notImpl.Error(),
+				}},
+			}
+		}
+		var precond *preconditionError
+		if errors.As(err, &precond) {
+			return http.StatusPreconditionFailed, &types.OperationOutcome{
+				ResourceType: "OperationOutcome",
+				Issue: []types.OperationIssue{{
+					Severity:    "error",
+					Code:        "processing",
+					Diagnostics: precond.Error(),
+				}},
+			}
+		}
 		return http.StatusInternalServerError, core.OperationOutcomeFromError(err)
 	}
 }

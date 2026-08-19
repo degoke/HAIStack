@@ -48,7 +48,7 @@ func TestCSVSink_HeaderOrderingAndEncoding(t *testing.T) {
 	if lines[0] != "id,given,tags,score,active,missing" {
 		t.Fatalf("header = %q", lines[0])
 	}
-	if lines[1] != `pat-1,Jane,"[""a"",""b""]",72.5,true,` {
+	if lines[1] != `pat-1,Jane,"[""a"",""b""]",72.5,true,\N` {
 		t.Fatalf("row = %q", lines[1])
 	}
 }
@@ -71,5 +71,28 @@ func TestCSVSink_EmptyResultSet(t *testing.T) {
 	}
 	if buf.String() != "id,given\n" {
 		t.Fatalf("csv = %q, want header only", buf.String())
+	}
+}
+
+func TestCSVSink_DistinguishesNullAndEmptyString(t *testing.T) {
+	result := &view.Result{
+		Columns: []view.ColumnInfo{
+			{Name: "empty", Type: "string"},
+			{Name: "missing", Type: "string"},
+			{Name: "slash", Type: "string"},
+		},
+		Rows: []map[string]any{{
+			"empty":   "",
+			"missing": nil,
+			"slash":   `\N`,
+		}},
+	}
+
+	var buf bytes.Buffer
+	if err := analytics.NewCSVSink(&buf).WriteRows(context.Background(), result); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	if got, want := buf.String(), "empty,missing,slash\n,\\N,\\\\N\n"; got != want {
+		t.Fatalf("csv = %q, want %q", got, want)
 	}
 }

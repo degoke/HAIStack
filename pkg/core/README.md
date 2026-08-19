@@ -41,7 +41,6 @@ It does **not** store data itself, parse search queries, or serve HTTP. It orche
 - HTTP routes or REST server
 - Search query parsing (`GET /Patient?name=...`)
 - CapabilityStatement generation
-- Batch bundles, PATCH, or conditional create/update
 - System-wide `_history` (per-resource history only)
 
 ## When to use it

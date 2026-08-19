@@ -21,6 +21,87 @@ type SearchResult struct {
 	RawBundle    []byte
 }
 
+// SearchIterator walks resources across search pages while retaining the
+// underlying page metadata for callers that need it.
+type SearchIterator struct {
+	client       *Client
+	ctx          context.Context
+	resourceType string
+	params       map[string]string
+	page         *SearchResult
+	index        int
+	current      *types.ResourceEnvelope
+	err          error
+	started      bool
+	seenPages    map[string]struct{}
+}
+
+// IterateSearch returns a resource iterator for a type-level search.
+func (c *Client) IterateSearch(ctx context.Context, resourceType string, params map[string]string) *SearchIterator {
+	return &SearchIterator{client: c, ctx: ctx, resourceType: resourceType, params: params}
+}
+
+// Next advances the iterator to the next resource.
+func (it *SearchIterator) Next() bool {
+	if it == nil || it.err != nil {
+		return false
+	}
+	if it.client == nil {
+		it.err = fmt.Errorf("search iterator client is nil")
+		return false
+	}
+	it.current = nil
+	for {
+		if !it.started {
+			it.started = true
+			it.page, it.err = it.client.Search(it.ctx, it.resourceType, it.params)
+		}
+		if it.err != nil {
+			return false
+		}
+		if it.page != nil && it.index < len(it.page.Entries) {
+			it.current = it.page.Entries[it.index]
+			it.index++
+			return it.current != nil
+		}
+		if it.page != nil && it.page.HasNext() {
+			resolved, err := resolveSameOriginURL(it.client.baseURL, it.page.NextURL)
+			if err != nil {
+				it.err = fmt.Errorf("search page URL: %w", err)
+				return false
+			}
+			if it.seenPages == nil {
+				it.seenPages = make(map[string]struct{})
+			}
+			if _, exists := it.seenPages[resolved]; exists {
+				it.err = fmt.Errorf("search pagination cycle at %q", resolved)
+				return false
+			}
+			it.seenPages[resolved] = struct{}{}
+			it.page, it.err = it.client.SearchPage(it.ctx, it.resourceType, resolved)
+			it.index = 0
+		} else {
+			return false
+		}
+	}
+}
+
+// Resource returns the resource selected by the most recent successful Next.
+func (it *SearchIterator) Resource() *types.ResourceEnvelope {
+	if it == nil {
+		return nil
+	}
+	return it.current
+}
+
+// Err returns the terminal iterator error, if any.
+func (it *SearchIterator) Err() error {
+	if it == nil {
+		return fmt.Errorf("search iterator is nil")
+	}
+	return it.err
+}
+
 // HasNext reports whether another page is available.
 func (r *SearchResult) HasNext() bool {
 	return r != nil && r.NextURL != ""
@@ -39,15 +120,30 @@ func (c *Client) Search(ctx context.Context, resourceType string, params map[str
 	return c.searchURL(ctx, resourceType, u)
 }
 
+// SearchPost performs a POST-based search using an URL-encoded parameter body.
+func (c *Client) SearchPost(ctx context.Context, resourceType string, params map[string]string) (*SearchResult, error) {
+	values := url.Values{}
+	for k, v := range params {
+		values.Set(k, v)
+	}
+	u := c.fhirURL(resourceType, "_search")
+	raw, err := c.do(ctx, requestOptions{
+		method:      "POST",
+		url:         u,
+		body:        []byte(values.Encode()),
+		contentType: "application/x-www-form-urlencoded",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parseSearchBundle(c.codec, resourceType, raw.Body)
+}
+
 // SearchPage fetches a search result from an absolute or relative next URL.
 func (c *Client) SearchPage(ctx context.Context, resourceType, pageURL string) (*SearchResult, error) {
-	resolved := pageURL
-	if !strings.HasPrefix(pageURL, "http://") && !strings.HasPrefix(pageURL, "https://") {
-		if strings.HasPrefix(pageURL, "/") {
-			resolved = c.baseURL + pageURL
-		} else {
-			resolved = c.baseURL + "/" + strings.TrimLeft(pageURL, "/")
-		}
+	resolved, err := resolveSameOriginURL(c.baseURL, pageURL)
+	if err != nil {
+		return nil, fmt.Errorf("search page URL: %w", err)
 	}
 	return c.searchURL(ctx, resourceType, resolved)
 }
@@ -59,8 +155,17 @@ func (c *Client) SearchAll(ctx context.Context, resourceType string, params map[
 		return nil, err
 	}
 	all := append([]*types.ResourceEnvelope(nil), page.Entries...)
+	seenPages := make(map[string]struct{})
 	for page.HasNext() {
-		page, err = c.SearchPage(ctx, resourceType, page.NextURL)
+		resolved, resolveErr := resolveSameOriginURL(c.baseURL, page.NextURL)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("search page URL: %w", resolveErr)
+		}
+		if _, exists := seenPages[resolved]; exists {
+			return nil, fmt.Errorf("search pagination cycle at %q", resolved)
+		}
+		seenPages[resolved] = struct{}{}
+		page, err = c.SearchPage(ctx, resourceType, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -156,8 +261,17 @@ func (b *SearchBuilder) SearchAll(ctx context.Context) ([]*types.ResourceEnvelop
 		return nil, err
 	}
 	all := append([]*types.ResourceEnvelope(nil), page.Entries...)
+	seenPages := make(map[string]struct{})
 	for page.HasNext() {
-		page, err = b.client.SearchPage(ctx, b.resourceType, page.NextURL)
+		resolved, resolveErr := resolveSameOriginURL(b.client.baseURL, page.NextURL)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("search page URL: %w", resolveErr)
+		}
+		if _, exists := seenPages[resolved]; exists {
+			return nil, fmt.Errorf("search pagination cycle at %q", resolved)
+		}
+		seenPages[resolved] = struct{}{}
+		page, err = b.client.SearchPage(ctx, b.resourceType, resolved)
 		if err != nil {
 			return nil, err
 		}

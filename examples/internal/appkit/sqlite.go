@@ -49,6 +49,10 @@ func NewSQLiteStack(ctx context.Context, dbPath string, resourceTypes ...string)
 		_ = db.Close()
 		return nil, fmt.Errorf("seed registry: %w", err)
 	}
+	if err := manager.EnableResource(ctx, "Subscription"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable Subscription: %w", err)
+	}
 
 	if len(resourceTypes) == 0 {
 		resourceTypes = []string{"Patient"}

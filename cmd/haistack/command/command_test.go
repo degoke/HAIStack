@@ -206,6 +206,23 @@ func TestImportCreatesThenUpdates(t *testing.T) {
 	if second["action"] != "update" {
 		t.Fatalf("second action = %v", second["action"])
 	}
+	if _, _, err := runCLI(t, dir, "import", patientPath, "--create-only"); err == nil {
+		t.Fatal("expected create-only import to reject an existing resource")
+	}
+	readOut, _, err := runCLI(t, dir, "read", "Patient/cli-pat-1", "--output", "json")
+	if err != nil || !strings.Contains(readOut, "Updated") {
+		t.Fatalf("read: output=%q err=%v", readOut, err)
+	}
+	exportOut, _, err := runCLI(t, dir, "export", "Patient/cli-pat-1", "--output", "json")
+	if err != nil || !strings.Contains(exportOut, "Updated") {
+		t.Fatalf("export: output=%q err=%v", exportOut, err)
+	}
+	if _, _, err := runCLI(t, dir, "delete", "Patient/cli-pat-1", "--force"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, _, err := runCLI(t, dir, "read", "Patient/cli-pat-1"); err == nil {
+		t.Fatal("expected read after delete to fail")
+	}
 }
 
 func TestSearchParsesKeyValueArgs(t *testing.T) {

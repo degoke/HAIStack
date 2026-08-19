@@ -3,10 +3,13 @@ package golden
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -16,9 +19,9 @@ func CanonicalOutcomeJSON(outcome types.OperationOutcome) ([]byte, error) {
 		ResourceType: "OperationOutcome",
 		Issue:        append([]types.OperationIssue(nil), outcome.Issue...),
 	}
-	if normalized.ResourceType == "" {
-		normalized.ResourceType = "OperationOutcome"
-	}
+	sort.SliceStable(normalized.Issue, func(i, j int) bool {
+		return issueKey(normalized.Issue[i]) < issueKey(normalized.Issue[j])
+	})
 	return json.Marshal(normalized)
 }
 
@@ -79,11 +82,18 @@ func AssertOutcomeIssueCount(t *testing.T, outcome types.OperationOutcome, want 
 
 // OutcomeFromError renders an OperationOutcome from a Go error value when possible.
 func OutcomeFromError(err error) (types.OperationOutcome, bool) {
+	if err == nil {
+		return types.OperationOutcome{}, false
+	}
 	type outcomeCarrier interface {
 		OperationOutcome() types.OperationOutcome
 	}
-	if c, ok := err.(outcomeCarrier); ok {
+	var c outcomeCarrier
+	if errors.As(err, &c) {
 		return c.OperationOutcome(), true
+	}
+	if outcome := core.OperationOutcomeFromError(err); outcome != nil {
+		return *outcome, true
 	}
 	return types.OperationOutcome{}, false
 }
@@ -99,4 +109,9 @@ func prettyJSON(data []byte) string {
 		return strings.TrimSpace(string(data))
 	}
 	return buf.String()
+}
+
+func issueKey(issue types.OperationIssue) string {
+	data, _ := json.Marshal(issue)
+	return string(data)
 }

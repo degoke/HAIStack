@@ -91,7 +91,7 @@ func TestBulkExportPollAndManifest(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	statusPath = srv.URL + "/export/status/1"
+	statusPath = "/export/status/1"
 
 	c, _ := New(Config{BaseURL: srv.URL})
 	job, err := c.BulkExport().Kickoff(context.Background(), ExportKickoffRequest{})

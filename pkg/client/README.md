@@ -59,13 +59,19 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 |--------|------|--------|---------|
 | `GET` | `/fhir/metadata` | Server capability statement | 200 + CapabilityStatement |
 | `POST` | `/fhir` | Transaction bundle | 200 + transaction-response Bundle |
+| `POST` | `/fhir` | Batch bundle | 200 + batch-response Bundle |
+| `GET`/`POST` | `/fhir/$operation` or resource operation path | Generic custom operation | 200 + returned resource |
 | `GET` | `/fhir/{ResourceType}` | Type-level search | 200 + searchset Bundle |
+| `POST` | `/fhir/{ResourceType}/_search` | Form-encoded search | 200 + searchset Bundle |
 | `POST` | `/fhir/{ResourceType}` | Create resource | 201 + resource |
+| `POST` | `/fhir/{ResourceType}` + `If-None-Exist` | Conditional create | 201/200 + resource |
 | `GET` | `/fhir/{ResourceType}/{id}` | Read resource | 200 + resource |
 | `PUT` | `/fhir/{ResourceType}/{id}` | Update resource | 200 + resource |
+| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch update | 200 + resource |
 | `DELETE` | `/fhir/{ResourceType}/{id}` | Delete resource | 204 No Content |
-| `GET` | `/fhir/$export` | System bulk export kickoff | 202 + `Content-Location` |
-| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 202 + `Content-Location` |
+| `PUT`/`DELETE` | `/fhir/{ResourceType}?criteria` | Conditional update/delete | 201/200/204 |
+| `GET` | `/fhir/$export` | System bulk export kickoff | 501 until server implements bulk export |
+| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 501 until server implements bulk export |
 
 ### HAIStack sync (wire contract)
 
@@ -78,8 +84,7 @@ Pull query parameters: `nodeId`, `tenantId`, `after` (cursor), `limit` (optional
 
 ### Deferred (v1)
 
-- `PATCH`, batch bundles, custom FHIR operations beyond bulk export
-- `POST /{type}/_search` (only `GET` type-level search)
+- Bulk export server implementation (client supports kickoff/poll; servers return 501 today)
 - R5-specific typed surfaces
 - HAIStack-private subscription delivery/admin APIs
 

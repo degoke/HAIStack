@@ -293,6 +293,9 @@ func (s *ResourceService) History(ctx context.Context, resourceType, id string) 
 }
 
 func (s *ResourceService) normalizeEnvelope(resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if resource == nil {
+		return nil, invalidErr("resource envelope is required", nil)
+	}
 	if len(resource.JSON) == 0 {
 		return nil, invalidErr("resource JSON is required", nil)
 	}
@@ -312,6 +315,25 @@ func (s *ResourceService) normalizeEnvelope(resource *types.ResourceEnvelope) (*
 			nil,
 		)
 	}
+	if resource.ID != "" {
+		if envelope.ID != "" && envelope.ID != resource.ID {
+			return nil, invalidErr(
+				fmt.Sprintf("id mismatch: expected %s, got %s", resource.ID, envelope.ID),
+				nil,
+				"Resource.id",
+			)
+		}
+		if envelope.ID == "" {
+			jsonWithID, err := types.SetID(envelope.JSON, resource.ID)
+			if err != nil {
+				return nil, invalidErr("set resource id", err, "Resource.id")
+			}
+			envelope, err = s.codec.ParseJSON(envelope.ResourceType, jsonWithID)
+			if err != nil {
+				return nil, invalidErr("parse resource with id", err, "Resource.id")
+			}
+		}
+	}
 	return envelope, nil
 }
 
@@ -320,6 +342,19 @@ func (s *ResourceService) applyWrite(
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	action store.VersionAction,
+) (*types.ResourceEnvelope, error) {
+	return s.applyWriteExpectedVersion(ctx, session, envelope, action, "")
+}
+
+// applyWriteExpectedVersion performs the version comparison in the same write
+// session as the mutation. An empty expected version selects ordinary writes;
+// a non-empty value requires a ConditionalResourceStore implementation.
+func (s *ResourceService) applyWriteExpectedVersion(
+	ctx context.Context,
+	session store.WriteSession,
+	envelope *types.ResourceEnvelope,
+	action store.VersionAction,
+	expectedVersion string,
 ) (*types.ResourceEnvelope, error) {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
@@ -338,7 +373,19 @@ func (s *ResourceService) applyWrite(
 			return nil, exceptionErr("create resource", err)
 		}
 	case store.VersionActionUpdate:
-		if err := session.ResourceStore().Update(ctx, prepared); err != nil {
+		if expectedVersion != "" {
+			conditional, ok := session.ResourceStore().(store.ConditionalResourceStore)
+			if !ok {
+				return nil, notSupportedErr("conditional version writes are not supported by the resource store", nil)
+			}
+			matched, err := conditional.UpdateIfVersion(ctx, prepared, expectedVersion)
+			if err != nil {
+				return nil, exceptionErr("conditional update resource", err)
+			}
+			if !matched {
+				return nil, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expectedVersion), nil)
+			}
+		} else if err := session.ResourceStore().Update(ctx, prepared); err != nil {
 			if isStoreNotFound(err) {
 				return nil, notFoundErr(err.Error(), err)
 			}
@@ -376,10 +423,26 @@ func (s *ResourceService) applyWrite(
 }
 
 func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope) error {
+	return s.applyDeleteExpectedVersion(ctx, session, current, "")
+}
+
+func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope, expectedVersion string) error {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
-	if err := session.ResourceStore().Delete(ctx, current.ResourceType, current.ID); err != nil {
+	if expectedVersion != "" {
+		conditional, ok := session.ResourceStore().(store.ConditionalResourceStore)
+		if !ok {
+			return notSupportedErr("conditional version deletes are not supported by the resource store", nil)
+		}
+		matched, err := conditional.DeleteIfVersion(ctx, current.ResourceType, current.ID, expectedVersion)
+		if err != nil {
+			return exceptionErr("conditional delete resource", err)
+		}
+		if !matched {
+			return preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expectedVersion), nil)
+		}
+	} else if err := session.ResourceStore().Delete(ctx, current.ResourceType, current.ID); err != nil {
 		if isStoreNotFound(err) {
 			return notFoundErr(err.Error(), err)
 		}

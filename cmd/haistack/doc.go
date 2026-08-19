@@ -63,7 +63,8 @@
 // then command-line flags. Relative sqlitePath and modulePaths in a config file
 // resolve against the config file directory.
 //
-// Use --output json on non-server commands for machine-readable results.
+// Use --output json for machine-readable results. serve also emits startup
+// metadata as JSON and exposes /healthz and /readyz probes.
 //
 // See README.md in this directory for the full command reference, config schema,
 // environment variable table, and package layout.

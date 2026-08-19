@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -29,7 +30,13 @@ func NewConflictStore() *ConflictStore {
 func (s *ConflictStore) Append(_ context.Context, record store.ConflictRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.records[record.ID] = record
+	if record.ID == "" {
+		return fmt.Errorf("conflict id is required")
+	}
+	if _, exists := s.records[record.ID]; exists {
+		return fmt.Errorf("conflict already exists: %s", record.ID)
+	}
+	s.records[record.ID] = cloneConflictRecord(record)
 	key := ResourceKey(record.ResourceType, record.ResourceID)
 	s.byResource[key] = append(s.byResource[key], record.ID)
 	return nil
@@ -41,8 +48,14 @@ func (s *ConflictStore) List(_ context.Context, resourceType, resourceID string)
 	ids := s.byResource[ResourceKey(resourceType, resourceID)]
 	out := make([]store.ConflictRecord, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, s.records[id])
+		out = append(out, cloneConflictRecord(s.records[id]))
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 
@@ -64,7 +77,22 @@ func (s *ConflictStore) Records() []store.ConflictRecord {
 	defer s.mu.Unlock()
 	out := make([]store.ConflictRecord, 0, len(s.records))
 	for _, record := range s.records {
-		out = append(out, record)
+		out = append(out, cloneConflictRecord(record))
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
+}
+
+func cloneConflictRecord(record store.ConflictRecord) store.ConflictRecord {
+	copy := record
+	if record.ResolvedAt != nil {
+		resolvedAt := *record.ResolvedAt
+		copy.ResolvedAt = &resolvedAt
+	}
+	return copy
 }

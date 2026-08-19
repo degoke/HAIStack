@@ -3,7 +3,8 @@
 // v1 supports inline and embedded golden JSON payloads only. File-backed golden
 // workflows can be added later when a concrete need appears.
 //
-// CanonicalOutcomeJSON normalizes an OperationOutcome to stable JSON for comparison.
+// CanonicalOutcomeJSON normalizes an OperationOutcome to stable JSON for comparison,
+// including deterministic sorting of issue objects.
 // AssertOutcomeEqual ignores formatting differences between two outcome values.
 // AssertOutcomeMatchesGolden compares against an inline golden JSON string.
 //

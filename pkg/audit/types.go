@@ -38,33 +38,35 @@ const (
 
 // Event is the canonical audit event model used across the stack.
 type Event struct {
-	ID           string            `json:"id"`
-	Timestamp    time.Time         `json:"timestamp"`
-	Actor        string            `json:"actor"`
-	Tenant       string            `json:"tenant,omitempty"`
-	Subject      string            `json:"subject,omitempty"`
-	Action       string            `json:"action"`
-	Outcome      string            `json:"outcome,omitempty"`
-	ResourceType string            `json:"resourceType,omitempty"`
-	ResourceID   string            `json:"resourceId,omitempty"`
-	ViewName     string            `json:"viewName,omitempty"`
-	ToolName     string            `json:"toolName,omitempty"`
-	ModuleName   string            `json:"moduleName,omitempty"`
-	BlobKey      string            `json:"blobKey,omitempty"`
-	Details      map[string]string `json:"details,omitempty"`
+	ID             string            `json:"id"`
+	Timestamp      time.Time         `json:"timestamp"`
+	Actor          string            `json:"actor"`
+	Tenant         string            `json:"tenant,omitempty"`
+	Subject        string            `json:"subject,omitempty"`
+	Action         string            `json:"action"`
+	Outcome        string            `json:"outcome,omitempty"`
+	ResourceType   string            `json:"resourceType,omitempty"`
+	ResourceID     string            `json:"resourceId,omitempty"`
+	ViewName       string            `json:"viewName,omitempty"`
+	ToolName       string            `json:"toolName,omitempty"`
+	ConversationID string            `json:"conversationId,omitempty"`
+	ModuleName     string            `json:"moduleName,omitempty"`
+	BlobKey        string            `json:"blobKey,omitempty"`
+	Details        map[string]string `json:"details,omitempty"`
 }
 
-// Query selects audit events. Filters that store.AuditQuery cannot express
-// (action, outcome, tenant) are applied in-memory after List when using
-// StoreAdapter.ListEvents.
+// Query selects audit events using store-backed filters where available.
 type Query struct {
-	ResourceType string    `json:"resourceType,omitempty"`
-	ResourceID   string    `json:"resourceId,omitempty"`
-	Actor        string    `json:"actor,omitempty"`
-	Action       string    `json:"action,omitempty"`
-	Outcome      string    `json:"outcome,omitempty"`
-	Tenant       string    `json:"tenant,omitempty"`
-	After        time.Time `json:"after,omitempty"`
-	Before       time.Time `json:"before,omitempty"`
-	Limit        int       `json:"limit,omitempty"`
+	ResourceType   string    `json:"resourceType,omitempty"`
+	ResourceID     string    `json:"resourceId,omitempty"`
+	Actor          string    `json:"actor,omitempty"`
+	Action         string    `json:"action,omitempty"`
+	Outcome        string    `json:"outcome,omitempty"`
+	Tenant         string    `json:"tenant,omitempty"`
+	ViewName       string    `json:"viewName,omitempty"`
+	ToolName       string    `json:"toolName,omitempty"`
+	ConversationID string    `json:"conversationId,omitempty"`
+	After          time.Time `json:"after,omitempty"`
+	Before         time.Time `json:"before,omitempty"`
+	Limit          int       `json:"limit,omitempty"`
 }

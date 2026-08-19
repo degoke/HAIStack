@@ -49,15 +49,17 @@ module installation already compile projections in their transaction when the
 backend supports a terminology write session.
 
 ```go
-svc := &terminology.LocalService{
-    Store:   db.TerminologyStore(),
-    ScopeID: "default", // tenant ID for Postgres
-}
+svc := terminology.NewLocalService(db.TerminologyStore(), "default")
 
 result, err := svc.Lookup(ctx, terminology.LookupRequest{
     System: "urn:example:sex", Version: "1", Code: "female",
 })
 ```
+
+`Compile` writes projections only. `Install` normalizes canonical JSON, calls
+`Compile`, and persists the resource record via `TerminologyStore.PutResource`.
+Use `Install` for normal ingest; call `Compile` directly only when the canonical
+record is already stored.
 
 `LocalService` supports:
 

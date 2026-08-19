@@ -160,6 +160,86 @@ func TestDeleteExistingAndMissing(t *testing.T) {
 	}
 }
 
+func TestPatchReplacesField(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	patch := []byte(`[{"op":"replace","path":"/name/0/family","value":"Smith"}]`)
+	patched, err := harness.svc.Patch(ctx, "Patient", "pat-1", patch)
+	if err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	if patched.ID != "pat-1" {
+		t.Fatalf("patched id = %q", patched.ID)
+	}
+
+	read, err := harness.svc.Read(ctx, "Patient", "pat-1")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(read.JSON, &obj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	names := obj["name"].([]interface{})
+	first := names[0].(map[string]interface{})
+	if first["family"] != "Smith" {
+		t.Fatalf("family = %v, want Smith", first["family"])
+	}
+}
+
+func TestPatchMissingResource(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	patch := []byte(`[{"op":"replace","path":"/name/0/family","value":"Smith"}]`)
+	_, err := harness.svc.Patch(ctx, "Patient", "missing", patch)
+	if !core.IsNotFound(err) {
+		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestPatchInvalidOperation(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	patch := []byte(`[{"op":"replace","path":"/name/0/missing","value":"Smith"}]`)
+	_, err := harness.svc.Patch(ctx, "Patient", "pat-1", patch)
+	if err == nil || core.KindOf(err) != core.ErrorKindInvalid {
+		t.Fatalf("expected invalid error, got %v", err)
+	}
+}
+
+func TestPatchCannotChangeResourceIdentity(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for _, patch := range []string{
+		`[{"op":"replace","path":"/id","value":"pat-2"}]`,
+		`[{"op":"remove","path":"/id"}]`,
+	} {
+		_, err := harness.svc.Patch(ctx, "Patient", "pat-1", []byte(patch))
+		if err == nil || core.KindOf(err) != core.ErrorKindInvalid {
+			t.Fatalf("patch %s: expected invalid identity error, got %v", patch, err)
+		}
+	}
+
+	if _, err := harness.svc.Read(ctx, "Patient", "pat-2"); !core.IsNotFound(err) {
+		t.Fatalf("unexpected resource created at patched id: %v", err)
+	}
+}
+
 func TestValidatorFailureAbortsWrite(t *testing.T) {
 	harness := newTestHarness(t, harnessOptions{
 		validator: &failValidator{err: errors.New("invalid patient")},
@@ -198,8 +278,8 @@ func TestBuiltinValidatorAbortsWrite(t *testing.T) {
 	if outcome == nil || len(outcome.Issue) == 0 {
 		t.Fatal("expected operation outcome")
 	}
-	if outcome.Issue[0].Code != "invalid" {
-		t.Fatalf("issue code = %q, want invalid", outcome.Issue[0].Code)
+	if outcome.Issue[0].Code != "invalid-id" {
+		t.Fatalf("issue code = %q, want invalid-id", outcome.Issue[0].Code)
 	}
 	if !strings.Contains(outcome.Issue[0].Diagnostics, "FHIR id syntax") {
 		t.Fatalf("diagnostics = %q", outcome.Issue[0].Diagnostics)

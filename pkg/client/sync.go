@@ -20,6 +20,38 @@ type SyncClient struct {
 	client *Client
 }
 
+// ScopedSyncClient binds node and tenant identity once for repeated sync
+// calls, while the wire protocol continues to send both fields explicitly.
+type ScopedSyncClient struct {
+	parent   *SyncClient
+	nodeID   string
+	tenantID string
+}
+
+func (s *SyncClient) For(nodeID, tenantID string) (*ScopedSyncClient, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("sync client is nil")
+	}
+	if nodeID == "" || tenantID == "" {
+		return nil, fmt.Errorf("nodeId and tenantId are required")
+	}
+	return &ScopedSyncClient{parent: s, nodeID: nodeID, tenantID: tenantID}, nil
+}
+
+func (s *ScopedSyncClient) Push(ctx context.Context, events []sync.LocalEvent) (*PushResponse, error) {
+	if s == nil || s.parent == nil {
+		return nil, fmt.Errorf("scoped sync client is nil")
+	}
+	return s.parent.Push(ctx, ToPushRequest(s.nodeID, s.tenantID, events))
+}
+
+func (s *ScopedSyncClient) Pull(ctx context.Context, after int64, limit int) (*PullResponse, error) {
+	if s == nil || s.parent == nil {
+		return nil, fmt.Errorf("scoped sync client is nil")
+	}
+	return s.parent.Pull(ctx, PullRequest{NodeID: s.nodeID, TenantID: s.tenantID, After: after, Limit: limit})
+}
+
 // PushRequest is the HTTP wire payload for POST /sync/push.
 type PushRequest struct {
 	NodeID   string            `json:"nodeId"`
@@ -58,6 +90,11 @@ func (s *SyncClient) Push(ctx context.Context, req PushRequest) (*PushResponse, 
 	if req.TenantID == "" {
 		return nil, fmt.Errorf("tenantId is required")
 	}
+	for _, event := range req.Events {
+		if event.TenantID != req.TenantID || event.OriginNodeID != req.NodeID {
+			return nil, fmt.Errorf("event tenantId and originNodeId must match the sync request")
+		}
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -87,6 +124,12 @@ func (s *SyncClient) Pull(ctx context.Context, req PullRequest) (*PullResponse, 
 	}
 	if req.TenantID == "" {
 		return nil, fmt.Errorf("tenantId is required")
+	}
+	if req.After < 0 {
+		return nil, fmt.Errorf("after must be non-negative")
+	}
+	if req.Limit < 0 || req.Limit > 1000 {
+		return nil, fmt.Errorf("limit must be between 0 and 1000")
 	}
 	values := url.Values{}
 	values.Set("nodeId", req.NodeID)

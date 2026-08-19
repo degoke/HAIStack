@@ -29,6 +29,11 @@ The generated R4 protobuf types remain available through `pkg/proto/r4`. Use
 needed; canonical JSON and `ResourceEnvelope` remain the interchange and
 storage boundary.
 
+The compatibility projections encode polymorphic FHIR values with their
+correct `value[x]`/`answer[x]` keys and encode SDC behavior fields as FHIR
+extensions. Projection envelopes are therefore hash-stable across a
+decode/encode round trip.
+
 The small questionnaire projection structs retained in the package are
 compatibility views for behavior evaluation. They are not replacements for
 `pkg/proto/r4` resources and should not be persisted directly.
@@ -58,11 +63,15 @@ FHIRPath is the built-in expression path:
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
 response, outcome := sdc.PopulateResource(ctx, questionnaire,
     sdc.PopulationContext{
-        Subject:  patientJSON,
+        Subject:  patientEnvelope,
         Provider: sdc.FHIRPathExpressions{Engine: engine},
     },
 )
 ```
+
+The built-in provider adapts Questionnaire and QuestionnaireResponse
+projections and resource-shaped JSON maps. A subject should normally be a
+`*types.ResourceEnvelope` or supported R4 proto resource.
 
 CQL and FHIR Query are represented by safe provider interfaces. If no provider
 is installed, the operation reports an unavailable-expression diagnostic.
@@ -72,7 +81,9 @@ is installed, the operation reports an unavailable-expression diagnostic.
 `EvaluateCalculated` iterates calculated expressions with a convergence limit,
 dependency inspection, and explicit cycle diagnostics. `Render` produces a
 renderer-neutral `FormModel` containing field visibility, enabled/read-only
-state, answers, options, media, issues, and navigation hints.
+state, answers, options, media, item-control metadata, issues, and navigation
+hints. Use `RenderWithOptions` when expression-based enablement or validation
+issues should be evaluated during rendering.
 
 ### Modular assembly
 
@@ -80,6 +91,9 @@ state, answers, options, media, issues, and navigation hints.
 `QuestionnaireResolver`. It does not perform network access itself. A
 store-backed resolver, `StoreQuestionnaireResolver`, uses the existing
 `store.ResourceStore` and canonical JSON resources.
+
+Envelope-first callers can use `AssembleQuestionnaireResource` to perform the
+same operation without manually decoding the projection.
 
 ### Extraction
 
@@ -123,8 +137,11 @@ POST /fhir/Questionnaire/$answer
 ```
 
 Populate, validate, and assemble work with the default adapter. Extraction
-requires application mappings/templates; adaptive routes require an injected
-session policy. Unavailable capabilities return FHIR OperationOutcome errors.
+requires application mappings/templates. Package-level adaptive callers can
+use the bundled `SequentialAdaptiveEngine` for deterministic
+questionnaire-order flow or inject a session policy for branching/scoring
+behavior. The HTTP adapter still requires an application session adapter.
+Unavailable capabilities return FHIR OperationOutcome errors.
 
 Applications can replace or extend the adapter through the runtime builder:
 

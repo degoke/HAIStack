@@ -27,6 +27,10 @@ func FHIRPathValuesJSON(values []fhirpath.Value) ([]byte, error) {
 			if n, err := v.Float64(); err == nil {
 				item["value"] = n
 			}
+		case "Date", "DateTime", "Time", "Quantity":
+			if s, err := v.String(); err == nil {
+				item["value"] = s
+			}
 		default:
 			item["value"] = v.Type()
 		}

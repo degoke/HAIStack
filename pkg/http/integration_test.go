@@ -221,3 +221,127 @@ func TestIntegrationTransactionBundle(t *testing.T) {
 		t.Fatalf("type = %v", bundle["type"])
 	}
 }
+
+func TestIntegrationConditionalCreate(t *testing.T) {
+	handler, svc := openIntegrationStack(t)
+	ctx := context.Background()
+
+	// No match: conditional create should create a new resource (201).
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Patient?family=CondCreateNew", patientJSON("", "CondCreateNew"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("conditional create (no match) status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var created map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create: %v", err)
+	}
+	createdID, _ := created["id"].(string)
+	if createdID == "" {
+		t.Fatal("expected created id")
+	}
+
+	// Single match: conditional create should return the existing resource (200).
+	rec = doRequest(t, handler, http.MethodPost, "/fhir/Patient?family=CondCreateNew", patientJSON("", "CondCreateNew"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("conditional create (single match) status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var existing map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &existing); err != nil {
+		t.Fatalf("unmarshal existing: %v", err)
+	}
+	if existing["id"] != createdID {
+		t.Fatalf("id = %v, want %s", existing["id"], createdID)
+	}
+
+	// Multiple matches: conditional create should fail with 412.
+	for _, id := range []string{"cond-dup-1", "cond-dup-2"} {
+		if _, err := svc.Create(ctx, &types.ResourceEnvelope{
+			ResourceType: "Patient",
+			ID:           id,
+			JSON:         patientJSON(id, "CondCreateDup"),
+		}); err != nil {
+			t.Fatalf("Create %s: %v", id, err)
+		}
+	}
+	rec = doRequest(t, handler, http.MethodPost, "/fhir/Patient?family=CondCreateDup", patientJSON("", "CondCreateDup"))
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("conditional create (multiple matches) status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// If-None-Exist header path.
+	rec = doRequestWithHeaders(t, handler, http.MethodPost, "/fhir/Patient", patientJSON("", "IfNoneExistFamily"), map[string]string{
+		"If-None-Exist": "family=IfNoneExistFamily",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("If-None-Exist create status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec = doRequestWithHeaders(t, handler, http.MethodPost, "/fhir/Patient", patientJSON("", "IfNoneExistFamily"), map[string]string{
+		"If-None-Exist": "family=IfNoneExistFamily",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("If-None-Exist existing status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestIntegrationConditionalUpdateAndDelete(t *testing.T) {
+	handler, svc := openIntegrationStack(t)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		ID:           "cond-upd-1",
+		JSON:         patientJSON("cond-upd-1", "CondUpdateTarget"),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rec := doRequest(t, handler, http.MethodPut, "/fhir/Patient?family=CondUpdateTarget", patientJSON(created.ID, "CondUpdateRenamed"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("conditional update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var updated map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("unmarshal update: %v", err)
+	}
+	if updated["id"] != created.ID {
+		t.Fatalf("updated id = %v, want %s", updated["id"], created.ID)
+	}
+
+	rec = doRequest(t, handler, http.MethodPut, "/fhir/Patient?family=MissingUpdateFamily", patientJSON("cond-upd-new", "Missing"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("conditional update-as-create status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := svc.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		ID:           "cond-del-1",
+		JSON:         patientJSON("cond-del-1", "CondDeleteTarget"),
+	}); err != nil {
+		t.Fatalf("Create delete target: %v", err)
+	}
+	rec = doRequest(t, handler, http.MethodDelete, "/fhir/Patient?family=CondDeleteTarget", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("conditional delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	readRec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/cond-del-1", nil)
+	if readRec.Code != http.StatusNotFound {
+		t.Fatalf("read after conditional delete status = %d", readRec.Code)
+	}
+}
+
+func TestIntegrationIfMatchPreconditionFailed(t *testing.T) {
+	handler, _ := openIntegrationStack(t)
+
+	createRec := doRequest(t, handler, http.MethodPost, "/fhir/Patient", patientJSON("if-match-1", "IfMatchFamily"))
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createRec.Code, createRec.Body.String())
+	}
+
+	rec := doRequestWithHeaders(t, handler, http.MethodPut, "/fhir/Patient/if-match-1", patientJSON("if-match-1", "IfMatchUpdated"), map[string]string{
+		"If-Match": `W/"stale-version"`,
+	})
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("If-Match mismatch status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}

@@ -33,7 +33,7 @@ func (h *MemoryHub) Push(_ context.Context, events []hasync.LocalEvent) ([]hasyn
 		h.nextSeq++
 		canonicalVersion := fmt.Sprintf("hub-v%d", h.nextSeq)
 		canonical := hasync.CanonicalEvent{
-			EventID:            hasync.CanonicalEventID(h.nextSeq),
+			EventID:            hasync.CanonicalEventID(event.TenantID, h.nextSeq),
 			OriginNodeID:       event.OriginNodeID,
 			TenantID:           event.TenantID,
 			ResourceType:       event.ResourceType,

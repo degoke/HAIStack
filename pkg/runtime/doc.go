@@ -45,8 +45,12 @@
 //     core/FHIRPath adapter is used when omitted
 //   - WithSearch — enable search indexing and query execution
 //   - WithSync(hubURL), WithSyncHub(hub), WithSyncNode(nodeID) — device sync
+//   - WithSQLiteTenant, WithSQLiteTerminologyScope — local tenant namespaces
 //   - WithModules(paths...) — install modules from local filesystem directories
 //   - WithHTTP(addr) — optional managed HTTP server listen address
+//   - WithHTTPAuth, WithHTTPMiddleware, WithHTTPRateLimit — managed HTTP policy
+//   - WithModuleAuthorizer — module install/upgrade authorization
+//   - WithModuleVerifier — optional module signature/content verification
 //   - Build(ctx) — open stores, migrate, wire services, return *Runtime
 //
 // Build validation rules:
@@ -60,11 +64,13 @@
 // # Runtime lifecycle
 //
 //   - Start(ctx) — start background job workers and the managed http.Server when
-//     WithHTTP was configured. Returns ErrAlreadyStarted on repeated calls.
+//     WithHTTP was configured. Cancellation of ctx stops workers; call Shutdown
+//     for deterministic resource cleanup. Returns ErrAlreadyStarted on repeats.
 //   - Shutdown(ctx) — stop HTTP, cancel background workers, close adapters and DB
 //     connections. Repeated calls are safe.
 //   - Mode, Config, Services, Handler — accessors for embedding and testing
 //   - HTTPAddr — bound listen address after Start when HTTP is configured
+//   - /health and /healthz — liveness probes on the managed HTTP handler
 //   - SyncEngine, ReindexWorker — optional capability accessors
 //
 // Shutdown order is deterministic:

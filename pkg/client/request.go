@@ -3,9 +3,12 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -39,6 +42,10 @@ func (c *Client) do(ctx context.Context, opts requestOptions) (*rawResponse, err
 	}
 	var lastErr error
 	maxAttempts := c.retryPolicy.MaxAttempts()
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	retryEligible := opts.method == http.MethodGet || opts.method == http.MethodHead || opts.method == http.MethodOptions || opts.method == http.MethodPut || opts.method == http.MethodDelete || opts.headers["Idempotency-Key"] != ""
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := c.retryPolicy.Backoff(attempt - 1)
@@ -54,15 +61,19 @@ func (c *Client) do(ctx context.Context, opts requestOptions) (*rawResponse, err
 			return resp, nil
 		}
 		lastErr = err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if !retryEligible {
+			return nil, err
+		}
 
 		var ce *Error
 		if !errorsAsRetryable(err, &ce) {
 			return nil, err
 		}
-		if ce != nil && !ce.Retryable {
-			return nil, err
-		}
-		if !c.retryPolicy.ShouldRetry(attempt, httpStatusFromError(ce), transportErrFromError(err)) {
+		shouldRetry := c.retryPolicy.ShouldRetry(attempt, httpStatusFromError(ce), transportErrFromError(err))
+		if !shouldRetry {
 			return nil, err
 		}
 	}
@@ -92,7 +103,11 @@ func (c *Client) doOnce(ctx context.Context, opts requestOptions) (*rawResponse,
 		}
 		req.Header.Set("Content-Type", ct)
 	}
+	crossOrigin := !sameOrigin(c.baseURL, opts.url)
 	for k, v := range c.defaultHeaders {
+		if crossOrigin && (strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "Cookie")) {
+			continue
+		}
 		if req.Header.Get(k) == "" {
 			req.Header.Set(k, v)
 		}
@@ -100,7 +115,7 @@ func (c *Client) doOnce(ctx context.Context, opts requestOptions) (*rawResponse,
 	for k, v := range opts.headers {
 		req.Header.Set(k, v)
 	}
-	if !opts.skipAuth && c.tokenProvider != nil {
+	if !opts.skipAuth && !crossOrigin && c.tokenProvider != nil {
 		auth, err := c.tokenProvider.AuthorizationHeader(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("auth: %w", err)
@@ -134,11 +149,47 @@ func (c *Client) doOnce(ctx context.Context, opts requestOptions) (*rawResponse,
 		return raw, nil
 	}
 
-	retryable := c.retryPolicy.ShouldRetry(0, httpResp, nil)
-	if !retryable {
-		retryable = defaultRetryable(httpResp.StatusCode)
+	return nil, parseError(httpResp.StatusCode, body, defaultRetryable(httpResp.StatusCode))
+}
+
+func sameOrigin(base, target string) bool {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return false
 	}
-	return nil, parseError(httpResp.StatusCode, body, retryable)
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	if targetURL.Scheme == "" && targetURL.Host == "" {
+		return true
+	}
+	return targetURL.User == nil && strings.EqualFold(baseURL.Scheme, targetURL.Scheme) && strings.EqualFold(baseURL.Host, targetURL.Host)
+}
+
+// resolveSameOriginURL resolves a server-provided relative URL and rejects
+// absolute URLs that would send credentials or data to another origin.
+func resolveSameOriginURL(base, target string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", fmt.Errorf("server URL is empty")
+	}
+	resolved := target
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		if strings.HasPrefix(target, "/") {
+			resolved = base + target
+		} else {
+			resolved = base + "/" + target
+		}
+	}
+	if !sameOrigin(base, resolved) {
+		return "", fmt.Errorf("server URL is outside the configured server origin")
+	}
+	parsed, err := url.Parse(resolved)
+	if err != nil || parsed.User != nil {
+		return "", fmt.Errorf("server URL is invalid")
+	}
+	return resolved, nil
 }
 
 func errorsAsRetryable(err error, ce **Error) bool {

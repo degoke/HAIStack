@@ -22,17 +22,57 @@ func newInboxStore(db *sql.DB) *InboxStore {
 	return &InboxStore{exec: db}
 }
 
+func newInboxStoreTx(tx *sql.Tx) *InboxStore {
+	return &InboxStore{exec: tx}
+}
+
 // MarkApplied records that a remote operation has been applied locally.
 func (s *InboxStore) MarkApplied(ctx context.Context, id string, appliedAt time.Time) error {
 	_, err := s.exec.ExecContext(ctx, `
-		INSERT OR REPLACE INTO hai_sync_inbox_applied (id, applied_at)
-		VALUES (?, ?)`,
+		INSERT INTO hai_sync_inbox_applied (id, applied_at)
+		VALUES (?, ?)
+		ON CONFLICT(id) DO UPDATE SET applied_at = excluded.applied_at`,
 		id, formatTime(appliedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("mark inbox applied: %w", err)
 	}
 	return nil
+}
+
+// MarkAppliedWithPayload records a hub acknowledgement together with the
+// idempotency marker. Existing acknowledgement payloads are preserved on an
+// idempotent retry.
+func (s *InboxStore) MarkAppliedWithPayload(ctx context.Context, id string, payload []byte, appliedAt time.Time) error {
+	_, err := s.exec.ExecContext(ctx, `
+		INSERT INTO hai_sync_inbox_applied (id, applied_at, ack_payload)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET applied_at = excluded.applied_at,
+			ack_payload = COALESCE(hai_sync_inbox_applied.ack_payload, excluded.ack_payload)`,
+		id, formatTime(appliedAt), payload,
+	)
+	if err != nil {
+		return fmt.Errorf("mark inbox applied with payload: %w", err)
+	}
+	return nil
+}
+
+// GetAckPayload returns the stored push acknowledgement, if the inbox row
+// exists. Pull inbox rows have no acknowledgement payload.
+func (s *InboxStore) GetAckPayload(ctx context.Context, id string) ([]byte, bool, error) {
+	var payload sql.NullString
+	err := s.exec.QueryRowContext(ctx, `
+		SELECT ack_payload FROM hai_sync_inbox_applied WHERE id = ?`, id).Scan(&payload)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read inbox acknowledgement: %w", err)
+	}
+	if !payload.Valid {
+		return nil, true, nil
+	}
+	return []byte(payload.String), true, nil
 }
 
 // IsApplied reports whether a remote operation has already been applied.

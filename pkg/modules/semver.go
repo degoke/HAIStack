@@ -19,38 +19,90 @@ type version struct {
 // It rejects empty or obviously malformed versions so that bad manifests fail
 // early.
 func parseVersion(s string) (version, error) {
+	original := s
 	if s == "" {
 		return version{}, fmt.Errorf("empty version")
 	}
-	// Strip build metadata; it must not affect precedence.
-	if i := strings.Index(s, "+"); i >= 0 {
-		s = s[:i]
+	if s != strings.TrimSpace(s) {
+		return version{}, fmt.Errorf("version %q contains surrounding whitespace", original)
+	}
+	build := ""
+	if parts := strings.Split(s, "+"); len(parts) > 1 {
+		if len(parts) != 2 || parts[1] == "" || !validIdentifiers(parts[1], false) {
+			return version{}, fmt.Errorf("version %q has invalid build metadata", original)
+		}
+		build = parts[1]
+		s = parts[0]
 	}
 	pre := ""
-	if i := strings.Index(s, "-"); i >= 0 {
-		pre = s[i+1:]
-		s = s[:i]
+	if parts := strings.SplitN(s, "-", 2); len(parts) == 2 {
+		if parts[1] == "" || !validIdentifiers(parts[1], true) {
+			return version{}, fmt.Errorf("version %q has invalid prerelease metadata", original)
+		}
+		pre = parts[1]
+		s = parts[0]
 	}
 	parts := strings.Split(s, ".")
 	if len(parts) != 3 {
-		return version{}, fmt.Errorf("version %q does not match major.minor.patch", s)
+		return version{}, fmt.Errorf("version %q does not match major.minor.patch", original)
 	}
-	major, err := strconv.Atoi(parts[0])
+	major, err := parseNumericCore(parts[0], original, "major")
 	if err != nil {
-		return version{}, fmt.Errorf("version %q has invalid major: %w", s, err)
+		return version{}, err
 	}
-	minor, err := strconv.Atoi(parts[1])
+	minor, err := parseNumericCore(parts[1], original, "minor")
 	if err != nil {
-		return version{}, fmt.Errorf("version %q has invalid minor: %w", s, err)
+		return version{}, err
 	}
-	patch, err := strconv.Atoi(parts[2])
+	patch, err := parseNumericCore(parts[2], original, "patch")
 	if err != nil {
-		return version{}, fmt.Errorf("version %q has invalid patch: %w", s, err)
+		return version{}, err
 	}
 	if major < 0 || minor < 0 || patch < 0 {
-		return version{}, fmt.Errorf("version %q has negative component", s)
+		return version{}, fmt.Errorf("version %q has negative component", original)
 	}
+	_ = build // validated but deliberately ignored for precedence.
 	return version{major: major, minor: minor, patch: patch, preRelease: pre}, nil
+}
+
+func parseNumericCore(value, original, component string) (int, error) {
+	if value == "" || !allASCIIDigits(value) || (len(value) > 1 && value[0] == '0') {
+		return 0, fmt.Errorf("version %q has invalid %s", original, component)
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("version %q has invalid %s: %w", original, component, err)
+	}
+	return parsed, nil
+}
+
+func validIdentifiers(value string, rejectLeadingZeroes bool) bool {
+	for _, identifier := range strings.Split(value, ".") {
+		if identifier == "" {
+			return false
+		}
+		for _, r := range identifier {
+			if (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && r != '-' {
+				return false
+			}
+		}
+		if rejectLeadingZeroes && allASCIIDigits(identifier) && len(identifier) > 1 && identifier[0] == '0' {
+			return false
+		}
+	}
+	return true
+}
+
+func allASCIIDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // compare returns -1, 0, or 1 using semver precedence rules for the numeric
@@ -92,11 +144,17 @@ func comparePreRelease(a, b string) int {
 	ap := strings.Split(a, ".")
 	bp := strings.Split(b, ".")
 	for i := 0; i < len(ap) && i < len(bp); i++ {
-		ai, aErr := strconv.Atoi(ap[i])
-		bi, bErr := strconv.Atoi(bp[i])
-		if aErr == nil && bErr == nil {
-			if ai != bi {
-				if ai < bi {
+		aNumeric := allASCIIDigits(ap[i])
+		bNumeric := allASCIIDigits(bp[i])
+		if aNumeric && bNumeric {
+			if len(ap[i]) != len(bp[i]) {
+				if len(ap[i]) < len(bp[i]) {
+					return -1
+				}
+				return 1
+			}
+			if ap[i] != bp[i] {
+				if ap[i] < bp[i] {
 					return -1
 				}
 				return 1
@@ -106,10 +164,10 @@ func comparePreRelease(a, b string) int {
 		// Identifiers consisting of only digits are compared numerically;
 		// otherwise lexically. A numeric identifier is always lower precedence
 		// than a non-numeric one.
-		if aErr == nil && bErr != nil {
+		if aNumeric && !bNumeric {
 			return -1
 		}
-		if aErr != nil && bErr == nil {
+		if !aNumeric && bNumeric {
 			return 1
 		}
 		if ap[i] != bp[i] {

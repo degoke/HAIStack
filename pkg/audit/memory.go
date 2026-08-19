@@ -43,6 +43,24 @@ func (s *MemoryStore) List(_ context.Context, query store.AuditQuery) ([]store.A
 		if query.Actor != "" && record.Actor != query.Actor {
 			continue
 		}
+		if query.Action != "" && record.Action != query.Action {
+			continue
+		}
+		if query.Outcome != "" && record.Outcome != query.Outcome {
+			continue
+		}
+		if query.Tenant != "" && record.Tenant != query.Tenant {
+			continue
+		}
+		if query.ViewName != "" && record.ViewName != query.ViewName {
+			continue
+		}
+		if query.ToolName != "" && record.ToolName != query.ToolName {
+			continue
+		}
+		if query.ConversationID != "" && record.ConversationID != query.ConversationID {
+			continue
+		}
 		if !query.After.IsZero() && record.Timestamp.Before(query.After) {
 			continue
 		}

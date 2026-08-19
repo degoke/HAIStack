@@ -6,6 +6,8 @@ import "context"
 type DeidentifyRequest struct {
 	ToolName     string
 	ResourceType string
+	ViewName     string
+	ViewVersion  string
 	Data         any
 }
 

@@ -111,6 +111,10 @@ func (b *BulkExportClient) Kickoff(ctx context.Context, req ExportKickoffRequest
 	if statusURL == "" {
 		return nil, fmt.Errorf("missing Content-Location header")
 	}
+	statusURL, err = resolveSameOriginURL(b.client.baseURL, statusURL)
+	if err != nil {
+		return nil, fmt.Errorf("content-location: %w", err)
+	}
 	return &ExportJob{
 		StatusURL: statusURL,
 		Status:    ExportStatusInProgress,
@@ -123,9 +127,13 @@ func (b *BulkExportClient) PollStatus(ctx context.Context, statusURL string) (*E
 	if b == nil || b.client == nil {
 		return nil, fmt.Errorf("bulk export client is nil")
 	}
+	resolved, err := resolveSameOriginURL(b.client.baseURL, statusURL)
+	if err != nil {
+		return nil, fmt.Errorf("bulk export status URL: %w", err)
+	}
 	raw, err := b.client.do(ctx, requestOptions{
 		method: "GET",
-		url:    statusURL,
+		url:    resolved,
 		accept: "application/json",
 	})
 	if err != nil {
@@ -173,14 +181,31 @@ func (b *BulkExportClient) Wait(ctx context.Context, statusURL string, interval 
 	}
 }
 
+// WaitManifest waits for completion and fetches the completed export manifest.
+func (b *BulkExportClient) WaitManifest(ctx context.Context, statusURL string, interval time.Duration) (*ExportJob, *ExportManifest, error) {
+	job, err := b.Wait(ctx, statusURL, interval)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifest, err := b.GetManifest(ctx, statusURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return job, manifest, nil
+}
+
 // Cancel cancels an in-progress bulk export job.
 func (b *BulkExportClient) Cancel(ctx context.Context, statusURL string) error {
 	if b == nil || b.client == nil {
 		return fmt.Errorf("bulk export client is nil")
 	}
+	resolved, err := resolveSameOriginURL(b.client.baseURL, statusURL)
+	if err != nil {
+		return fmt.Errorf("bulk export status URL: %w", err)
+	}
 	raw, err := b.client.do(ctx, requestOptions{
 		method: "DELETE",
-		url:    statusURL,
+		url:    resolved,
 	})
 	if err != nil {
 		return err
@@ -196,9 +221,13 @@ func (b *BulkExportClient) GetManifest(ctx context.Context, statusURL string) (*
 	if b == nil || b.client == nil {
 		return nil, fmt.Errorf("bulk export client is nil")
 	}
+	resolved, err := resolveSameOriginURL(b.client.baseURL, statusURL)
+	if err != nil {
+		return nil, fmt.Errorf("bulk export status URL: %w", err)
+	}
 	raw, err := b.client.do(ctx, requestOptions{
 		method: "GET",
-		url:    statusURL,
+		url:    resolved,
 		accept: "application/json",
 	})
 	if err != nil {

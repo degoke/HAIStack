@@ -17,6 +17,7 @@ type Session struct {
 	history     *HistoryStore
 	search      *SearchStore
 	outbox      *OutboxStore
+	inbox       *InboxStore
 	cursor      *CursorStore
 	terminology *TerminologyStore
 
@@ -40,6 +41,7 @@ func newSession(tx *sql.Tx) *Session {
 		history:     newHistoryStoreTx(tx),
 		search:      newSearchStoreTx(tx),
 		outbox:      newOutboxStoreTx(tx),
+		inbox:       newInboxStoreTx(tx),
 		cursor:      newCursorStoreTx(tx),
 		terminology: newTerminologyStore(tx, "default"),
 	}
@@ -105,6 +107,11 @@ func (s *Session) EventStore() store.EventStore {
 	return s.outbox
 }
 
+// InboxStore returns the transaction-scoped sync inbox store.
+func (s *Session) InboxStore() store.InboxStore {
+	return s.inbox
+}
+
 // CursorStore returns the transaction-scoped cursor store.
 func (s *Session) CursorStore() store.CursorStore {
 	return s.cursor
@@ -147,10 +154,14 @@ func (s *Session) applyLocalWrite(ctx context.Context, input LocalWrite) (*Local
 			return nil, err
 		}
 	} else {
-		for _, entry := range input.SearchEntries {
-			if err := s.search.RemoveIndex(ctx, entry.ResourceType, entry.ID); err != nil {
+		if len(input.SearchEntries) > 0 {
+			if err := s.search.RemoveIndex(ctx, input.Resource.ResourceType, input.Resource.ID); err != nil {
 				return nil, err
 			}
+		}
+		for _, entry := range input.SearchEntries {
+			entry.ResourceType = input.Resource.ResourceType
+			entry.ID = input.Resource.ID
 			if err := s.search.Index(ctx, entry); err != nil {
 				return nil, err
 			}

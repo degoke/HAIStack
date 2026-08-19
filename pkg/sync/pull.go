@@ -45,8 +45,10 @@ func (p *Puller) Pull(ctx context.Context) (*PullResultSummary, error) {
 	applier := p.Applier
 	if applier == nil {
 		applier = &Applier{
+			TenantID:  cfg.TenantID,
 			Resources: cfg.Resources,
 			History:   cfg.History,
+			Sessions:  cfg.Sessions,
 			Inbox:     cfg.Inbox,
 			Search:    cfg.Search,
 			Indexer:   cfg.SearchIndexer,

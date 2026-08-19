@@ -25,11 +25,34 @@ func newRowEncoder() *RowEncoder {
 
 // Encode converts a fhirpath collection to a JSON-safe value.
 func (e *RowEncoder) Encode(values []fhirpath.Value) (any, error) {
+	return e.EncodeColumn(values, false)
+}
+
+// EncodeColumn converts a FHIRPath collection to a JSON-safe value. When
+// collection is true, singleton results are wrapped in a one-element array.
+// When collection is false, multi-item results return ErrRowEncoding.
+func (e *RowEncoder) EncodeColumn(values []fhirpath.Value, collection bool) (any, error) {
 	if len(values) == 0 {
+		if collection {
+			return []any{}, nil
+		}
 		return nil, nil
 	}
 	if len(values) == 1 {
-		return e.encodeValue(values[0])
+		val, err := e.encodeValue(values[0])
+		if err != nil {
+			return nil, err
+		}
+		if collection {
+			if val == nil {
+				return []any{}, nil
+			}
+			return []any{val}, nil
+		}
+		return val, nil
+	}
+	if !collection {
+		return nil, fmt.Errorf("%w: FHIRPath returned %d values for scalar column; set collection: true or use .first()", ErrRowEncoding, len(values))
 	}
 	out := make([]any, len(values))
 	for i, v := range values {
@@ -85,7 +108,7 @@ func (e *RowEncoder) encodeValue(v fhirpath.Value) (any, error) {
 	case float64:
 		return val, nil
 	case proto.Message:
-		if scalar, ok := protoWrapperToScalar(val); ok {
+		if scalar, ok := protoMessageToScalar(val); ok {
 			return scalar, nil
 		}
 		return nil, fmt.Errorf("%w: unsupported proto message %s", ErrRowEncoding, val.ProtoReflect().Descriptor().FullName())

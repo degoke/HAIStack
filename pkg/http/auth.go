@@ -20,6 +20,12 @@ type requestIdentity struct {
 
 func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		format, err := negotiateResponseFormat(r)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		w = withResponseFormat(w, format)
 		principal, tenant, err := resolver(r.Context(), r)
 		if err != nil {
 			writeError(w, errUnauthenticated)

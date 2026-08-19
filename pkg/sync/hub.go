@@ -36,6 +36,15 @@ type HubServer interface {
 	PullServer
 }
 
+// ScopedHubServer is the HTTP-safe variant of HubServer. The request's node
+// and tenant identity are part of the server operation rather than merely
+// metadata carried beside an unscoped call.
+type ScopedHubServer interface {
+	HubServer
+	PushFor(ctx context.Context, nodeID, tenantID string, events []LocalEvent) ([]PushResult, error)
+	PullFor(ctx context.Context, nodeID, tenantID string, afterSequence int64, limit int) ([]CanonicalEvent, error)
+}
+
 // Clock returns the current time; tests may inject a deterministic clock.
 type Clock func() time.Time
 
@@ -60,6 +69,9 @@ type Config struct {
 	Inbox     store.InboxStore
 	Resources store.ResourceStore
 	History   store.HistoryStore
+	// Sessions enables atomic pull application. Database-backed sessions should
+	// expose store.InboxWriteSession so the inbox mark commits with the apply.
+	Sessions  store.WriteSessionProvider
 	Conflicts store.ConflictStore
 	Jobs      store.JobStore
 	Audit     store.AuditStore

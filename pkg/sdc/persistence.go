@@ -45,7 +45,25 @@ func Envelope(resourceType, id string, v any) (*types.ResourceEnvelope, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &types.ResourceEnvelope{ResourceType: resourceType, ID: id, JSON: b}, nil
+	var object map[string]any
+	if err := json.Unmarshal(b, &object); err != nil {
+		return nil, err
+	}
+	if current, ok := object["resourceType"].(string); !ok || current == "" {
+		object["resourceType"] = resourceType
+		b, e = json.Marshal(object)
+		if e != nil {
+			return nil, e
+		}
+	}
+	env, e := types.NewJSONCodec().ParseJSON(resourceType, b)
+	if e != nil {
+		return nil, e
+	}
+	if id != "" {
+		env.ID = id
+	}
+	return env, nil
 }
 func SaveQuestionnaire(ctx context.Context, s ResourceService, q Questionnaire) (*types.ResourceEnvelope, error) {
 	if q.ResourceType == "" {

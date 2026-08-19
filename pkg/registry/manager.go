@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"os"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -35,6 +40,8 @@ type Manager struct {
 	terminologyScope string
 	terminologyCache terminology.Invalidator
 	snapshot         *Snapshot
+	seedMu           sync.Mutex
+	seeded           bool
 }
 
 // NewManager constructs a registry manager from persistence stores.
@@ -59,11 +66,28 @@ func NewManager(cfg Config) *Manager {
 
 // SeedBundled loads embedded R4 base definitions into the catalog idempotently.
 func (m *Manager) SeedBundled(ctx context.Context) error {
+	m.seedMu.Lock()
+	defer m.seedMu.Unlock()
+	if m.seeded {
+		return nil
+	}
 	resources, err := loadR4Bundle()
 	if err != nil {
 		return err
 	}
 	for _, raw := range resources {
+		parsed, _, err := ParseDefinition(raw)
+		if err != nil {
+			return err
+		}
+		if _, err := m.definitions.Get(ctx, parsed.CanonicalURL, parsed.Version); err == nil {
+			// Bundled definitions are immutable base catalog content. Never
+			// overwrite a module-owned definition or reset a prior custom JSON
+			// payload merely because another install reseeds the bundle.
+			continue
+		} else if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return fmt.Errorf("check bundled definition %s: %w", parsed.CanonicalURL, err)
+		}
 		if err := m.ingestDefinition(ctx, raw, InstallProvenance{
 			PackageName:    "hl7.fhir.r4.core",
 			PackageVersion: m.fhirVersion,
@@ -71,7 +95,27 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 			return err
 		}
 	}
+	m.seeded = true
 	return nil
+}
+
+// InstallDefinitionsFromFS ingests every .json definition file under root from fsys.
+func (m *Manager) InstallDefinitionsFromFS(ctx context.Context, fsys fs.FS, root string, provenance InstallProvenance) error {
+	resources, err := LoadDefinitionJSONs(fsys, root)
+	if err != nil {
+		return err
+	}
+	for _, raw := range resources {
+		if err := m.InstallDefinition(ctx, raw, provenance); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// InstallDefinitionsFromDir ingests every .json definition file under dir on the local filesystem.
+func (m *Manager) InstallDefinitionsFromDir(ctx context.Context, dir string, provenance InstallProvenance) error {
+	return m.InstallDefinitionsFromFS(ctx, os.DirFS(dir), ".", provenance)
 }
 
 // InstallDefinition ingests one additional definition resource with provenance.
@@ -81,6 +125,9 @@ func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, proven
 
 // DeleteDefinition removes a catalog entry and its terminology projection.
 func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version string) error {
+	m.seedMu.Lock()
+	m.seeded = false
+	m.seedMu.Unlock()
 	r, err := m.definitions.Get(ctx, canonicalURL, version)
 	if err != nil {
 		return err
@@ -107,6 +154,13 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 	parsed, targets, err := ParseDefinition(jsonData)
 	if err != nil {
 		return err
+	}
+	if existing, err := m.definitions.Get(ctx, parsed.CanonicalURL, parsed.Version); err == nil {
+		if existing.ModuleName != provenance.ModuleName {
+			return fmt.Errorf("%w: %s|%s is owned by %q", ErrDefinitionConflict, parsed.CanonicalURL, parsed.Version, existing.ModuleName)
+		}
+	} else if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		return fmt.Errorf("check existing definition %s: %w", parsed.CanonicalURL, err)
 	}
 	record := store.DefinitionResourceRecord{
 		CanonicalURL:     parsed.CanonicalURL,
@@ -192,6 +246,12 @@ func (m *Manager) EnableResource(ctx context.Context, resourceType string) error
 	if err != nil {
 		return err
 	}
+	sort.Slice(definitions, func(i, j int) bool {
+		if definitions[i].CanonicalURL != definitions[j].CanonicalURL {
+			return definitions[i].CanonicalURL < definitions[j].CanonicalURL
+		}
+		return definitions[i].Version > definitions[j].Version
+	})
 	var base *store.DefinitionResourceRecord
 	for i := range definitions {
 		if definitions[i].Name == resourceType || definitions[i].CanonicalURL == structureDefinitionURL(resourceType) {

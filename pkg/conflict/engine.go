@@ -118,6 +118,17 @@ func (e *Engine) Detect(local LocalEvent, base, current *types.ResourceEnvelope)
 	if local.ResourceAfter == nil || local.ResourceAfter.JSON == nil {
 		return unsupportedResult("missing local resource payload")
 	}
+	if base.ResourceType != local.ResourceType || base.ID != local.ResourceID ||
+		current.ResourceType != local.ResourceType || current.ID != local.ResourceID ||
+		local.ResourceAfter.ResourceType != local.ResourceType || local.ResourceAfter.ID != local.ResourceID {
+		return unsupportedResult("resource identity does not match conflict event")
+	}
+	for _, envelope := range []*types.ResourceEnvelope{base, current, local.ResourceAfter} {
+		parsed, err := types.NewJSONCodec().ParseJSON(local.ResourceType, envelope.JSON)
+		if err != nil || parsed.ID != local.ResourceID {
+			return unsupportedResult("resource JSON identity does not match conflict event")
+		}
+	}
 
 	localChanges, err := diffJSON(base.JSON, local.ResourceAfter.JSON)
 	if err != nil {
@@ -275,10 +286,18 @@ func pathsOverlap(a, b string) bool {
 }
 
 func (e *Engine) riskFor(resourceType string, local, remote []PathChange) RiskLevel {
+	// The safe-list is conjunctive: every changed path on both sides must be
+	// explicitly covered. An unruled path must never be masked by a safe path
+	// elsewhere in the resource.
+	allSafe := true
 	for _, changes := range [][]PathChange{local, remote} {
 		for _, c := range changes {
 			path := dottedPath(resourceType, c.Path)
 			rule := e.cfg.Registry.Match(resourceType, path)
+			if rule == nil {
+				allSafe = false
+				continue
+			}
 			if rule != nil && rule.Semantics == RuleSemanticsBlock {
 				return RiskLevelBlocked
 			}
@@ -286,6 +305,9 @@ func (e *Engine) riskFor(resourceType string, local, remote []PathChange) RiskLe
 				return RiskLevelReview
 			}
 		}
+	}
+	if !allSafe {
+		return RiskLevelReview
 	}
 	for _, changes := range [][]PathChange{local, remote} {
 		for _, c := range changes {
@@ -344,23 +366,25 @@ func (e *Engine) canAutoMerge(resourceType string, local, remote []PathChange, o
 	if risk != RiskLevelSafe {
 		return false
 	}
-	for _, c := range local {
-		switch c.Kind {
-		case ChangeKindScalarReplace, ChangeKindArrayAppend:
-			// ok
-		default:
-			return false
-		}
-		path := dottedPath(resourceType, c.Path)
-		rule := e.cfg.Registry.Match(resourceType, path)
-		if rule == nil {
-			return false
-		}
-		if rule.Semantics == RuleSemanticsReviewOnly || rule.Semantics == RuleSemanticsBlock {
-			return false
-		}
-		if rule.Semantics == RuleSemanticsAppendOnly && c.Kind != ChangeKindArrayAppend {
-			return false
+	for _, changes := range [][]PathChange{local, remote} {
+		for _, c := range changes {
+			switch c.Kind {
+			case ChangeKindScalarReplace, ChangeKindArrayAppend:
+				// ok
+			default:
+				return false
+			}
+			path := dottedPath(resourceType, c.Path)
+			rule := e.cfg.Registry.Match(resourceType, path)
+			if rule == nil {
+				return false
+			}
+			if rule.Semantics == RuleSemanticsReviewOnly || rule.Semantics == RuleSemanticsBlock {
+				return false
+			}
+			if rule.Semantics == RuleSemanticsAppendOnly && c.Kind != ChangeKindArrayAppend {
+				return false
+			}
 		}
 	}
 	if len(overlaps) == 0 {

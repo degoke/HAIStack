@@ -27,6 +27,15 @@ type Executor struct {
 	enc *RowEncoder
 }
 
+// ResolveView resolves a registered view without executing it. It is useful to
+// validate an execution policy before touching the resource store.
+func (e *Executor) ResolveView(name, version string) (*ViewSpec, error) {
+	if e == nil || e.cfg.Registry == nil {
+		return nil, fmt.Errorf("%w: executor requires a registry to resolve views", ErrViewNotFound)
+	}
+	return e.cfg.Registry.Resolve(name, version)
+}
+
 // ExecuteRequest carries runtime parameters for one view execution.
 type ExecuteRequest struct {
 	ViewName   string
@@ -81,11 +90,7 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // configured.
 func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, error) {
 	start := e.cfg.Now()
-	if e.cfg.Registry == nil {
-		return nil, fmt.Errorf("%w: executor requires a registry to resolve views", ErrViewNotFound)
-	}
-
-	spec, err := e.cfg.Registry.Resolve(req.ViewName, req.Version)
+	spec, err := e.ResolveView(req.ViewName, req.Version)
 	if err != nil {
 		_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": err.Error()})
 		return nil, err
@@ -218,7 +223,7 @@ func (e *Executor) evalColumns(ctx context.Context, spec *ViewSpec, resource any
 		if err != nil {
 			return nil, fmt.Errorf("column %q: %w", col.Name, err)
 		}
-		encoded, err := e.enc.Encode(values)
+		encoded, err := e.enc.EncodeColumn(values, col.Collection)
 		if err != nil {
 			return nil, fmt.Errorf("column %q: %w", col.Name, err)
 		}

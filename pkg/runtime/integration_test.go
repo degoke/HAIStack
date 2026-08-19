@@ -143,6 +143,83 @@ func TestSQLiteIntegrationBuildStartHTTPShutdown(t *testing.T) {
 	}
 }
 
+type stubSyncHub struct{}
+
+func (stubSyncHub) Push(_ context.Context, events []hasync.LocalEvent) ([]hasync.PushResult, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
+	return []hasync.PushResult{{EventID: events[0].EventID, State: hasync.AckAccepted}}, nil
+}
+
+func (stubSyncHub) Pull(_ context.Context, after int64, limit int) ([]hasync.CanonicalEvent, error) {
+	return []hasync.CanonicalEvent{{CanonicalSequence: after + 1, TenantID: "tenant-1", Status: hasync.CanonicalStatusAccepted}}, nil
+}
+
+func TestSQLiteWithSyncServerMountsSyncRoutes(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "runtime-sync.db")
+
+	rt, err := runtime.New().
+		WithSQLite(dbPath).
+		WithSyncServer(stubSyncHub{}).
+		WithHTTP("127.0.0.1:0").
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !rt.Services().RegistrySnapshot.IsResourceEnabled("Subscription") {
+		t.Fatal("Subscription should be enabled in the runtime registry")
+	}
+	if err := rt.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		if err := rt.Shutdown(ctx); err != nil {
+			t.Fatalf("Shutdown: %v", err)
+		}
+	}()
+
+	base := "http://" + rt.HTTPAddr().String()
+
+	pushBody := `{"nodeId":"node-1","tenantId":"tenant-1","events":[{"eventId":"evt-1","tenantId":"tenant-1","originNodeId":"node-1","resourceType":"Patient","resourceId":"p1","operation":"resource.created"}]}`
+	pushResp, err := http.Post(base+"/sync/push", "application/json", strings.NewReader(pushBody))
+	if err != nil {
+		t.Fatalf("POST /sync/push: %v", err)
+	}
+	defer func() { _ = pushResp.Body.Close() }()
+	if pushResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(pushResp.Body)
+		t.Fatalf("push status = %d body = %s", pushResp.StatusCode, body)
+	}
+	var pushResult map[string]interface{}
+	if err := json.NewDecoder(pushResp.Body).Decode(&pushResult); err != nil {
+		t.Fatalf("decode push response: %v", err)
+	}
+	results, ok := pushResult["results"].([]interface{})
+	if !ok || len(results) != 1 {
+		t.Fatalf("push results = %#v", pushResult["results"])
+	}
+
+	pullResp, err := http.Get(base + "/sync/pull?nodeId=node-1&tenantId=tenant-1&after=0")
+	if err != nil {
+		t.Fatalf("GET /sync/pull: %v", err)
+	}
+	defer func() { _ = pullResp.Body.Close() }()
+	if pullResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(pullResp.Body)
+		t.Fatalf("pull status = %d body = %s", pullResp.StatusCode, body)
+	}
+	var pullResult map[string]interface{}
+	if err := json.NewDecoder(pullResp.Body).Decode(&pullResult); err != nil {
+		t.Fatalf("decode pull response: %v", err)
+	}
+	events, ok := pullResult["events"].([]interface{})
+	if !ok || len(events) != 1 {
+		t.Fatalf("pull events = %#v", pullResult["events"])
+	}
+}
+
 func TestSQLiteSyncWorkerStartsWhenConfigured(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping sync integration in short mode")

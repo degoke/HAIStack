@@ -47,6 +47,7 @@ func run() error {
 		Inbox:     nodeA.DB.InboxStore(),
 		Resources: nodeA.DB.ResourceStore(),
 		History:   nodeA.DB.HistoryStore(),
+		Sessions:  nodeA.DB,
 		Hub:       hub,
 	})
 	engineB := hasync.NewEngine(hasync.Config{
@@ -56,6 +57,7 @@ func run() error {
 		Inbox:     nodeB.DB.InboxStore(),
 		Resources: nodeB.DB.ResourceStore(),
 		History:   nodeB.DB.HistoryStore(),
+		Sessions:  nodeB.DB,
 		Hub:       hub,
 	})
 

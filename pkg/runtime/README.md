@@ -127,6 +127,7 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 |--------|---------|
 | `New()` | Create a builder |
 | `WithSQLite(path)` | Embedded SQLite database path |
+| `WithSQLiteTenant(id)` / `WithSQLiteTerminologyScope(scope)` | Configure local sync and terminology namespaces |
 | `WithPostgresAllInOne(dsn, tenantID)` | Single-tenant Postgres |
 | `WithExternalBlobStore(adapter)` | Cloud blob store seam |
 | `WithExternalSearch(adapter)` | Cloud search seam |
@@ -138,6 +139,10 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithSyncNode(nodeID)` | Device node ID (default: `runtime-node`) |
 | `WithModules(paths...)` | Install local module directories at build time |
 | `WithHTTP(addr)` | Managed HTTP listen address (optional) |
+| `WithHTTPAuth(...)` / `WithHTTPMiddleware(...)` | Configure managed HTTP authentication and policy middleware |
+| `WithHTTPRateLimit(config)` | Configure process-local managed HTTP rate limiting |
+| `WithModuleAuthorizer(authorizer)` | Authorize module installs and upgrades |
+| `WithModuleVerifier(verifier)` | Verify module signatures/content before install and upgrade |
 | `Build(ctx)` | Wire everything; returns `*Runtime` |
 
 ## Lifecycle
@@ -151,7 +156,7 @@ Shutdown(ctx)  →  stop HTTP → stop workers → close adapters → close DB
 | Method | Behavior |
 |--------|----------|
 | `Build` | Heavy initialization; safe to call without starting HTTP |
-| `Start` | Idempotent guard via `ErrAlreadyStarted` |
+| `Start` | Starts workers/server; cancellation of its context stops workers; repeated calls return `ErrAlreadyStarted` |
 | `Shutdown` | Safe to call multiple times; respects context deadline |
 | `Handler()` | FHIR REST handler always built; usable without `WithHTTP` |
 | `HTTPAddr()` | Actual bound address after `Start` (useful with `:0`) |

@@ -95,6 +95,42 @@ func TestLoadUsesDefaultsWhenDefaultFileIsMissing(t *testing.T) {
 	if cfg.Storage.SQLitePath != config.DefaultSQLitePath {
 		t.Fatalf("sqlite path = %q", cfg.Storage.SQLitePath)
 	}
+	if cfg.Storage.SQLiteTenantID != config.DefaultSQLiteTenantID || cfg.Storage.SQLiteTerminologyScope != config.DefaultSQLiteTerminologyScope {
+		t.Fatalf("sqlite namespaces = %q/%q", cfg.Storage.SQLiteTenantID, cfg.Storage.SQLiteTerminologyScope)
+	}
+	if len(cfg.Runtime.ModulePaths) != 0 {
+		t.Fatalf("default module paths = %#v, want empty", cfg.Runtime.ModulePaths)
+	}
+}
+
+func TestInvalidEnableSearchEnvironmentFails(t *testing.T) {
+	t.Setenv("HAISTACK_ENABLE_SEARCH", "sometimes")
+	if _, err := config.Load(config.DefaultConfigFile, config.Overrides{}); err == nil {
+		t.Fatal("expected invalid HAISTACK_ENABLE_SEARCH error")
+	}
+}
+
+func TestSQLiteNamespaceOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, config.StarterYAML(), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HAISTACK_SQLITE_TENANT_ID", "device-a")
+	t.Setenv("HAISTACK_SQLITE_TERMINOLOGY_SCOPE", "scope-a")
+
+	tenantID := "device-b"
+	scope := "scope-b"
+	cfg, err := config.Load(path, config.Overrides{
+		SQLiteTenantID:         &tenantID,
+		SQLiteTerminologyScope: &scope,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Storage.SQLiteTenantID != tenantID || cfg.Storage.SQLiteTerminologyScope != scope {
+		t.Fatalf("sqlite namespaces = %q/%q", cfg.Storage.SQLiteTenantID, cfg.Storage.SQLiteTerminologyScope)
+	}
 }
 
 func TestLoadResolvesRelativePathsFromConfigLocation(t *testing.T) {

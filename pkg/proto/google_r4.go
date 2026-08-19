@@ -39,6 +39,22 @@ func NewGoogleR4Codec() *GoogleR4Codec {
 	}
 }
 
+// ParseJSONToEnvelope parses FHIR JSON into proto and returns a fully populated envelope.
+func (c *GoogleR4Codec) ParseJSONToEnvelope(resourceType string, data []byte) (*types.ResourceEnvelope, error) {
+	pb, err := c.ParseJSONToProto(resourceType, data)
+	if err != nil {
+		return nil, err
+	}
+	rt := resourceType
+	if rt == "" {
+		rt, err = ResourceTypeOfProto(pb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.ProtoToEnvelope(rt, pb)
+}
+
 // ParseJSONToProto validates resourceType and parses FHIR JSON into a Google R4 ContainedResource.
 func (c *GoogleR4Codec) ParseJSONToProto(resourceType string, data []byte) (any, error) {
 	payloadType, err := types.GetResourceType(data)

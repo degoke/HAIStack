@@ -47,6 +47,19 @@ func (db *DB) Migrate(ctx context.Context) error {
 	return runMigrations(ctx, db.sql)
 }
 
+// OpenAndMigrate opens a SQLite database and runs embedded migrations.
+func OpenAndMigrate(ctx context.Context, path string, opts ...Option) (*DB, error) {
+	db, err := Open(path, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Migrate(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
 // Close closes the underlying database connection.
 func (db *DB) Close() error {
 	if db.sql == nil {

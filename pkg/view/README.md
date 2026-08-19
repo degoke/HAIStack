@@ -118,9 +118,11 @@ Unsupported constructs are rejected at parse time:
 
 ## Row encoding
 
-- Empty FHIRPath result → `null`
-- Singleton scalar → JSON scalar
-- Multi-item result → JSON array
+- Empty FHIRPath result → `null` (or `[]` when `collection: true`)
+- Singleton scalar → JSON scalar (or one-element array when `collection: true`)
+- Multi-item result → JSON array; scalar columns without `collection: true` return `ErrRowEncoding`
+- Google FHIR `Date`, `DateTime`, `Time`, and `Instant` protos → FHIR string literals
+- FHIR choice wrappers (for example `Observation.effective`) unwrap to their set branch
 - `system.Quantity` → `{value, unit, system, code}`
 - Proto primitive wrappers → JSON scalar
 - Unsupported complex objects → `ErrRowEncoding`

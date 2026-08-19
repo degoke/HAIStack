@@ -129,11 +129,15 @@ func (a CoreSDCService) Assemble(ctx context.Context, req SDCRequest) (*types.Re
 	if e != nil {
 		return nil, e
 	}
-	assembled, o := sdc.Assembler{Resolver: a.Resolver}.Assemble(ctx, q)
+	qenv, e := sdc.ProjectionEnvelope(q)
+	if e != nil {
+		return nil, e
+	}
+	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, a.Resolver)
 	if len(o.Issue) > 0 {
 		return nil, o
 	}
-	return sdc.ProjectionEnvelope(assembled)
+	return assembled, nil
 }
 func (a CoreSDCService) Adaptive(ctx context.Context, op string, req SDCRequest) (*types.ResourceEnvelope, error) {
 	if a.AdaptiveEngine == nil {

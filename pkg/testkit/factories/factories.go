@@ -19,6 +19,7 @@ type patientConfig struct {
 	gender    string
 	telecom   string
 	updated   time.Time
+	meta      map[string]any
 }
 
 // WithPatientID sets the patient id.
@@ -56,6 +57,12 @@ func WithLastUpdated(t time.Time) PatientOption {
 	return func(c *patientConfig) { c.updated = t }
 }
 
+// WithPatientMeta adds arbitrary FHIR meta fields. WithVersionID and
+// WithLastUpdated take precedence for their respective reserved fields.
+func WithPatientMeta(meta map[string]any) PatientOption {
+	return func(c *patientConfig) { c.meta = cloneMeta(meta) }
+}
+
 // NewPatient builds a normalized Patient envelope. Invalid shapes return an error.
 func NewPatient(opts ...PatientOption) (*types.ResourceEnvelope, error) {
 	cfg := patientConfig{
@@ -80,13 +87,16 @@ func NewPatient(opts ...PatientOption) (*types.ResourceEnvelope, error) {
 	if cfg.telecom != "" {
 		obj["telecom"] = []any{map[string]any{"system": "phone", "value": cfg.telecom}}
 	}
-	if cfg.versionID != "" || !cfg.updated.IsZero() {
-		meta := map[string]any{}
+	if len(cfg.meta) > 0 || cfg.versionID != "" || !cfg.updated.IsZero() {
+		meta := cloneMeta(cfg.meta)
+		if meta == nil {
+			meta = map[string]any{}
+		}
 		if cfg.versionID != "" {
 			meta["versionId"] = cfg.versionID
 		}
 		if !cfg.updated.IsZero() {
-			meta["lastUpdated"] = cfg.updated.UTC().Format(time.RFC3339)
+			meta["lastUpdated"] = cfg.updated.UTC().Format(time.RFC3339Nano)
 		}
 		obj["meta"] = meta
 	}
@@ -107,6 +117,7 @@ type appointmentConfig struct {
 	patientRef  string
 	description string
 	start       string
+	meta        map[string]any
 }
 
 // WithAppointmentID sets the appointment id.
@@ -132,6 +143,11 @@ func WithDescription(desc string) AppointmentOption {
 // WithStart sets the appointment start time (ISO-8601).
 func WithStart(start string) AppointmentOption {
 	return func(c *appointmentConfig) { c.start = start }
+}
+
+// WithAppointmentMeta adds arbitrary FHIR meta fields.
+func WithAppointmentMeta(meta map[string]any) AppointmentOption {
+	return func(c *appointmentConfig) { c.meta = cloneMeta(meta) }
 }
 
 // NewAppointment builds a normalized Appointment envelope.
@@ -166,6 +182,9 @@ func NewAppointment(opts ...AppointmentOption) (*types.ResourceEnvelope, error) 
 			},
 		},
 	}
+	if len(cfg.meta) > 0 {
+		obj["meta"] = cloneMeta(cfg.meta)
+	}
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return nil, fmt.Errorf("factories.NewAppointment: %w", err)
@@ -183,6 +202,7 @@ type observationConfig struct {
 	code       string
 	value      float64
 	unit       string
+	meta       map[string]any
 }
 
 // WithObservationID sets the observation id.
@@ -211,6 +231,11 @@ func WithQuantityValue(value float64, unit string) ObservationOption {
 		c.value = value
 		c.unit = unit
 	}
+}
+
+// WithObservationMeta adds arbitrary FHIR meta fields.
+func WithObservationMeta(meta map[string]any) ObservationOption {
+	return func(c *observationConfig) { c.meta = cloneMeta(meta) }
 }
 
 // NewObservation builds a normalized Observation envelope.
@@ -244,9 +269,23 @@ func NewObservation(opts ...ObservationOption) (*types.ResourceEnvelope, error) 
 			"unit":  cfg.unit,
 		},
 	}
+	if len(cfg.meta) > 0 {
+		obj["meta"] = cloneMeta(cfg.meta)
+	}
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return nil, fmt.Errorf("factories.NewObservation: %w", err)
 	}
 	return types.NewJSONCodec().ParseJSON("Observation", data)
+}
+
+func cloneMeta(meta map[string]any) map[string]any {
+	if meta == nil {
+		return nil
+	}
+	out := make(map[string]any, len(meta))
+	for key, value := range meta {
+		out[key] = value
+	}
+	return out
 }

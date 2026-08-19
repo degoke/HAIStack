@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
@@ -19,20 +21,23 @@ import (
 // Config configures an Executor. Policy is required; backing services are
 // optional but required for their respective tools.
 type Config struct {
-	Resources   store.ResourceStore
-	Search      *search.Service
-	Views       *view.Executor
-	Core        *core.ResourceService
-	Validator   validate.Engine
-	Policy      PolicyEngine
-	Registry    *Registry
-	Audit       AuditLogger
-	Approval    ApprovalHook
-	Deidentify  Deidentifier
-	ModelRouter *ModelRouter
-	Citations   *CitationBuilder
-	Formatter   *ContextFormatter
-	Now         func() time.Time
+	Resources             store.ResourceStore
+	Search                *search.Service
+	Views                 *view.Executor
+	Core                  *core.ResourceService
+	Validator             validate.Engine
+	Policy                PolicyEngine
+	Registry              *Registry
+	Audit                 AuditLogger
+	AuditRequired         bool
+	RequireConversationID bool
+	Approval              ApprovalHook
+	ApprovalStore         ApprovalStore
+	Deidentify            Deidentifier
+	ModelRouter           *ModelRouter
+	Citations             *CitationBuilder
+	Formatter             *ContextFormatter
+	Now                   func() time.Time
 }
 
 // Executor validates requests, enforces policy, invokes backing packages, builds
@@ -46,11 +51,11 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	if cfg.Policy == nil {
 		return nil, ErrMissingPolicy
 	}
+	if cfg.AuditRequired && cfg.Audit == nil {
+		return nil, ErrMissingAudit
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
-	}
-	if cfg.Deidentify == nil {
-		cfg.Deidentify = PassThroughDeidentifier{}
 	}
 	if cfg.Citations == nil {
 		cfg.Citations = NewCitationBuilder()
@@ -68,6 +73,11 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // Tool execution does not require a model adapter; this helper is for callers that
 // want to combine tool output with model generation in the same session.
 func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, context string) (*ModelResponse, error) {
+	if e.cfg.RequireConversationID {
+		if err := validateConversationID(req.ConversationID); err != nil {
+			return nil, err
+		}
+	}
 	if e.cfg.ModelRouter == nil {
 		return nil, nil
 	}
@@ -87,6 +97,7 @@ func toolNames(reg *Registry) []string {
 	for _, spec := range reg.List() {
 		names = append(names, spec.Name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -94,6 +105,11 @@ func toolNames(reg *Registry) []string {
 // and returns structured output with citations and audit metadata.
 func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
 	start := e.cfg.Now()
+	if e.cfg.RequireConversationID {
+		if err := validateConversationID(req.ConversationID); err != nil {
+			return nil, err
+		}
+	}
 	toolName := req.ToolName
 	input := req.Input
 	if input == nil {
@@ -103,23 +119,32 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 	if spec, err := e.cfg.Registry.Resolve(toolName); err == nil {
 		mapped, mapErr := spec.MapInput(input)
 		if mapErr != nil {
-			_ = e.logAudit(ctx, req, toolName, "error", map[string]string{"error": mapErr.Error()})
+			details := auditDetailsForTool(toolName, input, nil)
+			details["error"] = mapErr.Error()
+			if auditErr := e.logAudit(ctx, req, toolName, "error", details); auditErr != nil && e.cfg.AuditRequired {
+				return nil, errors.Join(mapErr, auditErr)
+			}
 			return nil, mapErr
 		}
 		toolName = spec.Delegate
 		input = mapped
 	} else if !IsGeneric(toolName) {
-		_ = e.logAudit(ctx, req, req.ToolName, "error", map[string]string{"error": err.Error()})
+		details := auditDetailsForTool(req.ToolName, input, nil)
+		details["error"] = err.Error()
+		if auditErr := e.logAudit(ctx, req, req.ToolName, "error", details); auditErr != nil && e.cfg.AuditRequired {
+			return nil, errors.Join(err, auditErr)
+		}
 		return nil, err
 	}
 
 	var (
-		data       any
-		citations  []Citation
-		outcome    string
-		approval   bool
-		redactions []string
-		err        error
+		data          any
+		citations     []Citation
+		outcome       string
+		approval      bool
+		approvalToken string
+		redactions    []string
+		err           error
 	)
 
 	switch toolName {
@@ -130,28 +155,40 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 	case ToolRunView:
 		data, citations, outcome, redactions, err = e.execView(ctx, req, input)
 	case ToolWriteFhirResource:
-		data, citations, outcome, approval, redactions, err = e.execWrite(ctx, req, input)
+		data, citations, outcome, approval, approvalToken, redactions, err = e.execWrite(ctx, req, input)
 	default:
 		err = fmt.Errorf("%w: %s", ErrToolNotFound, req.ToolName)
 	}
 
 	if err != nil {
-		_ = e.logAudit(ctx, req, req.ToolName, outcomeForError(err), map[string]string{"error": err.Error()})
+		details := auditDetailsForTool(req.ToolName, input, nil)
+		details["error"] = err.Error()
+		if auditErr := e.logAudit(ctx, req, req.ToolName, outcomeForError(err), details); auditErr != nil && e.cfg.AuditRequired {
+			return nil, errors.Join(err, auditErr)
+		}
 		return nil, err
 	}
 
 	ctxText, fmtErr := e.cfg.Formatter.Format(data)
 	if fmtErr != nil {
-		_ = e.logAudit(ctx, req, req.ToolName, "error", map[string]string{"error": fmtErr.Error()})
+		details := auditDetailsForTool(req.ToolName, input, data)
+		details["error"] = fmtErr.Error()
+		if auditErr := e.logAudit(ctx, req, req.ToolName, "error", details); auditErr != nil && e.cfg.AuditRequired {
+			return nil, errors.Join(fmtErr, auditErr)
+		}
 		return nil, fmtErr
 	}
 
+	var auditErr error
 	if approval {
 		auditOutcome := "approval-required"
-		_ = e.logAudit(ctx, req, req.ToolName, auditOutcome, auditDetailsForTool(toolName, input, data))
+		auditErr = e.logAudit(ctx, req, req.ToolName, auditOutcome, auditDetailsForTool(toolName, input, data))
 		outcome = auditOutcome
 	} else {
-		_ = e.logAudit(ctx, req, req.ToolName, outcome, auditDetailsForTool(toolName, input, data))
+		auditErr = e.logAudit(ctx, req, req.ToolName, outcome, auditDetailsForTool(toolName, input, data))
+	}
+	if auditErr != nil && e.cfg.AuditRequired {
+		return nil, auditErr
 	}
 
 	return &ToolResult{
@@ -161,6 +198,7 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 		Citations:        citations,
 		AuditMeta:        AuditMeta{ExecutedAt: e.cfg.Now(), Duration: e.cfg.Now().Sub(start), Outcome: outcome},
 		ApprovalRequired: approval,
+		ApprovalToken:    approvalToken,
 		Redactions:       redactions,
 	}, nil
 }
@@ -181,6 +219,9 @@ func (e *Executor) execRead(ctx context.Context, req ToolRequest, input map[stri
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
+	if decision == nil {
+		return nil, nil, "", nil, fmt.Errorf("%w: read policy returned no decision", ErrPolicyDenied)
+	}
 	if !decision.Allowed {
 		return nil, nil, "", nil, fmt.Errorf("%w: read %s/%s", ErrPolicyDenied, parsed.ResourceType, parsed.ID)
 	}
@@ -198,6 +239,9 @@ func (e *Executor) execRead(ctx context.Context, req ToolRequest, input map[stri
 	var data any = filtered
 	var redactions []string
 	if decision.Deidentify {
+		if e.cfg.Deidentify == nil {
+			return nil, nil, "", nil, ErrMissingDeidentifier
+		}
 		data, redactions, err = e.cfg.Deidentify.Deidentify(ctx, DeidentifyRequest{
 			ToolName: ToolReadFhirResource, ResourceType: parsed.ResourceType, Data: filtered,
 		})
@@ -233,6 +277,9 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
+	if decision == nil {
+		return nil, nil, "", nil, fmt.Errorf("%w: search policy returned no decision", ErrPolicyDenied)
+	}
 	if !decision.Allowed {
 		return nil, nil, "", nil, fmt.Errorf("%w: search %s", ErrPolicyDenied, parsed.ResourceType)
 	}
@@ -263,21 +310,52 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 
 	resources := make([]map[string]any, 0, len(result.Resources))
 	for _, res := range result.Resources {
-		item, err := filterResourceJSON(res.JSON, nil)
+		item, err := filterSearchResourceJSON(res.JSON, decision.AllowedFields, decision.AllowAllFields)
 		if err != nil {
 			return nil, nil, "", nil, err
 		}
 		resources = append(resources, item)
 	}
 
-	var data any = map[string]any{
+	included := make([]map[string]any, 0, len(result.Included))
+	var includedResources []*types.ResourceEnvelope
+	for _, inc := range result.Included {
+		if inc.Resource == nil {
+			continue
+		}
+		readDecision, readErr := e.cfg.Policy.CheckRead(ctx, ReadPolicyRequest{
+			Actor: req.Actor, Subject: req.Subject,
+			ResourceType: inc.ResourceType, ID: inc.ID,
+		})
+		if readErr != nil {
+			return nil, nil, "", nil, readErr
+		}
+		if !readDecision.Allowed {
+			continue
+		}
+		item, itemErr := filterResourceJSON(inc.Resource.JSON, readDecision.AllowedFields)
+		if itemErr != nil {
+			return nil, nil, "", nil, itemErr
+		}
+		included = append(included, item)
+		includedResources = append(includedResources, inc.Resource)
+	}
+
+	dataMap := map[string]any{
 		"resourceType": parsed.ResourceType,
 		"total":        result.Total,
 		"count":        result.Count,
 		"resources":    resources,
 	}
+	if len(included) > 0 {
+		dataMap["included"] = included
+	}
+	var data any = dataMap
 	var redactions []string
 	if decision.Deidentify {
+		if e.cfg.Deidentify == nil {
+			return nil, nil, "", nil, ErrMissingDeidentifier
+		}
 		data, redactions, err = e.cfg.Deidentify.Deidentify(ctx, DeidentifyRequest{
 			ToolName: ToolSearchFhirResources, ResourceType: parsed.ResourceType, Data: data,
 		})
@@ -286,7 +364,7 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		}
 	}
 
-	citations := e.cfg.Citations.SearchCitations(parsed.ResourceType, params, result.Resources)
+	citations := e.cfg.Citations.SearchCitationsWithIncludes(parsed.ResourceType, params, result.Resources, includedResources)
 	return data, citations, "success", redactions, nil
 }
 
@@ -299,22 +377,51 @@ func (e *Executor) execView(ctx context.Context, req ToolRequest, input map[stri
 		return nil, nil, "", nil, err
 	}
 
-	if err := e.cfg.Policy.CheckView(ctx, ViewPolicyRequest{
+	viewReq := ViewPolicyRequest{
 		Actor: req.Actor, Subject: req.Subject,
 		ViewName: parsed.ViewName, Version: parsed.Version, Parameters: parsed.Parameters,
-	}); err != nil {
+		Limit: parsed.Limit, Offset: parsed.Offset,
+	}
+	if scoped, ok := e.cfg.Policy.(ViewScopePolicy); ok {
+		narrowed, scopeErr := scoped.ApplyViewScope(ctx, viewReq)
+		if scopeErr != nil {
+			return nil, nil, "", nil, scopeErr
+		}
+		if narrowed == nil {
+			return nil, nil, "", nil, fmt.Errorf("%w: view scope decision is nil", ErrPolicyDenied)
+		}
+		viewReq = *narrowed
+		parsed.Parameters = viewReq.Parameters
+	}
+	if err := e.cfg.Policy.CheckView(ctx, viewReq); err != nil {
 		return nil, nil, "", nil, err
 	}
-	viewDecision := viewPolicyDecision(e.cfg.Policy, ViewPolicyRequest{
-		ViewName: parsed.ViewName, Version: parsed.Version,
-	})
+	viewDecision, decisionErr := viewPolicyDecision(ctx, e.cfg.Policy, viewReq)
+	if decisionErr != nil {
+		return nil, nil, "", nil, decisionErr
+	}
+	limit := parsed.Limit
+	maxLimit := 100
+	if viewDecision != nil && viewDecision.MaxCount > 0 {
+		maxLimit = viewDecision.MaxCount
+	} else if countPolicy, ok := e.cfg.Policy.(ViewCountPolicy); ok {
+		if count, ok := countPolicy.MaxViewCount(parsed.ViewName, parsed.Version); ok && count > 0 {
+			maxLimit = count
+		}
+	}
+	if maxLimit > 100 {
+		maxLimit = 100
+	}
+	if limit <= 0 || limit > maxLimit {
+		limit = maxLimit
+	}
 
 	result, err := e.cfg.Views.Execute(ctx, view.ExecuteRequest{
 		ViewName:   parsed.ViewName,
 		Version:    parsed.Version,
 		Actor:      req.Actor,
 		Subject:    req.Subject,
-		Limit:      parsed.Limit,
+		Limit:      limit,
 		Offset:     parsed.Offset,
 		Parameters: parsed.Parameters,
 	})
@@ -341,9 +448,13 @@ func (e *Executor) execView(ctx context.Context, req ToolRequest, input map[stri
 	var data any = viewData
 	var redactions []string
 	if viewDecision != nil && viewDecision.Deidentify {
+		if e.cfg.Deidentify == nil {
+			return nil, nil, "", nil, ErrMissingDeidentifier
+		}
 		var deidErr error
 		data, redactions, deidErr = e.cfg.Deidentify.Deidentify(ctx, DeidentifyRequest{
-			ToolName: ToolRunView, Data: viewData,
+			ToolName: ToolRunView, ResourceType: result.Metadata.SourceResourceType,
+			ViewName: result.ViewName, ViewVersion: result.Version, Data: viewData,
 		})
 		if deidErr != nil {
 			return nil, nil, "", nil, deidErr
@@ -356,13 +467,13 @@ func (e *Executor) execView(ctx context.Context, req ToolRequest, input map[stri
 	return data, citations, "success", redactions, nil
 }
 
-func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[string]any) (any, []Citation, string, bool, []string, error) {
+func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[string]any) (any, []Citation, string, bool, string, []string, error) {
 	if e.cfg.Core == nil {
-		return nil, nil, "", false, nil, fmt.Errorf("%w: core service required for writes", ErrMissingDependency)
+		return nil, nil, "", false, "", nil, fmt.Errorf("%w: core service required for writes", ErrMissingDependency)
 	}
 	parsed, err := parseWriteInput(input)
 	if err != nil {
-		return nil, nil, "", false, nil, err
+		return nil, nil, "", false, "", nil, err
 	}
 
 	decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
@@ -371,29 +482,50 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		ID: parsed.ID, Fields: parsed.Fields,
 	})
 	if err != nil {
-		return nil, nil, "", false, nil, err
+		return nil, nil, "", false, "", nil, err
+	}
+	if decision == nil {
+		return nil, nil, "", false, "", nil, fmt.Errorf("%w: write policy returned no decision", ErrPolicyDenied)
 	}
 	if !decision.Allowed {
-		return nil, nil, "", false, nil, fmt.Errorf("%w: write %s %s", ErrPolicyDenied, parsed.Operation, parsed.ResourceType)
+		return nil, nil, "", false, "", nil, fmt.Errorf("%w: write %s %s", ErrPolicyDenied, parsed.Operation, parsed.ResourceType)
+	}
+	for field := range parsed.Fields {
+		if field == "resourceType" || field == "id" {
+			return nil, nil, "", false, "", nil, fmt.Errorf("%w: field %q cannot be written", ErrPolicyDenied, field)
+		}
 	}
 
 	allowedFields := filterAllowedFields(parsed.Fields, decision.AllowedFields)
 	jsonData, err := envelopeJSON(parsed.ResourceType, parsed.ID, allowedFields)
 	if err != nil {
-		return nil, nil, "", false, nil, err
+		return nil, nil, "", false, "", nil, err
+	}
+	var existing *types.ResourceEnvelope
+	var merged []byte
+	if parsed.Operation == "update" {
+		existing, err = e.cfg.Core.Read(ctx, parsed.ResourceType, parsed.ID)
+		if err != nil {
+			return nil, nil, "", false, "", nil, err
+		}
+		merged, err = mergeUpdateJSON(existing.JSON, allowedFields)
+		if err != nil {
+			return nil, nil, "", false, "", nil, err
+		}
 	}
 
 	if e.cfg.Validator != nil {
-		env := &types.ResourceEnvelope{ResourceType: parsed.ResourceType, JSON: jsonData}
+		candidate := jsonData
 		if parsed.Operation == "update" {
-			env.ID = parsed.ID
+			candidate = merged
 		}
+		env := &types.ResourceEnvelope{ResourceType: parsed.ResourceType, ID: parsed.ID, JSON: candidate}
 		result, valErr := e.cfg.Validator.Validate(ctx, env, validate.ValidateOptions{})
 		if valErr != nil {
-			return nil, nil, "", false, nil, valErr
+			return nil, nil, "", false, "", nil, valErr
 		}
 		if result != nil && !result.Valid {
-			return nil, nil, "", false, nil, fmt.Errorf("%w: %d issue(s)", ErrValidationFailed, len(result.Issues))
+			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %d issue(s)", ErrValidationFailed, len(result.Issues))
 		}
 	}
 
@@ -406,21 +538,61 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		preview["id"] = parsed.ID
 	}
 
+	approvalReq := ApprovalRequest{
+		Actor: req.Actor, Subject: req.Subject,
+		Operation: parsed.Operation, ResourceType: parsed.ResourceType,
+		ID: parsed.ID, Fields: allowedFields, Preview: preview,
+	}
 	if decision.RequiresApproval {
-		if e.cfg.Approval == nil {
-			return preview, nil, "approval-required", true, nil, nil
-		}
-		approval, apprErr := e.cfg.Approval.RequestApproval(ctx, ApprovalRequest{
-			Actor: req.Actor, Subject: req.Subject,
-			Operation: parsed.Operation, ResourceType: parsed.ResourceType,
-			ID: parsed.ID, Fields: allowedFields, Preview: preview,
-		})
-		if apprErr != nil {
-			return nil, nil, "", false, nil, apprErr
+		var approval *ApprovalResult
+		if req.ApprovalToken != "" {
+			if e.cfg.ApprovalStore == nil {
+				return nil, nil, "", false, "", nil, ErrMissingApprovalStore
+			}
+			if verifyErr := e.cfg.ApprovalStore.VerifyAndConsume(ctx, req.ApprovalToken, approvalReq); verifyErr != nil {
+				return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrApprovalTokenInvalid, verifyErr)
+			}
+			approval = &ApprovalResult{Approved: true, Token: req.ApprovalToken}
+		} else if e.cfg.Approval != nil {
+			approval, err = e.cfg.Approval.RequestApproval(ctx, approvalReq)
+			if err != nil {
+				return nil, nil, "", false, "", nil, err
+			}
+		} else if e.cfg.ApprovalStore != nil {
+			token, createErr := e.cfg.ApprovalStore.CreatePending(ctx, approvalReq)
+			if createErr != nil {
+				return nil, nil, "", false, "", nil, createErr
+			}
+			return preview, nil, "approval-required", true, token, nil, nil
+		} else {
+			return nil, nil, "", false, "", nil, ErrMissingApprovalStore
 		}
 		if approval == nil || !approval.Approved {
-			return preview, nil, "approval-required", true, nil, nil
+			token := ""
+			if approval != nil {
+				token = approval.Token
+			}
+			if token == "" && e.cfg.ApprovalStore != nil {
+				token, err = e.cfg.ApprovalStore.CreatePending(ctx, approvalReq)
+				if err != nil {
+					return nil, nil, "", false, "", nil, err
+				}
+			}
+			return preview, nil, "approval-required", true, token, nil, nil
 		}
+		if approval.Token == "" {
+			return nil, nil, "", false, "", nil, ErrApprovalTokenRequired
+		}
+		if req.ApprovalToken == "" {
+			if e.cfg.ApprovalStore == nil {
+				return nil, nil, "", false, "", nil, ErrMissingApprovalStore
+			}
+			if verifyErr := e.cfg.ApprovalStore.VerifyAndConsume(ctx, approval.Token, approvalReq); verifyErr != nil {
+				return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrApprovalTokenInvalid, verifyErr)
+			}
+		}
+	} else if req.ApprovalToken != "" {
+		return nil, nil, "", false, "", nil, fmt.Errorf("%w: approval token supplied for a write that does not require approval", ErrInvalidInput)
 	}
 
 	var written *types.ResourceEnvelope
@@ -432,14 +604,6 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 			JSON:         jsonData,
 		})
 	case "update":
-		existing, readErr := e.cfg.Core.Read(ctx, parsed.ResourceType, parsed.ID)
-		if readErr != nil {
-			return nil, nil, "", false, nil, readErr
-		}
-		merged, mergeErr := mergeUpdateJSON(existing.JSON, allowedFields)
-		if mergeErr != nil {
-			return nil, nil, "", false, nil, mergeErr
-		}
 		written, err = e.cfg.Core.Update(ctx, &types.ResourceEnvelope{
 			ResourceType: parsed.ResourceType,
 			ID:           parsed.ID,
@@ -448,9 +612,9 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 	}
 	if err != nil {
 		if core.KindOf(err) == core.ErrorKindInvalid {
-			return nil, nil, "", false, nil, fmt.Errorf("%w: %v", ErrValidationFailed, err)
+			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrValidationFailed, err)
 		}
-		return nil, nil, "", false, nil, err
+		return nil, nil, "", false, "", nil, err
 	}
 
 	data := map[string]any{
@@ -460,7 +624,7 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		"versionId":    written.VersionID,
 	}
 	citations := []Citation{e.cfg.Citations.WriteCitation(parsed.Operation, written.ResourceType, written.ID)}
-	return data, citations, "success", false, nil, nil
+	return data, citations, "success", false, "", nil, nil
 }
 
 func mergeUpdateJSON(existing []byte, fields map[string]any) ([]byte, error) {
@@ -493,17 +657,27 @@ func filterAllowedFields(requested map[string]any, allowed []string) map[string]
 
 func (e *Executor) logAudit(ctx context.Context, req ToolRequest, toolName, outcome string, details map[string]string) error {
 	if e.cfg.Audit == nil {
+		if e.cfg.AuditRequired {
+			return ErrMissingAudit
+		}
 		return nil
 	}
-	return e.cfg.Audit.LogToolAccess(ctx, AuditRecord{
+	if err := e.cfg.Audit.LogToolAccess(ctx, AuditRecord{
 		ToolName:       toolName,
 		Actor:          req.Actor,
+		Tenant:         req.TenantID,
 		Subject:        req.Subject,
 		Outcome:        outcome,
 		Details:        details,
 		ConversationID: req.ConversationID,
 		Timestamp:      e.cfg.Now(),
-	})
+	}); err != nil {
+		if e.cfg.AuditRequired {
+			return fmt.Errorf("%w: %v", ErrAuditFailed, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func auditDetailsForTool(toolName string, input map[string]any, data any) map[string]string {
@@ -549,16 +723,25 @@ func defaultSearchCount(policy PolicyEngine, resourceType string) int {
 	return 50
 }
 
-func viewPolicyDecision(policy PolicyEngine, req ViewPolicyRequest) *ViewPolicyDecision {
-	decisionProvider, ok := policy.(ViewDecisionPolicy)
-	if !ok {
-		return nil
+func validateConversationID(id string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return ErrMissingConversationID
 	}
-	decision, err := decisionProvider.CheckViewDecision(req)
-	if err != nil {
-		return nil
+	if len(trimmed) > 256 || strings.ContainsAny(trimmed, "\r\n") {
+		return fmt.Errorf("%w: invalid format", ErrMissingConversationID)
 	}
-	return decision
+	return nil
+}
+
+func viewPolicyDecision(ctx context.Context, policy PolicyEngine, req ViewPolicyRequest) (*ViewPolicyDecision, error) {
+	if decisionProvider, ok := policy.(ViewDecisionPolicyContext); ok {
+		return decisionProvider.CheckViewDecisionContext(ctx, req)
+	}
+	if decisionProvider, ok := policy.(ViewDecisionPolicy); ok {
+		return decisionProvider.CheckViewDecision(req)
+	}
+	return nil, nil
 }
 
 func outcomeForError(err error) string {

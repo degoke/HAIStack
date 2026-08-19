@@ -38,6 +38,22 @@ var (
 	// installed module depends on the target.
 	ErrModuleInUse = errors.New("module is required by another installed module")
 
+	// ErrResourceTypeInUse is returned when uninstalling a module would disable
+	// a resource type that still has persisted resources.
+	ErrResourceTypeInUse = errors.New("resource type still has persisted resources")
+
+	// ErrModuleFileTooLarge is returned when a manifest or definition file
+	// exceeds the loader's configured safety limit.
+	ErrModuleFileTooLarge = errors.New("module file is too large")
+
+	// ErrModuleSignatureMissing is returned when a configured verifier cannot
+	// find the module's detached signature.
+	ErrModuleSignatureMissing = errors.New("module signature missing")
+
+	// ErrModuleSignatureInvalid is returned when a configured verifier rejects
+	// the module signature or its signed content.
+	ErrModuleSignatureInvalid = errors.New("invalid module signature")
+
 	// ErrUpgradeWouldRemove is returned when an upgrade would remove
 	// resources or definitions that were previously declared, requiring manual
 	// action in v1.

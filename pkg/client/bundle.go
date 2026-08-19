@@ -148,5 +148,8 @@ func (b *BundleBuilder) Submit(ctx context.Context, c *Client) (*types.ResourceE
 	if err != nil {
 		return nil, err
 	}
+	if b.bundleType == "batch" {
+		return c.Batch(ctx, bundle)
+	}
 	return c.Transaction(ctx, bundle)
 }

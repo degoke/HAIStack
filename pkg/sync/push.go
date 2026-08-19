@@ -55,8 +55,6 @@ func (p *Pusher) Push(ctx context.Context) (*PushResultSummary, error) {
 		}
 		localEvents = append(localEvents, enriched)
 	}
-	localEvents = orderPushBatch(localEvents)
-
 	results, err := cfg.Hub.Push(ctx, localEvents)
 	if err != nil {
 		return nil, err
@@ -74,6 +72,9 @@ func (p *Pusher) Push(ctx context.Context) (*PushResultSummary, error) {
 	var lastHandledSeq = afterSeq
 	for i, result := range results {
 		event := localEvents[i]
+		if result.EventID != event.EventID {
+			return summary, fmt.Errorf("hub result event ID %q does not match submitted event %q", result.EventID, event.EventID)
+		}
 		if err := p.handlePushResult(ctx, cfg, event, result); err != nil {
 			return summary, err
 		}
@@ -236,28 +237,6 @@ func (p *Pusher) recordConflict(ctx context.Context, cfg Config, event LocalEven
 		},
 	})
 	return nil
-}
-
-// orderPushBatch sorts events so creates/updates precede deletes for the same resource.
-func orderPushBatch(events []LocalEvent) []LocalEvent {
-	if len(events) < 2 {
-		return events
-	}
-	out := make([]LocalEvent, len(events))
-	copy(out, events)
-	// Stable partition: non-deletes first, deletes last.
-	var head, tail int
-	buffer := make([]LocalEvent, len(out))
-	for _, event := range out {
-		if event.Operation == EventTypeResourceDeleted {
-			buffer[len(out)-1-tail] = event
-			tail++
-		} else {
-			buffer[head] = event
-			head++
-		}
-	}
-	return buffer
 }
 
 func readCursorPosition(ctx context.Context, cursors store.CursorStore, name string) (int64, error) {

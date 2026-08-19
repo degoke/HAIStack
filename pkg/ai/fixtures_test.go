@@ -507,10 +507,12 @@ func (h *fakeApprovalHook) RequestApproval(_ context.Context, req ai.ApprovalReq
 
 type fakeDeidentifier struct {
 	called bool
+	last   ai.DeidentifyRequest
 }
 
 func (d *fakeDeidentifier) Deidentify(_ context.Context, req ai.DeidentifyRequest) (any, []string, error) {
 	d.called = true
+	d.last = req
 	return req.Data, []string{"phone"}, nil
 }
 

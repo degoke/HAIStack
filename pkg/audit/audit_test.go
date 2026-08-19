@@ -41,8 +41,12 @@ func TestStoreAdapterRoundTrip(t *testing.T) {
 		t.Fatalf("events = %d", len(events))
 	}
 	ev := events[0]
-	if ev.ID != "fixed-id" || ev.ToolName != "read_fhir_resource" || ev.Tenant != "tenant-a" {
+	if ev.ID != "fixed-id" || ev.ToolName != "read_fhir_resource" || ev.Tenant != "tenant-a" || ev.ConversationID != "c1" {
 		t.Fatalf("event = %#v", ev)
+	}
+	filtered, err := logger.ListEvents(ctx, audit.Query{ConversationID: "c1", ToolName: "read_fhir_resource"})
+	if err != nil || len(filtered) != 1 {
+		t.Fatalf("structured conversation query = %#v err=%v", filtered, err)
 	}
 	if ev.Details["conversationId"] != "c1" || ev.Details["resourceType"] != "Patient" {
 		t.Fatalf("details = %#v", ev.Details)
@@ -120,6 +124,9 @@ func TestToFromStoreRecord(t *testing.T) {
 		Details:      map[string]string{"extra": "x"},
 	}
 	rec := audit.ToStoreRecord(ev)
+	if rec.ViewName != "summary" || rec.Tenant != "t1" {
+		t.Fatalf("store record = %#v", rec)
+	}
 	back := audit.FromStoreRecord(rec)
 	if back.Tenant != "t1" || back.ViewName != "summary" || back.ToolName != "run_view" {
 		t.Fatalf("round trip = %#v", back)
@@ -154,6 +161,24 @@ func TestSQLiteAuditAppendList(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Action != audit.ActionResourceRead {
 		t.Fatalf("recs = %#v", recs)
+	}
+}
+
+func TestSQLiteAIToolConversationFilter(t *testing.T) {
+	ctx := context.Background()
+	db := openSQLite(t)
+	logger := &audit.StoreAdapter{Store: db.AuditStore()}
+	if err := audit.LogAIToolCall(ctx, logger, audit.AIToolCallEvent{
+		ID: "audit-ai-1", Actor: "agent", Tenant: "tenant-a", ToolName: "read_fhir_resource",
+		Outcome: audit.OutcomeSuccess, ConversationID: "conversation-1",
+	}); err != nil {
+		t.Fatalf("LogAIToolCall: %v", err)
+	}
+	recs, err := db.AuditStore().List(ctx, store.AuditQuery{
+		ToolName: "read_fhir_resource", ConversationID: "conversation-1",
+	})
+	if err != nil || len(recs) != 1 || recs[0].ConversationID != "conversation-1" {
+		t.Fatalf("conversation filter = %#v err=%v", recs, err)
 	}
 }
 

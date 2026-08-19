@@ -2,6 +2,8 @@ package storetest
 
 import (
 	"context"
+	"fmt"
+	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -46,6 +48,7 @@ func NewStrictBackend() *Backend {
 
 // WriteSessionProvider provides atomic write sessions over resource, history, search, and events.
 type WriteSessionProvider struct {
+	mu        sync.Mutex
 	Resources *ResourceStore
 	History   *HistoryStore
 	Search    *SearchStore
@@ -63,24 +66,62 @@ func NewWriteSessionProvider() *WriteSessionProvider {
 }
 
 func (p *WriteSessionProvider) BeginWrite(_ context.Context) (store.WriteSession, error) {
+	if p == nil || p.Resources == nil || p.History == nil || p.Search == nil || p.Events == nil {
+		return nil, fmt.Errorf("write session provider stores are required")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return &writeSession{
-		resources: p.Resources,
-		history:   p.History,
-		search:    p.Search,
-		events:    p.Events,
+		provider:  p,
+		resources: p.Resources.clone(),
+		history:   p.History.clone(),
+		search:    p.Search.clone(),
+		events:    p.Events.clone(),
 	}, nil
 }
 
 type writeSession struct {
+	provider  *WriteSessionProvider
 	resources *ResourceStore
 	history   *HistoryStore
 	search    *SearchStore
 	events    *EventStore
+	mu        sync.Mutex
+	done      bool
 }
 
 func (s *writeSession) ResourceStore() store.ResourceStore { return s.resources }
 func (s *writeSession) HistoryStore() store.HistoryStore   { return s.history }
 func (s *writeSession) SearchStore() store.SearchStore     { return s.search }
 func (s *writeSession) EventStore() store.EventStore       { return s.events }
-func (s *writeSession) Commit(context.Context) error       { return nil }
-func (s *writeSession) Rollback(context.Context) error     { return nil }
+func (s *writeSession) Commit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return fmt.Errorf("write session is already closed")
+	}
+	s.provider.mu.Lock()
+	defer s.provider.mu.Unlock()
+	s.provider.Resources.replaceFrom(s.resources)
+	s.provider.History.replaceFrom(s.history)
+	s.provider.Search.replaceFrom(s.search)
+	s.provider.Events.replaceFrom(s.events)
+	s.done = true
+	return nil
+}
+
+func (s *writeSession) Rollback(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return fmt.Errorf("write session is already closed")
+	}
+	s.done = true
+	return nil
+}

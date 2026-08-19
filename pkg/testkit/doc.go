@@ -22,6 +22,7 @@
 //   - golden — canonical OperationOutcome JSON comparison (inline/embedded goldens)
 //   - fhirpathtest — FHIRPath evaluation and assertion helpers over fixtures
 //   - aitest — reusable ai.Executor harness with optional search, views, and core wiring
+//     (including shared resource/search stores and approval/model fakes)
 //
 // # Typical usage
 //

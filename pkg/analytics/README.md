@@ -87,9 +87,10 @@ First-milestone views (registered via `RegisterBuiltInViews`):
 | `appointment_view` | Appointment | `view.AppointmentView()` |
 | `observation_view` | Observation | `view.ObservationView()` |
 
-`Runner` rejects views outside `analytics.SupportedViews`. Custom views can be
-registered in the view registry for direct `view.Executor` use, but analytics
-runs require the allow-listed names in v1.
+`Runner` rejects views outside `analytics.SupportedViews` and rejects custom
+definitions or versions using a built-in name. Custom views can be registered
+in the view registry for direct `view.Executor` use, but analytics runs require
+the packaged v1 definitions.
 
 ## Targets and sinks
 
@@ -101,6 +102,9 @@ Writes a full view result into `store.ReportingTableStore`. Each refresh:
 2. Upserts schema metadata (`columns`, `row_count`, `refreshed_at`).
 3. Inserts the new row set as ordered JSONB documents.
 
+View versions are logical keys in these shared tables; they are not separate
+Postgres table partitions.
+
 Postgres implementation: `TenantDB.ReportingTableStore()` in `pkg/postgres`.
 
 This is intentionally separate from `MaterializedViewStore`, which stores opaque
@@ -111,9 +115,16 @@ per-key payloads and is not designed for tabular reporting queries.
 Implements `RowSink`. Encoding rules:
 
 - Headers follow `view.ColumnInfo` declaration order.
-- `null` → empty field.
+- `null` or a missing field → `\N` (`analytics.CSVNullValue`). Empty strings
+  remain empty fields. A leading backslash in a scalar string is escaped with
+  another backslash so the null marker remains unambiguous.
 - Scalars → string representation.
 - Arrays and maps → JSON in the cell.
+- Decimal values use fixed-point formatting; scientific notation is not emitted.
+
+CSV rows are written directly to the supplied `io.Writer`, with no additional
+whole-export buffer. The view executor still materializes the complete result
+set in v1.
 
 ### Deferred sinks (interface only)
 
@@ -168,7 +179,7 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 
 | Error | When |
 |-------|------|
-| `ErrUnsupportedView` | View name not in `SupportedViews` |
+| `ErrUnsupportedView` | View name or registered definition is not a packaged v1 view |
 | `ErrUnsupportedDestination` | Mode/destination mismatch (e.g. refresh without `ReportingTarget`) |
 | `ErrUnsupportedMode` | Unknown `Mode` value |
 | `ErrMissingExecutor` | `NewRunner` without a view executor |

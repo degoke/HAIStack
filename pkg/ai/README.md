@@ -27,7 +27,8 @@ context with citations and audit records.**
 policy := ai.NewAllowListPolicy()
 policy.Read["Patient"] = ai.ReadTypePolicy{}
 policy.Search["Patient"] = ai.SearchTypePolicy{
-    AllowedParams: []string{"name", "telecom"},
+    AllowedParams: []string{"name"},
+    AllowedFields: []string{"name", "gender"},
     MaxCount:      50,
 }
 policy.Views["patient_summary_view"] = ai.ViewTypePolicy{}
@@ -43,8 +44,11 @@ exec, err := ai.NewExecutor(ai.Config{
     Views:     viewExec,
     Core:      coreSvc,
     Policy:    policy,
-    Audit:     ai.AuditStoreAdapter{Store: auditStore},
+    Audit:     &ai.AuditStoreAdapter{Store: auditStore},
+    AuditRequired: true,
+    RequireConversationID: true,
     Approval:  myApprovalHook,
+    ApprovalStore: approvalStore,
 })
 ```
 
@@ -131,16 +135,21 @@ Writes do not accept arbitrary FHIR JSON or PATCH documents.
 
 - Unlisted resource types cannot be read, searched, or written
 - Unlisted views cannot be executed
-- Search parameters not on the allow-list are removed; if none remain, the search is denied
+- Search requests containing any parameter not on the allow-list are denied
+- Search results expose only `resourceType`/`id` unless `AllowedFields` or `AllowAllFields` is configured
 - Write fields not on the allow-list are rejected
 - `SearchTypePolicy.MaxCount` bounds page size
+- `_include` and `_revinclude` directives require exact policy allow-list entries
 
 Approval is policy-driven via `WriteTypePolicy.CreateApproval` /
-`UpdateApproval` and an optional `ApprovalHook`. When approval is required but
-not granted, `ToolResult.ApprovalRequired` is true and no write is committed.
+`UpdateApproval`. Pending writes use `ApprovalStore` tokens; approved tokens are
+verified and consumed before a write is committed. An approval hook that returns
+an approved result must also return a token backed by that store.
 
 De-identification is policy-driven via `ReadTypePolicy.Deidentify`,
-`SearchTypePolicy.Deidentify`, and `ViewTypePolicy.Deidentify`.
+`SearchTypePolicy.Deidentify`, and `ViewTypePolicy.Deidentify`. When any of
+these flags is enabled, an explicit `Deidentifier` must be configured; the
+executor will not silently use pass-through behavior.
 
 ## Citations and audit
 

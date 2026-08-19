@@ -14,7 +14,8 @@
 //   - CRUD and search return types.ResourceEnvelope with normalized FHIR JSON.
 //   - Typed helpers for Patient, Observation, and Encounter are thin wrappers
 //     over the generic API — not a separate transport stack.
-//   - Callers work with canonical JSON bytes; generated FHIR structs are not required.
+//   - Callers can use envelope APIs, raw JSON-in/JSON-out helpers, or
+//     ResourceEnvelope.DecodeInto and typed field getters; generated FHIR structs are optional.
 //
 // Transport-only sync boundary:
 //
@@ -53,9 +54,10 @@
 // Core client:
 //
 //   - New(Config) (*Client, error) — construct the SDK client
-//   - Client.Create / Read / Update / Delete — instance-level CRUD
+//   - Client.Create / Read / Update / Delete and *IfMatch variants — instance-level CRUD
 //   - Client.Transaction — submit a transaction Bundle
-//   - Client.Search / SearchPage / SearchAll — type-level search with pagination
+//   - Client.Operation — execute a generic server-defined $operation
+//   - Client.Search / SearchPost / SearchPage / SearchAll / IterateSearch — type-level search with pagination
 //   - Client.SearchBuilder — fluent query composition over url.Values
 //   - Client.Metadata / CheckFHIRVersion / CheckFeatureSupport — capability helpers
 //   - NewTransactionBundleBuilder / NewBatchBundleBuilder — assemble request bundles
@@ -84,12 +86,18 @@
 // Base path defaults to /fhir (configurable via Config.BasePath).
 //
 //   - GET    /fhir/metadata                  — CapabilityStatement
-//   - POST   /fhir                           — transaction Bundle
+//   - POST   /fhir                           — transaction or batch Bundle
+//   - GET/POST /fhir/$operation               — generic system operation
+//   - GET/POST /fhir/{ResourceType}[/{id}]/$operation — generic operation
 //   - GET    /fhir/{ResourceType}            — type-level search (searchset Bundle)
+//   - POST   /fhir/{ResourceType}/_search    — form-encoded search
 //   - POST   /fhir/{ResourceType}            — create
+//   - POST   /fhir/{ResourceType}            — conditional create via If-None-Exist
 //   - GET    /fhir/{ResourceType}/{id}       — read
 //   - PUT    /fhir/{ResourceType}/{id}       — update
+//   - PATCH  /fhir/{ResourceType}/{id}       — JSON Patch update
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
+//   - PUT/DELETE /fhir/{ResourceType}?query   — conditional update/delete
 //   - GET    /fhir/$export                   — bulk export kickoff (async)
 //   - GET    /fhir/Group/{id}/$export        — group bulk export kickoff
 //
@@ -157,7 +165,7 @@
 //   - Automatic sync scheduling/runtime orchestration (use pkg/sync.Engine)
 //   - Generated typed models for every FHIR resource
 //   - OAuth authorization server implementation
-//   - PATCH, batch bundles, custom operations beyond bulk export
+//   - Server-side bulk export implementation (the client supports kickoff/poll)
 //
 // See README.md in this directory for endpoint tables, configuration reference,
 // usage examples, and test guidance.

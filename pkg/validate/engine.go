@@ -139,7 +139,7 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 			}
 			issues = append(issues, issue(
 				"structural",
-				err.Error(),
+				structuralDiagnostics(err),
 				[]string{resourceType},
 			))
 		}

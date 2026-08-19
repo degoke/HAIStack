@@ -79,7 +79,7 @@ svc, _ := core.NewResourceService(core.ResourceServiceConfig{
 })
 ```
 
-If validation fails, core aborts the write and returns `ErrorKindInvalid` (mappable to a FHIR `OperationOutcome` via `core.OperationOutcomeFromError`).
+If validation fails, core aborts the write and returns `ErrorKindInvalid`. When the failure comes from `NewCoreValidator`, `core.OperationOutcomeFromError` preserves each validation issue code (for example `invalid-id`, `missing-required-field`) instead of collapsing them into a single generic `invalid` issue.
 
 If you omit `Validator`, core skips validation entirely.
 
@@ -123,9 +123,10 @@ FHIR JSON envelope
 ## MVP limits
 
 - Structural and safety-oriented, not full profile conformance
-- Syntactic reference checks only (no existence resolution)
+- Syntactic reference checks only (no existence resolution; bare IDs without slashes are accepted; typed references are not checked against the installed resource-type registry)
+- Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
-- Google FHIR R4 proto/jsonformat for primitive and structural validation
+- Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
 - No terminology, slicing, custom invariants, or module-specific rules
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.

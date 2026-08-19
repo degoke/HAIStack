@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,6 +18,10 @@ type JobStore struct {
 
 func newJobStore(pool *pgxpool.Pool, tenantID string) *JobStore {
 	return &JobStore{exec: pool, tenantID: tenantID}
+}
+
+func newJobStoreTx(tx pgx.Tx, tenantID string) *JobStore {
+	return &JobStore{exec: tx, tenantID: tenantID}
 }
 
 func (s *JobStore) Enqueue(ctx context.Context, job store.JobRecord) error {

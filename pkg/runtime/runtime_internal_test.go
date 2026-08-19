@@ -19,3 +19,21 @@ func TestRuntimeShutdownReturnsBackgroundWorkerError(t *testing.T) {
 		t.Fatalf("Shutdown err = %v, want ErrBackgroundWorker", err)
 	}
 }
+
+func TestRuntimeShutdownCleansUpAfterCallerContextExpires(t *testing.T) {
+	cleaned := false
+	rt := &Runtime{}
+	rt.cleanup.add(func() { cleaned = true })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := rt.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if !cleaned {
+		t.Fatal("cleanup stack did not run after canceled shutdown context")
+	}
+	if err := rt.Shutdown(context.Background()); err != nil {
+		t.Fatalf("second Shutdown: %v", err)
+	}
+}

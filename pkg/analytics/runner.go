@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -78,6 +79,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if err := validateDestination(req.Mode, req.Destination); err != nil {
 		return nil, err
 	}
+	if err := r.validatePackagedView(req.ViewName, req.Version); err != nil {
+		// Let Executor.Execute handle unresolved views so its normal audit and
+		// error propagation path remains intact.
+		if !errors.Is(err, view.ErrViewNotFound) {
+			return nil, err
+		}
+	}
+	runAt := r.now().UTC()
 
 	result, err := r.executor.Execute(ctx, view.ExecuteRequest{
 		ViewName:   req.ViewName,
@@ -89,10 +98,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Runner.Config.Now is the analytics clock. Keep the result metadata and
+	// refresh metadata on the same clock even when the underlying executor was
+	// constructed with a different clock.
+	result.Metadata.ExecutedAt = runAt
 
 	switch req.Mode {
 	case ModeRefresh:
-		if err := req.Destination.Reporting.Write(ctx, result); err != nil {
+		if err := req.Destination.Reporting.writeAt(ctx, result, runAt); err != nil {
 			return nil, err
 		}
 	case ModeExport:
@@ -113,6 +126,9 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 }
 
 func validateDestination(mode Mode, dest Destination) error {
+	if dest.Reporting != nil && dest.Sink != nil {
+		return fmt.Errorf("%w: reporting target and row sink are mutually exclusive", ErrUnsupportedDestination)
+	}
 	switch mode {
 	case ModeRefresh:
 		if dest.Reporting == nil {
@@ -124,6 +140,20 @@ func validateDestination(mode Mode, dest Destination) error {
 		}
 	default:
 		return ErrUnsupportedMode
+	}
+	return nil
+}
+
+func (r *Runner) validatePackagedView(name, version string) error {
+	if version != "" && version != "1.0.0" {
+		return fmt.Errorf("%w: %q version %q is not a packaged v1 view", ErrUnsupportedView, name, version)
+	}
+	spec, err := r.executor.ResolveView(name, version)
+	if err != nil {
+		return err
+	}
+	if !isPackagedView(spec) {
+		return fmt.Errorf("%w: %q is not the packaged v1 definition", ErrUnsupportedView, name)
 	}
 	return nil
 }

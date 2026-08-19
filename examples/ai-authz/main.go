@@ -85,9 +85,11 @@ func run() error {
 	}
 
 	aiExec, err := ai.NewExecutor(ai.Config{
-		Resources: stack.DB.ResourceStore(),
-		Search:    stack.SearchService,
-		Core:      stack.ResourceService,
+		Resources:     stack.DB.ResourceStore(),
+		Search:        stack.SearchService,
+		Core:          stack.ResourceService,
+		Audit:         &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
+		AuditRequired: true,
 		Policy: &auth.AIPolicyAdapter{
 			Engine:   authEngine,
 			TenantID: "tenant-demo",
@@ -97,7 +99,7 @@ func run() error {
 					"Patient": {AllowedFields: []string{"name", "telecom"}},
 				},
 				Search: map[string]ai.SearchTypePolicy{
-					"Patient": {AllowedParams: []string{"name"}, MaxCount: 5},
+					"Patient": {AllowedParams: []string{"name"}, AllowedFields: []string{"name"}, MaxCount: 5},
 				},
 			},
 		},

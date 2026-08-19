@@ -1,16 +1,22 @@
 package runtime
 
 import (
+	"net/http"
+	"path/filepath"
+
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	"github.com/degoke/health-ai-stack/pkg/modules"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
 // Builder composes a runtime from storage backends and optional capabilities.
 type Builder struct {
-	sqlitePath  string
-	postgresDSN string
-	tenantID    string
+	sqlitePath             string
+	sqliteTenantID         string
+	sqliteTerminologyScope string
+	postgresDSN            string
+	tenantID               string
 
 	blobStore      BlobStoreAdapter
 	externalSearch ExternalSearchAdapter
@@ -20,9 +26,17 @@ type Builder struct {
 	sdcService     hahttp.SDCService
 	searchEnabled  bool
 
-	syncHubURL string
-	syncHub    hasync.Hub
-	syncNodeID string
+	syncHubURL            string
+	syncHub               hasync.Hub
+	syncServer            hasync.HubServer
+	syncNodeID            string
+	syncMiddleware        func(http.Handler) http.Handler
+	httpMiddleware        func(http.Handler) http.Handler
+	httpPrincipalResolver hahttp.PrincipalResolver
+	httpAuthChecker       hahttp.AuthChecker
+	httpRateLimit         hahttp.RateLimitConfig
+	moduleAuthorizer      modules.InstallAuthorizer
+	moduleVerifier        modules.ModuleVerifier
 
 	modulePaths []string
 	httpAddr    string
@@ -36,6 +50,20 @@ func New() *Builder {
 // WithSQLite selects embedded SQLite at the given database path.
 func (b *Builder) WithSQLite(path string) *Builder {
 	b.sqlitePath = path
+	return b
+}
+
+// WithSQLiteTenant sets the tenant namespace used by local sync and
+// terminology persistence. It defaults to "local".
+func (b *Builder) WithSQLiteTenant(tenantID string) *Builder {
+	b.sqliteTenantID = tenantID
+	return b
+}
+
+// WithSQLiteTerminologyScope sets the terminology namespace used by SQLite.
+// It defaults to "default".
+func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
+	b.sqliteTerminologyScope = scope
 	return b
 }
 
@@ -94,6 +122,57 @@ func (b *Builder) WithSyncHub(hub hasync.Hub) *Builder {
 	return b
 }
 
+// WithSyncServer exposes /sync/push and /sync/pull on the HTTP server.
+func (b *Builder) WithSyncServer(hub hasync.HubServer) *Builder {
+	b.syncServer = hub
+	return b
+}
+
+// WithSyncMiddleware applies authentication and authorization to the
+// runtime's /sync routes. It should bind the authenticated node and tenant to
+// the request before the scoped hub is invoked.
+func (b *Builder) WithSyncMiddleware(middleware func(http.Handler) http.Handler) *Builder {
+	b.syncMiddleware = middleware
+	return b
+}
+
+// WithHTTPMiddleware wraps the managed FHIR handler with application
+// middleware such as authentication, tracing, or request policy.
+func (b *Builder) WithHTTPMiddleware(middleware func(http.Handler) http.Handler) *Builder {
+	b.httpMiddleware = middleware
+	return b
+}
+
+// WithHTTPAuth configures the built-in principal extraction and authorization
+// middleware for the managed FHIR handler.
+func (b *Builder) WithHTTPAuth(resolver hahttp.PrincipalResolver, checker hahttp.AuthChecker) *Builder {
+	b.httpPrincipalResolver = resolver
+	b.httpAuthChecker = checker
+	return b
+}
+
+// WithHTTPRateLimit enables process-local request limiting for the managed
+// FHIR handler.
+func (b *Builder) WithHTTPRateLimit(config hahttp.RateLimitConfig) *Builder {
+	b.httpRateLimit = config
+	return b
+}
+
+// WithModuleAuthorizer configures authorization for module install and upgrade
+// operations performed during Build and through the runtime module manager.
+func (b *Builder) WithModuleAuthorizer(authorizer modules.InstallAuthorizer) *Builder {
+	b.moduleAuthorizer = authorizer
+	return b
+}
+
+// WithModuleVerifier configures cryptographic or policy verification for
+// modules before install and upgrade. Unsigned modules remain supported when
+// no verifier is configured.
+func (b *Builder) WithModuleVerifier(verifier modules.ModuleVerifier) *Builder {
+	b.moduleVerifier = verifier
+	return b
+}
+
 // WithSyncNode sets the device node ID used by the sync engine.
 // When omitted, a default node ID is assigned at build time.
 func (b *Builder) WithSyncNode(nodeID string) *Builder {
@@ -103,7 +182,12 @@ func (b *Builder) WithSyncNode(nodeID string) *Builder {
 
 // WithModules installs modules from local filesystem directories at build time.
 func (b *Builder) WithModules(paths ...string) *Builder {
-	b.modulePaths = append(b.modulePaths, paths...)
+	for _, path := range paths {
+		if absolute, err := filepath.Abs(path); err == nil {
+			path = absolute
+		}
+		b.modulePaths = append(b.modulePaths, path)
+	}
 	return b
 }
 
@@ -149,16 +233,26 @@ func (b *Builder) normalizedConfig(mode Mode) Config {
 	if nodeID == "" {
 		nodeID = "runtime-node"
 	}
+	sqliteTenantID := b.sqliteTenantID
+	if sqliteTenantID == "" {
+		sqliteTenantID = "local"
+	}
+	sqliteTerminologyScope := b.sqliteTerminologyScope
+	if sqliteTerminologyScope == "" {
+		sqliteTerminologyScope = "default"
+	}
 	return Config{
-		Mode:          mode,
-		SQLitePath:    b.sqlitePath,
-		PostgresDSN:   b.postgresDSN,
-		TenantID:      b.tenantID,
-		SearchEnabled: b.searchEnabled,
-		ModulePaths:   append([]string(nil), b.modulePaths...),
-		HTTPAddr:      b.httpAddr,
-		SyncEnabled:   syncEnabled,
-		SyncHubURL:    b.syncHubURL,
-		SyncNodeID:    nodeID,
+		Mode:                   mode,
+		SQLitePath:             b.sqlitePath,
+		SQLiteTenantID:         sqliteTenantID,
+		SQLiteTerminologyScope: sqliteTerminologyScope,
+		PostgresDSN:            b.postgresDSN,
+		TenantID:               b.tenantID,
+		SearchEnabled:          b.searchEnabled,
+		ModulePaths:            append([]string(nil), b.modulePaths...),
+		HTTPAddr:               b.httpAddr,
+		SyncEnabled:            syncEnabled,
+		SyncHubURL:             b.syncHubURL,
+		SyncNodeID:             nodeID,
 	}
 }

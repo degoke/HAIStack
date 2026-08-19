@@ -50,6 +50,15 @@ type TokenValidateOptions struct {
 	RequiredScopes []string
 	// RequireScopesClaim fails when the scope claim is empty.
 	RequireScopesClaim bool
+	// RequireIssuer, RequireAudience, RequireExpiry, RequireSubject, and
+	// RequireJWTID make the corresponding claims mandatory for assertion
+	// validation. They are opt-in because gateway-validated access tokens may
+	// intentionally omit some claims from a local trust boundary.
+	RequireIssuer   bool
+	RequireAudience bool
+	RequireExpiry   bool
+	RequireSubject  bool
+	RequireJWTID    bool
 	// Clock skew allowed for exp/nbf checks.
 	ClockSkew time.Duration
 	// Now overrides time.Now for tests.
@@ -121,16 +130,25 @@ func ValidateClaims(claims TokenClaims, opts TokenValidateOptions) error {
 	if opts.ExpectedIssuer != "" && claims.Issuer != opts.ExpectedIssuer {
 		return fmt.Errorf("%w: got %q want %q", ErrIssuerMismatch, claims.Issuer, opts.ExpectedIssuer)
 	}
+	if opts.RequireIssuer && strings.TrimSpace(claims.Issuer) == "" {
+		return fmt.Errorf("%w: issuer claim required", ErrInvalidToken)
+	}
 
 	audiences := opts.ExpectedAudiences
 	if opts.ExpectedAudience != "" {
 		audiences = append(append([]string(nil), audiences...), opts.ExpectedAudience)
+	}
+	if opts.RequireAudience && len(claims.Audience) == 0 {
+		return fmt.Errorf("%w: audience claim required", ErrInvalidToken)
 	}
 	if len(audiences) > 0 && !audienceMatches(claims.Audience, audiences) {
 		return fmt.Errorf("%w: token aud %v does not match %v", ErrAudienceMismatch, claims.Audience, audiences)
 	}
 
 	if !opts.SkipTimeChecks {
+		if opts.RequireExpiry && claims.ExpiresAt.IsZero() {
+			return fmt.Errorf("%w: exp claim required", ErrInvalidToken)
+		}
 		if !claims.ExpiresAt.IsZero() && now.After(claims.ExpiresAt.Add(skew)) {
 			return fmt.Errorf("%w: exp %s", ErrTokenExpired, claims.ExpiresAt.UTC().Format(time.RFC3339))
 		}
@@ -138,8 +156,14 @@ func ValidateClaims(claims TokenClaims, opts TokenValidateOptions) error {
 			return fmt.Errorf("%w: nbf %s", ErrTokenNotYetValid, claims.NotBefore.UTC().Format(time.RFC3339))
 		}
 	}
+	if opts.RequireSubject && strings.TrimSpace(claims.Subject) == "" {
+		return fmt.Errorf("%w: sub claim required", ErrInvalidToken)
+	}
+	if opts.RequireJWTID && strings.TrimSpace(claims.JWTID) == "" {
+		return fmt.Errorf("%w: jti claim required", ErrInvalidToken)
+	}
 
-	if opts.RequireScopesClaim && claims.Scope == "" && claims.Scopes.Empty() {
+	if opts.RequireScopesClaim && strings.TrimSpace(claims.Scope) == "" && claims.Scopes.Empty() {
 		return fmt.Errorf("%w: scope claim required", ErrMissingScopes)
 	}
 	if len(opts.RequiredScopes) > 0 {
@@ -174,13 +198,14 @@ type jwtParts struct {
 	PayloadSegment string
 	Signature      []byte
 	Alg            string
+	KeyID          string
 	Payload        []byte
 }
 
 func splitJWT(token string) (jwtParts, error) {
 	token = strings.TrimSpace(token)
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return jwtParts{}, fmt.Errorf("%w: expected compact JWT with three segments", ErrInvalidToken)
 	}
 	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -190,12 +215,16 @@ func splitJWT(token string) (jwtParts, error) {
 	var header struct {
 		Alg string `json:"alg"`
 		Typ string `json:"typ"`
+		Kid string `json:"kid"`
 	}
 	if err := json.Unmarshal(headerJSON, &header); err != nil {
 		return jwtParts{}, fmt.Errorf("%w: header json: %v", ErrInvalidToken, err)
 	}
 	if header.Alg == "" {
 		return jwtParts{}, fmt.Errorf("%w: missing alg", ErrInvalidToken)
+	}
+	if strings.EqualFold(header.Alg, "none") {
+		return jwtParts{}, fmt.Errorf("%w: alg none is not allowed", ErrInvalidToken)
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
@@ -210,6 +239,7 @@ func splitJWT(token string) (jwtParts, error) {
 		PayloadSegment: parts[1],
 		Signature:      sig,
 		Alg:            header.Alg,
+		KeyID:          header.Kid,
 		Payload:        payload,
 	}, nil
 }
@@ -219,6 +249,9 @@ func claimsFromPayload(payload []byte) (TokenClaims, error) {
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return TokenClaims{}, fmt.Errorf("%w: payload json: %v", ErrInvalidToken, err)
 	}
+	if raw == nil {
+		return TokenClaims{}, fmt.Errorf("%w: payload must be a JSON object", ErrInvalidToken)
+	}
 	claims := TokenClaims{
 		Extra:            make(map[string]any),
 		LaunchExtensions: make(map[string]string),
@@ -227,30 +260,57 @@ func claimsFromPayload(payload []byte) (TokenClaims, error) {
 		"iss": {}, "sub": {}, "aud": {}, "exp": {}, "nbf": {}, "iat": {}, "jti": {},
 		"client_id": {}, "scope": {}, "patient": {}, "encounter": {}, "fhirUser": {}, "tenant": {},
 	}
-	claims.Issuer = claimString(raw["iss"])
-	claims.Subject = claimString(raw["sub"])
-	claims.Audience = claimStringSlice(raw["aud"])
-	claims.ExpiresAt = claimTime(raw["exp"])
-	claims.NotBefore = claimTime(raw["nbf"])
-	claims.IssuedAt = claimTime(raw["iat"])
-	claims.JWTID = claimString(raw["jti"])
-	claims.ClientID = claimString(raw["client_id"])
+	var err error
+	if claims.Issuer, err = strictClaimString(raw, "iss"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.Subject, err = strictClaimString(raw, "sub"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.Audience, err = strictClaimStringSlice(raw, "aud"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.ExpiresAt, err = strictClaimTime(raw, "exp"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.NotBefore, err = strictClaimTime(raw, "nbf"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.IssuedAt, err = strictClaimTime(raw, "iat"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.JWTID, err = strictClaimString(raw, "jti"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.ClientID, err = strictClaimString(raw, "client_id"); err != nil {
+		return TokenClaims{}, err
+	}
 	if claims.ClientID == "" {
 		// Backend-service assertions often use iss/sub as the client id.
 		claims.ClientID = claims.Issuer
 	}
-	claims.Scope = claimString(raw["scope"])
-	claims.Patient = claimString(raw["patient"])
-	claims.Encounter = claimString(raw["encounter"])
-	claims.FHIRUser = claimString(raw["fhirUser"])
-	claims.TenantHint = claimString(raw["tenant"])
+	if claims.Scope, err = strictClaimString(raw, "scope"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.Patient, err = strictClaimString(raw, "patient"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.Encounter, err = strictClaimString(raw, "encounter"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.FHIRUser, err = strictClaimString(raw, "fhirUser"); err != nil {
+		return TokenClaims{}, err
+	}
+	if claims.TenantHint, err = strictClaimString(raw, "tenant"); err != nil {
+		return TokenClaims{}, err
+	}
 
 	for k, v := range raw {
 		if _, ok := known[k]; ok {
 			continue
 		}
 		claims.Extra[k] = v
-		if s := claimString(v); s != "" && strings.HasPrefix(k, "launch") {
+		if s := claimString(v); s != "" && safeLaunchExtension(k, s) {
 			claims.LaunchExtensions[k] = s
 		}
 	}
@@ -268,6 +328,71 @@ func claimsFromPayload(payload []byte) (TokenClaims, error) {
 		claims.Scopes = scopes
 	}
 	return claims, nil
+}
+
+func safeLaunchExtension(key, value string) bool {
+	if !strings.HasPrefix(key, "launch") || len(key) > 128 || len(value) > 4096 {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			continue
+		}
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func strictClaimString(raw map[string]any, name string) (string, error) {
+	v, ok := raw[name]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%w: claim %s must be a string", ErrInvalidToken, name)
+	}
+	return s, nil
+}
+
+func strictClaimStringSlice(raw map[string]any, name string) ([]string, error) {
+	v, ok := raw[name]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	if s, ok := v.(string); ok {
+		if s == "" {
+			return nil, nil
+		}
+		return []string{s}, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: claim %s must be a string or string array", ErrInvalidToken, name)
+	}
+	out := make([]string, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok || s == "" {
+			return nil, fmt.Errorf("%w: claim %s must contain only strings", ErrInvalidToken, name)
+		}
+		out[i] = s
+	}
+	return out, nil
+}
+
+func strictClaimTime(raw map[string]any, name string) (time.Time, error) {
+	v, ok := raw[name]
+	if !ok || v == nil {
+		return time.Time{}, nil
+	}
+	n, ok := v.(float64)
+	if !ok || n != float64(int64(n)) {
+		return time.Time{}, fmt.Errorf("%w: claim %s must be an integer NumericDate", ErrInvalidToken, name)
+	}
+	return time.Unix(int64(n), 0).UTC(), nil
 }
 
 func claimString(v any) string {

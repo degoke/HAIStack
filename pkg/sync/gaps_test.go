@@ -178,6 +178,104 @@ func TestPushNeedsRetryDoesNotAdvanceCursor(t *testing.T) {
 	}
 }
 
+func TestPushPreservesOutboxOrderWhenDeleteNeedsRetry(t *testing.T) {
+	ctx := context.Background()
+	events := &memEventStore{}
+	history := newMemHistoryStore()
+	cursors := newMemCursorStore()
+	now := time.Now().UTC()
+	hub := &orderedRetryHub{}
+
+	deleteResource := sampleResource("p-delete", "delete-v1")
+	deleteVersion := store.ResourceVersion{
+		ResourceType: deleteResource.ResourceType,
+		ID:           deleteResource.ID,
+		VersionID:    "delete-v2",
+		Action:       store.VersionActionDelete,
+		Timestamp:    now,
+		Deleted:      true,
+	}
+	if _, err := events.Append(ctx, store.ResourceEvent{
+		ResourceType: deleteResource.ResourceType,
+		ID:           deleteResource.ID,
+		VersionID:    deleteVersion.VersionID,
+		Action:       store.EventActionDelete,
+		Timestamp:    now,
+		Hash:         deleteResource.Hash,
+	}); err != nil {
+		t.Fatalf("append delete event: %v", err)
+	}
+	if err := history.AppendVersion(ctx, store.ResourceVersion{
+		ResourceType: deleteResource.ResourceType,
+		ID:           deleteResource.ID,
+		VersionID:    deleteResource.VersionID,
+		Action:       store.VersionActionCreate,
+		Timestamp:    now,
+		Resource:     deleteResource,
+		Hash:         deleteResource.Hash,
+	}); err != nil {
+		t.Fatalf("append delete base history: %v", err)
+	}
+	if err := history.AppendVersion(ctx, deleteVersion); err != nil {
+		t.Fatalf("append delete history: %v", err)
+	}
+
+	updateResource := sampleResource("p-update", "update-v1")
+	updated := sampleResource("p-update", "update-v2")
+	if _, err := events.Append(ctx, store.ResourceEvent{
+		ResourceType: updated.ResourceType,
+		ID:           updated.ID,
+		VersionID:    updated.VersionID,
+		Action:       store.EventActionUpdate,
+		Timestamp:    now,
+		Hash:         updated.Hash,
+	}); err != nil {
+		t.Fatalf("append update event: %v", err)
+	}
+	for _, version := range []store.ResourceVersion{
+		{
+			ResourceType: updateResource.ResourceType,
+			ID:           updateResource.ID,
+			VersionID:    updateResource.VersionID,
+			Action:       store.VersionActionCreate,
+			Timestamp:    now,
+			Resource:     updateResource,
+			Hash:         updateResource.Hash,
+		},
+		{
+			ResourceType: updated.ResourceType,
+			ID:           updated.ID,
+			VersionID:    updated.VersionID,
+			Action:       store.VersionActionUpdate,
+			Timestamp:    now,
+			Resource:     updated,
+			Hash:         updated.Hash,
+		},
+	} {
+		if err := history.AppendVersion(ctx, version); err != nil {
+			t.Fatalf("append update history: %v", err)
+		}
+	}
+
+	summary, err := hasync.NewEngine(hasync.Config{
+		NodeID: "node-a", TenantID: "tenant-a",
+		Events: events, History: history, Cursors: cursors, Hub: hub,
+		Clock: fixedClock(now),
+	}).Push(ctx)
+	if err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if len(hub.events) != 2 || hub.events[0].Operation != hasync.EventTypeResourceDeleted || hub.events[1].Operation != hasync.EventTypeResourceUpdated {
+		t.Fatalf("hub event order = %+v, want delete then update", hub.events)
+	}
+	if summary.Cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 because the first event needs retry", summary.Cursor)
+	}
+	if cursor, _ := cursors.GetCursor(ctx, hasync.CursorPush); cursor != nil {
+		t.Fatalf("cursor persisted despite retry: %+v", cursor)
+	}
+}
+
 func TestPushConflictJobEnqueueFailureStopsCursorAdvance(t *testing.T) {
 	ctx := context.Background()
 	events := &memEventStore{}
@@ -235,6 +333,27 @@ func TestPushConflictJobEnqueueFailureStopsCursorAdvance(t *testing.T) {
 
 type retryHub struct {
 	inner *memHub
+}
+
+type orderedRetryHub struct {
+	events []hasync.LocalEvent
+}
+
+func (h *orderedRetryHub) Push(_ context.Context, events []hasync.LocalEvent) ([]hasync.PushResult, error) {
+	h.events = append(h.events, events...)
+	results := make([]hasync.PushResult, 0, len(events))
+	for _, event := range events {
+		result := hasync.PushResult{EventID: event.EventID, State: hasync.AckAccepted}
+		if event.Operation == hasync.EventTypeResourceDeleted {
+			result.State = hasync.AckNeedsRetry
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (h *orderedRetryHub) Pull(context.Context, int64, int) ([]hasync.CanonicalEvent, error) {
+	return nil, nil
 }
 
 func (h *retryHub) Push(ctx context.Context, events []hasync.LocalEvent) ([]hasync.PushResult, error) {

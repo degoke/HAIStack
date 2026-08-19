@@ -4,12 +4,17 @@ import (
 	"errors"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 // OperationOutcomeFromError maps a haistack-core error to a FHIR OperationOutcome.
 func OperationOutcomeFromError(err error) *types.OperationOutcome {
 	if err == nil {
 		return nil
+	}
+
+	if outcome := operationOutcomeFromValidation(err); outcome != nil {
+		return outcome
 	}
 
 	kind := KindOf(err)
@@ -26,6 +31,8 @@ func OperationOutcomeFromError(err error) *types.OperationOutcome {
 		code = "not-found"
 	case ErrorKindNotSupported:
 		code = "not-supported"
+	case ErrorKindPrecondition:
+		code = "processing"
 	case ErrorKindException:
 		code = "exception"
 	}
@@ -45,4 +52,17 @@ func OperationOutcomeFromError(err error) *types.OperationOutcome {
 		ResourceType: "OperationOutcome",
 		Issue:        []types.OperationIssue{issue},
 	}
+}
+
+func operationOutcomeFromValidation(err error) *types.OperationOutcome {
+	if issues, ok := validate.IssuesFromError(err); ok {
+		return validate.ToOperationOutcome(&validate.ValidationResult{Valid: false, Issues: issues})
+	}
+	var svcErr *ServiceError
+	if errors.As(err, &svcErr) && svcErr.Cause != nil {
+		if issues, ok := validate.IssuesFromError(svcErr.Cause); ok {
+			return validate.ToOperationOutcome(&validate.ValidationResult{Valid: false, Issues: issues})
+		}
+	}
+	return nil
 }

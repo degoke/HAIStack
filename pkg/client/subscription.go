@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -74,25 +73,16 @@ func (s *SubscriptionClient) PollStatus(ctx context.Context, statusURL string) (
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("subscription client is nil")
 	}
+	resolved, err := resolveSameOriginURL(s.client.baseURL, statusURL)
+	if err != nil {
+		return nil, fmt.Errorf("subscription status URL: %w", err)
+	}
 	raw, err := s.client.do(ctx, requestOptions{
 		method: "GET",
-		url:    resolveURL(s.client.baseURL, statusURL),
+		url:    resolved,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return s.client.codec.ParseJSON("SubscriptionStatus", raw.Body)
-}
-
-func resolveURL(base, u string) string {
-	if u == "" {
-		return u
-	}
-	if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-		return u
-	}
-	if strings.HasPrefix(u, "/") {
-		return base + u
-	}
-	return base + "/" + u
 }

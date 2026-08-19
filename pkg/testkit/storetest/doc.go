@@ -8,6 +8,10 @@
 //   - ConflictStore, SearchStore, AuditStore
 //   - WriteSessionProvider (resource + history + search + events)
 //
+// Resource IDs are returned in stable lexical order. WriteSessionProvider
+// snapshots all four stores and publishes them together on Commit; Rollback
+// discards the session snapshot.
+//
 // Job persistence reuses jobs.NewInMemoryJobStore via Backend.Jobs rather than
 // duplicating another mem job implementation.
 //

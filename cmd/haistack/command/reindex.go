@@ -9,6 +9,7 @@ import (
 )
 
 func newReindexCommand(opts *Options, printer *app.Printer) *cobra.Command {
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "reindex [ResourceType]",
 		Short: "Rebuild search indexes synchronously",
@@ -36,6 +37,28 @@ ResourceType is omitted. Requires search to be enabled in configuration.`,
 			if len(args) > 0 {
 				resourceType = args[0]
 			}
+			if dryRun {
+				plan, err := session.ReindexPlan(ctx, resourceType)
+				if err != nil {
+					return exitErr(printer, err)
+				}
+				payload := map[string]any{
+					"dryRun":       true,
+					"resourceType": resourceType,
+					"resources":    plan,
+				}
+				if printer.Format == app.OutputJSON {
+					return printer.Print(payload)
+				}
+				if len(plan) == 0 {
+					writeStdout(printer, "no enabled resource types to reindex")
+					return nil
+				}
+				for _, item := range plan {
+					writeStdout(printer, fmt.Sprintf("would reindex %s (%d resources)", item.ResourceType, item.Count))
+				}
+				return nil
+			}
 			if err := worker.ReindexAll(ctx, resourceType); err != nil {
 				return exitErr(printer, err)
 			}
@@ -54,5 +77,6 @@ ResourceType is omitted. Requires search to be enabled in configuration.`,
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the reindex scope and resource counts without changing indexes")
 	return cmd
 }

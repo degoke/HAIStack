@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,31 @@ func TestNewRequiresBaseURL(t *testing.T) {
 	_, err := New(Config{})
 	if err == nil {
 		t.Fatal("expected error for empty BaseURL")
+	}
+}
+
+func TestNewRejectsBaseURLWithPath(t *testing.T) {
+	if _, err := New(Config{BaseURL: "https://fhir.example.com/fhir"}); err == nil {
+		t.Fatal("expected origin validation error")
+	}
+}
+
+func TestGenericOperation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/fhir/Patient/p1/$everything" || r.URL.Query().Get("x") != "1" {
+			http.Error(w, "unexpected operation request", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"resourceType":"Bundle","type":"searchset","entry":[]}`))
+	}))
+	defer srv.Close()
+	c, _ := New(Config{BaseURL: srv.URL})
+	env, err := c.Operation(context.Background(), "Patient", "p1", "$everything", url.Values{"x": {"1"}}, []byte(`{"resourceType":"Parameters"}`))
+	if err != nil {
+		t.Fatalf("Operation: %v", err)
+	}
+	if env.ResourceType != "Bundle" {
+		t.Fatalf("operation response type = %q", env.ResourceType)
 	}
 }
 

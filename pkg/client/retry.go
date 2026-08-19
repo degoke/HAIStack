@@ -79,13 +79,20 @@ func (p *DefaultRetryPolicy) Backoff(attempt int) time.Duration {
 			jitter = p.JitterFraction
 		}
 	}
+	if jitter > 1 {
+		jitter = 1
+	}
 	delay := base * time.Duration(1<<attempt)
 	if delay > max {
 		delay = max
 	}
 	if jitter > 0 {
 		span := float64(delay) * jitter
-		delay = delay + time.Duration(rand.Float64()*span)
+		delta := (rand.Float64()*2 - 1) * span
+		delay = time.Duration(float64(delay) + delta)
+		if delay < 0 {
+			delay = 0
+		}
 	}
 	return delay
 }

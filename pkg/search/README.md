@@ -96,6 +96,15 @@ result, err := searchSvc.Search(ctx, "Patient", params)
 // result.Total, result.Entries, result.Links
 ```
 
+**Discover search parameters programmatically:**
+
+```go
+params := searchSvc.SearchParametersFor("Patient") // []search.ParameterInfo
+enabled := searchSvc.EnabledResourceTypes()
+```
+
+Unknown parameter codes return `search.UnknownParamError` with a structured `Code` field (`search.UnknownParamCode`).
+
 **Schedule and run reindex jobs:**
 
 ```go

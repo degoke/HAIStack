@@ -1,6 +1,7 @@
 package fixtures
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -9,14 +10,23 @@ import (
 // ObservationForPatient returns a vital-signs observation for the given patient id.
 func ObservationForPatient(t *testing.T, patientID string) *types.ResourceEnvelope {
 	t.Helper()
-	data := []byte(`{
+	if patientID == "" {
+		t.Fatal("fixtures.ObservationForPatient: patient id is required")
+	}
+	data, err := json.Marshal(map[string]any{
 		"resourceType": "Observation",
-		"id": "obs-1",
-		"status": "final",
-		"code": {"text": "Body temperature"},
-		"subject": {"reference": "Patient/` + patientID + `"},
-		"valueQuantity": {"value": 37.2, "unit": "Cel"}
-	}`)
+		"id":           "obs-1",
+		"status":       "final",
+		"code":         map[string]any{"text": "Body temperature"},
+		"subject":      map[string]any{"reference": "Patient/" + patientID},
+		"valueQuantity": map[string]any{
+			"value": 37.2,
+			"unit":  "Cel",
+		},
+	})
+	if err != nil {
+		t.Fatalf("fixtures.ObservationForPatient: %v", err)
+	}
 	return EnvelopeFromJSON(t, "Observation", data)
 }
 

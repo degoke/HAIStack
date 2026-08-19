@@ -42,7 +42,7 @@ import (
 	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
 )
 
-patient := &protor4.Patient{}
+patient := protor4.NewPatient("pat-1")
 envelope, err := proto.ToEnvelope(patient)
 // envelope.JSON is canonical; envelope.Proto is the original patient.
 ```
@@ -60,6 +60,21 @@ codec := proto.NewGoogleR4Codec()
 ```go
 pb, err := codec.ParseJSONToProto("Patient", patientJSON)
 // pb is an `any` — a typed Google R4 ContainedResource inside
+```
+
+**Parse JSON into a full envelope in one step:**
+
+```go
+envelope, err := codec.ParseJSONToEnvelope("Patient", patientJSON)
+// Same as ParseJSONToProto + ProtoToEnvelope
+// Or use the package helper: proto.ParseJSONToEnvelope("Patient", patientJSON)
+```
+
+**Unwrap the typed proto from an envelope:**
+
+```go
+cr, err := proto.ContainedResourceFromEnvelope(envelope)
+patient := cr.GetPatient()
 ```
 
 **Convert proto back to canonical JSON:**
@@ -120,5 +135,6 @@ Patient JSON
 - No profile-aware validation or proto diffing
 - `pkg/proto/r4` aliases the pinned Google R4 message types, while JSON remains canonical
 - `envelope.Proto` is set on proto paths; JSON-only paths leave it nil
+- JSON→proto→JSON may reject or omit fields outside the Google R4 schema; use pkg/types for arbitrary JSON
 
 See [doc.go](./doc.go) for the full API, conversion flows, and future extension points.

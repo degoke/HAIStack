@@ -44,9 +44,10 @@ type Declarations struct {
 // Module is a normalized, loaded module with its manifest and in-memory
 // definition payloads.
 type Module struct {
-	Path        string
-	Manifest    Manifest
-	Definitions [][]byte
+	Path          string
+	Manifest      Manifest
+	ManifestBytes []byte
+	Definitions   [][]byte
 }
 
 // DefinitionRef identifies one installed definition by canonical URL and
@@ -71,6 +72,7 @@ type Plan struct {
 
 // InstallResult reports what an install changed in the registry.
 type InstallResult struct {
+	Action               string             `json:"action"`
 	Name                 string             `json:"name"`
 	Version              string             `json:"version"`
 	EnabledResources     []string           `json:"enabledResources,omitempty"`

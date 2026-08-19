@@ -77,6 +77,10 @@ func (v PEMVerifier) Verify(headerSegment, payloadSegment string, signature []by
 		if !ok {
 			return fmt.Errorf("%w: ECDSA key required for %s", ErrSignatureInvalid, alg)
 		}
+		expectedBits := map[string]int{"ES256": 256, "ES384": 384, "ES512": 521}[alg]
+		if ecKey.Curve == nil || ecKey.Curve.Params().BitSize != expectedBits {
+			return fmt.Errorf("%w: curve does not match %s", ErrSignatureInvalid, alg)
+		}
 		sum := digest(alg, signingInput)
 		r, s, err := parseECDSASignature(signature, CurveByteLen(ecKey))
 		if err != nil {

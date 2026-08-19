@@ -259,11 +259,8 @@ func TestAIPolicyAdapter_ReadSearchViewWrite(t *testing.T) {
 		Actor: "user-1", ResourceType: "Appointment",
 		Params: url.Values{"date": {"2026-01-01"}, "identifier": {"x"}},
 	})
-	if err != nil || !search.Allowed {
-		t.Fatalf("CheckSearch = %#v err=%v", search, err)
-	}
-	if _, ok := search.Params["identifier"]; ok {
-		t.Fatal("expected identifier param filtered out")
+	if err == nil || search.Allowed || !errors.Is(err, ai.ErrPolicyDenied) {
+		t.Fatalf("CheckSearch = %#v err=%v, want mixed-parameter denial", search, err)
 	}
 
 	if err := adapter.CheckView(context.Background(), ai.ViewPolicyRequest{
@@ -295,6 +292,71 @@ func TestAIPolicyAdapter_ReadSearchViewWrite(t *testing.T) {
 	})
 	if !errors.Is(err, ai.ErrPolicyDenied) {
 		t.Fatalf("err = %v, want ErrPolicyDenied", err)
+	}
+}
+
+func TestAIPolicyAdapter_EnforcesPatientScopeForSearchAndViews(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Roles[0].Permissions = append(cfg.Roles[0].Permissions, "patient.read")
+	cfg.Policy.Rules = append(cfg.Policy.Rules, auth.PolicyRule{
+		Name:   "patient-read",
+		Effect: auth.EffectAllow,
+		Match: auth.RuleMatch{
+			Actions:        []string{auth.ActionRead},
+			ResourceTypes:  []string{"Patient"},
+			AnyPermissions: []string{"patient.read"},
+		},
+	})
+	eng := mustEngine(t, cfg)
+	resolve := func(_ context.Context, actor, _ string) (auth.Principal, auth.TenantContext, error) {
+		p, err := eng.Catalog().GetPrincipal(actor)
+		return p, auth.TenantContext{TenantID: "tenant-a", PatientScope: "pat-1"}, err
+	}
+	adapter := &auth.AIPolicyAdapter{
+		Engine: eng, Resolve: resolve, TenantID: "tenant-a",
+		PatientSearchParams: map[string]string{"Appointment": "patient"},
+		Constraints: &auth.AIConstraints{Search: map[string]ai.SearchTypePolicy{
+			"Patient":     {AllowedParams: []string{"name"}},
+			"Appointment": {AllowedParams: []string{"date", "patient"}},
+		}},
+	}
+
+	patientSearch, err := adapter.CheckSearch(context.Background(), ai.SearchPolicyRequest{
+		Actor: "user-1", ResourceType: "Patient", Params: url.Values{"name": {"Doe"}},
+	})
+	if err != nil {
+		t.Fatalf("patient search: %v", err)
+	}
+	if got := patientSearch.Params.Get("_id"); got != "pat-1" {
+		t.Fatalf("patient scope filter = %q, want pat-1", got)
+	}
+
+	appointmentSearch, err := adapter.CheckSearch(context.Background(), ai.SearchPolicyRequest{
+		Actor: "user-1", ResourceType: "Appointment", Params: url.Values{"date": {"2026-01-01"}},
+	})
+	if err != nil {
+		t.Fatalf("appointment search: %v", err)
+	}
+	if got := appointmentSearch.Params.Get("patient"); got != "Patient/pat-1" {
+		t.Fatalf("appointment scope filter = %q, want Patient/pat-1", got)
+	}
+
+	if _, err := adapter.ApplyViewScope(context.Background(), ai.ViewPolicyRequest{
+		Actor: "user-1", ViewName: "patient_summary_view",
+	}); !errors.Is(err, ai.ErrPolicyDenied) {
+		t.Fatalf("scoped view without enforcer err = %v, want policy denial", err)
+	}
+	adapter.PatientViewScope = func(_ context.Context, _ ai.ViewPolicyRequest, patientID string) (map[string]any, error) {
+		return map[string]any{"patientId": patientID}, nil
+	}
+	narrowed, err := adapter.ApplyViewScope(context.Background(), ai.ViewPolicyRequest{
+		Actor: "user-1", ViewName: "patient_summary_view",
+	})
+	if err != nil {
+		t.Fatalf("scoped view: %v", err)
+	}
+	if narrowed.Parameters["patientId"] != "pat-1" {
+		t.Fatalf("view scope parameters = %#v", narrowed.Parameters)
 	}
 }
 

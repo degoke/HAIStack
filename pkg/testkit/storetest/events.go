@@ -67,3 +67,23 @@ func (s *EventStore) Events() []store.ResourceEvent {
 	copy(out, s.events)
 	return out
 }
+
+func (s *EventStore) clone() *EventStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return &EventStore{
+		events:   append([]store.ResourceEvent(nil), s.events...),
+		sequence: s.sequence,
+	}
+}
+
+func (s *EventStore) replaceFrom(source *EventStore) {
+	source.mu.Lock()
+	events := append([]store.ResourceEvent(nil), source.events...)
+	sequence := source.sequence
+	source.mu.Unlock()
+	s.mu.Lock()
+	s.events = events
+	s.sequence = sequence
+	s.mu.Unlock()
+}

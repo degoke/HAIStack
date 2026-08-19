@@ -60,7 +60,7 @@ func (a *AuthAdapter) ToAuthRequests(claims TokenClaims, launch LaunchContext) (
 	kind := principalKindFromScopes(scopes)
 	id := principalID(claims, launch, kind)
 	if id == "" {
-		return AuthBundle{}, fmt.Errorf("%w: principal id required (sub, client_id, or launch user)", ErrInvalidConfig)
+		return AuthBundle{}, fmt.Errorf("%w: principal id required (sub, fhirUser, or launch user)", ErrInvalidConfig)
 	}
 
 	tenantID := firstNonEmpty(launch.TenantHint, claims.TenantHint, a.cfg.DefaultTenantID)
@@ -285,7 +285,7 @@ func principalID(claims TokenClaims, launch LaunchContext, kind auth.PrincipalKi
 	case auth.KindService:
 		return firstNonEmpty(claims.ClientID, claims.Subject, claims.Issuer)
 	default:
-		return firstNonEmpty(launch.UserID, claims.FHIRUser, claims.Subject, claims.ClientID)
+		return firstNonEmpty(launch.UserID, claims.FHIRUser, claims.Subject)
 	}
 }
 

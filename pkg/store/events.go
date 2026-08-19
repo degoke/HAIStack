@@ -17,6 +17,9 @@ const (
 // ResourceEvent is an append-only, typed resource change event for replay and sync pipelines.
 type ResourceEvent struct {
 	Sequence     int64       `json:"sequence"`
+	EventID      string      `json:"eventId,omitempty"`
+	OriginNodeID string      `json:"originNodeId,omitempty"`
+	LocalVersion string      `json:"localVersion,omitempty"`
 	ResourceType string      `json:"resourceType"`
 	ID           string      `json:"id"`
 	VersionID    string      `json:"versionId"`

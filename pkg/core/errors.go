@@ -17,6 +17,8 @@ const (
 	ErrorKindNotFound ErrorKind = "not-found"
 	// ErrorKindNotSupported indicates the requested operation or bundle shape is not implemented.
 	ErrorKindNotSupported ErrorKind = "not-supported"
+	// ErrorKindPrecondition indicates an If-Match or other request precondition failed.
+	ErrorKindPrecondition ErrorKind = "precondition-failed"
 	// ErrorKindException indicates an unexpected or storage-layer failure.
 	ErrorKindException ErrorKind = "exception"
 )
@@ -70,6 +72,10 @@ func notFoundErr(message string, cause error) *ServiceError {
 
 func notSupportedErr(message string, cause error) *ServiceError {
 	return &ServiceError{Kind: ErrorKindNotSupported, Message: message, Cause: cause}
+}
+
+func preconditionErr(message string, cause error) *ServiceError {
+	return &ServiceError{Kind: ErrorKindPrecondition, Message: message, Cause: cause}
 }
 
 func exceptionErr(message string, cause error) *ServiceError {

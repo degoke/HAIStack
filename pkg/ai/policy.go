@@ -33,9 +33,11 @@ type SearchPolicyRequest struct {
 // SearchPolicyDecision is the outcome of a search policy check. Params may be
 // narrowed by policy before execution.
 type SearchPolicyDecision struct {
-	Allowed    bool
-	Params     url.Values
-	Deidentify bool
+	Allowed        bool
+	Params         url.Values
+	AllowedFields  []string
+	AllowAllFields bool
+	Deidentify     bool
 }
 
 // ViewPolicyRequest carries view authorization context.
@@ -45,6 +47,8 @@ type ViewPolicyRequest struct {
 	ViewName   string
 	Version    string
 	Parameters map[string]any
+	Limit      int
+	Offset     int
 }
 
 // WritePolicyRequest carries write authorization context.
@@ -86,14 +90,19 @@ type ReadTypePolicy struct {
 
 // SearchTypePolicy configures search access for one resource type.
 type SearchTypePolicy struct {
-	AllowedParams []string
-	MaxCount      int
-	Deidentify    bool
+	AllowedParams      []string
+	AllowedFields      []string
+	AllowAllFields     bool
+	AllowedIncludes    []string
+	AllowedRevIncludes []string
+	MaxCount           int
+	Deidentify         bool
 }
 
 // ViewTypePolicy configures view access for one view name or name|version key.
 type ViewTypePolicy struct {
 	Deidentify bool
+	MaxCount   int
 }
 
 // WriteTypePolicy configures write access for one resource type.
@@ -137,8 +146,8 @@ func (p *AllowListPolicy) CheckRead(_ context.Context, req ReadPolicyRequest) (*
 	}, nil
 }
 
-// CheckSearch implements PolicyEngine. Params not in the allow-list are removed.
-// If no allowed params remain, access is denied.
+// CheckSearch implements PolicyEngine. Every supplied parameter must be on the
+// allow-list; silently dropping a parameter could broaden a clinical query.
 func (p *AllowListPolicy) CheckSearch(_ context.Context, req SearchPolicyRequest) (*SearchPolicyDecision, error) {
 	cfg, ok := p.Search[req.ResourceType]
 	if !ok {
@@ -153,32 +162,78 @@ func (p *AllowListPolicy) CheckSearch(_ context.Context, req SearchPolicyRequest
 	for key, values := range req.Params {
 		base := paramBaseName(key)
 		if _, ok := allowed[base]; !ok {
-			continue
+			return &SearchPolicyDecision{Allowed: false}, fmt.Errorf("%w: search parameter %q is not allowed", ErrPolicyDenied, key)
+		}
+		if err := ValidateSearchParameterValues(cfg, key, values); err != nil {
+			return &SearchPolicyDecision{Allowed: false}, err
 		}
 		for _, v := range values {
 			narrowed.Add(key, v)
 		}
 	}
-	if len(narrowed) == 0 && len(req.Params) > 0 {
-		return &SearchPolicyDecision{Allowed: false}, nil
-	}
 	return &SearchPolicyDecision{
-		Allowed:    true,
-		Params:     narrowed,
-		Deidentify: cfg.Deidentify,
+		Allowed:        true,
+		Params:         narrowed,
+		AllowedFields:  append([]string(nil), cfg.AllowedFields...),
+		AllowAllFields: cfg.AllowAllFields,
+		Deidentify:     cfg.Deidentify,
 	}, nil
+}
+
+// ValidateSearchParameterValues validates value-sensitive search controls.
+// Include directives are intentionally allow-listed by their exact target
+// declaration rather than by the broad parameter name alone.
+func ValidateSearchParameterValues(cfg SearchTypePolicy, key string, values []string) error {
+	base := paramBaseName(key)
+	var allowed []string
+	switch base {
+	case "_include":
+		allowed = cfg.AllowedIncludes
+	case "_revinclude":
+		allowed = cfg.AllowedRevIncludes
+	default:
+		return nil
+	}
+	if len(allowed) == 0 {
+		return fmt.Errorf("%w: %s requires explicit directive allow-list", ErrPolicyDenied, base)
+	}
+	for _, value := range values {
+		if !slices.Contains(allowed, value) {
+			return fmt.Errorf("%w: %s directive %q is not allowed", ErrPolicyDenied, base, value)
+		}
+	}
+	return nil
 }
 
 // ViewPolicyDecision is the outcome of a view policy check.
 type ViewPolicyDecision struct {
 	Allowed    bool
 	Deidentify bool
+	MaxCount   int
 }
 
 // ViewDecisionPolicy optionally exposes structured view decisions to callers
 // that need AI-layer de-identification hints.
 type ViewDecisionPolicy interface {
 	CheckViewDecision(req ViewPolicyRequest) (*ViewPolicyDecision, error)
+}
+
+// ViewDecisionPolicyContext is the context-aware variant used by the executor
+// when policy decisions depend on the actor or subject.
+type ViewDecisionPolicyContext interface {
+	CheckViewDecisionContext(ctx context.Context, req ViewPolicyRequest) (*ViewPolicyDecision, error)
+}
+
+// ViewScopePolicy optionally narrows view parameters for a subject-scoped
+// request. Implementations must ensure the registered view consumes the
+// injected scope parameter before allowing execution.
+type ViewScopePolicy interface {
+	ApplyViewScope(ctx context.Context, req ViewPolicyRequest) (*ViewPolicyRequest, error)
+}
+
+// ViewCountPolicy optionally exposes a maximum row count for AI view calls.
+type ViewCountPolicy interface {
+	MaxViewCount(viewName, version string) (int, bool)
 }
 
 // CheckView implements PolicyEngine.
@@ -195,13 +250,30 @@ func (p *AllowListPolicy) CheckViewDecision(req ViewPolicyRequest) (*ViewPolicyD
 	}
 	if req.Version != "" {
 		if cfg, ok := p.Views[req.ViewName+"|"+req.Version]; ok {
-			return &ViewPolicyDecision{Allowed: true, Deidentify: cfg.Deidentify}, nil
+			return &ViewPolicyDecision{Allowed: true, Deidentify: cfg.Deidentify, MaxCount: cfg.MaxCount}, nil
 		}
 	}
 	if cfg, ok := p.Views[req.ViewName]; ok {
-		return &ViewPolicyDecision{Allowed: true, Deidentify: cfg.Deidentify}, nil
+		return &ViewPolicyDecision{Allowed: true, Deidentify: cfg.Deidentify, MaxCount: cfg.MaxCount}, nil
 	}
 	return nil, fmt.Errorf("%w: view %q not allowed", ErrPolicyDenied, req.ViewName)
+}
+
+// MaxViewCount implements ViewCountPolicy. A zero value means the executor's
+// safe default is used.
+func (p *AllowListPolicy) MaxViewCount(viewName, version string) (int, bool) {
+	if p == nil {
+		return 0, false
+	}
+	if version != "" {
+		if cfg, ok := p.Views[viewName+"|"+version]; ok && cfg.MaxCount > 0 {
+			return cfg.MaxCount, true
+		}
+	}
+	if cfg, ok := p.Views[viewName]; ok && cfg.MaxCount > 0 {
+		return cfg.MaxCount, true
+	}
+	return 0, false
 }
 
 // MaxSearchCount implements SearchCountPolicy.

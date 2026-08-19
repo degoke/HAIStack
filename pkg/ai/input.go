@@ -28,8 +28,14 @@ func parseSearchInput(input map[string]any) (SearchInput, error) {
 	if err != nil {
 		return SearchInput{}, fmt.Errorf("%w: params: %v", ErrInvalidInput, err)
 	}
-	count, _ := optionalInt(input, "count")
-	offset, _ := optionalInt(input, "offset")
+	count, err := optionalNonNegativeInt(input, "count")
+	if err != nil {
+		return SearchInput{}, err
+	}
+	offset, err := optionalNonNegativeInt(input, "offset")
+	if err != nil {
+		return SearchInput{}, err
+	}
 	return SearchInput{
 		ResourceType: rt,
 		Params:       params,
@@ -43,7 +49,10 @@ func parseViewInput(input map[string]any) (ViewInput, error) {
 	if err != nil {
 		return ViewInput{}, err
 	}
-	version, _ := optionalString(input, "version")
+	version, err := optionalStringValue(input, "version")
+	if err != nil {
+		return ViewInput{}, err
+	}
 	params := map[string]any{}
 	if raw, ok := input["parameters"]; ok && raw != nil {
 		m, ok := raw.(map[string]any)
@@ -52,8 +61,14 @@ func parseViewInput(input map[string]any) (ViewInput, error) {
 		}
 		params = m
 	}
-	limit, _ := optionalInt(input, "limit")
-	offset, _ := optionalInt(input, "offset")
+	limit, err := optionalNonNegativeInt(input, "limit")
+	if err != nil {
+		return ViewInput{}, err
+	}
+	offset, err := optionalNonNegativeInt(input, "offset")
+	if err != nil {
+		return ViewInput{}, err
+	}
 	return ViewInput{
 		ViewName:   name,
 		Version:    version,
@@ -75,7 +90,10 @@ func parseWriteInput(input map[string]any) (WriteInput, error) {
 	if err != nil {
 		return WriteInput{}, err
 	}
-	id, _ := optionalString(input, "id")
+	id, err := optionalStringValue(input, "id")
+	if err != nil {
+		return WriteInput{}, err
+	}
 	if op == "update" && id == "" {
 		return WriteInput{}, fmt.Errorf("%w: id is required for update", ErrInvalidInput)
 	}
@@ -160,36 +178,47 @@ func requireString(input map[string]any, key string) (string, error) {
 	return s, nil
 }
 
-func optionalString(input map[string]any, key string) (string, bool) {
+func optionalStringValue(input map[string]any, key string) (string, error) {
 	v, ok := input[key]
 	if !ok {
-		return "", false
+		return "", nil
 	}
 	s, ok := v.(string)
-	return s, ok
+	if !ok {
+		return "", fmt.Errorf("%w: %s must be a string", ErrInvalidInput, key)
+	}
+	return s, nil
 }
 
-func optionalInt(input map[string]any, key string) (int, bool) {
+func optionalNonNegativeInt(input map[string]any, key string) (int, error) {
 	v, ok := input[key]
 	if !ok {
-		return 0, false
+		return 0, nil
 	}
+	var value int
 	switch n := v.(type) {
 	case int:
-		return n, true
+		value = n
 	case int64:
-		return int(n), true
+		value = int(n)
 	case float64:
-		return int(n), true
+		if n != float64(int(n)) {
+			return 0, fmt.Errorf("%w: %s must be an integer", ErrInvalidInput, key)
+		}
+		value = int(n)
 	case string:
 		parsed, err := strconv.Atoi(n)
 		if err != nil {
-			return 0, false
+			return 0, fmt.Errorf("%w: %s must be an integer", ErrInvalidInput, key)
 		}
-		return parsed, true
+		value = parsed
 	default:
-		return 0, false
+		return 0, fmt.Errorf("%w: %s must be an integer", ErrInvalidInput, key)
 	}
+	if value < 0 {
+		return 0, fmt.Errorf("%w: %s must be non-negative", ErrInvalidInput, key)
+	}
+	return value, nil
 }
 
 // applyFields merges approved top-level fields into a FHIR JSON object.
@@ -267,4 +296,24 @@ func filterResourceJSON(data []byte, allowedFields []string) (map[string]any, er
 		}
 	}
 	return filtered, nil
+}
+
+// filterSearchResourceJSON applies the safe search projection. Search results
+// expose only resourceType/id unless fields are explicitly allowed; callers
+// must opt into the full resource payload with AllowAllFields.
+func filterSearchResourceJSON(data []byte, allowedFields []string, allowAll bool) (map[string]any, error) {
+	if allowAll {
+		return filterResourceJSON(data, nil)
+	}
+	if len(allowedFields) > 0 {
+		return filterResourceJSON(data, allowedFields)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"resourceType": root["resourceType"],
+		"id":           root["id"],
+	}, nil
 }

@@ -1,12 +1,20 @@
 package modules
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+)
+
+const (
+	maxManifestBytes   = 1 << 20
+	maxDefinitionBytes = 16 << 20
+	maxDefinitionFiles = 1024
 )
 
 // Loader reads a local module directory, parses module.json, resolves relative
@@ -23,8 +31,12 @@ func NewLoader() *Loader {
 // Load reads the manifest at path/module.json and loads all referenced
 // definition files.
 func (l *Loader) Load(path string) (*Module, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve module path: %w", err)
+	}
 	manifestPath := filepath.Join(path, "module.json")
-	data, err := l.fs.ReadFile(manifestPath)
+	data, err := l.fs.ReadFile(manifestPath, maxManifestBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("%w: %s", ErrManifestNotFound, manifestPath)
@@ -33,7 +45,15 @@ func (l *Loader) Load(path string) (*Module, error) {
 	}
 
 	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("%w: decode module.json: %v", ErrInvalidManifest, err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("%w: module.json contains multiple JSON values", ErrInvalidManifest)
+		}
 		return nil, fmt.Errorf("%w: decode module.json: %v", ErrInvalidManifest, err)
 	}
 
@@ -47,9 +67,10 @@ func (l *Loader) Load(path string) (*Module, error) {
 	}
 
 	return &Module{
-		Path:        path,
-		Manifest:    manifest,
-		Definitions: definitions,
+		Path:          path,
+		Manifest:      manifest,
+		ManifestBytes: append([]byte(nil), data...),
+		Definitions:   definitions,
 	}, nil
 }
 
@@ -92,6 +113,9 @@ func validateManifest(m *Manifest) error {
 		seenResources[r] = struct{}{}
 	}
 	seenFiles := make(map[string]struct{})
+	if len(m.DefinitionFiles) > maxDefinitionFiles {
+		return fmt.Errorf("%w: too many definition files (maximum %d)", ErrInvalidManifest, maxDefinitionFiles)
+	}
 	for _, f := range m.DefinitionFiles {
 		if f == "" {
 			return fmt.Errorf("%w: empty definition file entry", ErrInvalidManifest)
@@ -106,12 +130,23 @@ func validateManifest(m *Manifest) error {
 
 func (l *Loader) loadDefinitions(path string, files []string) ([][]byte, error) {
 	definitions := make([][]byte, 0, len(files))
+	realRoot, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve module directory: %w", err)
+	}
 	for _, f := range files {
 		resolved := filepath.Join(path, f)
 		if !isPathUnderRoot(path, resolved) {
 			return nil, fmt.Errorf("%w: definition file %q escapes module directory", ErrInvalidManifest, f)
 		}
-		data, err := l.fs.ReadFile(resolved)
+		if realTarget, evalErr := filepath.EvalSymlinks(resolved); evalErr == nil {
+			if !isPathUnderRoot(realRoot, realTarget) {
+				return nil, fmt.Errorf("%w: definition file %q escapes module directory through a symlink", ErrInvalidManifest, f)
+			}
+		} else if !os.IsNotExist(evalErr) {
+			return nil, fmt.Errorf("resolve definition file %q: %w", f, evalErr)
+		}
+		data, err := l.fs.ReadFile(resolved, maxDefinitionBytes)
 		if err != nil {
 			return nil, fmt.Errorf("read definition file %q: %w", f, err)
 		}
@@ -139,13 +174,25 @@ func isPathUnderRoot(root, target string) bool {
 // fileSystem abstracts filesystem access so tests can inject fake module
 // directories.
 type fileSystem interface {
-	ReadFile(path string) ([]byte, error)
+	ReadFile(path string, maxBytes int) ([]byte, error)
 }
 
 type osFS struct{}
 
-func (osFS) ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
+func (osFS) ReadFile(path string, maxBytes int) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, int64(maxBytes)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBytes {
+		return nil, fmt.Errorf("%w: maximum %d bytes", ErrModuleFileTooLarge, maxBytes)
+	}
+	return data, nil
 }
 
 // sortedStringSet returns a sorted, deduplicated copy of xs.

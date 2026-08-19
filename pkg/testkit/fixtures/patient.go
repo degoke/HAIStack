@@ -1,6 +1,7 @@
 package fixtures
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -40,6 +41,16 @@ func PatientJohn(t *testing.T) *types.ResourceEnvelope {
 // SamplePatient returns a minimal Patient envelope with the given id.
 func SamplePatient(t *testing.T, id string) *types.ResourceEnvelope {
 	t.Helper()
-	data := []byte(`{"resourceType":"Patient","id":"` + id + `","name":[{"family":"Sample"}]}`)
+	if id == "" {
+		t.Fatal("fixtures.SamplePatient: id is required")
+	}
+	data, err := json.Marshal(map[string]any{
+		"resourceType": "Patient",
+		"id":           id,
+		"name":         []any{map[string]any{"family": "Sample"}},
+	})
+	if err != nil {
+		t.Fatalf("fixtures.SamplePatient: %v", err)
+	}
 	return EnvelopeFromJSON(t, "Patient", data)
 }

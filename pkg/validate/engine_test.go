@@ -24,6 +24,10 @@ func (c *countingCodec) ParseJSONToProto(resourceType string, data []byte) (any,
 	return c.inner.ParseJSONToProto(resourceType, data)
 }
 
+func (c *countingCodec) ParseJSONToEnvelope(resourceType string, data []byte) (*types.ResourceEnvelope, error) {
+	return c.inner.ParseJSONToEnvelope(resourceType, data)
+}
+
 func (c *countingCodec) ProtoToJSON(resourceType string, protoVal any) ([]byte, error) {
 	return c.inner.ProtoToJSON(resourceType, protoVal)
 }

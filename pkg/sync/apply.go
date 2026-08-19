@@ -11,8 +11,10 @@ import (
 
 // Applier applies accepted canonical events to a local node without emitting outbox events.
 type Applier struct {
+	TenantID  string
 	Resources store.ResourceStore
 	History   store.HistoryStore
+	Sessions  store.WriteSessionProvider
 	Inbox     store.InboxStore
 	Search    store.SearchStore
 	Indexer   SearchIndexer
@@ -21,6 +23,63 @@ type Applier struct {
 
 // ApplyCanonical replays one accepted canonical event locally with inbox idempotency.
 func (a *Applier) ApplyCanonical(ctx context.Context, event CanonicalEvent) (bool, error) {
+	if a != nil && a.Sessions != nil {
+		session, err := a.Sessions.BeginWrite(ctx)
+		if err != nil {
+			return false, err
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = session.Rollback(ctx)
+			}
+		}()
+
+		inboxSession, ok := session.(store.InboxWriteSession)
+		if !ok || inboxSession.InboxStore() == nil {
+			return false, fmt.Errorf("write session does not support transactional inbox apply")
+		}
+		txApplier := *a
+		txApplier.Resources = session.ResourceStore()
+		txApplier.History = session.HistoryStore()
+		txApplier.Search = session.SearchStore()
+		txApplier.Inbox = inboxSession.InboxStore()
+		txApplier.Sessions = nil
+		applied, err := txApplier.applyCanonicalOnce(ctx, event)
+		if err != nil {
+			return false, err
+		}
+		if applied {
+			tenantID := event.TenantID
+			if tenantID == "" {
+				tenantID = a.TenantID
+			}
+			id := CanonicalEventID(tenantID, event.CanonicalSequence)
+			if err := txApplier.Inbox.MarkApplied(ctx, id, txApplier.now()); err != nil {
+				return false, err
+			}
+		}
+		if err := session.Commit(ctx); err != nil {
+			return false, err
+		}
+		committed = true
+		return applied, nil
+	}
+	applied, err := a.applyCanonicalOnce(ctx, event)
+	if err != nil || !applied || a.Inbox == nil {
+		return applied, err
+	}
+	tenantID := event.TenantID
+	if tenantID == "" {
+		tenantID = a.TenantID
+	}
+	if err := a.Inbox.MarkApplied(ctx, CanonicalEventID(tenantID, event.CanonicalSequence), a.now()); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (a *Applier) applyCanonicalOnce(ctx context.Context, event CanonicalEvent) (bool, error) {
 	if a == nil {
 		return false, fmt.Errorf("applier is nil")
 	}
@@ -28,7 +87,11 @@ func (a *Applier) ApplyCanonical(ctx context.Context, event CanonicalEvent) (boo
 		return false, fmt.Errorf("cannot apply non-accepted canonical event seq %d", event.CanonicalSequence)
 	}
 
-	id := CanonicalEventID(event.CanonicalSequence)
+	tenantID := event.TenantID
+	if tenantID == "" {
+		tenantID = a.TenantID
+	}
+	id := CanonicalEventID(tenantID, event.CanonicalSequence)
 	if a.Inbox != nil {
 		applied, err := a.Inbox.IsApplied(ctx, id)
 		if err != nil {
@@ -48,12 +111,14 @@ func (a *Applier) ApplyCanonical(ctx context.Context, event CanonicalEvent) (boo
 		return false, err
 	}
 
-	if a.Inbox != nil {
-		if err := a.Inbox.MarkApplied(ctx, id, now); err != nil {
-			return false, err
-		}
-	}
 	return true, nil
+}
+
+func (a *Applier) now() time.Time {
+	if a != nil && a.Clock != nil {
+		return a.Clock()
+	}
+	return time.Now().UTC()
 }
 
 func (a *Applier) applyResource(ctx context.Context, event CanonicalEvent, now time.Time) error {
@@ -61,6 +126,16 @@ func (a *Applier) applyResource(ctx context.Context, event CanonicalEvent, now t
 	case EventTypeResourceCreated, EventTypeResourceUpdated:
 		if event.ResourceAfter == nil {
 			return fmt.Errorf("canonical event %d missing resource payload", event.CanonicalSequence)
+		}
+		if event.ResourceAfter.ResourceType != event.ResourceType || event.ResourceAfter.ID != event.ResourceID {
+			return fmt.Errorf("canonical event %d resource identity does not match event", event.CanonicalSequence)
+		}
+		parsed, err := types.NewJSONCodec().ParseJSON(event.ResourceType, event.ResourceAfter.JSON)
+		if err != nil {
+			return fmt.Errorf("canonical event %d resource payload is invalid: %w", event.CanonicalSequence, err)
+		}
+		if parsed.ID != event.ResourceID {
+			return fmt.Errorf("canonical event %d resource payload JSON identity does not match event", event.CanonicalSequence)
 		}
 		res := *event.ResourceAfter
 		res.VersionID = event.CanonicalVersionID
@@ -137,10 +212,12 @@ func (a *Applier) indexResource(ctx context.Context, res *types.ResourceEnvelope
 	if err != nil {
 		return err
 	}
+	if err := a.Search.RemoveIndex(ctx, res.ResourceType, res.ID); err != nil {
+		return err
+	}
 	for _, entry := range entries {
-		if err := a.Search.RemoveIndex(ctx, entry.ResourceType, entry.ID); err != nil {
-			return err
-		}
+		entry.ResourceType = res.ResourceType
+		entry.ID = res.ID
 		if err := a.Search.Index(ctx, entry); err != nil {
 			return err
 		}

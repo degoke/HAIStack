@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +24,11 @@ type Scenario struct {
 
 // NewScenario creates a two-device sync test scenario with a fresh hub.
 func NewScenario(tenantID string, clock hasync.Clock) *Scenario {
-	hub := NewMemHub()
 	if clock == nil {
 		clock = hasync.DefaultClock
 	}
+	hub := NewMemHub(tenantID)
+	hub.SetClock(clock)
 	return &Scenario{
 		Hub:      hub,
 		DeviceA:  NewDevice("device-a", tenantID, hub, clock),
@@ -73,6 +75,12 @@ func (s *Scenario) buildResult(push *hasync.PushResultSummary, pull *hasync.Pull
 // ReferenceResolved reports whether targetType/targetID exists on device B when
 // source references it via a FHIR reference string in JSON.
 func ReferenceResolved(ctx context.Context, device *Device, source *types.ResourceEnvelope, refPath string, targetType, targetID string) (bool, error) {
+	if device == nil {
+		return false, fmt.Errorf("synctest.ReferenceResolved: device is nil")
+	}
+	if source == nil {
+		return false, fmt.Errorf("synctest.ReferenceResolved: source is nil")
+	}
 	ref, err := extractReference(source.JSON, refPath)
 	if err != nil {
 		return false, err
@@ -89,19 +97,27 @@ func extractReference(jsonData []byte, path string) (string, error) {
 	if err := json.Unmarshal(jsonData, &obj); err != nil {
 		return "", err
 	}
+	path = strings.NewReplacer("[", ".", "]", "").Replace(path)
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("reference path is required")
+	}
 	parts := strings.Split(path, ".")
 	cur := any(obj)
 	for _, part := range parts {
+		if part == "" {
+			return "", fmt.Errorf("invalid reference path %q", path)
+		}
 		switch node := cur.(type) {
 		case map[string]any:
-			cur = node[part]
-		case []any:
-			idx := 0
-			if part != "0" {
-				return "", fmt.Errorf("unsupported array index %q in path %s", part, path)
+			value, ok := node[part]
+			if !ok {
+				return "", fmt.Errorf("field %q is missing in path %s", part, path)
 			}
-			if len(node) == 0 {
-				return "", fmt.Errorf("empty array at %s", path)
+			cur = value
+		case []any:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return "", fmt.Errorf("array index %q is out of range in path %s", part, path)
 			}
 			cur = node[idx]
 		default:

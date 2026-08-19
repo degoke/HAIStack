@@ -73,7 +73,7 @@ func ParseQuery(resourceType string, params url.Values) (*Query, error) {
 			}
 			mode := SummaryMode(values[0])
 			switch mode {
-			case SummaryTrue, SummaryText, SummaryData, SummaryCount:
+			case SummaryFalse, SummaryTrue, SummaryText, SummaryData, SummaryCount:
 				q.Summary = mode
 			default:
 				return nil, fmt.Errorf("%w: _summary=%q", ErrUnsupportedFeature, values[0])
@@ -154,6 +154,7 @@ func parseCount(values []string, q *Query) error {
 		count = maxCount
 	}
 	q.Count = count
+	q.CountSet = true
 	return nil
 }
 

@@ -233,7 +233,7 @@ func resolveRevInclude(reg Registry, targetType string, rev RevIncludeDirective)
 	}
 	info, ok := reg.SearchParameter(rev.SourceType, rev.ParamCode)
 	if !ok {
-		return RevIncludeDirective{}, fmt.Errorf("%w: %q on %s", ErrUnknownParam, rev.ParamCode, rev.SourceType)
+		return RevIncludeDirective{}, UnknownParamError{ResourceType: rev.SourceType, Code: rev.ParamCode}
 	}
 	if info.Type != "reference" {
 		return RevIncludeDirective{}, fmt.Errorf("%w: _revinclude param %q is not a reference", ErrInvalidQuery, rev.ParamCode)
@@ -282,7 +282,7 @@ func lookupParam(reg Registry, resourceType, code string) (ParameterInfo, error)
 	}
 	info, ok := reg.SearchParameter(resourceType, code)
 	if !ok {
-		return ParameterInfo{}, fmt.Errorf("%w: %q", ErrUnknownParam, code)
+		return ParameterInfo{}, UnknownParamError{ResourceType: resourceType, Code: code}
 	}
 	if !isSearchableType(info.Type) {
 		return ParameterInfo{}, fmt.Errorf("%w: %q type %q", ErrUnsupportedParam, code, info.Type)
@@ -304,7 +304,7 @@ func BuildPlan(q *Query) (*Plan, error) {
 		Elements:     append([]string(nil), q.Elements...),
 		FullText:     q.FullText,
 	}
-	if plan.Count <= 0 {
+	if !q.CountSet {
 		plan.Count = defaultCount
 	}
 	if len(plan.Sort) == 0 {

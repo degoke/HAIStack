@@ -19,9 +19,14 @@ manager := registry.NewManager(registry.Config{
     Installs:    db.RegistryInstallStore(),
 })
 _ = manager.SeedBundled(ctx)
+_ = manager.InstallDefinitionsFromDir(ctx, "/path/to/custom/definitions", registry.InstallProvenance{
+    PackageName: "example.custom",
+})
 _ = manager.EnableResource(ctx, "Patient")
 snapshot, _ := manager.RebuildSnapshot(ctx)
 ```
+
+`SeedBundled` only loads the embedded HL7 bundle. Use `InstallDefinitionsFromDir` or `InstallDefinitionsFromFS` for custom definition JSON trees on disk.
 
 Postgres uses a hybrid model: the base catalog is global on `postgres.DB`; enablement lives on `postgres.TenantDB`.
 

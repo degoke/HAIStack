@@ -35,6 +35,7 @@ func TestConflictProcessingJobAutoMerge(t *testing.T) {
 	conflicts := &memConflictStore{}
 	jobs := &memJobStore{}
 	audit := &memAuditStore{}
+	handler := &memResolutionHandler{}
 
 	base := &types.ResourceEnvelope{
 		ResourceType: "Patient",
@@ -100,15 +101,16 @@ func TestConflictProcessingJobAutoMerge(t *testing.T) {
 
 	processor := &hasync.JobProcessor{
 		Engine: hasync.NewEngine(hasync.Config{
-			NodeID:         "node-a",
-			TenantID:       "tenant-a",
-			Resources:      resources,
-			History:        history,
-			Conflicts:      conflicts,
-			Jobs:           jobs,
-			Audit:          audit,
-			ConflictEngine: conflict.NewDefaultEngine(),
-			Clock:          fixedClock(now),
+			NodeID:                    "node-a",
+			TenantID:                  "tenant-a",
+			Resources:                 resources,
+			History:                   history,
+			Conflicts:                 conflicts,
+			Jobs:                      jobs,
+			Audit:                     audit,
+			ConflictEngine:            conflict.NewDefaultEngine(),
+			ConflictResolutionHandler: handler,
+			Clock:                     fixedClock(now),
 		}),
 		Jobs:  jobs,
 		Clock: fixedClock(now),

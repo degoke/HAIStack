@@ -3,7 +3,7 @@
 // No custom FHIRPath engine logic lives here — only assertion helpers that evaluate
 // expressions against *types.ResourceEnvelope fixtures (or envelope.Proto when set).
 //
-//   - DefaultEngine — fhirpath.NewEngine with default config
+//   - DefaultEngine — fhirpath.NewEngine with default config for test isolation
 //   - Eval — evaluate and return stringified result values
 //   - AssertValues, AssertString, AssertEmpty, AssertContains — test assertions
 //

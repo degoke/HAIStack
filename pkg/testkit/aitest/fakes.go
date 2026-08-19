@@ -34,14 +34,29 @@ func (a *FakeAuditLogger) LogToolAccess(_ context.Context, rec ai.AuditRecord) e
 type FakeApprovalHook struct {
 	mu       sync.Mutex
 	Approved bool
+	Token    string
+	Store    *ai.MemoryApprovalStore
 	Calls    []ai.ApprovalRequest
 }
 
-func (h *FakeApprovalHook) RequestApproval(_ context.Context, req ai.ApprovalRequest) (*ai.ApprovalResult, error) {
+func (h *FakeApprovalHook) RequestApproval(ctx context.Context, req ai.ApprovalRequest) (*ai.ApprovalResult, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.Calls = append(h.Calls, req)
-	return &ai.ApprovalResult{Approved: h.Approved}, nil
+	approved := h.Approved
+	token := h.Token
+	store := h.Store
+	h.mu.Unlock()
+	if approved && store != nil {
+		created, err := store.CreatePending(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.Approve(created); err != nil {
+			return nil, err
+		}
+		token = created
+	}
+	return &ai.ApprovalResult{Approved: approved, Token: token}, nil
 }
 
 // FakeDeidentifier is a no-op deidentifier that reports one removed field.
@@ -74,6 +89,11 @@ type FixedClock struct {
 func NewFixedClock(t time.Time) *FixedClock { return &FixedClock{fixed: t} }
 
 func (c *FixedClock) Now() time.Time { return c.fixed }
+
+// At returns a UTC time for deterministic AI harness tests.
+func At(year int, month time.Month, day, hour, min, sec int) time.Time {
+	return time.Date(year, month, day, hour, min, sec, 0, time.UTC)
+}
 
 type definitionStore struct {
 	records map[string]store.DefinitionResourceRecord

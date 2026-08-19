@@ -90,8 +90,9 @@
 //
 // # Cloud mode: CSV export
 //
-// CSVSink writes view.Result rows to an io.Writer. Column order follows
-// view.ColumnInfo declaration order. Null values are empty fields; arrays and
+// CSVSink writes view.Result rows directly to an io.Writer. Column order follows
+// view.ColumnInfo declaration order. Null or missing values use the reserved
+// analytics.CSVNullValue marker; empty strings remain empty fields. Arrays and
 // complex values are JSON-encoded cell strings.
 //
 //	_, err := runner.Run(ctx, analytics.RunRequest{
@@ -119,10 +120,11 @@
 //
 // # Execution model
 //
-// Runner.Run validates the view is in SupportedViews, validates the destination
-// matches the mode, then calls view.Executor.Execute with no row limit so the
-// full matching resource set is materialized. View parse, authorization, and
-// execution errors from pkg/view propagate unchanged.
+// Runner.Run validates that the registered definition is one of the packaged
+// v1 views, validates the destination matches the mode, then calls
+// view.Executor.Execute with no row limit so the full matching resource set is
+// materialized. View parse, authorization, and execution errors from pkg/view
+// propagate unchanged.
 //
 // RunResult reports view identity, mode, row count, and view.ResultMetadata
 // (scanned/filtered counts, duration, source resource type).

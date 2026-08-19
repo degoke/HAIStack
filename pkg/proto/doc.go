@@ -19,6 +19,8 @@
 //
 //   - ParseJSONToProto validates the payload resourceType, parses JSON into a proto message,
 //     and returns it as any.
+//   - ParseJSONToEnvelope parses JSON into proto and returns a fully populated ResourceEnvelope
+//     in one step (ParseJSONToProto followed by ProtoToEnvelope).
 //   - ProtoToJSON accepts a supported proto value, serializes to FHIR JSON, and re-normalizes
 //     through types.NormalizeJSON so output matches the runtime's canonical JSON rules.
 //   - ProtoToEnvelope converts proto to JSON, parses via types.NewJSONCodec().ParseJSON,
@@ -73,12 +75,23 @@
 // Both helpers currently target R4 only. When additional providers or FHIR versions are
 // added, they will dispatch by message descriptor (see google_r5.go).
 //
-// ToEnvelope, ToJSON, and ResourceType are concise R4 helpers using the default
+// ToEnvelope, ToJSON, ResourceType, and ParseJSONToEnvelope are concise R4 helpers using the default
 // GoogleR4Codec. Applications can construct resources with aliases from
 // github.com/degoke/health-ai-stack/pkg/proto/r4, for example:
 //
-//	patient := &r4.Patient{}
+//	patient := r4.NewPatient("pat-1")
 //	envelope, err := proto.ToEnvelope(patient)
+//
+// AsContainedResource and ContainedResourceFromEnvelope unwrap envelope.Proto values for typed
+// access to the inner ContainedResource without manual type assertions.
+//
+// # JSON round-trip limitations
+//
+// JSON→proto→JSON conversion uses Google's jsonformat layer. Fields not modeled in the
+// Google R4 protobuf schema are not preserved on the proto path: ParseJSONToProto and
+// ParseJSONToEnvelope return an error when the JSON contains unknown fields. Successful
+// round-trips emit only schema-modeled fields in envelope.JSON. Use pkg/types JSON-only
+// helpers when arbitrary or vendor-specific payload fields must be retained without proto.
 //
 // # Public API rules
 //
@@ -94,7 +107,7 @@
 // JSON ingest:
 //
 //	FHIR JSON → ParseJSONToProto → ContainedResource (any)
-//	FHIR JSON → ParseJSONToProto → ProtoToEnvelope → ResourceEnvelope { JSON, Hash, Proto, ... }
+//	FHIR JSON → ParseJSONToEnvelope → ResourceEnvelope { JSON, Hash, Proto, ... }
 //
 // JSON egress:
 //

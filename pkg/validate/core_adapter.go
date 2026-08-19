@@ -24,13 +24,7 @@ func (v *coreValidator) ValidateResource(ctx context.Context, resource *types.Re
 	if result == nil || result.Valid {
 		return nil
 	}
-	return validationError{issues: result.Issues}
+	return FailedError{Issues: result.Issues}
 }
 
-type validationError struct {
-	issues []ValidationIssue
-}
-
-func (e validationError) Error() string {
-	return joinIssueDiagnostics(e.issues)
-}
+type validationError = FailedError

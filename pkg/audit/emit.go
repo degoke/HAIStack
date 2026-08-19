@@ -134,15 +134,16 @@ func LogAIToolCall(ctx context.Context, logger Logger, ev AIToolCallEvent) error
 		details["conversationId"] = ev.ConversationID
 	}
 	return emit(ctx, logger, Event{
-		ID:        ev.ID,
-		Timestamp: ev.Timestamp,
-		Actor:     ev.Actor,
-		Tenant:    ev.Tenant,
-		Subject:   ev.Subject,
-		Action:    ActionExecuteTool,
-		Outcome:   ev.Outcome,
-		ToolName:  ev.ToolName,
-		Details:   details,
+		ID:             ev.ID,
+		Timestamp:      ev.Timestamp,
+		Actor:          ev.Actor,
+		Tenant:         ev.Tenant,
+		Subject:        ev.Subject,
+		Action:         ActionExecuteTool,
+		Outcome:        ev.Outcome,
+		ToolName:       ev.ToolName,
+		ConversationID: ev.ConversationID,
+		Details:        details,
 	})
 }
 

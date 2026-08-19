@@ -38,4 +38,7 @@ var (
 
 	// ErrMissingKey is returned when signature verification requires a key that is absent.
 	ErrMissingKey = errors.New("smart: missing key")
+
+	// ErrReplay is returned when a JWT assertion identifier has already been used.
+	ErrReplay = errors.New("smart: replayed assertion")
 )

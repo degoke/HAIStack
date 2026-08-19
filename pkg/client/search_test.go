@@ -75,6 +75,30 @@ func TestSearchPageRelativeURL(t *testing.T) {
 	}
 }
 
+func TestSearchIteratorAdvancesOnlyOnNext(t *testing.T) {
+	page := 1
+	srv := startSearchServer(t, &page)
+	defer srv.Close()
+	c, _ := New(Config{BaseURL: srv.URL})
+	it := c.IterateSearch(context.Background(), "Patient", nil)
+	if !it.Next() || it.Resource().ID != "p1" {
+		t.Fatal("expected first iterator resource")
+	}
+	if got := it.Resource(); got == nil || got.ID != "p1" {
+		t.Fatalf("Resource should remain the current item, got %#v", got)
+	}
+	if !it.Next() || it.Resource().ID != "p2" {
+		t.Fatal("expected second iterator resource")
+	}
+	if !it.Next() || it.Resource().ID != "p3" {
+		t.Fatal("expected resource from next page")
+	}
+	next := it.Next()
+	if next || it.Err() != nil {
+		t.Fatalf("expected clean iterator exhaustion, next=%v err=%v", next, it.Err())
+	}
+}
+
 func startSearchServer(t *testing.T, page *int) *httptest.Server {
 	t.Helper()
 	*page = 1

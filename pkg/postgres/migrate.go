@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,15 +16,49 @@ import (
 var migrationFS embed.FS
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool, schema dbSchema) error {
+	// Keep the advisory lock on one acquired session for the entire run. A
+	// transaction-scoped lock would still allow two callers to race between the
+	// version check and the migration transaction.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	lockKey := "haistack:migrations:" + schema.name
+	locked := false
+	defer func() {
+		if !locked {
+			conn.Release()
+			return
+		}
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(unlockCtx,
+			`SELECT pg_advisory_unlock(hashtextextended($1, 0))`, lockKey,
+		); err != nil {
+			// Never return a pooled connection while it still owns the session
+			// lock; destroy it so the lock is released with the session.
+			_ = conn.Hijack().Close(unlockCtx)
+			return
+		}
+		conn.Release()
+	}()
+
+	if _, err := conn.Exec(ctx,
+		`SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockKey,
+	); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	locked = true
+
 	if schema.name != defaultSchema {
-		if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, schema.name)); err != nil {
+		if _, err := conn.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, schema.name)); err != nil {
 			return fmt.Errorf("ensure %s schema: %w", schema.name, err)
 		}
 	}
 
 	migrationsTable := schema.migrationsTable()
 
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			version    INTEGER PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -52,7 +87,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, schema dbSchema) err
 		}
 
 		var applied int
-		err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(1) FROM %s WHERE version = $1`, migrationsTable), version).Scan(&applied)
+		err = conn.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(1) FROM %s WHERE version = $1`, migrationsTable), version).Scan(&applied)
 		if err != nil {
 			return fmt.Errorf("check migration %d: %w", version, err)
 		}
@@ -65,7 +100,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, schema dbSchema) err
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", version, err)
 		}

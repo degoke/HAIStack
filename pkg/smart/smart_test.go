@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -326,6 +327,113 @@ func TestTokenValidator_IssuerAudienceExpiryScopes(t *testing.T) {
 	}
 }
 
+func TestBackendServiceAuth_RejectsClientWithoutAllowedScopes(t *testing.T) {
+	_, err := smart.NewBackendServiceAuth("https://auth.example/token", smart.BackendClient{
+		ClientID: "backend-app",
+		Key: smart.ClientKeyMetadata{
+			Algorithm:    "RS256",
+			PublicKeyPEM: "ignored",
+		},
+	})
+	if !errors.Is(err, smart.ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestBackendServiceAuth_DoesNotMutateCallerOpts(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	key, pemPub := mustRSAKey(t)
+	client := smart.BackendClient{
+		ClientID:      "backend-app",
+		AllowedScopes: []string{"system/*.read"},
+		Key: smart.ClientKeyMetadata{
+			Algorithm:    "RS256",
+			PublicKeyPEM: pemPub,
+		},
+	}
+	bsa, err := smart.NewBackendServiceAuth("https://auth.example/token", client)
+	if err != nil {
+		t.Fatalf("NewBackendServiceAuth: %v", err)
+	}
+	bsa.Now = func() time.Time { return now }
+
+	assertion := signedJWT(t, key, map[string]any{
+		"iss":   "backend-app",
+		"sub":   "backend-app",
+		"aud":   "https://auth.example/token",
+		"exp":   now.Add(5 * time.Minute).Unix(),
+		"jti":   "assertion-opts",
+		"scope": "system/*.read",
+	})
+	opts := smart.TokenValidateOptions{ClockSkew: 30 * time.Second}
+	if _, _, err := bsa.ValidateBackendAssertion(assertion, opts); err != nil {
+		t.Fatalf("ValidateBackendAssertion: %v", err)
+	}
+	if opts.ClockSkew != 30*time.Second {
+		t.Fatalf("caller opts mutated: %#v", opts)
+	}
+}
+
+func TestPersistentBackendAndReplayStores(t *testing.T) {
+	dir := t.TempDir()
+	clientStore, err := smart.NewFileBackendClientStore(filepath.Join(dir, "clients.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := smart.BackendClient{ClientID: "backend-app", AllowedScopes: []string{"system/*.read"}}
+	if err := clientStore.RegisterBackendClient(client); err != nil {
+		t.Fatal(err)
+	}
+	reloadedClientStore, err := smart.NewFileBackendClientStore(filepath.Join(dir, "clients.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reloadedClientStore.LookupBackendClient(client.ClientID)
+	if err != nil || got.ClientID != client.ClientID {
+		t.Fatalf("reloaded client = %#v, err = %v", got, err)
+	}
+
+	replay, err := smart.NewFileReplayStore(filepath.Join(dir, "replay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	replay.Now = func() time.Time { return now }
+	if err := replay.CheckAndStore("assertion-1", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	reloadedReplay, err := smart.NewFileReplayStore(filepath.Join(dir, "replay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadedReplay.Now = func() time.Time { return now }
+	if err := reloadedReplay.CheckAndStore("assertion-1", now.Add(time.Hour)); !errors.Is(err, smart.ErrReplay) {
+		t.Fatalf("replayed persistent assertion err = %v", err)
+	}
+}
+
+func TestBackendServiceAuth_RequiresVerificationKey(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	client := smart.BackendClient{
+		ClientID:      "backend-app",
+		AllowedScopes: []string{"system/*.read"},
+	}
+	bsa, err := smart.NewBackendServiceAuth("https://auth.example/token", client)
+	if err != nil {
+		t.Fatalf("NewBackendServiceAuth: %v", err)
+	}
+	bsa.Now = func() time.Time { return now }
+	_, _, err = bsa.ValidateBackendAssertion(unsignedJWT(t, map[string]any{
+		"iss": "backend-app",
+		"sub": "backend-app",
+		"aud": "https://auth.example/token",
+		"exp": now.Add(5 * time.Minute).Unix(),
+	}), smart.TokenValidateOptions{})
+	if !errors.Is(err, smart.ErrMissingKey) {
+		t.Fatalf("err = %v, want ErrMissingKey", err)
+	}
+}
+
 func TestBackendServiceAuth_ValidateAssertionAndServicePrincipal(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	key, pemPub := mustRSAKey(t)
@@ -365,6 +473,9 @@ func TestBackendServiceAuth_ValidateAssertionAndServicePrincipal(t *testing.T) {
 	if !claims.Scopes.AllowsRead(smart.ActorSystem, "Patient") {
 		t.Fatal("expected system read")
 	}
+	if _, _, err = bsa.ValidateBackendAssertion(assertion, smart.TokenValidateOptions{}); !errors.Is(err, smart.ErrReplay) {
+		t.Fatalf("replayed assertion err = %v, want ErrReplay", err)
+	}
 
 	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
 		DefaultServiceRoles: []string{"backend"},
@@ -392,6 +503,7 @@ func TestBackendServiceAuth_ValidateAssertionAndServicePrincipal(t *testing.T) {
 		"sub":   "backend-app",
 		"aud":   "https://auth.example/token",
 		"exp":   now.Add(5 * time.Minute).Unix(),
+		"jti":   "assertion-bad-scope",
 		"scope": "system/*.read patient/*.read",
 	})
 	_, _, err = bsa.ValidateBackendAssertion(bad, smart.TokenValidateOptions{})
@@ -446,12 +558,16 @@ func TestSubsetOf_BroaderAllowed(t *testing.T) {
 
 func unsignedJWT(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	// Structural validation accepts an unsigned test token only when the
+	// algorithm is a real JWS algorithm; alg=none is always rejected.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return header + "." + base64.RawURLEncoding.EncodeToString(body) + "."
+	// Keep a non-empty placeholder signature so the compact JWT remains
+	// structurally valid; tests using this helper intentionally omit a verifier.
+	return header + "." + base64.RawURLEncoding.EncodeToString(body) + ".AA"
 }
 
 func mustRSAKey(t *testing.T) (*rsa.PrivateKey, string) {

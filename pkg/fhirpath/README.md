@@ -60,6 +60,8 @@ Future uses: search indexing, ViewDefinitions, AI tool preconditions.
 - One resource per evaluation
 - Google FHIR R4 only
 - No `resolve()` or terminology (`memberOf()`)
+- String functions such as `contains()` on FHIR strings are supported
+- `*types.ResourceEnvelope` with JSON populated is a valid input (proto optional)
 - Optional custom functions at engine creation
 
 See [doc.go](./doc.go) for the full API and package boundaries.

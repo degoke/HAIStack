@@ -16,6 +16,13 @@ type WriteSession interface {
 // whose terminology projections share the resource write transaction.
 type TerminologyWriteSession interface{ TerminologyStore() TerminologyStore }
 
+// InboxWriteSession is implemented by database-backed write sessions that can
+// include inbox idempotency records in the same transaction as resource,
+// history, and search changes.
+type InboxWriteSession interface {
+	InboxStore() InboxStore
+}
+
 // WriteSessionProvider begins atomic write sessions.
 type WriteSessionProvider interface {
 	BeginWrite(ctx context.Context) (WriteSession, error)

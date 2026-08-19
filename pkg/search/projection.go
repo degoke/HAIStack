@@ -49,6 +49,12 @@ func applyProjection(res *types.ResourceEnvelope, summary SummaryMode, elements 
 	return &copyEnv, nil
 }
 
+// ProjectResource applies the same _summary/_elements projection used by
+// search results to a read response.
+func ProjectResource(res *types.ResourceEnvelope, summary SummaryMode, elements []string) (*types.ResourceEnvelope, error) {
+	return applyProjection(res, summary, elements)
+}
+
 func summaryTrueProjection(payload map[string]any) map[string]any {
 	out := map[string]any{
 		"resourceType": payload["resourceType"],

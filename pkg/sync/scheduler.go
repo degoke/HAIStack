@@ -32,7 +32,7 @@ func (p *JobProcessor) ProcessNext(ctx context.Context) (bool, error) {
 
 func (p *JobProcessor) runner() *jobs.Runner {
 	r := jobs.NewRunner(p.Jobs)
-	r.MaxAttempts = 1
+	r.MaxAttempts = 3
 	r.Now = p.now
 	_ = r.Register(JobTypeRetryPush, jobs.HandlerFunc(func(ctx context.Context, _ store.JobRecord) error {
 		_, err := p.Engine.Push(ctx)
@@ -77,17 +77,26 @@ func (p *JobProcessor) processConflictJob(ctx context.Context, job store.JobReco
 			"risk":           string(mergeResult.Result.Risk),
 			"reason":         mergeResult.Result.ReviewReason,
 		})
-		p.notifyResolutionHandler(ctx, cfg, payload, mergeResult)
+		if err := p.notifyResolutionHandler(ctx, cfg, payload, mergeResult); err != nil {
+			return err
+		}
 		return nil
 	}
 
+	if cfg.ConflictResolutionHandler == nil {
+		return fmt.Errorf("conflict resolution handler is required for auto-merge")
+	}
+	if err := p.notifyResolutionHandler(ctx, cfg, payload, mergeResult); err != nil {
+		return err
+	}
 	p.appendConflictAudit(ctx, cfg, payload, AuditConflictAutoMerged, map[string]string{
 		"resolution": string(mergeResult.Resolution),
 	})
-	p.notifyResolutionHandler(ctx, cfg, payload, mergeResult)
 
 	if cfg.Conflicts != nil && payload.ConflictID != "" {
-		_ = cfg.Conflicts.Resolve(ctx, payload.ConflictID, p.now())
+		if err := cfg.Conflicts.Resolve(ctx, payload.ConflictID, p.now()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -97,11 +106,11 @@ func (p *JobProcessor) notifyResolutionHandler(
 	cfg Config,
 	payload ConflictJobPayload,
 	result conflict.MergeResult,
-) {
+) error {
 	if cfg.ConflictResolutionHandler == nil {
-		return
+		return nil
 	}
-	_ = cfg.ConflictResolutionHandler.OnConflictResolution(ctx, payload, result)
+	return cfg.ConflictResolutionHandler.OnConflictResolution(ctx, payload, result)
 }
 
 func localEventFromPayload(payload ConflictJobPayload) (conflict.LocalEvent, error) {

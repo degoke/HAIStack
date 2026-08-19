@@ -21,6 +21,11 @@ func (h *handler) handleSDCOperation(w http.ResponseWriter, r *http.Request, rou
 		writeError(w, err)
 		return
 	}
+	body, _, err = requestBodyJSON(r.Header.Get("Content-Type"), body)
+	if err != nil {
+		writeError(w, invalidRequest("parse SDC operation input", err))
+		return
+	}
 	var input *types.ResourceEnvelope
 	if len(body) > 0 {
 		input, err = h.cfg.Codec.ParseJSON("", body)

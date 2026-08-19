@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -26,11 +27,19 @@ func (b *CitationBuilder) ResourceRef(resourceType, id string) Citation {
 
 // SearchCitations builds citations for search results and allowed parameters.
 func (b *CitationBuilder) SearchCitations(resourceType string, params url.Values, resources []*types.ResourceEnvelope) []Citation {
-	citations := make([]Citation, 0, len(resources)+1)
+	return b.SearchCitationsWithIncludes(resourceType, params, resources, nil)
+}
+
+// SearchCitationsWithIncludes builds citations for primary and authorized
+// included resources. Parameter names are sorted for deterministic output and
+// values are intentionally excluded.
+func (b *CitationBuilder) SearchCitationsWithIncludes(resourceType string, params url.Values, resources, included []*types.ResourceEnvelope) []Citation {
+	citations := make([]Citation, 0, len(resources)+len(included)+1)
 	paramNames := make([]string, 0, len(params))
 	for key := range params {
 		paramNames = append(paramNames, paramBaseName(key))
 	}
+	slices.Sort(paramNames)
 	if len(paramNames) > 0 {
 		detail := map[string]string{"resourceType": resourceType}
 		for i, name := range paramNames {
@@ -42,6 +51,9 @@ func (b *CitationBuilder) SearchCitations(resourceType string, params url.Values
 		})
 	}
 	for _, res := range resources {
+		citations = append(citations, b.ResourceRef(res.ResourceType, res.ID))
+	}
+	for _, res := range included {
 		citations = append(citations, b.ResourceRef(res.ResourceType, res.ID))
 	}
 	return citations

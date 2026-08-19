@@ -36,8 +36,10 @@
 //     view columns, and write metadata.
 //   - ModelRouter / Executor.InvokeModel: optional local/cloud model adapter
 //     selection; tool execution remains useful without any model configured.
-//   - ApprovalHook: optional human approval seam for policy-gated writes.
-//   - Deidentifier: optional output scrubbing seam; pass-through by default.
+//   - ApprovalHook / ApprovalStore: human approval seam and token verification
+//     boundary for policy-gated writes.
+//   - Deidentifier: required output scrubbing seam whenever policy requests
+//     de-identification; pass-through must be explicitly opted into.
 //
 // # Tool input shapes
 //
@@ -56,6 +58,7 @@
 //	policy.Read["Patient"] = ai.ReadTypePolicy{}
 //	policy.Search["Patient"] = ai.SearchTypePolicy{
 //	    AllowedParams: []string{"name", "telecom"},
+//	    AllowedFields: []string{"name", "gender"},
 //	    MaxCount:      50,
 //	}
 //	policy.Views["patient_summary_view"] = ai.ViewTypePolicy{}
@@ -70,7 +73,7 @@
 //	    Views:     viewExec,
 //	    Core:      coreSvc,
 //	    Policy:    policy,
-//	    Audit:     ai.AuditStoreAdapter{Store: auditStore},
+//	    Audit:     &ai.AuditStoreAdapter{Store: auditStore},
 //	})
 //
 //	res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
@@ -97,8 +100,9 @@
 // # Authorization and audit
 //
 // PolicyEngine is required. AllowListPolicy denies by default until explicit
-// allow-list entries are configured. AuditLogger is optional; when configured it
-// records actor, subject, tool name, outcome, and request scope.
+// allow-list entries are configured. AuditLogger is optional for local/test use;
+// production deployments should set Config.AuditRequired so missing or failed
+// audit persistence fails closed.
 //
 // # Integration points
 //

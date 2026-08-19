@@ -27,10 +27,13 @@ func newEventStoreTx(tx pgx.Tx, tenantID string) *EventStore {
 func (s *EventStore) Append(ctx context.Context, event store.ResourceEvent) (store.ResourceEvent, error) {
 	var sequence int64
 	err := s.exec.QueryRow(ctx, `
-		INSERT INTO hai_event_log (tenant_id, resource_type, resource_id, version_id, action, timestamp, hash)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO hai_event_log (tenant_id, event_id, origin_node_id, local_version_id, resource_type, resource_id, version_id, action, timestamp, hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING sequence`,
 		s.tenantID,
+		nullString(event.EventID),
+		nullString(event.OriginNodeID),
+		nullString(event.LocalVersion),
 		event.ResourceType,
 		event.ID,
 		event.VersionID,
@@ -47,7 +50,7 @@ func (s *EventStore) Append(ctx context.Context, event store.ResourceEvent) (sto
 
 func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit int) ([]store.ResourceEvent, error) {
 	query := `
-		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
+		SELECT sequence, event_id, origin_node_id, local_version_id, resource_type, resource_id, version_id, action, timestamp, hash
 		FROM hai_event_log
 		WHERE tenant_id = $1 AND sequence > $2
 		ORDER BY sequence ASC`
@@ -66,11 +69,17 @@ func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit i
 	for rows.Next() {
 		var (
 			event     store.ResourceEvent
+			eventID   *string
+			origin    *string
+			localVer  *string
 			timestamp time.Time
 			hash      *string
 		)
 		if err := rows.Scan(
 			&event.Sequence,
+			&eventID,
+			&origin,
+			&localVer,
 			&event.ResourceType,
 			&event.ID,
 			&event.VersionID,
@@ -81,6 +90,15 @@ func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit i
 			return nil, fmt.Errorf("scan event row: %w", err)
 		}
 		event.Timestamp = timestamp
+		if eventID != nil {
+			event.EventID = *eventID
+		}
+		if origin != nil {
+			event.OriginNodeID = *origin
+		}
+		if localVer != nil {
+			event.LocalVersion = *localVer
+		}
 		if hash != nil {
 			event.Hash = *hash
 		}
@@ -95,17 +113,23 @@ func (s *EventStore) ReadSince(ctx context.Context, afterSequence int64, limit i
 func (s *EventStore) LatestForResource(ctx context.Context, resourceType, id string) (*store.ResourceEvent, error) {
 	var (
 		event     store.ResourceEvent
+		eventID   *string
+		origin    *string
+		localVer  *string
 		timestamp time.Time
 		hash      *string
 	)
 	err := s.exec.QueryRow(ctx, `
-		SELECT sequence, resource_type, resource_id, version_id, action, timestamp, hash
+		SELECT sequence, event_id, origin_node_id, local_version_id, resource_type, resource_id, version_id, action, timestamp, hash
 		FROM hai_event_log
 		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3
 		ORDER BY sequence DESC
 		LIMIT 1`, s.tenantID, resourceType, id,
 	).Scan(
 		&event.Sequence,
+		&eventID,
+		&origin,
+		&localVer,
 		&event.ResourceType,
 		&event.ID,
 		&event.VersionID,
@@ -120,6 +144,15 @@ func (s *EventStore) LatestForResource(ctx context.Context, resourceType, id str
 		return nil, fmt.Errorf("latest event for %s/%s: %w", resourceType, id, err)
 	}
 	event.Timestamp = timestamp
+	if eventID != nil {
+		event.EventID = *eventID
+	}
+	if origin != nil {
+		event.OriginNodeID = *origin
+	}
+	if localVer != nil {
+		event.LocalVersion = *localVer
+	}
 	if hash != nil {
 		event.Hash = *hash
 	}

@@ -1,19 +1,23 @@
 package analytics
 
 import (
-	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
+// CSVNullValue is the reserved CSV cell value used to represent null or a
+// missing field. Empty strings remain empty cells.
+const CSVNullValue = `\N`
+
 // CSVSink writes view rows as CSV with deterministic column ordering from the
-// view schema. Null values are empty fields; arrays and complex values are JSON.
+// view schema. Null values use CSVNullValue; arrays and complex values are JSON.
 type CSVSink struct {
 	w io.Writer
 }
@@ -24,7 +28,7 @@ func NewCSVSink(w io.Writer) *CSVSink {
 }
 
 // WriteRows encodes result as CSV.
-func (s *CSVSink) WriteRows(_ context.Context, result *view.Result) error {
+func (s *CSVSink) WriteRows(ctx context.Context, result *view.Result) error {
 	if s == nil || s.w == nil {
 		return fmt.Errorf("%w: csv writer is required", ErrUnsupportedDestination)
 	}
@@ -32,15 +36,23 @@ func (s *CSVSink) WriteRows(_ context.Context, result *view.Result) error {
 		return fmt.Errorf("analytics: nil view result")
 	}
 
-	var buf bytes.Buffer
-	writer := csv.NewWriter(&buf)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	writer := csv.NewWriter(s.w)
 
 	headers := columnNames(result.Columns)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := writer.Write(headers); err != nil {
 		return fmt.Errorf("write csv header: %w", err)
 	}
 
 	for _, row := range result.Rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		record := make([]string, len(headers))
 		for i, name := range headers {
 			record[i] = encodeCSVCell(row[name])
@@ -53,9 +65,8 @@ func (s *CSVSink) WriteRows(_ context.Context, result *view.Result) error {
 	if err := writer.Error(); err != nil {
 		return fmt.Errorf("flush csv: %w", err)
 	}
-
-	if _, err := s.w.Write(buf.Bytes()); err != nil {
-		return fmt.Errorf("write csv output: %w", err)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -70,10 +81,15 @@ func columnNames(columns []view.ColumnInfo) []string {
 
 func encodeCSVCell(value any) string {
 	if value == nil {
-		return ""
+		return CSVNullValue
 	}
 	switch v := value.(type) {
 	case string:
+		// A leading backslash is escaped so a literal CSVNullValue cannot be
+		// mistaken for null by a conforming consumer.
+		if strings.HasPrefix(v, `\`) {
+			return `\` + v
+		}
 		return v
 	case bool:
 		return strconv.FormatBool(v)

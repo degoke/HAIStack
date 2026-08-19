@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,13 +22,21 @@ const (
 	WriteOutcomeConflicted WriteOutcome = "conflicted"
 )
 
+// ErrVersionMismatch reports that a conditional write no longer matches the
+// version observed by the caller.
+var ErrVersionMismatch = errors.New("resource version mismatch")
+
 // Write bundles inputs for one atomic write pipeline.
 type Write struct {
-	Resource      *types.ResourceEnvelope
-	Action        store.VersionAction
-	SearchEntries []store.SearchIndexEntry
-	RequestedID   string
-	Audit         store.AuditRecord
+	Resource        *types.ResourceEnvelope
+	Action          store.VersionAction
+	SearchEntries   []store.SearchIndexEntry
+	RequestedID     string
+	ExpectedVersion string
+	EventID         string
+	OriginNodeID    string
+	LocalVersionID  string
+	Audit           store.AuditRecord
 
 	Outcome                 WriteOutcome
 	RejectionReason         string
@@ -41,6 +50,7 @@ type WriteResult struct {
 	Version    store.ResourceVersion
 	Event      store.ResourceEvent
 	IDRegistry store.IDRegistryResult
+	ConflictID string
 	Outcome    WriteOutcome
 }
 
@@ -57,6 +67,8 @@ type Session struct {
 	idReg       *IDRegistry
 	conflicts   *ConflictStore
 	audit       *AuditStore
+	inbox       *InboxStore
+	jobs        *JobStore
 	terminology *TerminologyStore
 
 	committed  bool
@@ -75,6 +87,8 @@ func newSession(tx pgx.Tx, tenantID string) *Session {
 		idReg:       newIDRegistryTx(tx, tenantID),
 		conflicts:   newConflictStoreTx(tx, tenantID),
 		audit:       newAuditStoreTx(tx, tenantID),
+		inbox:       newInboxStoreTx(tx, tenantID),
+		jobs:        newJobStoreTx(tx, tenantID),
 		terminology: newTerminologyStore(tx, tenantID),
 	}
 }
@@ -152,6 +166,16 @@ func (s *Session) AuditStore() store.AuditStore {
 	return s.audit
 }
 
+// InboxStore returns the transaction-scoped sync inbox store.
+func (s *Session) InboxStore() store.InboxStore {
+	return s.inbox
+}
+
+// JobStore returns the transaction-scoped background job store.
+func (s *Session) JobStore() store.JobStore {
+	return s.jobs
+}
+
 // BinaryMetadataStore returns the transaction-scoped blob metadata store.
 func (s *Session) BinaryMetadataStore() binary.MetadataStore {
 	return newBlobMetadataStoreTx(s.tx, s.tenantID)
@@ -180,6 +204,11 @@ func (s *Session) applyWrite(ctx context.Context, input Write) (*WriteResult, er
 	}
 }
 
+// ApplyWrite applies one write inside this session transaction.
+func (s *Session) ApplyWrite(ctx context.Context, input Write) (*WriteResult, error) {
+	return s.applyWrite(ctx, input)
+}
+
 func (s *Session) applyRejectedWrite(ctx context.Context, input Write, outcome WriteOutcome) (*WriteResult, error) {
 	if input.Resource == nil {
 		return nil, fmt.Errorf("resource envelope is nil")
@@ -192,8 +221,9 @@ func (s *Session) applyRejectedWrite(ctx context.Context, input Write, outcome W
 		return nil, err
 	}
 
+	conflictID := ""
 	if outcome == WriteOutcomeConflicted {
-		conflictID := uuid.NewString()
+		conflictID = uuid.NewString()
 		if err := s.conflicts.Append(ctx, store.ConflictRecord{
 			ID:              conflictID,
 			ResourceType:    input.Resource.ResourceType,
@@ -208,8 +238,9 @@ func (s *Session) applyRejectedWrite(ctx context.Context, input Write, outcome W
 	}
 
 	return &WriteResult{
-		Resource: input.Resource,
-		Outcome:  outcome,
+		Resource:   input.Resource,
+		ConflictID: conflictID,
+		Outcome:    outcome,
 	}, nil
 }
 
@@ -263,11 +294,35 @@ func (s *Session) applyAcceptedWrite(ctx context.Context, input Write) (*WriteRe
 			return nil, err
 		}
 	case store.VersionActionUpdate:
-		if err := s.resource.Update(ctx, input.Resource); err != nil {
+		if input.ExpectedVersion != "" {
+			conditional, ok := any(s.resource).(store.ConditionalResourceStore)
+			if !ok {
+				return nil, fmt.Errorf("conditional resource updates are not supported")
+			}
+			matched, err := conditional.UpdateIfVersion(ctx, input.Resource, input.ExpectedVersion)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
+				return nil, fmt.Errorf("conditional update did not match expected version %q: %w", input.ExpectedVersion, ErrVersionMismatch)
+			}
+		} else if err := s.resource.Update(ctx, input.Resource); err != nil {
 			return nil, err
 		}
 	case store.VersionActionDelete:
-		if err := s.resource.Delete(ctx, input.Resource.ResourceType, resourceID); err != nil {
+		if input.ExpectedVersion != "" {
+			conditional, ok := any(s.resource).(store.ConditionalResourceStore)
+			if !ok {
+				return nil, fmt.Errorf("conditional resource deletes are not supported")
+			}
+			matched, err := conditional.DeleteIfVersion(ctx, input.Resource.ResourceType, resourceID, input.ExpectedVersion)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
+				return nil, fmt.Errorf("conditional delete did not match expected version %q: %w", input.ExpectedVersion, ErrVersionMismatch)
+			}
+		} else if err := s.resource.Delete(ctx, input.Resource.ResourceType, resourceID); err != nil {
 			return nil, err
 		}
 	default:
@@ -294,6 +349,9 @@ func (s *Session) applyAcceptedWrite(ctx context.Context, input Write) (*WriteRe
 
 	eventAction := store.EventAction(input.Action)
 	event, err := s.events.Append(ctx, store.ResourceEvent{
+		EventID:      input.EventID,
+		OriginNodeID: input.OriginNodeID,
+		LocalVersion: input.LocalVersionID,
 		ResourceType: input.Resource.ResourceType,
 		ID:           resourceID,
 		VersionID:    versionID,
@@ -310,11 +368,14 @@ func (s *Session) applyAcceptedWrite(ctx context.Context, input Write) (*WriteRe
 			return nil, err
 		}
 	} else {
-		for _, entry := range input.SearchEntries {
-			entry.ID = resourceID
-			if err := s.search.RemoveIndex(ctx, entry.ResourceType, entry.ID); err != nil {
+		if len(input.SearchEntries) > 0 {
+			if err := s.search.RemoveIndex(ctx, input.Resource.ResourceType, resourceID); err != nil {
 				return nil, err
 			}
+		}
+		for _, entry := range input.SearchEntries {
+			entry.ResourceType = input.Resource.ResourceType
+			entry.ID = resourceID
 			if err := s.search.Index(ctx, entry); err != nil {
 				return nil, err
 			}

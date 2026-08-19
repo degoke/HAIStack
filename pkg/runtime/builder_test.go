@@ -133,3 +133,19 @@ func TestConfigNormalization(t *testing.T) {
 		t.Fatal("expected search enabled in config")
 	}
 }
+
+func TestSQLiteNamespaceConfiguration(t *testing.T) {
+	rt, err := runtime.New().
+		WithSQLite(t.TempDir() + "/namespaces.db").
+		WithSQLiteTenant("device-a").
+		WithSQLiteTerminologyScope("tenant-a").
+		Build(t.Context())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = rt.Shutdown(t.Context()) }()
+	cfg := rt.Config()
+	if cfg.SQLiteTenantID != "device-a" || cfg.SQLiteTerminologyScope != "tenant-a" {
+		t.Fatalf("SQLite namespaces = %q/%q, want device-a/tenant-a", cfg.SQLiteTenantID, cfg.SQLiteTerminologyScope)
+	}
+}

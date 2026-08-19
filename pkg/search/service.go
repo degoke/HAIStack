@@ -139,3 +139,19 @@ func (s *Service) SearchBundle(ctx context.Context, resourceType string, params 
 	}
 	return AssembleBundle(result), nil
 }
+
+// SearchParametersFor returns compiled search parameter metadata for a resource type.
+func (s *Service) SearchParametersFor(resourceType string) []ParameterInfo {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	return s.registry.SearchParametersFor(resourceType)
+}
+
+// EnabledResourceTypes returns resource types enabled in the search registry.
+func (s *Service) EnabledResourceTypes() []string {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	return s.registry.EnabledResourceTypes()
+}

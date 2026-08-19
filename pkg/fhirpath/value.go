@@ -79,6 +79,14 @@ func (v Value) String() (string, error) {
 	switch val := v.raw.(type) {
 	case system.String:
 		return string(val), nil
+	case system.Date:
+		return val.String(), nil
+	case system.DateTime:
+		return val.String(), nil
+	case system.Time:
+		return val.String(), nil
+	case system.Quantity:
+		return val.String(), nil
 	case *dtpb.String:
 		return val.GetValue(), nil
 	case *dtpb.Uri:
@@ -93,6 +101,20 @@ func (v Value) String() (string, error) {
 		return val.GetValue(), nil
 	case *dtpb.Canonical:
 		return val.GetValue(), nil
+	case *dtpb.Date:
+		value, err := system.DateFromProto(val)
+		if err != nil {
+			return "", err
+		}
+		return value.String(), nil
+	case *dtpb.DateTime:
+		value, err := system.DateTimeFromProto(val)
+		if err != nil {
+			return "", err
+		}
+		return value.String(), nil
+	case *dtpb.Time:
+		return system.TimeFromProto(val).String(), nil
 	default:
 		if s, ok := val.(string); ok {
 			return s, nil

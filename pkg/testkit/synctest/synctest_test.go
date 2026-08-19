@@ -7,6 +7,7 @@ import (
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
 	"github.com/degoke/health-ai-stack/pkg/testkit/synctest"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 func TestPatientOfflinePushPull(t *testing.T) {
@@ -49,9 +50,53 @@ func TestAppointmentSurvivesPushAndPull(t *testing.T) {
 		t.Fatalf("pull applied = %d, want 2", result.PullSummary.Applied)
 	}
 
-	resolved, err := synctest.ReferenceResolved(ctx, scenario.DeviceB, appt, "participant.0.actor", "Patient", "pat-jane")
+	resolved, err := synctest.ReferenceResolved(ctx, scenario.DeviceB, appt, "participant[0].actor", "Patient", "pat-jane")
 	if err != nil || !resolved {
 		t.Fatalf("reference resolved = %v, %v", resolved, err)
+	}
+}
+
+func TestHubPushErrorIsOneShotAndTenantScoped(t *testing.T) {
+	ctx := context.Background()
+	hub := synctest.NewMemHub("tenant-a")
+	hub.SetPushError(context.Canceled)
+	if _, err := hub.Push(ctx, nil); err != context.Canceled {
+		t.Fatalf("first push error = %v", err)
+	}
+	if _, err := hub.Push(ctx, nil); err != nil {
+		t.Fatalf("second push error = %v", err)
+	}
+	_, err := hub.Push(ctx, []hasync.LocalEvent{{TenantID: "tenant-b"}})
+	if err == nil {
+		t.Fatal("expected tenant scope error")
+	}
+}
+
+func TestHubAcceptedEnvelopeMetadataMatchesVersion(t *testing.T) {
+	ctx := context.Background()
+	now := synctest.At(2026, 7, 6, 12, 0, 0)
+	scenario := synctest.NewScenario("tenant-a", synctest.FixedClock(now))
+	patient := fixtures.SamplePatient(t, "p-meta")
+	if _, err := synctest.OfflineCreateAndSync(ctx, scenario, patient); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	resource, err := scenario.DeviceB.ReadResource(ctx, "Patient", "p-meta")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	meta, err := types.GetMeta(resource.JSON)
+	if err != nil {
+		t.Fatalf("meta: %v", err)
+	}
+	if meta.VersionID != resource.VersionID || meta.VersionID == "" {
+		t.Fatalf("version metadata = %+v envelope = %q", meta, resource.VersionID)
+	}
+	if !meta.LastUpdated.Equal(now) || !resource.LastUpdated.Equal(now) {
+		t.Fatalf("last updated = %v / %v, want %v", meta.LastUpdated, resource.LastUpdated, now)
+	}
+	hash, err := types.HashResource(resource.JSON)
+	if err != nil || hash != resource.Hash {
+		t.Fatalf("hash = %q / %q, %v", hash, resource.Hash, err)
 	}
 }
 

@@ -114,6 +114,30 @@ func ExtractResource(ctx context.Context, qenv, renv *types.ResourceEnvelope, x 
 	return result.Bundle, result.Diagnostics, nil
 }
 
+// AssembleQuestionnaireResource resolves modular Questionnaire references and
+// returns the assembled resource as a canonical envelope.
+func AssembleQuestionnaireResource(ctx context.Context, env *types.ResourceEnvelope, resolver QuestionnaireResolver) (*types.ResourceEnvelope, Outcome) {
+	q, err := DecodeQuestionnaireResource(env)
+	if err != nil {
+		return nil, failed(err)
+	}
+	assembled, outcome := (Assembler{Resolver: resolver}).Assemble(ctx, q)
+	if len(outcome.Issue) > 0 {
+		return nil, outcome
+	}
+	result, err := ProjectionEnvelope(assembled)
+	if err != nil {
+		return nil, failed(err)
+	}
+	return result, outcome
+}
+
+// AssembleResource is the concise envelope-first alias for
+// AssembleQuestionnaireResource.
+func AssembleResource(ctx context.Context, env *types.ResourceEnvelope, resolver QuestionnaireResolver) (*types.ResourceEnvelope, Outcome) {
+	return AssembleQuestionnaireResource(ctx, env, resolver)
+}
+
 // ParseR4 returns the generated Google R4 representation through the existing
 // proto adapter. Callers should generally retain the envelope as the canonical
 // value and use this only when typed protobuf access is required.
@@ -129,6 +153,16 @@ func requireResource(env *types.ResourceEnvelope, typ string) error {
 	}
 	if env.ResourceType != "" && env.ResourceType != typ {
 		return fmt.Errorf("expected %s, got %s", typ, env.ResourceType)
+	}
+	if len(env.JSON) == 0 {
+		return fmt.Errorf("%s envelope JSON is empty", typ)
+	}
+	payloadType, err := types.GetResourceType(env.JSON)
+	if err != nil {
+		return fmt.Errorf("invalid %s envelope JSON: %w", typ, err)
+	}
+	if payloadType != typ {
+		return fmt.Errorf("expected %s JSON, got %s", typ, payloadType)
 	}
 	return nil
 }

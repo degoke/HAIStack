@@ -25,6 +25,13 @@ func NewReportingTarget(s store.ReportingTableStore) *ReportingTarget {
 
 // Write persists the full view result via a reporting table refresh.
 func (t *ReportingTarget) Write(ctx context.Context, result *view.Result) error {
+	if t == nil {
+		return fmt.Errorf("%w: reporting store is required", ErrUnsupportedDestination)
+	}
+	return t.writeAt(ctx, result, t.now())
+}
+
+func (t *ReportingTarget) writeAt(ctx context.Context, result *view.Result, refreshedAt time.Time) error {
 	if t == nil || t.store == nil {
 		return fmt.Errorf("%w: reporting store is required", ErrUnsupportedDestination)
 	}
@@ -42,7 +49,7 @@ func (t *ReportingTarget) Write(ctx context.Context, result *view.Result) error 
 		ViewVersion: result.Version,
 		Columns:     columns,
 		RowCount:    len(result.Rows),
-		RefreshedAt: t.now().UTC(),
+		RefreshedAt: refreshedAt.UTC(),
 	}
 	return t.store.Refresh(ctx, meta, result.Rows)
 }

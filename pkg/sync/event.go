@@ -77,9 +77,10 @@ type CanonicalEvent struct {
 	ConflictRemoteVersion string                  `json:"conflictRemoteVersion,omitempty"`
 }
 
-// CanonicalEventID returns the stable idempotency key for pull/apply dedupe.
-func CanonicalEventID(sequence int64) string {
-	return "canonical:" + formatSequence(sequence)
+// CanonicalEventID returns the stable, tenant-scoped idempotency key for
+// pull/apply dedupe.
+func CanonicalEventID(tenantID string, sequence int64) string {
+	return tenantID + ":canonical:" + formatSequence(sequence)
 }
 
 // OutboxEventID returns a stable client event id for one outbox row.

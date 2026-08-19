@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -44,6 +45,10 @@ type Config struct {
 	// OperationOutcome with a not-supported error.
 	SDCService SDCService
 
+	// OperationService handles non-SDC custom operations such as
+	// $everything or implementation-specific operations.
+	OperationService OperationService
+
 	// CapabilitySource is optional; when nil, /metadata returns not-supported.
 	CapabilitySource CapabilitySource
 
@@ -62,6 +67,11 @@ type Config struct {
 
 	// AuthChecker authorizes actions when auth is enabled.
 	AuthChecker AuthChecker
+
+	// RateLimit enables process-local request limiting when Requests and Window
+	// are configured. Use a distributed gateway limiter for multi-instance
+	// deployments, or provide equivalent protection before this handler.
+	RateLimit RateLimitConfig
 }
 
 // NewHandler constructs a FHIR REST http.Handler from Config.
@@ -71,6 +81,14 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	}
 	if cfg.BasePath == "" {
 		cfg.BasePath = defaultBasePath
+	}
+	cfg.BasePath = strings.TrimSpace(cfg.BasePath)
+	if !strings.HasPrefix(cfg.BasePath, "/") {
+		cfg.BasePath = "/" + cfg.BasePath
+	}
+	cfg.BasePath = strings.TrimSuffix(cfg.BasePath, "/")
+	if cfg.BasePath == "" {
+		cfg.BasePath = "/"
 	}
 	if cfg.Codec == nil {
 		cfg.Codec = types.NewJSONCodec()
@@ -82,6 +100,9 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		handler = cfg.AuthMiddleware(handler)
 	} else if cfg.PrincipalResolver != nil && cfg.AuthChecker != nil {
 		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker)
+	}
+	if cfg.RateLimit.Requests > 0 && cfg.RateLimit.Window > 0 {
+		handler = NewRateLimitMiddleware(cfg.RateLimit)(handler)
 	}
 	return handler, nil
 }
