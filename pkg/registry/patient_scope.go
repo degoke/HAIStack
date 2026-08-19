@@ -40,6 +40,20 @@ func (s *Snapshot) PatientSearchParameterCode(resourceType string) (string, bool
 	return selectPatientSearchParamCode(candidates, false)
 }
 
+// PatientSearchParameter returns the installed SearchParameter used to scope
+// resourceType to one patient.
+func (s *Snapshot) PatientSearchParameter(resourceType string) (SearchParameterInfo, bool) {
+	code, ok := s.PatientSearchParameterCode(resourceType)
+	if !ok {
+		return SearchParameterInfo{}, false
+	}
+	info, ok := s.SearchParameter(resourceType, code)
+	if !ok {
+		return SearchParameterInfo{}, false
+	}
+	return *info, true
+}
+
 func selectPatientSearchParamCode(candidates []SearchParameterInfo, dedicatedOnly bool) (string, bool) {
 	filtered := candidates
 	if dedicatedOnly {

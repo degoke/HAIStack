@@ -720,6 +720,45 @@ func TestAuthDeniedReadWriteSearch(t *testing.T) {
 	}
 }
 
+func TestPatientScopedReadByIDDenied(t *testing.T) {
+	svc := &fakeResourceService{
+		readFn: func(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+			return &types.ResourceEnvelope{
+				ResourceType: resourceType,
+				ID:           id,
+				JSON:         []byte(`{"resourceType":"Observation","id":"obs-other","subject":{"reference":"Patient/pat-b"}}`),
+			}, nil
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:          svc,
+		PatientReferenceResolver: mapPatientResolver{"obs-other": "pat-b"},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{
+				TenantID:     "t1",
+				PatientScope: "pat-a",
+			}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Observation/obs-other", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+type mapPatientResolver map[string]string
+
+func (m mapPatientResolver) PatientIDForResource(_ context.Context, resourceType string, resource *types.ResourceEnvelope) (string, bool, error) {
+	if resourceType == "Patient" {
+		return resource.ID, true, nil
+	}
+	if id, ok := m[resource.ID]; ok {
+		return id, true, nil
+	}
+	return "", false, nil
+}
+
 func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
 	backend := &recordingSearchService{}
 	searchSvc := hahttp.SearchServiceAdapter{
@@ -729,8 +768,9 @@ func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
 		},
 	}
 	handler := newTestHandler(t, hahttp.Config{
-		ResourceService: &fakeResourceService{},
-		SearchService:   searchSvc,
+		ResourceService:          &fakeResourceService{},
+		SearchService:            searchSvc,
+		PatientReferenceResolver: mapPatientResolver{},
 		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
 			return auth.Principal{ID: "user-1"}, auth.TenantContext{
 				TenantID:     "t1",

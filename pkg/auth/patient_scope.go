@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"net/url"
+
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 // ErrNoPatientSearchScope is returned when a patient-scoped principal searches a
@@ -64,6 +67,52 @@ func ApplyPatientSearchScopeToParams(params url.Values, resourceType, patientID 
 	}
 	out.Set(param, "Patient/"+patientID)
 	return out, nil
+}
+
+// ResourcePatientResolver extracts the patient id linked to one FHIR resource.
+type ResourcePatientResolver interface {
+	PatientIDForResource(ctx context.Context, resourceType string, resource *types.ResourceEnvelope) (patientID string, ok bool, err error)
+}
+
+// CheckResourcePatientScope enforces TenantContext.PatientScope against a loaded
+// resource. Non-patient resources without a resolvable patient link are allowed.
+func CheckResourcePatientScope(tenant TenantContext, resourceType, resourceID, patientID string, hasPatient bool) error {
+	if tenant.PatientScope == "" {
+		return nil
+	}
+	scope := tenant.PatientScope
+	if resourceType == "Patient" {
+		id := resourceID
+		if id == "" {
+			id = patientID
+		}
+		if id != scope {
+			return fmt.Errorf("%w: principal scoped to patient %q cannot access %q", ErrDenied, scope, id)
+		}
+		return nil
+	}
+	if !hasPatient {
+		return nil
+	}
+	if patientID != scope {
+		return fmt.Errorf("%w: principal scoped to patient %q cannot access resource for patient %q", ErrDenied, scope, patientID)
+	}
+	return nil
+}
+
+// CheckEnvelopePatientScope enforces patient scope for one loaded resource envelope.
+func CheckEnvelopePatientScope(ctx context.Context, tenant TenantContext, resolver ResourcePatientResolver, resource *types.ResourceEnvelope) error {
+	if tenant.PatientScope == "" {
+		return nil
+	}
+	if resource == nil {
+		return nil
+	}
+	patientID, hasPatient, err := resolver.PatientIDForResource(ctx, resource.ResourceType, resource)
+	if err != nil {
+		return err
+	}
+	return CheckResourcePatientScope(tenant, resource.ResourceType, resource.ID, patientID, hasPatient)
 }
 
 // CloneURLValues returns a shallow copy of url.Values.

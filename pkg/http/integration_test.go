@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
@@ -71,13 +72,20 @@ func openIntegrationStack(t *testing.T) (http.Handler, *core.ResourceService) {
 		t.Fatalf("NewService: %v", err)
 	}
 
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	patientRefResolver := &registry.PatientReferenceResolver{Snapshot: snapshot, Engine: engine}
+
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService: hahttp.CoreResourceService{Svc: svc},
 		SearchService: hahttp.SearchServiceAdapter{
 			Svc:                        searchSvc,
 			PatientSearchParamResolver: snapshot,
 		},
-		CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: snapshot},
+		PatientReferenceResolver: patientRefResolver,
+		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: snapshot},
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-http",
 			SoftwareVersion: "test",
