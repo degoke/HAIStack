@@ -91,9 +91,10 @@ func run() error {
 		Audit:         &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
 		AuditRequired: true,
 		Policy: &auth.AIPolicyAdapter{
-			Engine:   authEngine,
-			TenantID: "tenant-demo",
-			Resolve:  resolve,
+			Engine:              authEngine,
+			TenantID:            "tenant-demo",
+			Resolve:             resolve,
+			PatientSearchParams: stack.Snapshot,
 			Constraints: &auth.AIConstraints{
 				Read: map[string]ai.ReadTypePolicy{
 					"Patient": {AllowedFields: []string{"name", "telecom"}},

@@ -16,10 +16,7 @@ func unwrapSetOneofMessage(msg proto.Message) (proto.Message, bool) {
 		if field == nil || field.Kind() != protoreflect.MessageKind || field.IsList() || field.IsMap() {
 			continue
 		}
-		inner := r.Get(field).Message().Interface()
-		if pm, ok := inner.(proto.Message); ok {
-			return pm, true
-		}
+		return r.Get(field).Message().Interface(), true
 	}
 	return nil, false
 }

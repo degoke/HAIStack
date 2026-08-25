@@ -22,11 +22,6 @@ func (e *notAcceptableError) Error() string {
 	return fmt.Sprintf("no supported FHIR representation is acceptable for %q", e.value)
 }
 
-func validateNegotiation(r *http.Request) error {
-	_, err := negotiateResponseFormat(r)
-	return err
-}
-
 func negotiateResponseFormat(r *http.Request) (responseFormat, error) {
 	if r == nil {
 		return responseFormatJSON, nil
@@ -124,11 +119,6 @@ func mediaRangeSpecificity(mediaType string, format responseFormat) int {
 		return 1
 	}
 	return -1
-}
-
-func isJSONFormat(value string) bool {
-	format, ok := formatValue(value)
-	return ok && format == responseFormatJSON
 }
 
 func formatValue(value string) (responseFormat, bool) {

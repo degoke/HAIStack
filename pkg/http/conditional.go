@@ -98,6 +98,9 @@ func (h *handler) resolveConditionalMatches(ctx context.Context, resourceType st
 	if bundle == nil {
 		return nil, 0, nil
 	}
+	if err := h.filterSearchBundlePatientScope(ctx, bundle); err != nil {
+		return nil, 0, err
+	}
 	matches := make([]*types.ResourceEnvelope, 0, len(bundle.Entries))
 	for _, entry := range bundle.Entries {
 		if entry.Resource != nil {
@@ -286,6 +289,9 @@ func (h *handler) atomicIfMatchService(r *http.Request, resourceType, id string)
 		current, err = h.cfg.ResourceService.Read(r.Context(), resourceType, id)
 		if err != nil {
 			return nil, "", err
+		}
+		if scopeErr := h.enforcePatientScopeOnEnvelope(r.Context(), current); scopeErr != nil {
+			return nil, "", scopeErr
 		}
 	}
 	expected, err := h.resolveIfMatchVersion(r, current)

@@ -291,6 +291,10 @@ func (h *handler) handleRead(w http.ResponseWriter, r *http.Request, resourceTyp
 		writeError(w, err)
 		return
 	}
+	if err := h.enforcePatientScopeOnEnvelope(r.Context(), envelope); err != nil {
+		writeError(w, err)
+		return
+	}
 	if envelope == nil {
 		writeError(w, invalidRequest("resource service returned no resource", nil))
 		return
@@ -486,6 +490,19 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, err)
 		return
 	}
+	if h.cfg.PatientReferenceResolver != nil {
+		if _, tenant, ok := identityFromContext(r.Context()); ok && tenant.PatientScope != "" {
+			current, readErr := h.cfg.ResourceService.Read(r.Context(), resourceType, id)
+			if readErr != nil {
+				writeError(w, readErr)
+				return
+			}
+			if scopeErr := h.enforcePatientScopeOnEnvelope(r.Context(), current); scopeErr != nil {
+				writeError(w, scopeErr)
+				return
+			}
+		}
+	}
 	versions, err := h.cfg.ResourceService.History(r.Context(), resourceType, id)
 	if err != nil {
 		writeError(w, err)
@@ -545,6 +562,10 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		bundle, err = h.cfg.SearchService.SearchBundle(r.Context(), resourceType, params)
 	}
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.filterSearchBundlePatientScope(r.Context(), bundle); err != nil {
 		writeError(w, err)
 		return
 	}

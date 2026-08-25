@@ -80,7 +80,7 @@ func NewRateLimitMiddleware(cfg RateLimitConfig) func(http.Handler) http.Handler
 
 func (l *rateLimiter) allow(r *http.Request) (bool, int, time.Duration) {
 	now := time.Now()
-	key := "anonymous"
+	var key string
 	if l.config.Key != nil {
 		key = strings.TrimSpace(l.config.Key(r))
 	} else {

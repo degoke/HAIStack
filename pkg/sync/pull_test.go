@@ -182,7 +182,7 @@ func TestPullIndexesAllEntriesInOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	res := sampleResource("p1", "canonical-v1")
 	hub := newMemHub()
@@ -229,7 +229,7 @@ func TestPullTransactionRollsBackResourceHistoryAndInbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	res := sampleResource("p1", "canonical-v1")
 	hub := newMemHub()

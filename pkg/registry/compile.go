@@ -222,6 +222,7 @@ func parseSearchParameterInfo(jsonData []byte, canonicalURL, version string) (Se
 		Type       string   `json:"type"`
 		Expression string   `json:"expression"`
 		Target     []string `json:"target"`
+		Base       []string `json:"base"`
 		Component  []struct {
 			Definition string `json:"definition"`
 			Expression string `json:"expression"`
@@ -249,6 +250,7 @@ func parseSearchParameterInfo(jsonData []byte, canonicalURL, version string) (Se
 		Expression:   sp.Expression,
 		Target:       append([]string(nil), sp.Target...),
 		Component:    components,
+		BaseCount:    len(sp.Base),
 	}, nil
 }
 

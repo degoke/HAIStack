@@ -373,22 +373,30 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	var httpSearchSvc hahttp.SearchService
 	if state.services.SearchService != nil {
-		httpSearchSvc = hahttp.SearchServiceAdapter{Svc: state.services.SearchService}
+		httpSearchSvc = hahttp.SearchServiceAdapter{
+			Svc:                        state.services.SearchService,
+			PatientSearchParamResolver: snapshot,
+		}
 	}
 
 	sdcService := b.sdcService
 	if sdcService == nil {
 		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
 	}
+	patientRefResolver := &registry.PatientReferenceResolver{
+		Snapshot: snapshot,
+		Engine:   engine,
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:   hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:     httpSearchSvc,
-		SDCService:        sdcService,
-		CapabilitySource:  hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
-		AuthMiddleware:    b.httpMiddleware,
-		PrincipalResolver: b.httpPrincipalResolver,
-		AuthChecker:       b.httpAuthChecker,
-		RateLimit:         b.httpRateLimit,
+		ResourceService:          hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:            httpSearchSvc,
+		SDCService:               sdcService,
+		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
+		PatientReferenceResolver: patientRefResolver,
+		AuthMiddleware:           b.httpMiddleware,
+		PrincipalResolver:        b.httpPrincipalResolver,
+		AuthChecker:              b.httpAuthChecker,
+		RateLimit:                b.httpRateLimit,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
 			SoftwareVersion: "1.0.0",

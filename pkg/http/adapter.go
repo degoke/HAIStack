@@ -61,13 +61,30 @@ func (a CoreResourceService) PatchIfMatch(ctx context.Context, resourceType, id 
 	return a.Svc.PatchIfMatch(ctx, resourceType, id, patchJSON, expectedVersion)
 }
 
-// SearchServiceAdapter adapts *search.Service to SearchService.
+type searchBundleExecutor interface {
+	SearchBundle(ctx context.Context, resourceType string, params url.Values) (*search.SearchBundle, error)
+}
+
+// SearchServiceAdapter adapts *search.Service to SearchService and
+// PatientScopedSearchService. PatientSearchParamResolver derives scope
+// parameters from installed registry SearchParameters when configured.
 type SearchServiceAdapter struct {
-	Svc *search.Service
+	Svc                        searchBundleExecutor
+	PatientSearchParamResolver auth.PatientSearchParamResolver
 }
 
 func (a SearchServiceAdapter) SearchBundle(ctx context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
 	return a.Svc.SearchBundle(ctx, resourceType, params)
+}
+
+// SearchBundleForPatient injects a patient relationship filter into search params
+// before executing the query so unauthorized rows are excluded at query time.
+func (a SearchServiceAdapter) SearchBundleForPatient(ctx context.Context, resourceType, patientID string, params url.Values) (*search.SearchBundle, error) {
+	scoped, err := auth.ApplyPatientSearchScopeToParams(params, resourceType, patientID, a.PatientSearchParamResolver)
+	if err != nil {
+		return nil, err
+	}
+	return a.Svc.SearchBundle(ctx, resourceType, scoped)
 }
 
 // RegistryCapabilitySource adapts *registry.Snapshot to CapabilitySource.

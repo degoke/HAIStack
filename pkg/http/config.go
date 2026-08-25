@@ -68,6 +68,10 @@ type Config struct {
 	// AuthChecker authorizes actions when auth is enabled.
 	AuthChecker AuthChecker
 
+	// PatientReferenceResolver resolves patient ownership for loaded resources when
+	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.
+	PatientReferenceResolver auth.ResourcePatientResolver
+
 	// RateLimit enables process-local request limiting when Requests and Window
 	// are configured. Use a distributed gateway limiter for multi-instance
 	// deployments, or provide equivalent protection before this handler.

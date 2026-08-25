@@ -26,5 +26,3 @@ func (v *coreValidator) ValidateResource(ctx context.Context, resource *types.Re
 	}
 	return FailedError{Issues: result.Issues}
 }
-
-type validationError = FailedError

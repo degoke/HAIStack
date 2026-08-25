@@ -18,6 +18,10 @@ type SearchParameterInfo struct {
 	Expression   string               `json:"expression"`
 	Target       []string             `json:"target,omitempty"`
 	Component    []CompositeComponent `json:"component,omitempty"`
+	// BaseCount is the number of resource types in the SearchParameter.base array.
+	// Single-base parameters are preferred for patient scoping because they index
+	// reliably; cross-resource parameters such as clinical-patient may not.
+	BaseCount int `json:"baseCount,omitempty"`
 }
 
 // ResourceCapability describes one enabled resource type in the compiled registry.
