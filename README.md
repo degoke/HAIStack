@@ -407,7 +407,13 @@ Target layout when complete: `cmd/haistack*`, `pkg/*`, `modules/*`, `examples/*`
 
 ## Releasing
 
-Pushing a semver git tag that points at `main` publishes the Go module version and a GitHub Release.
+This is a Go library. Other projects import a **git tag**, not compiled binaries:
+
+```bash
+go get github.com/degoke/health-ai-stack@v0.1.0
+```
+
+Push a semver tag that points at `main`:
 
 ```bash
 git checkout main
@@ -419,8 +425,9 @@ git push origin v0.1.0
 Tags must match `vMAJOR.MINOR.PATCH` (optional prerelease suffix such as `v0.2.0-rc.1`). The [Release](.github/workflows/release.yml) workflow then:
 
 1. Confirms the tagged commit is on `origin/main` (tags on other branches are rejected)
-2. Builds `haistack` CLI binaries for Linux, macOS, and Windows
-3. Creates a GitHub Release with generated notes, binaries, and SHA256 checksums
+2. Creates a GitHub Release with generated notes so the version is visible on the repo
+
+The tag itself is what `go get` and the module proxy use. The GitHub Release does not attach OS binaries.
 
 Prerelease tags containing a hyphen (for example `v0.2.0-rc.1`) are marked as GitHub pre-releases.
 
