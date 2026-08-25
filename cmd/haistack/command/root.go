@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is the CLI version. Release builds override it with the git tag via
+// -ldflags "-X github.com/degoke/health-ai-stack/cmd/haistack/command.Version=vX.Y.Z".
+var Version = "dev"
+
 // Options carries persistent CLI flags shared by all commands.
 type Options struct {
 	ConfigPath             string
@@ -39,6 +43,7 @@ func NewRootCommand() *cobra.Command {
 		Short: "Health AI Stack developer and operator CLI",
 		Long: `haistack is the command-line interface for local development and operations
 against a Health AI Stack runtime. Configure storage and capabilities in haistack.yaml.`,
+		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

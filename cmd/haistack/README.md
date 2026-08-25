@@ -40,6 +40,8 @@ go build -o bin/haistack ./cmd/haistack
 make build
 ```
 
+`haistack --version` reports `dev` for local builds. Stamp a version at link time with `-ldflags "-X github.com/degoke/health-ai-stack/cmd/haistack/command.Version=vX.Y.Z"` if you need a specific string.
+
 ## Quick start
 
 ```bash
