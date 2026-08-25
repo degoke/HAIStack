@@ -177,6 +177,16 @@ Package-level detail lives in each `pkg/*/doc.go`.
 
 **Requirements:** Go 1.26+ · Docker or `TEST_POSTGRES_DSN` optional (Postgres integration tests)
 
+Use the libraries from another Go module:
+
+```bash
+go get github.com/degoke/health-ai-stack@latest
+```
+
+Import only the packages you need, for example `github.com/degoke/health-ai-stack/pkg/runtime` or `github.com/degoke/health-ai-stack/pkg/client`. Pin a release tag such as `@v0.1.0` once one exists. If the public module proxy has not indexed a new tag yet, use `GOPROXY=direct`.
+
+To work on this repository:
+
 ```bash
 git clone https://github.com/degoke/health-ai-stack.git
 cd health-ai-stack
@@ -394,6 +404,25 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 Target layout when complete: `cmd/haistack*`, `pkg/*`, `modules/*`, `examples/*`.
 
 ---
+
+## Releasing
+
+Pushing a semver git tag that points at `main` publishes the Go module version and a GitHub Release.
+
+```bash
+git checkout main
+git pull origin main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Tags must match `vMAJOR.MINOR.PATCH` (optional prerelease suffix such as `v0.2.0-rc.1`). The [Release](.github/workflows/release.yml) workflow then:
+
+1. Confirms the tagged commit is on `origin/main` (tags on other branches are rejected)
+2. Builds `haistack` CLI binaries for Linux, macOS, and Windows
+3. Creates a GitHub Release with generated notes, binaries, and SHA256 checksums
+
+Prerelease tags containing a hyphen (for example `v0.2.0-rc.1`) are marked as GitHub pre-releases.
 
 ## License
 

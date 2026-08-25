@@ -40,6 +40,8 @@ go build -o bin/haistack ./cmd/haistack
 make build
 ```
 
+Release builds stamp the git tag into `haistack --version` via `-ldflags`. Local builds report `dev`.
+
 ## Quick start
 
 ```bash

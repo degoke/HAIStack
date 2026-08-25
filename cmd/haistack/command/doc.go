@@ -23,7 +23,8 @@
 //
 // All commands inherit --config, --output, storage overrides, runtime overrides,
 // and sync overrides from the root command. Command-specific flags (for example
-// init --force) are registered on individual subcommands.
+// init --force) are registered on individual subcommands. The root command also
+// exposes --version from Version, which release builds override at link time.
 //
 // # Error handling
 //

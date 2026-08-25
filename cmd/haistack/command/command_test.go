@@ -64,6 +64,16 @@ sync:
 	}
 }
 
+func TestVersionFlag(t *testing.T) {
+	stdout, _, err := runCLI(t, "", "--version")
+	if err != nil {
+		t.Fatalf("--version: %v", err)
+	}
+	if !strings.Contains(stdout, "haistack version "+command.Version) {
+		t.Fatalf("stdout = %q, want version %q", stdout, command.Version)
+	}
+}
+
 func TestInitCreatesDefaultYAML(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
