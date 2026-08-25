@@ -406,47 +406,6 @@ func claimString(v any) string {
 	}
 }
 
-func claimStringSlice(v any) []string {
-	switch t := v.(type) {
-	case string:
-		if t == "" {
-			return nil
-		}
-		return []string{t}
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			if s := claimString(item); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	case []string:
-		return append([]string(nil), t...)
-	default:
-		return nil
-	}
-}
-
-func claimTime(v any) time.Time {
-	switch t := v.(type) {
-	case float64:
-		return time.Unix(int64(t), 0).UTC()
-	case json.Number:
-		n, err := t.Int64()
-		if err != nil {
-			return time.Time{}
-		}
-		return time.Unix(n, 0).UTC()
-	case int64:
-		return time.Unix(t, 0).UTC()
-	case int:
-		return time.Unix(int64(t), 0).UTC()
-	default:
-		return time.Time{}
-	}
-}
-
 func audienceMatches(tokenAud, expected []string) bool {
 	if len(expected) == 0 {
 		return true

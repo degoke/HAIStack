@@ -13,7 +13,7 @@ func TestOpenAndMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenAndMigrate: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate should be idempotent: %v", err)

@@ -8,6 +8,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/conflict"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/health-ai-stack/pkg/testkit"
 	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
 	"github.com/degoke/health-ai-stack/pkg/testkit/synctest"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -202,7 +203,7 @@ func (s *Scenario) RunTwoNodeStaleBaseConflict(ctx context.Context, edits EditNo
 	}
 
 	currentMap := s.Hub.Resources()
-	current, ok := currentMap[storetest.ResourceKey(edits.LocalB.ResourceType, edits.LocalB.ID)]
+	current, ok := currentMap[testkit.ResourceKey(edits.LocalB.ResourceType, edits.LocalB.ID)]
 	if !ok {
 		return nil, fmt.Errorf("hub current resource missing after node B push")
 	}

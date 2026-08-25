@@ -7,7 +7,7 @@ import (
 	"time"
 
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
+	"github.com/degoke/health-ai-stack/pkg/testkit"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/google/uuid"
 )
@@ -69,7 +69,7 @@ func (h *MemHub) SeedResource(res *types.ResourceEnvelope) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.resources[storetest.ResourceKey(res.ResourceType, res.ID)] = cloneEnvelope(res)
+	h.resources[testkit.ResourceKey(res.ResourceType, res.ID)] = cloneEnvelope(res)
 }
 
 // CanonicalEvents returns a copy of the hub canonical event log.
@@ -118,7 +118,7 @@ func (h *MemHub) Push(_ context.Context, events []hasync.LocalEvent) ([]hasync.P
 			continue
 		}
 
-		key := storetest.ResourceKey(event.ResourceType, event.ResourceID)
+		key := testkit.ResourceKey(event.ResourceType, event.ResourceID)
 		current := h.resources[key]
 
 		if event.Operation == hasync.EventTypeResourceCreated && current != nil {

@@ -343,40 +343,38 @@ func (h *PostgresHub) persistTerminalInSession(ctx context.Context, session *pos
 	}
 	if result.State == AckConflicted && writeResult.ConflictID != "" {
 		jobs := session.JobStore()
-		if jobs != nil {
-			localEventJSON, err := json.Marshal(event)
-			if err != nil {
-				return fmt.Errorf("marshal conflict local event: %w", err)
-			}
-			tenantID := event.TenantID
-			if tenantID == "" {
-				tenantID = h.tenantID()
-			}
-			payload, err := json.Marshal(ConflictJobPayload{
-				NodeID:          event.OriginNodeID,
-				TenantID:        tenantID,
-				ConflictID:      writeResult.ConflictID,
-				EventID:         event.EventID,
-				ResourceType:    event.ResourceType,
-				ResourceID:      event.ResourceID,
-				LocalVersionID:  event.LocalVersion,
-				RemoteVersionID: result.ConflictRemoteVersionID,
-				Reason:          result.ConflictReason,
-				LocalEvent:      localEventJSON,
-			})
-			if err != nil {
-				return fmt.Errorf("marshal conflict job payload: %w", err)
-			}
-			if err := jobs.Enqueue(ctx, store.JobRecord{
-				ID:        uuid.NewString(),
-				Type:      JobTypeConflictProcessing,
-				Payload:   payload,
-				Status:    store.JobStatusPending,
-				CreatedAt: now,
-				UpdatedAt: now,
-			}); err != nil {
-				return fmt.Errorf("enqueue conflict job: %w", err)
-			}
+		localEventJSON, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("marshal conflict local event: %w", err)
+		}
+		tenantID := event.TenantID
+		if tenantID == "" {
+			tenantID = h.tenantID()
+		}
+		payload, err := json.Marshal(ConflictJobPayload{
+			NodeID:          event.OriginNodeID,
+			TenantID:        tenantID,
+			ConflictID:      writeResult.ConflictID,
+			EventID:         event.EventID,
+			ResourceType:    event.ResourceType,
+			ResourceID:      event.ResourceID,
+			LocalVersionID:  event.LocalVersion,
+			RemoteVersionID: result.ConflictRemoteVersionID,
+			Reason:          result.ConflictReason,
+			LocalEvent:      localEventJSON,
+		})
+		if err != nil {
+			return fmt.Errorf("marshal conflict job payload: %w", err)
+		}
+		if err := jobs.Enqueue(ctx, store.JobRecord{
+			ID:        uuid.NewString(),
+			Type:      JobTypeConflictProcessing,
+			Payload:   payload,
+			Status:    store.JobStatusPending,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}); err != nil {
+			return fmt.Errorf("enqueue conflict job: %w", err)
 		}
 	}
 	payload, err := json.Marshal(result)

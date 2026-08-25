@@ -539,9 +539,6 @@ func (e *EnableWhen) UnmarshalJSON(b []byte) error {
 	}
 	return nil
 }
-func valueKey(v any) string {
-	return valueKeyWithType("value", v, "")
-}
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
