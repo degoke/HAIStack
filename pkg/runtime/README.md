@@ -93,6 +93,7 @@ func main() {
 ```go
 rt, err := runtime.New().
     WithPostgresAllInOne("postgres://user:pass@localhost/haistack?sslmode=disable", "tenant-a").
+    WithPostgresSchema("fhir"). // optional; default is public
     WithSearch().
     WithModules("modules/core", "modules/scheduling").
     WithHTTP(":8080").
@@ -129,6 +130,7 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithSQLite(path)` | Embedded SQLite database path |
 | `WithSQLiteTenant(id)` / `WithSQLiteTerminologyScope(scope)` | Configure local sync and terminology namespaces |
 | `WithPostgresAllInOne(dsn, tenantID)` | Single-tenant Postgres |
+| `WithPostgresSchema(schema)` | Postgres schema for `hai_*` tables and migrations (default: `public`) |
 | `WithExternalBlobStore(adapter)` | Cloud blob store seam |
 | `WithExternalSearch(adapter)` | Cloud search seam |
 | `WithExternalWarehouse(adapter)` | Cloud analytics/reporting seam |

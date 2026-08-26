@@ -16,6 +16,7 @@ type Builder struct {
 	sqliteTenantID         string
 	sqliteTerminologyScope string
 	postgresDSN            string
+	postgresSchema         string
 	tenantID               string
 
 	blobStore      BlobStoreAdapter
@@ -71,6 +72,13 @@ func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
 func (b *Builder) WithPostgresAllInOne(dsn, tenantID string) *Builder {
 	b.postgresDSN = dsn
 	b.tenantID = tenantID
+	return b
+}
+
+// WithPostgresSchema sets the Postgres schema for hai_* tables and migrations.
+// When empty, postgres.Open uses the default public schema.
+func (b *Builder) WithPostgresSchema(schema string) *Builder {
+	b.postgresSchema = schema
 	return b
 }
 
@@ -247,6 +255,7 @@ func (b *Builder) normalizedConfig(mode Mode) Config {
 		SQLiteTenantID:         sqliteTenantID,
 		SQLiteTerminologyScope: sqliteTerminologyScope,
 		PostgresDSN:            b.postgresDSN,
+		PostgresSchema:         b.postgresSchema,
 		TenantID:               b.tenantID,
 		SearchEnabled:          b.searchEnabled,
 		ModulePaths:            append([]string(nil), b.modulePaths...),
