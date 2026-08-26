@@ -310,6 +310,61 @@ func TestPostgresEdgeIntegrationBuildStartHTTPShutdown(t *testing.T) {
 	}
 }
 
+func TestPostgresCustomSchema(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres schema wiring in short mode")
+	}
+	ctx := context.Background()
+	dsn, cleanup := openPostgresDSN(t)
+	defer cleanup()
+
+	schema := fmt.Sprintf("fhir_%d", time.Now().UnixNano())
+	tenantID := fmt.Sprintf("schema-%d", time.Now().UnixNano())
+	rt, err := runtime.New().
+		WithPostgresAllInOne(dsn, tenantID).
+		WithPostgresSchema(schema).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = rt.Shutdown(ctx) }()
+
+	if rt.Config().PostgresSchema != schema {
+		t.Fatalf("PostgresSchema = %q, want %q", rt.Config().PostgresSchema, schema)
+	}
+
+	inspect, err := postgres.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Open inspect connection: %v", err)
+	}
+	defer inspect.Close()
+	defer func() {
+		_, _ = inspect.Pool().Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	}()
+
+	tables := []string{"hai_tenant", "hai_resource", "hai_schema_migrations"}
+	for _, table := range tables {
+		var name string
+		err := inspect.Pool().QueryRow(ctx, `
+			SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = $2`, schema, table,
+		).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %s.%s missing: %v", schema, table, err)
+		}
+	}
+
+	var tenantCount int
+	err = inspect.Pool().QueryRow(ctx,
+		"SELECT COUNT(*) FROM "+schema+".hai_tenant WHERE id = $1", tenantID,
+	).Scan(&tenantCount)
+	if err != nil {
+		t.Fatalf("count tenant in %s.hai_tenant: %v", schema, err)
+	}
+	if tenantCount != 1 {
+		t.Fatalf("tenant rows in %s.hai_tenant = %d, want 1", schema, tenantCount)
+	}
+}
+
 func TestCloudSeamAdaptersExposed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres cloud seam test in short mode")

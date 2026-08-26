@@ -21,7 +21,8 @@
 //     for blob storage, search, and/or analytics warehouses.
 //
 // One Postgres runtime instance serves one tenant. WithPostgresAllInOne requires
-// a non-empty tenant ID.
+// a non-empty tenant ID. WithPostgresSchema optionally places hai_* tables and
+// migrations in a non-public schema (for example "fhir").
 //
 // # Builder API
 //
@@ -39,6 +40,8 @@
 //   - New — returns a new Builder
 //   - WithSQLite(path) — select embedded SQLite storage
 //   - WithPostgresAllInOne(dsn, tenantID) — select single-tenant Postgres
+//   - WithPostgresSchema(schema) — optional Postgres schema for hai_* tables
+//     (default: public)
 //   - WithExternalBlobStore, WithExternalSearch, WithExternalWarehouse — cloud adapter seams
 //   - WithFHIRPath(engine) — optional; a default engine is created when omitted
 //   - WithSDC(service) — optional SDC HTTP operation adapter; the default

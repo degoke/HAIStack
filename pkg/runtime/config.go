@@ -9,6 +9,7 @@ type Config struct {
 	SQLiteTenantID         string
 	SQLiteTerminologyScope string
 	PostgresDSN            string
+	PostgresSchema         string // empty means the default public schema
 	TenantID               string
 
 	// Capabilities

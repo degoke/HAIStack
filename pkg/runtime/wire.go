@@ -141,7 +141,11 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 }
 
 func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
-	db, err := postgres.Open(ctx, b.postgresDSN)
+	opts := make([]postgres.Option, 0, 1)
+	if b.postgresSchema != "" {
+		opts = append(opts, postgres.WithSchema(b.postgresSchema))
+	}
+	db, err := postgres.Open(ctx, b.postgresDSN, opts...)
 	if err != nil {
 		return fmt.Errorf("runtime: open postgres: %w", err)
 	}

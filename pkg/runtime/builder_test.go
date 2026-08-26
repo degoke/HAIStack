@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/runtime"
@@ -72,6 +73,9 @@ func TestModeResolutionEdgePostgres(t *testing.T) {
 	defer func() { _ = rt.Shutdown(t.Context()) }()
 	if rt.Mode() != runtime.ModeEdgePostgresAllInOne {
 		t.Fatalf("mode = %q, want %q", rt.Mode(), runtime.ModeEdgePostgresAllInOne)
+	}
+	if rt.Config().PostgresSchema != "" {
+		t.Fatalf("PostgresSchema = %q, want empty default", rt.Config().PostgresSchema)
 	}
 }
 
@@ -147,5 +151,32 @@ func TestSQLiteNamespaceConfiguration(t *testing.T) {
 	cfg := rt.Config()
 	if cfg.SQLiteTenantID != "device-a" || cfg.SQLiteTerminologyScope != "tenant-a" {
 		t.Fatalf("SQLite namespaces = %q/%q, want device-a/tenant-a", cfg.SQLiteTenantID, cfg.SQLiteTerminologyScope)
+	}
+}
+
+func TestWithPostgresSchemaRecordedInConfig(t *testing.T) {
+	rt, err := runtime.New().
+		WithSQLite(t.TempDir() + "/schema.db").
+		WithPostgresSchema("fhir").
+		Build(t.Context())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = rt.Shutdown(t.Context()) }()
+	if rt.Config().PostgresSchema != "fhir" {
+		t.Fatalf("PostgresSchema = %q, want fhir", rt.Config().PostgresSchema)
+	}
+}
+
+func TestBuilderPostgresSchemaInvalidName(t *testing.T) {
+	_, err := runtime.New().
+		WithPostgresAllInOne("postgres://localhost/db", "tenant-a").
+		WithPostgresSchema("fhir-data").
+		Build(t.Context())
+	if err == nil {
+		t.Fatal("expected invalid postgres schema name error")
+	}
+	if !strings.Contains(err.Error(), `invalid postgres schema name "fhir-data"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
