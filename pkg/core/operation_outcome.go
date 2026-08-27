@@ -13,6 +13,10 @@ func OperationOutcomeFromError(err error) *types.OperationOutcome {
 		return nil
 	}
 
+	if outcome := operationOutcomeFromCarrier(err); outcome != nil {
+		return outcome
+	}
+
 	if outcome := operationOutcomeFromValidation(err); outcome != nil {
 		return outcome
 	}
@@ -62,6 +66,31 @@ func operationOutcomeFromValidation(err error) *types.OperationOutcome {
 	if errors.As(err, &svcErr) && svcErr.Cause != nil {
 		if issues, ok := validate.IssuesFromError(svcErr.Cause); ok {
 			return validate.ToOperationOutcome(&validate.ValidationResult{Valid: false, Issues: issues})
+		}
+	}
+	return nil
+}
+
+type operationOutcomeCarrier interface {
+	OperationOutcome() types.OperationOutcome
+}
+
+func isInvalidOutcomeError(err error) bool {
+	var carrier operationOutcomeCarrier
+	return errors.As(err, &carrier)
+}
+
+func operationOutcomeFromCarrier(err error) *types.OperationOutcome {
+	var carrier operationOutcomeCarrier
+	if errors.As(err, &carrier) {
+		outcome := carrier.OperationOutcome()
+		return &outcome
+	}
+	var svcErr *ServiceError
+	if errors.As(err, &svcErr) && svcErr.Cause != nil {
+		if errors.As(svcErr.Cause, &carrier) {
+			outcome := carrier.OperationOutcome()
+			return &outcome
 		}
 	}
 	return nil

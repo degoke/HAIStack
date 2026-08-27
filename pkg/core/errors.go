@@ -51,6 +51,9 @@ func (e *ServiceError) Unwrap() error {
 // KindOf returns the ErrorKind for err when it is or wraps a ServiceError.
 // Unrecognized errors return ErrorKindException.
 func KindOf(err error) ErrorKind {
+	if isInvalidOutcomeError(err) {
+		return ErrorKindInvalid
+	}
 	var svcErr *ServiceError
 	if errors.As(err, &svcErr) && svcErr != nil {
 		return svcErr.Kind
@@ -91,3 +94,4 @@ func IsNotFound(err error) bool {
 func IsConflict(err error) bool {
 	return KindOf(err) == ErrorKindConflict
 }
+
