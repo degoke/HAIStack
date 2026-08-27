@@ -1,6 +1,10 @@
 package sync
 
-import "time"
+import (
+	"time"
+
+	"github.com/degoke/health-ai-stack/pkg/types"
+)
 
 // AckState is the per-event acknowledgement returned by the hub on push.
 type AckState string
@@ -15,14 +19,15 @@ const (
 
 // PushResult carries hub acknowledgement metadata for one proposed local event.
 type PushResult struct {
-	EventID                 string    `json:"eventId"`
-	State                   AckState  `json:"state"`
-	CanonicalSequence       int64     `json:"canonicalSequence,omitempty"`
-	CanonicalVersionID      string    `json:"canonicalVersionId,omitempty"`
-	RejectionReason         string    `json:"rejectionReason,omitempty"`
-	ConflictReason          string    `json:"conflictReason,omitempty"`
-	ConflictRemoteVersionID string    `json:"conflictRemoteVersionId,omitempty"`
-	RetryAfter              time.Time `json:"retryAfter,omitempty"`
+	EventID                 string                  `json:"eventId"`
+	State                   AckState                `json:"state"`
+	CanonicalSequence       int64                   `json:"canonicalSequence,omitempty"`
+	CanonicalVersionID      string                  `json:"canonicalVersionId,omitempty"`
+	RejectionReason         string                  `json:"rejectionReason,omitempty"`
+	RejectionOutcome        *types.OperationOutcome `json:"rejectionOutcome,omitempty"`
+	ConflictReason          string                  `json:"conflictReason,omitempty"`
+	ConflictRemoteVersionID string                  `json:"conflictRemoteVersionId,omitempty"`
+	RetryAfter              time.Time               `json:"retryAfter,omitempty"`
 }
 
 // IsTerminal reports whether the device can advance its push cursor past this event.

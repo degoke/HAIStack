@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"fmt"
+
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 // ErrorKind classifies haistack-core service errors for OperationOutcome mapping.
@@ -51,8 +53,23 @@ func (e *ServiceError) Unwrap() error {
 // KindOf returns the ErrorKind for err when it is or wraps a ServiceError.
 // Unrecognized errors return ErrorKindException.
 func KindOf(err error) ErrorKind {
-	if isInvalidOutcomeError(err) {
+	var clientValidation types.ClientValidationOutcomeError
+	if errors.As(err, &clientValidation) {
 		return ErrorKindInvalid
+	}
+	if errors.Is(err, types.ErrQuestionnaireNotFound) {
+		return ErrorKindNotFound
+	}
+	var qref types.QuestionnaireReferenceError
+	if errors.As(err, &qref) {
+		switch qref.Kind {
+		case "not-found":
+			return ErrorKindNotFound
+		case "resolver-required":
+			return ErrorKindInvalid
+		case "resolution-failed":
+			return ErrorKindException
+		}
 	}
 	var svcErr *ServiceError
 	if errors.As(err, &svcErr) && svcErr != nil {

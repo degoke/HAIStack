@@ -13,10 +13,15 @@ import (
 // It implements error while preserving every issue for structured callers.
 type ValidationError struct {
 	Outcome Outcome
+	cause   error
 }
 
 func (e ValidationError) Error() string {
 	return OutcomeSummary(e.Outcome)
+}
+
+func (e ValidationError) Unwrap() error {
+	return e.cause
 }
 
 // OperationOutcome returns the FHIR OperationOutcome representation of the validation failure.
@@ -65,6 +70,11 @@ func ErrFromOutcome(o Outcome) error {
 		return ValidationError{Outcome: o}
 	}
 	return nil
+}
+
+// NewValidationError wraps outcome and an optional underlying cause.
+func NewValidationError(o Outcome, cause error) ValidationError {
+	return ValidationError{Outcome: o, cause: cause}
 }
 
 // ToOperationOutcome maps an SDC Outcome into a FHIR OperationOutcome.

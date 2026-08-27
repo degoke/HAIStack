@@ -475,7 +475,7 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 				old = append(old, ResponseItem{LinkID: it.LinkID, Text: it.Text})
 				ri = &old[len(old)-1]
 			}
-			if len(ri.Answer) == 0 {
+			if !hasPresentAnswers(ri.Answer) {
 				ri.Answer = append(ri.Answer, it.Initial...)
 				if it.InitialExpression != nil {
 					if pc.Provider == nil {
@@ -491,7 +491,7 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 					}
 				}
 			}
-			if it.AnswerExpression != nil && len(ri.Answer) == 0 {
+			if it.AnswerExpression != nil && !hasPresentAnswers(ri.Answer) {
 				if pc.Provider == nil {
 					o.add("error", "exception", "answer expression provider is unavailable", it.LinkID)
 				} else if vs, e := pc.Provider.Evaluate(ctx, *it.AnswerExpression, populationExpressionInput(pc)); e != nil {

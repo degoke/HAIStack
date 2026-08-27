@@ -51,6 +51,12 @@ func TestValidationErrorPreservesAllIssues(t *testing.T) {
 	if !ok || len(recovered.Issue) != 2 {
 		t.Fatalf("wrapped OutcomeFromError = %+v, ok=%v", recovered, ok)
 	}
+
+	cause := errors.New("underlying")
+	wrappedVE := NewValidationError(outcome, cause)
+	if !errors.Is(wrappedVE, cause) {
+		t.Fatalf("Unwrap failed: %v", wrappedVE)
+	}
 }
 
 func TestToOperationOutcomeUsesFieldPathWhenExpressionMissing(t *testing.T) {

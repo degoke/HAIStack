@@ -31,7 +31,7 @@ func (v *ResponseValidator) ValidateResource(ctx context.Context, resource *type
 	}
 	qenv, err := v.resolveQuestionnaire(ctx, resource)
 	if err != nil {
-		return ValidationError{Outcome: failed(err)}
+		return err
 	}
 	if qenv == nil {
 		return nil
@@ -49,11 +49,11 @@ func (v *ResponseValidator) resolveQuestionnaire(ctx context.Context, response *
 		return nil, nil
 	}
 	if v.Resolver == nil {
-		return nil, fmt.Errorf("questionnaire resolver is required for QuestionnaireResponse validation")
+		return nil, types.NewQuestionnaireResolverRequiredError()
 	}
 	q, err := v.Resolver.Resolve(ctx, r.Questionnaire)
 	if err != nil {
-		return nil, err
+		return nil, questionnaireResolveError(r.Questionnaire, err)
 	}
 	return ProjectionEnvelope(q)
 }

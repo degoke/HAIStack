@@ -102,7 +102,34 @@ func SaveResponse(ctx context.Context, s ResourceService, r QuestionnaireRespons
 }
 
 func SaveQuestionnaireResponseResource(ctx context.Context, s ResourceService, env *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
-	return SaveQuestionnaireResponseResourceWithOptions(ctx, s, env, SaveResponseOptions{})
+	return SaveQuestionnaireResponseResourceWithOptions(ctx, s, env, DefaultSaveResponseOptions(s))
+}
+
+// ResourceStoreProvider exposes the backing resource store for questionnaire resolution.
+type ResourceStoreProvider interface {
+	ResourceStore() store.ResourceStore
+}
+
+// DefaultSaveResponseOptions builds save options that resolve questionnaires from the
+// resource store when the service implements ResourceStoreProvider.
+func DefaultSaveResponseOptions(s ResourceService) SaveResponseOptions {
+	if p, ok := s.(ResourceStoreProvider); ok {
+		resources := p.ResourceStore()
+		if resources != nil {
+			return SaveResponseOptions{
+				Resolver: StoreQuestionnaireResolver{Resources: resources},
+			}
+		}
+	}
+	return SaveResponseOptions{}
+}
+
+func questionnaireCanonical(env *types.ResourceEnvelope) string {
+	r, err := DecodeQuestionnaireResponseResource(env)
+	if err != nil {
+		return ""
+	}
+	return r.Questionnaire
 }
 
 // SaveResponseOptions configures SDC validation before persisting a response.
@@ -120,7 +147,7 @@ func SaveQuestionnaireResponseResourceWithOptions(ctx context.Context, s Resourc
 	}
 	qenv, err := resolveQuestionnaireEnvelope(ctx, env, opts)
 	if err != nil {
-		return nil, ValidationError{Outcome: failed(err)}
+		return nil, questionnaireResolveError(questionnaireCanonical(env), err)
 	}
 	if qenv != nil {
 		outcome := ValidateQuestionnaireResponseResource(ctx, qenv, env, opts.Validation)
@@ -201,7 +228,7 @@ func (s StoreQuestionnaireResolver) FindQuestionnaire(ctx context.Context, canon
 			return q, nil
 		}
 	}
-	return Questionnaire{}, fmt.Errorf("questionnaire canonical not found: %s", canonical)
+	return Questionnaire{}, fmt.Errorf("%w: %s", types.ErrQuestionnaireNotFound, canonical)
 }
 
 func (c CanonicalResolver) Resolve(ctx context.Context, canonical string) (Questionnaire, error) {

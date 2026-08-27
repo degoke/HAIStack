@@ -52,6 +52,11 @@ func OperationOutcomeFromError(err error) *types.OperationOutcome {
 		issue.Expression = append([]string(nil), svcErr.Expression...)
 	}
 
+	var qref types.QuestionnaireReferenceError
+	if errors.As(err, &qref) && len(qref.Expression) > 0 {
+		issue.Expression = append([]string(nil), qref.Expression...)
+	}
+
 	return &types.OperationOutcome{
 		ResourceType: "OperationOutcome",
 		Issue:        []types.OperationIssue{issue},
@@ -73,11 +78,6 @@ func operationOutcomeFromValidation(err error) *types.OperationOutcome {
 
 type operationOutcomeCarrier interface {
 	OperationOutcome() types.OperationOutcome
-}
-
-func isInvalidOutcomeError(err error) bool {
-	var carrier operationOutcomeCarrier
-	return errors.As(err, &carrier)
 }
 
 func operationOutcomeFromCarrier(err error) *types.OperationOutcome {

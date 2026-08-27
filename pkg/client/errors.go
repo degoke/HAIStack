@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -25,8 +26,10 @@ func (e *Error) Error() string {
 	if e.Message != "" {
 		return e.Message
 	}
-	if e.Outcome != nil && len(e.Outcome.Issue) > 0 {
-		return e.Outcome.Issue[0].Diagnostics
+	if e.Outcome != nil {
+		if summary := outcomeDiagnosticsSummary(e.Outcome); summary != "" {
+			return summary
+		}
 	}
 	return fmt.Sprintf("request failed with status %d", e.StatusCode)
 }
@@ -57,10 +60,23 @@ func parseError(status int, body []byte, retryable bool) *Error {
 	}
 	if ce.Outcome == nil {
 		ce.Message = fmt.Sprintf("request failed with status %d", status)
-	} else if len(ce.Outcome.Issue) > 0 && ce.Outcome.Issue[0].Diagnostics != "" {
-		ce.Message = ce.Outcome.Issue[0].Diagnostics
+	} else if summary := outcomeDiagnosticsSummary(ce.Outcome); summary != "" {
+		ce.Message = summary
 	}
 	return ce
+}
+
+func outcomeDiagnosticsSummary(outcome *types.OperationOutcome) string {
+	if outcome == nil || len(outcome.Issue) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(outcome.Issue))
+	for _, issue := range outcome.Issue {
+		if msg := strings.TrimSpace(issue.Diagnostics); msg != "" {
+			parts = append(parts, msg)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func isSuccessStatus(code int) bool {

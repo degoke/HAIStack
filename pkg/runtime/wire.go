@@ -286,7 +286,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: validate engine: %w", err)
 	}
-	validator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{})
+	questionnaireResolver := sdc.StoreQuestionnaireResolver{Resources: pc.resources}
+	baseValidator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{})
+	validator := &sdc.ResponseValidator{
+		Base:     baseValidator,
+		Resolver: questionnaireResolver,
+		Options: sdc.ValidationOptions{
+			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+		},
+	}
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
 		Resources:        pc.resources,
