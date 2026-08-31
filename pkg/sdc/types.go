@@ -105,7 +105,7 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	type itemAlias Item
 	encodedItem := it
 	encodedItem.Initial = typedAnswers(it.Initial, it.Type)
-	answerOptions, err := typedAnswerOptions(it.AnswerOption, it.Type)
+	answerOptions, err := typedAnswerOptions(it.AnswerOption, it.Type, it.LinkID)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func typedAnswers(answers []Answer, itemType string) []Answer {
 	return out
 }
 
-func typedAnswerOptions(options []AnswerOption, itemType string) ([]AnswerOption, error) {
+func typedAnswerOptions(options []AnswerOption, itemType, linkID string) ([]AnswerOption, error) {
 	if len(options) == 0 {
 		return options, nil
 	}
@@ -193,7 +193,7 @@ func typedAnswerOptions(options []AnswerOption, itemType string) ([]AnswerOption
 		if out[i].ValueType == "" {
 			out[i].ValueType = itemValueType(itemType, out[i].Value)
 		}
-		if err := validateAnswerOptionValue(itemType, out[i]); err != nil {
+		if err := validateAnswerOptionValue(linkID, itemType, out[i]); err != nil {
 			return nil, err
 		}
 	}

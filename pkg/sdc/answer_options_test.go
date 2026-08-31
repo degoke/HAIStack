@@ -7,12 +7,30 @@ import (
 	"testing"
 )
 
+func mustCodingOption(t *testing.T, code, display string, system ...string) AnswerOption {
+	t.Helper()
+	opt, err := CodingOption(code, display, system...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return opt
+}
+
+func mustStringOption(t *testing.T, s string) AnswerOption {
+	t.Helper()
+	opt, err := StringOption(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return opt
+}
+
 func TestCodingOptionSerializesValueCoding(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{{
 		LinkID: "site",
 		Type:   "choice",
 		AnswerOption: []AnswerOption{
-			CodingOption("hospital", "Hospital", "http://example.org/sites"),
+			mustCodingOption(t, "hospital", "Hospital", "http://example.org/sites"),
 		},
 	}})
 	env, err := ProjectionEnvelope(q)
@@ -31,6 +49,20 @@ func TestCodingOptionSerializesValueCoding(t *testing.T) {
 	}
 }
 
+func TestCodingOptionRejectsEmptyCodeAtConstruction(t *testing.T) {
+	_, err := CodingOption("", "Display only")
+	if err == nil {
+		t.Fatal("expected construction error for empty code")
+	}
+	var optErr AnswerOptionValueError
+	if !errors.As(err, &optErr) {
+		t.Fatalf("expected AnswerOptionValueError, got %T: %v", err, err)
+	}
+	if optErr.ValueType != "Coding" || !strings.Contains(optErr.Error(), "code is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestChoiceRejectsPlainStringAnswerOption(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{{
 		LinkID:       "site",
@@ -45,8 +77,29 @@ func TestChoiceRejectsPlainStringAnswerOption(t *testing.T) {
 	if !errors.As(err, &optErr) {
 		t.Fatalf("expected AnswerOptionValueError, got %T: %v", err, err)
 	}
-	if optErr.ItemType != "choice" {
-		t.Fatalf("item type: got %q", optErr.ItemType)
+	if optErr.ItemType != "choice" || optErr.LinkID != "site" {
+		t.Fatalf("item context: linkId=%q type=%q", optErr.LinkID, optErr.ItemType)
+	}
+}
+
+func TestChoiceRejectsMapCodingAnswerOption(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "unit",
+		Type:   "choice",
+		AnswerOption: []AnswerOption{{
+			Value: map[string]any{"code": "kg", "display": "kg"},
+		}},
+	}})
+	_, err := ProjectionEnvelope(q)
+	if err == nil {
+		t.Fatal("expected error for map[string]any coding value")
+	}
+	var optErr AnswerOptionValueError
+	if !errors.As(err, &optErr) {
+		t.Fatalf("expected AnswerOptionValueError, got %T: %v", err, err)
+	}
+	if optErr.LinkID != "unit" {
+		t.Fatalf("linkId: got %q", optErr.LinkID)
 	}
 }
 
@@ -55,8 +108,8 @@ func TestOpenChoiceAcceptsStringAndCodingOptions(t *testing.T) {
 		LinkID: "site",
 		Type:   "open-choice",
 		AnswerOption: []AnswerOption{
-			CodingOption("hospital", "Hospital"),
-			StringOption("other"),
+			mustCodingOption(t, "hospital", "Hospital"),
+			mustStringOption(t, "other"),
 		},
 	}})
 	env, err := ProjectionEnvelope(q)
@@ -75,9 +128,9 @@ func TestRepeatedChoiceOptionsRoundTrip(t *testing.T) {
 		Type:    "choice",
 		Repeats: true,
 		AnswerOption: []AnswerOption{
-			CodingOption("admin", "Administrator"),
-			CodingOption("clinician", "Clinician", "http://example.org/roles"),
-			CodingOption("patient", "Patient"),
+			mustCodingOption(t, "admin", "Administrator"),
+			mustCodingOption(t, "clinician", "Clinician", "http://example.org/roles"),
+			mustCodingOption(t, "patient", "Patient"),
 		},
 	}})
 	env, err := ProjectionEnvelope(q)
@@ -92,7 +145,7 @@ func TestRepeatedChoiceOptionsRoundTrip(t *testing.T) {
 		t.Fatalf("answer options: got %d", len(q2.Item[0].AnswerOption))
 	}
 	for i, opt := range q2.Item[0].AnswerOption {
-		c, ok := codingFrom(opt.Value)
+		c, ok := answerOptionCoding(opt.Value)
 		if !ok {
 			t.Fatalf("option %d: expected Coding value, got %#v", i, opt.Value)
 		}
@@ -133,7 +186,7 @@ func TestChoiceAnswerOptionDecodeEncodeRoundTrip(t *testing.T) {
 	if len(q.Item) != 1 || len(q.Item[0].AnswerOption) != 2 {
 		t.Fatalf("decode: %#v", q.Item)
 	}
-	first, ok := codingFrom(q.Item[0].AnswerOption[0].Value)
+	first, ok := answerOptionCoding(q.Item[0].AnswerOption[0].Value)
 	if !ok || first.Code != "kg" || !q.Item[0].AnswerOption[0].InitialSelected {
 		t.Fatalf("first option: %#v selected=%v", first, q.Item[0].AnswerOption[0].InitialSelected)
 	}
@@ -180,5 +233,8 @@ func TestChoiceRejectsDecodedValueStringOnReprojection(t *testing.T) {
 	var optErr AnswerOptionValueError
 	if !errors.As(err, &optErr) {
 		t.Fatalf("expected AnswerOptionValueError, got %T: %v", err, err)
+	}
+	if optErr.LinkID != "unit" {
+		t.Fatalf("linkId: got %q", optErr.LinkID)
 	}
 }
