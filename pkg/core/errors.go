@@ -111,4 +111,3 @@ func IsNotFound(err error) bool {
 func IsConflict(err error) bool {
 	return KindOf(err) == ErrorKindConflict
 }
-

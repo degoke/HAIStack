@@ -149,7 +149,7 @@ type memResourceStore struct {
 }
 
 func (m *memResourceStore) Create(context.Context, *types.ResourceEnvelope) error { return nil }
-func (m *memResourceStore) Update(context.Context, *types.ResourceEnvelope) error   { return nil }
+func (m *memResourceStore) Update(context.Context, *types.ResourceEnvelope) error { return nil }
 func (m *memResourceStore) Delete(context.Context, string, string) error          { return nil }
 func (m *memResourceStore) Exists(_ context.Context, resourceType, id string) (bool, error) {
 	_, ok := m.byType[resourceType][id]
