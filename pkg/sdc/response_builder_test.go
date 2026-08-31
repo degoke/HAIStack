@@ -90,8 +90,9 @@ func TestResponseBuilderPreservesFormedCodingWithoutChangingMeaning(t *testing.T
 		t.Fatal(err)
 	}
 	r.Set("color", provided)
-	if len(r.root) != 1 || !Equal(r.root[0].Answer[0].Value, provided) {
-		t.Fatalf("builder changed formed coding: %#v", r.root[0].Answer[0].Value)
+	preview := r.Preview()
+	if len(preview.Item) != 1 || !Equal(preview.Item[0].Answer[0].Value, provided) {
+		t.Fatalf("builder changed formed coding: %#v", preview.Item[0].Answer[0].Value)
 	}
 	_, err = r.Build(ValidationOptions{})
 	if err == nil {
@@ -242,5 +243,100 @@ func TestResponseBuilderOpenChoiceAcceptsFreeText(t *testing.T) {
 	}
 	if response.Item[0].Answer[0].Value != "custom" {
 		t.Fatalf("value: %#v", response.Item[0].Answer[0].Value)
+	}
+}
+
+func TestResponseBuilderSupportsItemControlledNesting(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "trigger",
+		Type:   "choice",
+		AnswerOption: []AnswerOption{{
+			Value: Coding{Code: "yes", Display: "Yes"},
+		}},
+		Item: []Item{{LinkID: "detail", Type: "string", Required: true}},
+	}})
+
+	builder, err := NewResponse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := builder.
+		SetCoding("trigger", "yes").
+		Set("detail", "extra").
+		Build(ValidationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Item) != 1 || len(response.Item[0].Answer) != 1 {
+		t.Fatalf("trigger response: %#v", response.Item)
+	}
+	if len(response.Item[0].Answer[0].Item) != 1 || response.Item[0].Answer[0].Item[0].Answer[0].Value != "extra" {
+		t.Fatalf("item-controlled nesting failed: %#v", response.Item[0].Answer[0].Item)
+	}
+
+	builder, err = NewResponse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err = builder.
+		SetCoding("trigger", "yes").
+		SetAtAnswer(ItemPath{{LinkID: "trigger"}}, 0, "detail", "explicit").
+		Build(ValidationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Item[0].Answer[0].Item[0].Answer[0].Value != "explicit" {
+		t.Fatalf("SetAtAnswer failed: %#v", response.Item[0].Answer[0].Item)
+	}
+}
+
+func TestResponseBuilderInGroupSelectsRepeatingInstance(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID:  "group",
+		Type:    "group",
+		Repeats: true,
+		Item:    []Item{{LinkID: "name", Type: "string"}},
+	}})
+
+	builder, err := NewResponse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := builder.
+		InGroup("group", 1).
+		Set("name", "Grace").
+		Build(ValidationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Item) != 2 {
+		t.Fatalf("groups=%d", len(response.Item))
+	}
+	if response.Item[1].Item[0].Answer[0].Value != "Grace" {
+		t.Fatalf("second group name: %#v", response.Item)
+	}
+}
+
+func TestResponseBuilderMatchesChoiceBySystemAndCode(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "status",
+		Type:   "choice",
+		AnswerOption: []AnswerOption{
+			{Value: Coding{System: "http://a", Code: "active"}},
+			{Value: Coding{System: "http://b", Code: "active"}},
+		},
+	}})
+
+	builder, err := NewResponse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := builder.SetCodingWithSystem("status", "http://b", "active").Build(ValidationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coding := response.Item[0].Answer[0].Value.(Coding)
+	if coding.System != "http://b" {
+		t.Fatalf("coding: %#v", coding)
 	}
 }

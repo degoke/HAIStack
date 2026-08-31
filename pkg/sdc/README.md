@@ -68,7 +68,9 @@ if err != nil {
 response, err := builder.
     Set("name", "Ada").
     SetCoding("color", "red").
-    SetAt(sdc.ItemPath{{LinkID: "group"}}, "nested", true).
+    InGroup("group", 1).
+    Set("nested", true).
+    SetAtAnswer(sdc.ItemPath{{LinkID: "trigger"}}, 0, "detail", "extra").
     AppendAnswer("tags", "alpha").
     Build(sdc.ValidationOptions{})
 if err != nil {
@@ -79,8 +81,12 @@ if err != nil {
 ```
 
 Use `SetAt` / `AppendAnswerAt` when a linkId appears at multiple nesting
-levels. Already-formed FHIR answer values (for example a `Coding` struct) are
-stored without modification; SDC validation still enforces answer options.
+levels, `InGroup` to target a repeating-group instance during auto-placement,
+and `SetAtAnswer` / `AppendAnswerAtAnswer` for item-controlled nesting under
+`answer[n].item`. Use `SetCodingWithSystem` when answer options share the same
+code in different code systems. Already-formed FHIR answer values (for example
+a `Coding` struct) are stored without modification; SDC validation still
+enforces answer options.
 
 ### Population
 
