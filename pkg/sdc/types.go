@@ -105,7 +105,11 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	type itemAlias Item
 	encodedItem := it
 	encodedItem.Initial = typedAnswers(it.Initial, it.Type)
-	encodedItem.AnswerOption = typedAnswerOptions(it.AnswerOption, it.Type)
+	answerOptions, err := typedAnswerOptions(it.AnswerOption, it.Type)
+	if err != nil {
+		return nil, err
+	}
+	encodedItem.AnswerOption = answerOptions
 	b, err := json.Marshal(itemAlias(encodedItem))
 	if err != nil {
 		return nil, err
@@ -180,17 +184,20 @@ func typedAnswers(answers []Answer, itemType string) []Answer {
 	return out
 }
 
-func typedAnswerOptions(options []AnswerOption, itemType string) []AnswerOption {
+func typedAnswerOptions(options []AnswerOption, itemType string) ([]AnswerOption, error) {
 	if len(options) == 0 {
-		return options
+		return options, nil
 	}
 	out := append([]AnswerOption(nil), options...)
 	for i := range out {
 		if out[i].ValueType == "" {
 			out[i].ValueType = itemValueType(itemType, out[i].Value)
 		}
+		if err := validateAnswerOptionValue(itemType, out[i]); err != nil {
+			return nil, err
+		}
 	}
-	return out
+	return out, nil
 }
 
 func itemValueType(itemType string, value any) string {
@@ -426,6 +433,9 @@ func (a *Answer) UnmarshalJSON(b []byte) error {
 	return nil
 }
 func (a AnswerOption) MarshalJSON() ([]byte, error) {
+	if err := validateAnswerOptionMarshalValue(a); err != nil {
+		return nil, err
+	}
 	m := map[string]any{}
 	if a.InitialSelected || a.initialSelectedSet {
 		m["initialSelected"] = true
