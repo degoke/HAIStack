@@ -13,13 +13,12 @@ import (
 var _ types.ClientValidationOutcomeError = ValidationError{}
 
 type stubQuestionnaireResolver struct {
-	q     Questionnaire
-	err   error
-	canon string
+	q   Questionnaire
+	err error
 }
 
 func (s stubQuestionnaireResolver) Resolve(_ context.Context, canonical string) (Questionnaire, error) {
-	s.canon = canonical
+	_ = canonical
 	if s.err != nil {
 		return Questionnaire{}, s.err
 	}
