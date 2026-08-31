@@ -33,8 +33,8 @@ func TestCodingOptionSerializesValueCoding(t *testing.T) {
 
 func TestChoiceRejectsPlainStringAnswerOption(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{{
-		LinkID: "site",
-		Type:   "choice",
+		LinkID:       "site",
+		Type:         "choice",
 		AnswerOption: []AnswerOption{{Value: "hospital"}},
 	}})
 	_, err := ProjectionEnvelope(q)
