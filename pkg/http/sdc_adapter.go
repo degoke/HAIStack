@@ -86,8 +86,8 @@ func (a CoreSDCService) Populate(ctx context.Context, req SDCRequest) (*types.Re
 		initial = &r
 	}
 	r, o := sdc.Populate(ctx, q, sdc.PopulationContext{InitialResponse: initial, Provider: a.Provider})
-	if len(o.Issue) > 0 {
-		return nil, o
+	if err := sdc.ErrFromOutcome(o); err != nil {
+		return nil, err
 	}
 	return sdc.ResponseProjectionEnvelope(*r)
 }
@@ -104,7 +104,8 @@ func (a CoreSDCService) Validate(ctx context.Context, req SDCRequest) (*types.Op
 		return nil, e
 	}
 	o := sdc.ValidateResponse(q, r, sdc.ValidationOptions{Expressions: a.Provider})
-	return toOperationOutcome(o), nil
+	outcome := sdc.ToOperationOutcome(o)
+	return &outcome, nil
 }
 func (a CoreSDCService) Extract(ctx context.Context, req SDCRequest) (*types.ResourceEnvelope, error) {
 	if a.Extractor == nil {
@@ -134,8 +135,8 @@ func (a CoreSDCService) Assemble(ctx context.Context, req SDCRequest) (*types.Re
 		return nil, e
 	}
 	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, a.Resolver)
-	if len(o.Issue) > 0 {
-		return nil, o
+	if err := sdc.ErrFromOutcome(o); err != nil {
+		return nil, err
 	}
 	return assembled, nil
 }
@@ -144,11 +145,4 @@ func (a CoreSDCService) Adaptive(ctx context.Context, op string, req SDCRequest)
 		return nil, &core.ServiceError{Kind: core.ErrorKindNotSupported, Message: "adaptive SDC adapter is unavailable"}
 	}
 	return nil, &core.ServiceError{Kind: core.ErrorKindNotSupported, Message: fmt.Sprintf("adaptive operation %s requires a session adapter", op)}
-}
-func toOperationOutcome(o sdc.Outcome) *types.OperationOutcome {
-	out := &types.OperationOutcome{ResourceType: "OperationOutcome"}
-	for _, i := range o.Issue {
-		out.Issue = append(out.Issue, types.OperationIssue{Severity: i.Severity, Code: i.Code, Diagnostics: i.Diagnostics, Expression: i.Expression})
-	}
-	return out
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/sdc"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
@@ -519,6 +520,28 @@ func TestOperationOutcomeFromError(t *testing.T) {
 				t.Fatalf("expression = %v", outcome.Issue[0].Expression)
 			}
 		})
+	}
+}
+
+func TestOperationOutcomeFromErrorPreservesSDCValidationIssues(t *testing.T) {
+	err := sdc.ValidationError{
+		Outcome: sdc.Outcome{
+			ResourceType: "OperationOutcome",
+			Issue: []sdc.Issue{
+				{Severity: "error", Code: "required", Diagnostics: "first", FieldPath: "item[a]"},
+				{Severity: "error", Code: "type", Diagnostics: "second", FieldPath: "item[b]"},
+			},
+		},
+	}
+	outcome := core.OperationOutcomeFromError(err)
+	if len(outcome.Issue) != 2 {
+		t.Fatalf("issue count = %d, want 2", len(outcome.Issue))
+	}
+	if outcome.Issue[0].Code != "required" || outcome.Issue[1].Code != "type" {
+		t.Fatalf("codes = %v, %v", outcome.Issue[0].Code, outcome.Issue[1].Code)
+	}
+	if core.KindOf(err) != core.ErrorKindInvalid {
+		t.Fatalf("KindOf = %v, want invalid", core.KindOf(err))
 	}
 }
 

@@ -16,7 +16,7 @@ func TestBuildHubWriteRejectsFHIRPayloadWithoutID(t *testing.T) {
 		t.Fatalf("validator: %v", err)
 	}
 
-	_, reason, ok := buildHubWrite(context.Background(), LocalEvent{
+	_, reject, ok := buildHubWrite(context.Background(), LocalEvent{
 		EventID:      "event-1",
 		ResourceType: "Patient",
 		ResourceID:   "p1",
@@ -30,8 +30,8 @@ func TestBuildHubWriteRejectsFHIRPayloadWithoutID(t *testing.T) {
 	if ok {
 		t.Fatal("expected invalid FHIR payload to be rejected")
 	}
-	if !strings.Contains(reason, "FHIR validation") {
-		t.Fatalf("reason = %q, want FHIR validation diagnostic", reason)
+	if !strings.Contains(reject.Reason, "gender") {
+		t.Fatalf("reason = %q, want validation diagnostic", reject.Reason)
 	}
 }
 
@@ -42,7 +42,7 @@ func TestBuildHubWriteRejectsPayloadJSONIDMismatch(t *testing.T) {
 		t.Fatalf("validator: %v", err)
 	}
 
-	_, reason, ok := buildHubWrite(context.Background(), LocalEvent{
+	_, reject, ok := buildHubWrite(context.Background(), LocalEvent{
 		EventID:      "event-2",
 		ResourceType: "Patient",
 		ResourceID:   "p1",
@@ -56,8 +56,8 @@ func TestBuildHubWriteRejectsPayloadJSONIDMismatch(t *testing.T) {
 	if ok {
 		t.Fatal("expected mismatched JSON identity to be rejected")
 	}
-	if !strings.Contains(reason, "JSON identity") {
-		t.Fatalf("reason = %q, want JSON identity diagnostic", reason)
+	if !strings.Contains(reject.Reason, "JSON identity") {
+		t.Fatalf("reason = %q, want JSON identity diagnostic", reject.Reason)
 	}
 }
 

@@ -673,3 +673,8 @@ func isStoreConflict(err error) bool {
 	}
 	return strings.Contains(err.Error(), "resource already exists")
 }
+
+// ResourceStore returns the underlying resource store for adapters that need store access.
+func (s *ResourceService) ResourceStore() store.ResourceStore {
+	return s.resources
+}

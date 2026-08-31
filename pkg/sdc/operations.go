@@ -237,19 +237,22 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 	if expressionErr != nil {
 		o.add("error", "exception", expressionErr.Error(), path)
 	}
-	if !enabled && (len(responseItem.Answer) > 0 || len(responseItem.Item) > 0) {
+	if !enabled && (hasPresentAnswers(responseItem.Answer) || len(responseItem.Item) > 0) {
 		o.add("error", "invariant", fmt.Sprintf("disabled item %q must not contain answers or child items (enableWhen: %s)", d.LinkID, enableWhenSummary(*d)), path)
 	}
-	if d.Required && enabled && len(responseItem.Answer) == 0 && !opts.AllowIncomplete && d.Type != "group" {
+	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && d.Type != "group" {
 		o.add("error", "required", "required answer is missing", path)
 	}
-	if !d.Repeats && len(responseItem.Answer) > 1 {
+	if !d.Repeats && countPresentAnswers(responseItem.Answer) > 1 {
 		o.add("error", "max", "question does not repeat", path)
 	}
-	if d.ReadOnly && len(responseItem.Answer) > 0 {
+	if d.ReadOnly && hasPresentAnswers(responseItem.Answer) {
 		o.add("error", "forbidden", "readOnly question has an answer", path)
 	}
 	for _, answer := range responseItem.Answer {
+		if answerValueAbsent(answer.Value) {
+			continue
+		}
 		if !answerTypeOK(d.Type, answer.Value) {
 			o.add("error", "type", "answer type does not match question type", path)
 		}
@@ -472,7 +475,7 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 				old = append(old, ResponseItem{LinkID: it.LinkID, Text: it.Text})
 				ri = &old[len(old)-1]
 			}
-			if len(ri.Answer) == 0 {
+			if !hasPresentAnswers(ri.Answer) {
 				ri.Answer = append(ri.Answer, it.Initial...)
 				if it.InitialExpression != nil {
 					if pc.Provider == nil {
@@ -488,7 +491,7 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 					}
 				}
 			}
-			if it.AnswerExpression != nil && len(ri.Answer) == 0 {
+			if it.AnswerExpression != nil && !hasPresentAnswers(ri.Answer) {
 				if pc.Provider == nil {
 					o.add("error", "exception", "answer expression provider is unavailable", it.LinkID)
 				} else if vs, e := pc.Provider.Evaluate(ctx, *it.AnswerExpression, populationExpressionInput(pc)); e != nil {
@@ -745,7 +748,7 @@ func Enabled(item Item, r QuestionnaireResponse) bool {
 		ok := false
 		if rule.Operator == "exists" {
 			want, _ := rule.Answer.(bool)
-			ok = (ri != nil && len(ri.Answer) > 0) == want
+			ok = (ri != nil && hasPresentAnswers(ri.Answer)) == want
 		} else if ri != nil {
 			for _, a := range ri.Answer {
 				switch rule.Operator {
@@ -866,6 +869,41 @@ func extensionString(extensions []Extension, url string) string {
 }
 func failed(e error) Outcome {
 	return Outcome{ResourceType: "OperationOutcome", Issue: []Issue{{Severity: "error", Code: "exception", Diagnostics: e.Error()}}}
+}
+
+// answerValueAbsent reports whether an answer value is treated as absent for
+// validation. Blank primitive strings and codings without a code are absent.
+func answerValueAbsent(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x) == ""
+	}
+	if c, ok := codingFrom(v); ok {
+		return strings.TrimSpace(c.Code) == ""
+	}
+	return false
+}
+
+func hasPresentAnswers(answers []Answer) bool {
+	for _, answer := range answers {
+		if !answerValueAbsent(answer.Value) {
+			return true
+		}
+	}
+	return false
+}
+
+func countPresentAnswers(answers []Answer) int {
+	count := 0
+	for _, answer := range answers {
+		if !answerValueAbsent(answer.Value) {
+			count++
+		}
+	}
+	return count
 }
 func (o *Outcome) add(sev, code, msg, path string) {
 	o.Issue = append(o.Issue, Issue{Severity: sev, Code: code, Diagnostics: msg, Expression: []string{path}, FieldPath: path})

@@ -699,12 +699,7 @@ type Outcome struct {
 }
 
 func (o Outcome) Error() string {
-	for _, i := range o.Issue {
-		if i.Severity == "error" || i.Severity == "fatal" {
-			return i.Diagnostics
-		}
-	}
-	return "sdc operation failed"
+	return OutcomeSummary(o)
 }
 
 type Tree struct {

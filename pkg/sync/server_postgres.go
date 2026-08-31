@@ -168,12 +168,13 @@ func (h *PostgresHub) pushOne(
 		return result, nil
 	}
 
-	write, rejectReason, ok := buildHubWrite(ctx, event, now, validator)
+	write, reject, ok := buildHubWrite(ctx, event, now, validator)
 	if !ok {
 		result := PushResult{
-			EventID:         event.EventID,
-			State:           AckRejected,
-			RejectionReason: rejectReason,
+			EventID:          event.EventID,
+			State:            AckRejected,
+			RejectionReason:  reject.Reason,
+			RejectionOutcome: reject.Outcome,
 		}
 		if err := h.persistTerminalInSession(ctx, session, event, result, now); err != nil {
 			return PushResult{}, err
@@ -457,26 +458,26 @@ func isStaleBase(event LocalEvent, current *types.ResourceEnvelope) (bool, strin
 	}
 }
 
-func buildHubWrite(ctx context.Context, event LocalEvent, now time.Time, validator validate.Validator) (postgres.Write, string, bool) {
+func buildHubWrite(ctx context.Context, event LocalEvent, now time.Time, validator validate.Validator) (postgres.Write, hubWriteReject, bool) {
 	switch event.Operation {
 	case EventTypeResourceCreated, EventTypeResourceUpdated:
 		if event.ResourceAfter == nil {
-			return postgres.Write{}, "missing resource payload", false
+			return postgres.Write{}, hubWriteReject{Reason: "missing resource payload"}, false
 		}
 		if event.ResourceAfter.ResourceType != event.ResourceType || event.ResourceAfter.ID != event.ResourceID {
-			return postgres.Write{}, "resource payload identity does not match event", false
+			return postgres.Write{}, hubWriteReject{Reason: "resource payload identity does not match event"}, false
 		}
 		parsed, err := types.NewJSONCodec().ParseJSON(event.ResourceType, event.ResourceAfter.JSON)
 		if err != nil {
-			return postgres.Write{}, "resource payload is not valid FHIR JSON", false
+			return postgres.Write{}, hubWriteReject{Reason: "resource payload is not valid FHIR JSON"}, false
 		}
 		if parsed.ID != event.ResourceID {
-			return postgres.Write{}, "resource payload JSON identity does not match event", false
+			return postgres.Write{}, hubWriteReject{Reason: "resource payload JSON identity does not match event"}, false
 		}
 		res := *event.ResourceAfter
 		if validator != nil {
 			if err := validator.ValidateResource(ctx, &res); err != nil {
-				return postgres.Write{}, "resource payload failed FHIR validation: " + err.Error(), false
+				return postgres.Write{}, validationRejectFromError(err), false
 			}
 		}
 		action := store.VersionActionUpdate
@@ -491,7 +492,7 @@ func buildHubWrite(ctx context.Context, event LocalEvent, now time.Time, validat
 				Actor:     event.OriginNodeID,
 				Action:    AuditDevicePushed,
 			},
-		}, "", true
+		}, hubWriteReject{}, true
 
 	case EventTypeResourceDeleted:
 		res := event.ResourceAfter
@@ -503,7 +504,7 @@ func buildHubWrite(ctx context.Context, event LocalEvent, now time.Time, validat
 			}
 		}
 		if res.ResourceType != event.ResourceType || res.ID != event.ResourceID {
-			return postgres.Write{}, "resource payload identity does not match event", false
+			return postgres.Write{}, hubWriteReject{Reason: "resource payload identity does not match event"}, false
 		}
 		return postgres.Write{
 			Resource: res,
@@ -513,11 +514,44 @@ func buildHubWrite(ctx context.Context, event LocalEvent, now time.Time, validat
 				Actor:     event.OriginNodeID,
 				Action:    AuditDevicePushed,
 			},
-		}, "", true
+		}, hubWriteReject{}, true
 
 	default:
-		return postgres.Write{}, fmt.Sprintf("unsupported operation %q", event.Operation), false
+		return postgres.Write{}, hubWriteReject{Reason: fmt.Sprintf("unsupported operation %q", event.Operation)}, false
 	}
+}
+
+type hubWriteReject struct {
+	Reason  string
+	Outcome *types.OperationOutcome
+}
+
+func validationRejectFromError(err error) hubWriteReject {
+	reject := hubWriteReject{Reason: err.Error()}
+	if issues, ok := validate.IssuesFromError(err); ok {
+		reject.Outcome = validate.ToOperationOutcome(&validate.ValidationResult{Valid: false, Issues: issues})
+	} else {
+		type outcomeCarrier interface {
+			OperationOutcome() types.OperationOutcome
+		}
+		var carrier outcomeCarrier
+		if errors.As(err, &carrier) {
+			outcome := carrier.OperationOutcome()
+			reject.Outcome = &outcome
+		}
+	}
+	if reject.Outcome != nil {
+		parts := make([]string, 0, len(reject.Outcome.Issue))
+		for _, issue := range reject.Outcome.Issue {
+			if msg := strings.TrimSpace(issue.Diagnostics); msg != "" {
+				parts = append(parts, msg)
+			}
+		}
+		if len(parts) > 0 {
+			reject.Reason = strings.Join(parts, "; ")
+		}
+	}
+	return reject
 }
 
 // Pull returns accepted canonical events after a sequence checkpoint.
