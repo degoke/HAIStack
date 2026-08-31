@@ -19,7 +19,8 @@
 // # Behavior services
 //
 // The package supports questionnaire normalization, linkId indexing, repeats,
-// enableWhen rules, calculated expressions, population, modular assembly,
+// enableWhen rules, calculated expressions, population, response building,
+// modular assembly,
 // renderer-neutral form state, validation diagnostics, and transaction Bundle
 // extraction. FHIRPath is supported through the existing pkg/fhirpath.Engine.
 // CQL, FHIR Query, StructureMap, terminology, and adaptive behavior are

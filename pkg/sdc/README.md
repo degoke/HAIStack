@@ -50,6 +50,44 @@ and calculated/enablement constraints.
 
 Diagnostics are OperationOutcome-compatible and retain renderer field paths.
 
+### Response builder
+
+`NewResponse` constructs a `QuestionnaireResponse` from rendered form values.
+The builder sets `QuestionnaireResponse.questionnaire` to `Canonical(q)`,
+emits the correct FHIR `value[x]` field for each item type, resolves choice
+codes to declared `answerOption` codings, and preserves nested and repeated
+items. Unknown linkIds and invalid values are reported as structured issues
+through `ValidationError`.
+
+```go
+builder, err := sdc.NewResponse(questionnaire)
+if err != nil {
+    // invalid questionnaire structure
+}
+
+response, err := builder.
+    Set("name", "Ada").
+    SetCoding("color", "red").
+    InGroup("group", 1).
+    Set("nested", true).
+    SetAtAnswer(sdc.ItemPath{{LinkID: "trigger"}}, 0, "detail", "extra").
+    AppendAnswer("tags", "alpha").
+    Build(sdc.ValidationOptions{})
+if err != nil {
+    if outcome, ok := sdc.OutcomeFromError(err); ok {
+        // render outcome.Issue
+    }
+}
+```
+
+Use `SetAt` / `AppendAnswerAt` when a linkId appears at multiple nesting
+levels, `InGroup` to target a repeating-group instance during auto-placement,
+and `SetAtAnswer` / `AppendAnswerAtAnswer` for item-controlled nesting under
+`answer[n].item`. Use `SetCodingWithSystem` when answer options share the same
+code in different code systems. Already-formed FHIR answer values (for example
+a `Coding` struct) are stored without modification; SDC validation still
+enforces answer options.
+
 ### Population
 
 `PopulateResource` returns a new QuestionnaireResponse envelope without saving

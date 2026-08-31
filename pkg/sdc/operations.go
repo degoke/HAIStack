@@ -208,13 +208,15 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				o.add("error", "structure", "response item is not allowed at this level", p)
 			}
 			validateResponseItem(&o, d, responseItem, r, opts, p)
-			validateLevel(d.Item, responseItem.Item, p+".")
+			if d.Type == "group" || d.Type == "display" {
+				validateLevel(d.Item, responseItem.Item, p+".")
+			}
 			for ai, answer := range responseItem.Answer {
 				validateLevel(d.Item, answer.Item, fmt.Sprintf("%s.answer[%d].", p, ai))
 			}
 		}
 		for _, item := range questionItems {
-			matches := directResponses(responseItems, item.LinkID)
+			matches := childResponses(responseItems, item.LinkID)
 			if len(matches) == 0 {
 				enabled, expressionErr := enabledForValidationOutcome(item, r, opts)
 				if expressionErr != nil {
@@ -325,6 +327,21 @@ func directResponses(items []ResponseItem, linkID string) []*ResponseItem {
 	for i := range items {
 		if items[i].LinkID == linkID {
 			matches = append(matches, &items[i])
+		}
+	}
+	return matches
+}
+
+func childResponses(items []ResponseItem, linkID string) []*ResponseItem {
+	matches := directResponses(items, linkID)
+	if len(matches) > 0 {
+		return matches
+	}
+	for i := range items {
+		for _, answer := range items[i].Answer {
+			if nested := directResponses(answer.Item, linkID); len(nested) > 0 {
+				matches = append(matches, nested...)
+			}
 		}
 	}
 	return matches
