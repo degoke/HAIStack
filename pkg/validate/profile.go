@@ -398,38 +398,6 @@ func metaProfiles(obj map[string]interface{}) []string {
 	}
 }
 
-func validateProfileCardinality(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	for _, el := range sd.Elements {
-		if el.Path == "" || el.Path == sd.Type {
-			continue
-		}
-		if strings.Contains(el.Path, "[x]") || strings.Contains(el.Path, ":") {
-			continue
-		}
-		parent, _ := splitElementPath(el.Path)
-		if parent != sd.Type && parent != "" {
-			if countPath(obj, parent) == 0 {
-				continue
-			}
-		}
-		count := countPath(obj, el.Path)
-		if el.Min > 0 && count < el.Min {
-			*issues = append(*issues, issue(
-				"required",
-				fmt.Sprintf("%s: minimum required = %d, but only found %d (%s)", el.Path, el.Min, count, sd.URL),
-				[]string{el.Path},
-			))
-		}
-		if max, ok := parseMax(el.Max); ok && count > max {
-			*issues = append(*issues, issue(
-				"structure",
-				fmt.Sprintf("%s: max allowed = %d, but found %d (%s)", el.Path, max, count, sd.URL),
-				[]string{el.Path},
-			))
-		}
-	}
-}
-
 func (sd *StructureDefinition) buildAllowedChildren() {
 	if sd.allowedChild != nil {
 		return
@@ -502,11 +470,6 @@ func isAlwaysAllowedKey(key string) bool {
 	return ok
 }
 
-func validateUnknownElements(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	sd.buildAllowedChildren()
-	walkUnknownElements(obj, sd.Type, sd, issues)
-}
-
 var metaFieldAllowlist = map[string]struct{}{
 	"profile":     {},
 	"version":     {},
@@ -518,60 +481,6 @@ var metaFieldAllowlist = map[string]struct{}{
 
 func isMetaElementPath(path string) bool {
 	return strings.HasSuffix(path, ".meta")
-}
-
-func walkUnknownElements(node interface{}, path string, sd *StructureDefinition, issues *[]ValidationIssue) {
-	switch current := node.(type) {
-	case map[string]interface{}:
-		if isMetaElementPath(path) {
-			for key, value := range current {
-				if _, ok := metaFieldAllowlist[key]; !ok {
-					*issues = append(*issues, issue(
-						"unknown-element",
-						fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
-						[]string{path + "." + key},
-					))
-					continue
-				}
-				walkUnknownElements(value, path+"."+key, sd, issues)
-			}
-			return
-		}
-		allowed := sd.allowedChild[path]
-		for key, value := range current {
-			if isAlwaysAllowedKey(key) {
-				nextPath := path
-				if key == "meta" || key == "text" {
-					if path == "" {
-						nextPath = key
-					} else {
-						nextPath = path + "." + key
-					}
-				}
-				if key != "extension" && key != "modifierExtension" {
-					walkUnknownElements(value, nextPath, sd, issues)
-				}
-				continue
-			}
-			if allowed == nil {
-				continue
-			}
-			if _, ok := allowed[key]; !ok {
-				*issues = append(*issues, issue(
-					"unknown-element",
-					fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
-					[]string{path + "." + key},
-				))
-				continue
-			}
-			nextPath := elementPathForJSONKey(sd, path, key)
-			walkUnknownElements(value, nextPath, sd, issues)
-		}
-	case []interface{}:
-		for _, item := range current {
-			walkUnknownElements(item, path, sd, issues)
-		}
-	}
 }
 
 func elementPathForJSONKey(sd *StructureDefinition, parentPath, jsonKey string) string {

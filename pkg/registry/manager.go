@@ -15,7 +15,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
-const defaultFHIRVersion = "4.0.1"
+const DefaultFHIRVersion = "4.0.1"
+
+const defaultFHIRVersion = DefaultFHIRVersion
 
 // Config configures a registry Manager.
 type Config struct {

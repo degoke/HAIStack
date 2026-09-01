@@ -119,9 +119,26 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 		if searchEnabled {
 			interactions = append(interactions, map[string]string{"code": "search-type"})
 		}
+		operations := []map[string]string{{
+			"name":       "validate",
+			"definition": "http://hl7.org/fhir/OperationDefinition/Resource-validate",
+		}}
+		if res.ResourceType == "ImplementationGuide" {
+			operations = append(operations,
+				map[string]string{
+					"name":       "install",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ImplementationGuide-install",
+				},
+				map[string]string{
+					"name":       "package",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ImplementationGuide-package",
+				},
+			)
+		}
 		resourceEntries = append(resourceEntries, map[string]interface{}{
 			"type":         res.ResourceType,
 			"interaction":  interactions,
+			"operation":    operations,
 			"searchParam":  searchParamsForCapability(res.SearchParameters),
 			"versioning":   "versioned",
 			"readHistory":  true,
