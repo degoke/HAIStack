@@ -4,6 +4,8 @@
 // haistack-validate checks canonical JSON resources before storage, sync, indexing, or AI
 // exposure. It validates JSON shape, resource types, IDs, required fields, reference syntax,
 // and structural/primitive constraints via the Google FHIR R4 proto layer.
+// Optional profile cardinality checks run when a ProfileCatalog is configured
+// and ValidateOptions.EnforceDeclaredProfiles or Profiles is set.
 //
 // # Two integration paths
 //
@@ -30,11 +32,11 @@
 //   - minimal configured required-field checks
 //   - syntactic Reference.reference validation
 //   - proto/jsonformat structural and primitive validation
+//   - optional StructureDefinition cardinality checks (meta.profile or explicit Profiles)
 //
-// Explicitly out of scope for the built-in MVP engine:
+// Not a full HL7 validator. Still out of scope for the built-in engine:
 //
-//   - StructureDefinition and profile validation
-//   - slicing, terminology, custom invariants, extension policy
+//   - slicing, custom FHIRPath invariants, extension policy
 //   - module-specific business rules
 //
 // Resource-type installation checks are allowlist-based and optional. When no
@@ -69,4 +71,5 @@
 //   - outcome.go       — ToOperationOutcome
 //   - reference.go     — syntactic reference checks
 //   - defaults.go      — built-in required-field defaults
+//   - profile.go       — optional StructureDefinition cardinality checks
 package validate

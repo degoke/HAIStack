@@ -8,7 +8,9 @@ registry, and records the installation through backend-neutral store
 interfaces.
 
 The package does not load Go plugins or execute arbitrary module code. In v1,
-modules are manifests and JSON definitions only.
+modules are manifests plus JSON definitions. Core and SDC definitions are
+authored in FSH under `conformance/fsh/` and installed from compiled IG output
+in `modules/*/ig` (`make ig`).
 
 ## Module Layout
 
@@ -18,12 +20,15 @@ the repository-level `modules/` directory:
 ```text
 modules/<name>/
 ├── module.json
-└── definitions/
+├── ig/                 # compiled IG JSON (core and sdc)
+└── definitions/        # optional hand-authored JSON
     └── *.json
 ```
 
 For example, [`modules/core`](../../modules/core) enables foundational FHIR
-resources and installs a custom search definition.
+resources and installs compiled IG artefacts from `ig/` (built from
+[`conformance/fsh`](../../conformance/fsh)). [`modules/scheduling`](../../modules/scheduling)
+still uses hand-authored `definitions/`.
 
 ## Manifest
 
@@ -54,6 +59,7 @@ resources and installs a custom search definition.
 | `dependencies` | Required modules and their minimum compatible versions. |
 | `resources` | Base FHIR resource types to enable. |
 | `definitionFiles` | Module-relative JSON definitions to ingest with provenance. |
+| `igPackage` | Module-relative directory of compiled IG JSON (all `*.json` files are loaded). |
 | `views`, `aiTools`, `permissions`, `syncPolicies`, `subscriptions`, `migrations` | Capability declarations recorded as metadata but not executed by v1. |
 
 Definition paths must remain inside the module directory. The loader also

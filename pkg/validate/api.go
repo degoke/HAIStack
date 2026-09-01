@@ -32,12 +32,15 @@ func (m MapResourceTypeRegistry) IsInstalled(resourceType string) bool {
 
 // ValidateOptions configures a single Validate invocation.
 type ValidateOptions struct {
-	RequireID            bool
-	ResourceTypeRegistry ResourceTypeRegistry
-	ReferencePolicy      ReferencePolicy
-	Terminology          terminology.Service
-	TerminologyEnabled   bool
-	TerminologyBindings  map[string]TerminologyBinding
+	RequireID               bool
+	ResourceTypeRegistry    ResourceTypeRegistry
+	ReferencePolicy         ReferencePolicy
+	Terminology             terminology.Service
+	TerminologyEnabled      bool
+	TerminologyBindings     map[string]TerminologyBinding
+	Profiles                []string
+	ProfileCatalog          ProfileCatalog
+	EnforceDeclaredProfiles bool
 }
 
 type TerminologyBinding struct{ URL, Version, Strength string }
@@ -67,4 +70,5 @@ type Config struct {
 	KnownResourceTypes map[string]struct{}
 	InstalledTypes     ResourceTypeRegistry
 	RequiredFields     map[string][]string
+	ProfileCatalog     ProfileCatalog
 }

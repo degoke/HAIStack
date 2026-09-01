@@ -1,4 +1,4 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all
+.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
@@ -49,10 +49,20 @@ tidy: ## Tidy go.mod and go.sum
 generate-r4-bundle: ## Regenerate embedded HL7 FHIR R4 base catalog
 	python3 scripts/generate-r4-bundle.py
 
+ig: ## Compile FSH with SUSHI and export IG artefacts into modules/*/ig
+	bash conformance/scripts/build-ig.sh
+
+validate-ig: ig ## Build the IG and run the HL7 FHIR Validator on examples
+	bash conformance/scripts/validate-ig.sh
+
+conformance-lock: ## Record current git commit and toolchain pins in conformance-lock.json
+	bash conformance/scripts/write-lock.sh
+
 clean: ## Remove build artifacts and test binaries
 	$(GO) clean -testcache
 	rm -f coverage.out coverage.html
+	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
-ci: fmt-check vet lint test-race build ## Run all CI checks locally
+ci: fmt-check vet lint test-race build ## Run all Go CI checks locally
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

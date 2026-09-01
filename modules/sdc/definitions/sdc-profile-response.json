@@ -1,1 +1,0 @@
-{"resourceType":"StructureDefinition","id":"sdc-questionnaireresponse","url":"http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-response","version":"3.0.0","name":"SDCQuestionnaireResponse","status":"active","fhirVersion":"4.0.1","kind":"resource","type":"QuestionnaireResponse","baseDefinition":"http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse"}

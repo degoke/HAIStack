@@ -1,0 +1,5 @@
+{
+  "mustFail": true,
+  "profile": "http://haistack.example.org/fhir/StructureDefinition/hai-patient",
+  "expectedSubstrings": ["system"]
+}

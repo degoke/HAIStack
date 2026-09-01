@@ -1,0 +1,15 @@
+{
+  "core": [
+    "SearchParameter-Patient-identifier-custom.json",
+    "StructureDefinition-hai-patient.json"
+  ],
+  "sdc": [
+    "StructureDefinition-sdc-questionnaire.json",
+    "StructureDefinition-sdc-questionnaireresponse.json",
+    "StructureDefinition-sdc-questionnaire-expression.json",
+    "OperationDefinition-Questionnaire-populate.json",
+    "ValueSet-sdc-questionnaire-item-type.json",
+    "CodeSystem-sdc-expression-language.json",
+    "CapabilityStatement-sdc-r4.json"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "resourceType": "CodeSystem",
+  "status": "active",
+  "content": "complete",
+  "name": "SDCExpressionLanguage",
+  "id": "sdc-expression-language",
+  "title": "SDC Expression Language",
+  "description": "Expression languages supported by HAIStack SDC.",
+  "version": "3.0.0",
+  "url": "http://hl7.org/fhir/uv/sdc/CodeSystem/sdc-expression-language",
+  "concept": [
+    {
+      "code": "text/fhirpath",
+      "display": "FHIRPath",
+      "definition": "FHIRPath expression."
+    },
+    {
+      "code": "text/cql",
+      "display": "CQL",
+      "definition": "Clinical Quality Language expression."
+    },
+    {
+      "code": "application/x-fhir-query",
+      "display": "FHIR Query",
+      "definition": "FHIR REST query."
+    }
+  ],
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "caseSensitive": true,
+  "count": 3
+}

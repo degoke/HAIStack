@@ -1,0 +1,14 @@
+{
+  "resourceType": "Patient",
+  "id": "hai-patient-identifier-missing-system",
+  "meta": {
+    "profile": [
+      "http://haistack.example.org/fhir/StructureDefinition/hai-patient"
+    ]
+  },
+  "identifier": [
+    {
+      "value": "mrn-1"
+    }
+  ]
+}

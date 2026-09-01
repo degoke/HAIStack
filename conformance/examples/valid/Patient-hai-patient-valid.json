@@ -1,0 +1,21 @@
+{
+  "resourceType": "Patient",
+  "id": "hai-patient-valid",
+  "meta": {
+    "profile": [
+      "http://haistack.example.org/fhir/StructureDefinition/hai-patient"
+    ]
+  },
+  "identifier": [
+    {
+      "system": "http://fhir.haistack.io/sid/mrn",
+      "value": "mrn-1"
+    }
+  ],
+  "name": [
+    {
+      "family": "Doe",
+      "given": ["Jane"]
+    }
+  ]
+}

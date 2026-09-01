@@ -208,6 +208,32 @@ func TestParseDefinitionSearchParameterMultiTarget(t *testing.T) {
 	}
 }
 
+func TestParseDefinitionOperationDefinitionBooleanType(t *testing.T) {
+	raw := []byte(`{
+		"resourceType":"OperationDefinition",
+		"url":"http://hl7.org/fhir/uv/sdc/OperationDefinition/Questionnaire-populate",
+		"version":"3.0.0",
+		"name":"QuestionnairePopulate",
+		"status":"active",
+		"kind":"operation",
+		"code":"populate",
+		"system":false,
+		"type":true,
+		"instance":true,
+		"resource":["Questionnaire"]
+	}`)
+	parsed, targets, err := registry.ParseDefinition(raw)
+	if err != nil {
+		t.Fatalf("ParseDefinition: %v", err)
+	}
+	if parsed.CanonicalURL != "http://hl7.org/fhir/uv/sdc/OperationDefinition/Questionnaire-populate" {
+		t.Fatalf("url = %q", parsed.CanonicalURL)
+	}
+	if len(targets) != 0 {
+		t.Fatalf("targets = %d, want 0", len(targets))
+	}
+}
+
 func TestParseDefinitionRequiresResourceTypeAndSearchParameterFields(t *testing.T) {
 	for name, raw := range map[string][]byte{
 		"resourceType": []byte(`{"url":"http://example.org/definition"}`),

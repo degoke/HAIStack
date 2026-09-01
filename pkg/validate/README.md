@@ -16,7 +16,9 @@ It looks at a `*types.ResourceEnvelope` — mainly the JSON inside it — and ch
 - Are references syntactically valid (e.g. `Patient/123`, URLs, URNs)?
 - Are fields structurally sane (via Google’s FHIR JSON/proto parser — e.g. `active` must be a boolean, not a string)?
 
-**What it does not do (MVP):** full FHIR conformance — profiles, terminology, business rules, or whether a referenced resource actually exists.
+**What it does not do by default:** full FHIR conformance — slicing, extension
+policy, or live terminology-server validation. Profile cardinality from installed
+StructureDefinitions is available when a `ProfileCatalog` is configured.
 
 ## When to use it
 
@@ -101,6 +103,28 @@ eng, _ := validate.NewEngine(validate.Config{
 
 You can also pass a per-request allowlist via `ValidateOptions.ResourceTypeRegistry`.
 
+### Profile enforcement (opt-in)
+
+Installed StructureDefinitions can be enforced on write. Cardinality constraints
+from the profile differential (or snapshot) are checked; this is not a full HL7
+validator.
+
+```go
+catalog, err := validate.LoadProfileCatalogFromDir("modules/core/ig")
+eng, err := validate.NewEngine(validate.Config{ProfileCatalog: catalog})
+
+svc, err := core.NewResourceService(core.ResourceServiceConfig{
+    Validator: validate.NewCoreValidator(eng, validate.ValidateOptions{
+        EnforceDeclaredProfiles: true, // honor meta.profile
+        // Profiles: []string{"http://haistack.example.org/fhir/StructureDefinition/hai-patient"},
+    }),
+})
+```
+
+Missing required elements produce issue code `required`. Unknown `meta.profile`
+URLs produce `unknown-profile`. Certification-grade checking still uses
+`make validate-ig` (HL7 FHIR Validator) against `conformance/examples`.
+
 ## Where it fits
 
 ```
@@ -122,12 +146,13 @@ FHIR JSON envelope
 
 ## MVP limits
 
-- Structural and safety-oriented, not full profile conformance
+- Structural and safety-oriented by default; profile cardinality is opt-in
 - Syntactic reference checks only (no existence resolution; bare IDs without slashes are accepted; typed references are not checked against the installed resource-type registry)
 - Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
-- No terminology, slicing, custom invariants, or module-specific rules
+- No slicing, custom FHIRPath invariants, or module-specific business rules
+- Profile cardinality is opt-in via `ProfileCatalog` + `EnforceDeclaredProfiles` / `Profiles`
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

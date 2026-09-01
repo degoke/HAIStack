@@ -31,20 +31,21 @@ const (
 // ParseDefinition extracts catalog metadata and target mappings from raw JSON.
 func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTargetRecord, error) {
 	var envelope struct {
-		ResourceType string   `json:"resourceType"`
-		URL          string   `json:"url"`
-		Version      string   `json:"version"`
-		FHIRVersion  string   `json:"fhirVersion"`
-		Name         string   `json:"name"`
-		Status       string   `json:"status"`
-		Kind         string   `json:"kind"`
-		Type         string   `json:"type"`
-		Code         string   `json:"code"`
-		Base         []string `json:"base"`
+		ResourceType string          `json:"resourceType"`
+		URL          string          `json:"url"`
+		Version      string          `json:"version"`
+		FHIRVersion  string          `json:"fhirVersion"`
+		Name         string          `json:"name"`
+		Status       string          `json:"status"`
+		Kind         string          `json:"kind"`
+		Type         json.RawMessage `json:"type"`
+		Code         string          `json:"code"`
+		Base         []string        `json:"base"`
 	}
 	if err := json.Unmarshal(jsonData, &envelope); err != nil {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: decode json: %v", ErrInvalidDefinition, err)
 	}
+	typeString := decodeJSONString(envelope.Type)
 	if strings.TrimSpace(envelope.ResourceType) == "" {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: missing resourceType", ErrInvalidDefinition)
 	}
@@ -73,11 +74,11 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 		if envelope.Kind == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: structure definition missing kind", ErrInvalidDefinition)
 		}
-		if envelope.Kind == "resource" && envelope.Type != "" {
+		if envelope.Kind == "resource" && typeString != "" {
 			targets := []store.DefinitionTargetRecord{{
 				CanonicalURL:       envelope.URL,
 				Version:            envelope.Version,
-				TargetResourceType: envelope.Type,
+				TargetResourceType: typeString,
 				TargetRole:         targetRoleDefines,
 			}}
 			return parsed, targets, nil
@@ -94,7 +95,7 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 		if envelope.Code == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing code", ErrInvalidDefinition)
 		}
-		if envelope.Type == "" {
+		if typeString == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing type", ErrInvalidDefinition)
 		}
 		targets := make([]store.DefinitionTargetRecord, 0, len(envelope.Base))
@@ -419,4 +420,15 @@ func LoadDefinitionJSONs(fsys fs.FS, root string) ([][]byte, error) {
 		return nil
 	})
 	return out, err
+}
+
+func decodeJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
 }

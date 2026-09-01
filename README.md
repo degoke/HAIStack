@@ -330,6 +330,16 @@ whether to pass it to `core.ResourceService.ProcessTransactionBundle`.
 See [`pkg/sdc/README.md`](pkg/sdc/README.md) for the complete API boundary,
 adapter contracts, operation routes, and module details.
 
+### Conformance (FSH / IG / validator)
+
+Capability definitions for `modules/core` and `modules/sdc` are authored in
+FHIR Shorthand. `make ig` compiles them with SUSHI and exports JSON into
+`modules/*/ig`. `make validate-ig` runs the HL7 FHIR Validator on
+`conformance/examples/valid` (must pass) and `conformance/examples/invalid`
+(must fail). Versions are pinned in [`conformance-lock.json`](conformance-lock.json).
+
+See [`conformance/README.md`](conformance/README.md).
+
 Postgres tests: `go test ./pkg/postgres/...` or set `TEST_POSTGRES_DSN` to skip Docker.
 
 ### haistack CLI
@@ -368,7 +378,7 @@ A module is a directory containing a `module.json` manifest and optional `defini
 - `dependencies` — exact module name and minimum semver version.
 - `views`, `aiTools`, `permissions`, `syncPolicies`, `subscriptions`, `migrations` — declaration-only arrays stored in metadata for future subsystems.
 
-The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `Inspect`, and `PlanInstall`. v1 is registry-first: views, AI tools, permissions, sync, subscriptions, and migrations are persisted but not executed yet. Example modules live under `modules/`.
+The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `Inspect`, and `PlanInstall`. v1 is registry-first: views, AI tools, permissions, sync, subscriptions, and migrations are persisted but not executed yet. Example modules live under `modules/`. Core and SDC definitions are authored in [FSH](conformance/README.md) and installed from compiled IG artefacts in `modules/*/ig`.
 
 ## Roadmap
 

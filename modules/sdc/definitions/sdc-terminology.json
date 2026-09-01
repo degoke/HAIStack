@@ -1,6 +1,0 @@
-{
-  "resourceType":"ValueSet",
-  "url":"http://hl7.org/fhir/uv/sdc/ValueSet/sdc-questionnaire-item-type",
-  "version":"3.0.0", "name":"SDCQuestionnaireItemType", "status":"active",
-  "fhirVersion":"4.0.1", "compose":{"include":[{"system":"http://hl7.org/fhir/item-type"}]}
-}

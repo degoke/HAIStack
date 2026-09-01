@@ -422,8 +422,8 @@ func TestManagerPlanInstall(t *testing.T) {
 	if len(plan.ResourcesToEnable) != 3 {
 		t.Errorf("resources to enable = %d, want 3", len(plan.ResourcesToEnable))
 	}
-	if len(plan.DefinitionsToInstall) != 1 {
-		t.Errorf("definitions to install = %d, want 1", len(plan.DefinitionsToInstall))
+	if len(plan.DefinitionsToInstall) != 2 {
+		t.Errorf("definitions to install = %d, want 2", len(plan.DefinitionsToInstall))
 	}
 	if plan.Deferred.Views[0] != "PatientDashboard" {
 		t.Errorf("deferred view = %v, want PatientDashboard", plan.Deferred.Views)

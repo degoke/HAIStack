@@ -1,0 +1,55 @@
+{
+  "resourceType": "StructureDefinition",
+  "id": "sdc-questionnaire-expression",
+  "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-expression",
+  "version": "3.0.0",
+  "name": "SDCQuestionnaireExpression",
+  "title": "SDC Questionnaire Expression",
+  "status": "active",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "description": "Expression used to populate or calculate a questionnaire item.",
+  "fhirVersion": "4.0.1",
+  "kind": "complex-type",
+  "abstract": false,
+  "context": [
+    {
+      "type": "element",
+      "expression": "Questionnaire.item"
+    }
+  ],
+  "type": "Extension",
+  "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+  "derivation": "constraint",
+  "differential": {
+    "element": [
+      {
+        "id": "Extension",
+        "path": "Extension",
+        "short": "SDC item expression",
+        "definition": "Expression used to populate or calculate a questionnaire item.",
+        "max": "1"
+      },
+      {
+        "id": "Extension.extension",
+        "path": "Extension.extension",
+        "max": "0"
+      },
+      {
+        "id": "Extension.url",
+        "path": "Extension.url",
+        "fixedUri": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-expression"
+      },
+      {
+        "id": "Extension.value[x]",
+        "path": "Extension.value[x]",
+        "min": 1,
+        "type": [
+          {
+            "code": "Expression"
+          }
+        ]
+      }
+    ]
+  }
+}

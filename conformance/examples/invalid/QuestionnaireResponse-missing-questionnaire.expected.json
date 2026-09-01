@@ -1,0 +1,5 @@
+{
+  "mustFail": true,
+  "profile": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-response",
+  "expectedSubstrings": ["questionnaire"]
+}

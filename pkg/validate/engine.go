@@ -16,6 +16,7 @@ type builtinEngine struct {
 	knownResourceTypes map[string]struct{}
 	installedTypes     ResourceTypeRegistry
 	requiredFields     map[string][]string
+	profileCatalog     ProfileCatalog
 }
 
 // NewEngine returns the built-in haistack-validate engine.
@@ -36,6 +37,7 @@ func NewEngine(cfg Config) (Engine, error) {
 		knownResourceTypes: cfg.KnownResourceTypes,
 		installedTypes:     cfg.InstalledTypes,
 		requiredFields:     cfg.RequiredFields,
+		profileCatalog:     cfg.ProfileCatalog,
 	}, nil
 }
 
@@ -146,6 +148,14 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 	}
 	if opts.TerminologyEnabled && opts.Terminology != nil {
 		e.validateTerminology(ctx, obj, resourceType, opts, &issues)
+	}
+	if opts.ProfileCatalog != nil || e.profileCatalog != nil {
+		if len(opts.Profiles) > 0 || opts.EnforceDeclaredProfiles {
+			e.validateProfiles(ctx, obj, resourceType, opts, &issues)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if len(issues) > 0 {
