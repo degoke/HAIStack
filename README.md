@@ -334,7 +334,7 @@ adapter contracts, operation routes, and module details.
 
 Capability definitions for `modules/core` and `modules/sdc` are authored in
 FHIR Shorthand. `make ig` compiles them with SUSHI and exports JSON into
-`modules/*/ig`. `make validate-ig` runs the HL7 FHIR Validator on
+`modules/*/ig`. `make validate-ig` runs the built-in Go validator (full mode) on
 `conformance/examples/valid` (must pass) and `conformance/examples/invalid`
 (must fail). Versions are pinned in [`conformance-lock.json`](conformance-lock.json).
 

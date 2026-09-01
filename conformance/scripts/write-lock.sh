@@ -8,14 +8,13 @@ PKG="$ROOT/conformance/package.json"
 
 commit="$(git -C "$ROOT" rev-parse HEAD)"
 sushi="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['devDependencies']['fsh-sushi'])" "$PKG")"
-validator="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('tools',{}).get('fhirValidator','6.9.11'))" "$LOCK")"
 
-python3 - "$LOCK" "$commit" "$sushi" "$validator" <<'PY'
+python3 - "$LOCK" "$commit" "$sushi" <<'PY'
 import json, sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-commit, sushi, validator = sys.argv[2], sys.argv[3], sys.argv[4]
+commit, sushi = sys.argv[2], sys.argv[3]
 data = json.loads(path.read_text()) if path.is_file() else {}
 data.setdefault("igPackage", {})
 data["igPackage"].update({
@@ -27,7 +26,6 @@ data["fhirVersion"] = "4.0.1"
 data.setdefault("tools", {})
 data["tools"].update({
     "sushi": sushi,
-    "fhirValidator": validator,
     "node": "20",
 })
 data.setdefault("packages", {})

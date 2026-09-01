@@ -52,8 +52,8 @@ generate-r4-bundle: ## Regenerate embedded HL7 FHIR R4 base catalog
 ig: ## Compile FSH with SUSHI and export IG artefacts into modules/*/ig
 	bash conformance/scripts/build-ig.sh
 
-validate-ig: ig ## Build the IG and run the HL7 FHIR Validator on examples
-	bash conformance/scripts/validate-ig.sh
+validate-ig: ig ## Build the IG and validate examples with the Go validator
+	go run ./cmd/validate-ig
 
 conformance-lock: ## Record current git commit and toolchain pins in conformance-lock.json
 	bash conformance/scripts/write-lock.sh
