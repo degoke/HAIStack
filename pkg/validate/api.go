@@ -3,6 +3,7 @@ package validate
 import (
 	"context"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/proto"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -30,14 +31,34 @@ func (m MapResourceTypeRegistry) IsInstalled(resourceType string) bool {
 	return ok
 }
 
+// ValidationMode selects how deeply profile validation runs.
+type ValidationMode int
+
+const (
+	// ValidationModeFast checks slice cardinality, unknown elements on snapshot
+	// profiles, and optional FHIRPath invariants (ProfileConstraints). This is
+	// the default for runtime API writes.
+	ValidationModeFast ValidationMode = iota
+	// ValidationModeFull adds StructureDefinition terminology bindings (except
+	// preferred strength) and extension URL policy checks.
+	ValidationModeFull
+)
+
 // ValidateOptions configures a single Validate invocation.
 type ValidateOptions struct {
-	RequireID            bool
-	ResourceTypeRegistry ResourceTypeRegistry
-	ReferencePolicy      ReferencePolicy
-	Terminology          terminology.Service
-	TerminologyEnabled   bool
-	TerminologyBindings  map[string]TerminologyBinding
+	RequireID               bool
+	ResourceTypeRegistry    ResourceTypeRegistry
+	ReferencePolicy         ReferencePolicy
+	Terminology             terminology.Service
+	TerminologyEnabled      bool
+	TerminologyBindings     map[string]TerminologyBinding
+	Profiles                []string
+	ProfileCatalog          ProfileCatalog
+	EnforceBaseProfile      bool
+	EnforceDeclaredProfiles bool
+	ProfileConstraints      bool
+	// Mode selects fast vs full profile validation. Zero defaults to Fast.
+	Mode ValidationMode
 }
 
 type TerminologyBinding struct{ URL, Version, Strength string }
@@ -67,4 +88,6 @@ type Config struct {
 	KnownResourceTypes map[string]struct{}
 	InstalledTypes     ResourceTypeRegistry
 	RequiredFields     map[string][]string
+	ProfileCatalog     ProfileCatalog
+	FHIRPath           fhirpath.Engine
 }

@@ -1,0 +1,19 @@
+{
+  "igPackage": {
+    "name": "haistack.fhir.r4",
+    "version": "0.1.0",
+    "canonical": "http://haistack.example.org/fhir"
+  },
+  "fhirVersion": "4.0.1",
+  "tools": {
+    "sushi": "3.20.0",
+    "node": "20"
+  },
+  "packages": {
+    "hl7.fhir.r4.core": "4.0.1",
+    "hl7.terminology.r4": "7.3.0",
+    "hl7.fhir.uv.extensions.r4": "5.3.0",
+    "hl7.fhir.uv.tools.r4": "1.1.2"
+  },
+  "gitCommit": ""
+}

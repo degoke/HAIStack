@@ -1,0 +1,19 @@
+{
+  "resourceType": "ValueSet",
+  "status": "active",
+  "name": "SDCQuestionnaireItemType",
+  "id": "sdc-questionnaire-item-type",
+  "title": "SDC Questionnaire Item Type",
+  "description": "Item types used by HAIStack SDC questionnaires.",
+  "version": "3.0.0",
+  "url": "http://hl7.org/fhir/uv/sdc/ValueSet/sdc-questionnaire-item-type",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "compose": {
+    "include": [
+      {
+        "system": "http://hl7.org/fhir/item-type"
+      }
+    ]
+  }
+}

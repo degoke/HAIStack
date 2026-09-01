@@ -1,0 +1,38 @@
+{
+  "resourceType": "CapabilityStatement",
+  "id": "sdc-r4",
+  "url": "http://hl7.org/fhir/uv/sdc/CapabilityStatement/sdc-r4",
+  "title": "HAIStack SDC R4",
+  "description": "Capability statement for HAIStack Structured Data Capture on FHIR R4.",
+  "version": "3.0.0",
+  "name": "SDCR4",
+  "status": "active",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "kind": "capability",
+  "fhirVersion": "4.0.1",
+  "format": [
+    "json"
+  ],
+  "rest": [
+    {
+      "mode": "server",
+      "resource": [
+        {
+          "type": "Questionnaire",
+          "interaction": [
+            {
+              "code": "read"
+            }
+          ],
+          "operation": [
+            {
+              "name": "populate",
+              "definition": "http://hl7.org/fhir/uv/sdc/OperationDefinition/Questionnaire-populate"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

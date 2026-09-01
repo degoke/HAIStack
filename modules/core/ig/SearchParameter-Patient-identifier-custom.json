@@ -2,11 +2,17 @@
   "resourceType": "SearchParameter",
   "id": "Patient-identifier-custom",
   "url": "http://haistack.example.org/SearchParameter/Patient-identifier-custom",
+  "description": "Search Patient by identifier.",
   "version": "1.0.0",
   "name": "identifier-custom",
   "status": "draft",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
   "code": "identifier-custom",
-  "base": ["Patient"],
+  "base": [
+    "Patient"
+  ],
   "type": "token",
-  "expression": "Patient.identifier"
+  "expression": "Patient.identifier",
+  "xpathUsage": "normal"
 }

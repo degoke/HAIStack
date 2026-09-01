@@ -1,0 +1,84 @@
+name: Conformance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: conformance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache FHIR packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.fhir/packages
+          key: fhir-conformance-${{ hashFiles('conformance-lock.json', 'conformance/package-lock.json') }}
+
+      - name: Install toolchain
+        run: npm ci
+
+      - name: Build IG
+        working-directory: .
+        run: make ig
+
+      - name: Check exported artefacts match FSH
+        working-directory: .
+        run: |
+          git diff --exit-code -- modules/core/ig modules/sdc/ig
+          if [[ -n "$(git ls-files --others --exclude-standard -- modules/core/ig modules/sdc/ig)" ]]; then
+            echo "untracked IG artefacts; run make ig and commit"
+            git status --short -- modules/core/ig modules/sdc/ig
+            exit 1
+          fi
+
+      - name: Validate examples
+        working-directory: .
+        run: make validate-ig
+
+      - name: Record certification lock
+        working-directory: .
+        run: |
+          make conformance-lock
+          python3 - <<'PY'
+          import json
+          lock = json.load(open("conformance-lock.json"))
+          pkg = json.load(open("conformance/package.json"))
+          sushi = pkg["devDependencies"]["fsh-sushi"]
+          if lock["tools"]["sushi"] != sushi:
+              raise SystemExit(f"lock sushi {lock['tools']['sushi']} != package.json {sushi}")
+          print("conformance-lock.json", json.dumps(lock, indent=2))
+          PY
+
+      - name: Upload IG artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: haistack-ig
+          path: |
+            conformance/fsh-generated/resources/
+            modules/core/ig/
+            modules/sdc/ig/
+            conformance-lock.json

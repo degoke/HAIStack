@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Foundational FHIR resources and search parameters for Health AI Stack.",
   "resources": ["Patient", "Practitioner", "Organization"],
-  "definitionFiles": ["definitions/Patient-identifier-custom.json"],
+  "igPackage": "ig",
   "views": ["PatientDashboard"],
   "aiTools": [],
   "permissions": ["read-patient"],
