@@ -13,6 +13,7 @@ import (
 
 // CoreValidateService implements FHIR Resource/$validate using validate.Engine.
 type CoreValidateService struct {
+	Runtime   ConformanceRuntime
 	Engine    validate.Engine
 	Resources ResourceService
 	Codec     types.ResourceCodec
@@ -22,7 +23,11 @@ type CoreValidateService struct {
 
 // Validate runs profile validation and returns a FHIR OperationOutcome.
 func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) (*types.OperationOutcome, error) {
-	if s.Engine == nil {
+	engine := s.Engine
+	if s.Runtime != nil {
+		engine = s.Runtime.Engine()
+	}
+	if engine == nil {
 		return nil, &core.ServiceError{Kind: core.ErrorKindNotSupported, Message: "validate service is unavailable"}
 	}
 	if req.ResourceType == "" {
@@ -75,6 +80,7 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 	}
 	if truthy(req.Query.Get("_fast")) {
 		opts.Mode = validate.ValidationModeFast
+		opts.ProfileConstraints = false
 	} else {
 		opts.Mode = validate.ValidationModeFull
 		opts.ProfileConstraints = true
@@ -82,8 +88,11 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 	if truthy(req.Query.Get("_invariants")) {
 		opts.ProfileConstraints = true
 	}
+	if s.Runtime != nil && s.Runtime.Snapshot() != nil {
+		opts.ResourceTypeRegistry = s.Runtime.Snapshot()
+	}
 
-	result, err := s.Engine.Validate(ctx, envelope, opts)
+	result, err := engine.Validate(ctx, envelope, opts)
 	if err != nil {
 		return nil, err
 	}

@@ -46,6 +46,14 @@ func NewSnapshotRegistry(snapshot *registry.Snapshot) *SnapshotRegistry {
 	return &SnapshotRegistry{snapshot: snapshot}
 }
 
+// SetSnapshot replaces the backing registry snapshot.
+func (r *SnapshotRegistry) SetSnapshot(snapshot *registry.Snapshot) {
+	if r == nil {
+		return
+	}
+	r.snapshot = snapshot
+}
+
 func (r *SnapshotRegistry) IsResourceEnabled(resourceType string) bool {
 	if r == nil || r.snapshot == nil {
 		return false

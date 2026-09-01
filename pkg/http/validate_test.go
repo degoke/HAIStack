@@ -148,6 +148,9 @@ func TestCoreValidateServiceFastModeQuery(t *testing.T) {
 	if captured.Mode != validate.ValidationModeFast {
 		t.Fatalf("mode = %v, want fast", captured.Mode)
 	}
+	if captured.ProfileConstraints {
+		t.Fatal("expected ProfileConstraints false in fast mode")
+	}
 }
 
 func TestCoreValidateServiceRejectsUnknownElement(t *testing.T) {

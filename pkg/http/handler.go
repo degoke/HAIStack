@@ -141,15 +141,17 @@ func (h *handler) handleCustomOperation(w http.ResponseWriter, r *http.Request, 
 	var body []byte
 	var err error
 	if r.Method == http.MethodPost {
-		body, err = readBody(r)
+		body, err = readBodyAllowEmpty(r)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		body, _, err = requestBodyJSON(r.Header.Get("Content-Type"), body)
-		if err != nil {
-			writeError(w, invalidRequest("parse custom operation input", err))
-			return
+		if len(body) > 0 {
+			body, _, err = requestBodyJSON(r.Header.Get("Content-Type"), body)
+			if err != nil {
+				writeError(w, invalidRequest("parse custom operation input", err))
+				return
+			}
 		}
 	}
 	result, err := h.cfg.OperationService.Execute(r.Context(), OperationRequest{
