@@ -86,6 +86,19 @@ func lookupStructureDefinition(catalog ProfileCatalog, canonicalURL string) (*St
 	return sd, nil
 }
 
+// Warm pre-parses base StructureDefinitions for all enabled resource types.
+func (c *RegistryProfileCatalog) Warm() error {
+	if c == nil || c.snapshot == nil {
+		return nil
+	}
+	for _, resourceType := range c.snapshot.EnabledResourceTypes() {
+		if _, err := c.ResolveStructureDefinition(BaseStructureDefinitionURL(resourceType)); err != nil && !errors.Is(err, ErrProfileNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *RegistryProfileCatalog) lookupRaw(canonicalURL string) ([]byte, bool) {
 	if data, ok := c.snapshot.DefinitionsByCanonical(canonicalURL, "4.0.1"); ok {
 		return data, true

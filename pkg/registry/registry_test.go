@@ -224,6 +224,9 @@ func TestRegistryProfileCatalogLoadsBasePatient(t *testing.T) {
 		t.Fatalf("RebuildSnapshot: %v", err)
 	}
 	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := catalog.Warm(); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
 	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL("Patient"))
 	if !ok {
 		t.Fatal("expected base Patient StructureDefinition")

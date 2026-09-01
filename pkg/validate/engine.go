@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/proto"
@@ -57,7 +58,10 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 
 	var issues []ValidationIssue
 
-	obj, jsonErr := decodeJSONObject(res.JSON)
+	obj, release, jsonErr := decodeJSONObject(res.JSON)
+	if release != nil {
+		defer release()
+	}
 	if jsonErr != nil {
 		issues = append(issues, issue("invalid-json", jsonErr.Error(), nil))
 		return &ValidationResult{Valid: false, Issues: issues}, nil
@@ -154,7 +158,7 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 	}
 	if opts.ProfileCatalog != nil || e.profileCatalog != nil {
 		if opts.EnforceBaseProfile || opts.EnforceDeclaredProfiles || len(opts.Profiles) > 0 {
-			e.validateProfiles(ctx, obj, resourceType, opts, &issues)
+			e.validateProfiles(ctx, res, obj, resourceType, opts, &issues)
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
@@ -260,16 +264,23 @@ func shouldRunProtoValidation(resourceType string, known map[string]struct{}, is
 	return true
 }
 
-func decodeJSONObject(data []byte) (map[string]interface{}, error) {
-	var v interface{}
-	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
+func decodeJSONObject(data []byte) (map[string]interface{}, func(), error) {
+	obj := jsonObjectPool.Get().(map[string]interface{})
+	clear(obj)
+	if err := json.Unmarshal(data, &obj); err != nil {
+		jsonObjectPool.Put(obj)
+		return nil, nil, fmt.Errorf("invalid JSON: %w", err)
 	}
-	obj, ok := v.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("expected JSON object")
-	}
-	return obj, nil
+	return obj, func() {
+		clear(obj)
+		jsonObjectPool.Put(obj)
+	}, nil
+}
+
+var jsonObjectPool = sync.Pool{
+	New: func() any {
+		return make(map[string]interface{})
+	},
 }
 
 func hasTopLevelField(obj map[string]interface{}, field string) bool {

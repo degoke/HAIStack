@@ -285,6 +285,19 @@ func (s *Snapshot) Operations() []DefinitionRef {
 	return append([]DefinitionRef(nil), s.operations...)
 }
 
+// EnabledResourceTypes returns installed resource types in sorted order.
+func (s *Snapshot) EnabledResourceTypes() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.enabled))
+	for resourceType := range s.enabled {
+		out = append(out, resourceType)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // IsResourceEnabled reports whether resourceType is enabled in the compiled snapshot.
 func (s *Snapshot) IsResourceEnabled(resourceType string) bool {
 	if s == nil {

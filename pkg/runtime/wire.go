@@ -282,9 +282,14 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 
+	profileCatalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := profileCatalog.Warm(); err != nil {
+		return fmt.Errorf("runtime: warm profile catalog: %w", err)
+	}
+
 	validateEngine, err := validate.NewEngine(validate.Config{
 		InstalledTypes: snapshot,
-		ProfileCatalog: validate.NewRegistryProfileCatalog(snapshot),
+		ProfileCatalog: profileCatalog,
 		FHIRPath:       engine,
 	})
 	if err != nil {
@@ -294,7 +299,6 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	baseValidator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{
 		EnforceBaseProfile:      true,
 		EnforceDeclaredProfiles: true,
-		ProfileConstraints:      true,
 		Terminology:             state.services.TerminologyService,
 	})
 	validator := &sdc.ResponseValidator{

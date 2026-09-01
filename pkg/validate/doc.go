@@ -39,9 +39,11 @@
 //
 // Profile validation modes:
 //
-//   - Fast (default): cardinality on non-sliced paths, unknown elements on snapshot
-//     profiles, FHIRPath invariants. Named slice paths (":") are deferred to full mode.
-//   - Full: adds slice cardinality, SD terminology bindings, and extension URL policy.
+//   - Fast (default): slicing, unknown elements on snapshot profiles, optional
+//     FHIRPath invariants (opt-in via ProfileConstraints). Named slice paths
+//     are validated in fast mode.
+//   - Full: adds SD terminology bindings (except preferred strength) and
+//     extension URL policy.
 //
 // Constraint profiles (differential only, e.g. hai-patient) apply cardinality overlays.
 // Unknown-element checks run on the base HL7 snapshot profile when EnforceBaseProfile

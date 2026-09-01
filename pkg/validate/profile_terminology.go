@@ -13,6 +13,9 @@ func validateProfileTerminology(ctx context.Context, obj map[string]interface{},
 		if el.Binding == nil || el.Binding.ValueSet == "" {
 			continue
 		}
+		if strings.EqualFold(el.Binding.Strength, "preferred") {
+			continue
+		}
 		if strings.Contains(el.Path, ":") {
 			continue
 		}
