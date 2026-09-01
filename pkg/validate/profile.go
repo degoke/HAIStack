@@ -87,6 +87,9 @@ func (c MemoryProfileCatalog) GetStructureDefinition(canonicalURL string) (*Stru
 func LoadProfileCatalogFromJSON(resources [][]byte) (MemoryProfileCatalog, error) {
 	catalog := make(MemoryProfileCatalog)
 	for _, raw := range resources {
+		if !isStructureDefinitionJSON(raw) {
+			continue
+		}
 		sd, ok, err := parseStructureDefinition(raw)
 		if err != nil {
 			return nil, err
@@ -131,6 +134,16 @@ type structureDefinitionJSON struct {
 	Differential *struct {
 		Element []elementDefinitionJSON `json:"element"`
 	} `json:"differential"`
+}
+
+func isStructureDefinitionJSON(raw []byte) bool {
+	var peek struct {
+		ResourceType string `json:"resourceType"`
+	}
+	if err := json.Unmarshal(raw, &peek); err != nil {
+		return false
+	}
+	return peek.ResourceType == "StructureDefinition"
 }
 
 type elementDefinitionJSON struct {
@@ -480,14 +493,49 @@ func validateUnknownElements(obj map[string]interface{}, sd *StructureDefinition
 	walkUnknownElements(obj, sd.Type, sd, issues)
 }
 
+var metaFieldAllowlist = map[string]struct{}{
+	"profile":     {},
+	"version":     {},
+	"lastUpdated": {},
+	"source":      {},
+	"security":    {},
+	"tag":         {},
+}
+
+func isMetaElementPath(path string) bool {
+	return strings.HasSuffix(path, ".meta")
+}
+
 func walkUnknownElements(node interface{}, path string, sd *StructureDefinition, issues *[]ValidationIssue) {
 	switch current := node.(type) {
 	case map[string]interface{}:
+		if isMetaElementPath(path) {
+			for key, value := range current {
+				if _, ok := metaFieldAllowlist[key]; !ok {
+					*issues = append(*issues, issue(
+						"unknown-element",
+						fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
+						[]string{path + "." + key},
+					))
+					continue
+				}
+				walkUnknownElements(value, path+"."+key, sd, issues)
+			}
+			return
+		}
 		allowed := sd.allowedChild[path]
 		for key, value := range current {
 			if isAlwaysAllowedKey(key) {
+				nextPath := path
+				if key == "meta" || key == "text" {
+					if path == "" {
+						nextPath = key
+					} else {
+						nextPath = path + "." + key
+					}
+				}
 				if key != "extension" && key != "modifierExtension" {
-					walkUnknownElements(value, path, sd, issues)
+					walkUnknownElements(value, nextPath, sd, issues)
 				}
 				continue
 			}

@@ -131,8 +131,8 @@ svc, _ := core.NewResourceService(core.ResourceServiceConfig{
 })
 ```
 
-Runtime API writes use **fast** mode by default. The HL7 Java validator
-(`make validate-ig`) remains the reference for IG certification.
+Runtime API writes use **fast** mode by default. `make validate-ig` runs the
+same Go validator in **full** mode against conformance examples.
 
 ## Where it fits
 
@@ -161,9 +161,7 @@ FHIR JSON envelope
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
 - **Fast mode (runtime default):** cardinality, unknown elements, FHIRPath invariants
-- **Full mode:** slicing, SD terminology bindings, extension url policy (set `Mode: ValidationModeFull`)
-- Custom profiles require `ProfileCatalog` + `EnforceDeclaredProfiles` or explicit `Profiles`
-- Full Go validation does not yet match every HL7 Java validator rule; use `make validate-ig` for IG certification
+- **Full mode:** slicing, SD terminology bindings, extension url policy (set `Mode: ValidationModeFull` or `make validate-ig`)
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

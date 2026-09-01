@@ -7,7 +7,6 @@
   "fhirVersion": "4.0.1",
   "tools": {
     "sushi": "3.20.0",
-    "fhirValidator": "6.9.11",
     "node": "20"
   },
   "packages": {

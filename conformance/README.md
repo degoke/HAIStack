@@ -2,7 +2,8 @@
 
 FHIR Shorthand (FSH) is the source of truth for HAIStack capability definitions.
 SUSHI compiles those files into FHIR JSON. `pkg/modules` installs the compiled
-artefacts, and CI runs the HL7 FHIR Validator against valid and invalid examples.
+artefacts, and CI validates valid and invalid examples with the built-in Go
+validator (`make validate-ig`).
 
 ## Layout
 
@@ -38,7 +39,7 @@ Pinned in [`conformance-lock.json`](../conformance-lock.json) and
 | --- | --- |
 | FHIR | R4 4.0.1 |
 | SUSHI / FSH | 3.20.0 |
-| HL7 FHIR Validator | 6.9.11 |
+| Go validator (`pkg/validate`) | in-tree |
 | Node | 20 |
 
 `make conformance-lock` records the git commit of the current checkout in the
@@ -50,13 +51,12 @@ conformance build.
 
 ```bash
 make ig              # npm ci, sushi --snapshot, export into modules/*/ig
-make validate-ig     # HL7 validator on examples/valid and examples/invalid
+make validate-ig     # Go validator on examples/valid and examples/invalid
 make conformance-lock
 ```
 
-Requirements: Node 20+, Java 17+ (validator), network on first run (npm, HL7
-core package, validator JAR). Subsequent runs reuse `conformance/node_modules`,
-`~/.fhir/packages`, and `conformance/.tools/`.
+Requirements: Node 20+, Go 1.22+, network on first run (npm, HL7 core package).
+Subsequent runs reuse `conformance/node_modules` and `~/.fhir/packages`.
 
 ## Authoring
 
@@ -70,25 +70,14 @@ core package, validator JAR). Subsequent runs reuse `conformance/node_modules`,
 A breaking profile change — for example requiring `Patient.gender` on
 `hai-patient` — fails `make validate-ig` until examples are updated.
 
-## Runtime profile checks
+## Runtime and IG validation
 
-`pkg/validate` can enforce installed StructureDefinitions on write. Opt in with
-a profile catalog built from compiled IG JSON (or the definition store after
-module install):
+`pkg/validate` enforces installed StructureDefinitions on write and powers
+`make validate-ig` in full validation mode (base HL7 R4 profile + declared
+`meta.profile` URLs, slicing, SD terminology bindings, extension policy).
 
-```go
-catalog, err := validate.LoadProfileCatalogFromDir("modules/core/ig")
-eng, err := validate.NewEngine(validate.Config{ProfileCatalog: catalog})
-svc, err := core.NewResourceService(core.ResourceServiceConfig{
-    Validator: validate.NewCoreValidator(eng, validate.ValidateOptions{
-        EnforceDeclaredProfiles: true,
-    }),
-})
-```
-
-This checks cardinality from the profile snapshot or differential. It is not a
-replacement for the HL7 validator (no slicing, full FHIRPath invariants, or
-terminology server). Use `make validate-ig` for certification-grade checking.
+Runtime API writes use fast mode by default. Use `ValidationModeFull` or
+`haistack validate --full` for certification-style depth.
 
 ## Out of scope
 
