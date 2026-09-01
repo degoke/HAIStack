@@ -104,6 +104,9 @@ func accumulateProfilePathCounts(node interface{}, path string, counts map[strin
 			accumulateProfilePathCounts(item, path, counts)
 		}
 	case map[string]interface{}:
+		if path != "" {
+			counts[path]++
+		}
 		for key, value := range current {
 			childPath := path + "." + key
 			accumulateProfilePathCounts(value, childPath, counts)

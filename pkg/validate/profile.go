@@ -72,8 +72,9 @@ type StructureDefinition struct {
 	Elements     []ElementDefinition
 	allowedChild map[string]map[string]struct{}
 
-	compiledConstraints map[string]fhirpath.CompiledExpression
-	constraintCompileMu sync.Mutex
+	compiledConstraints     map[string]fhirpath.CompiledExpression
+	constraintCompileErrors map[string]error
+	constraintCompileMu     sync.Mutex
 }
 
 // MemoryProfileCatalog is an in-memory ProfileCatalog.
@@ -316,6 +317,9 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 		return
 	}
 
+	// evaluatedConstraints deduplicates invariant keys across base + declared profiles.
+	// Constraints with the same key are evaluated once; if a later profile overrides
+	// the expression for that key, the first profile's constraint wins.
 	evaluatedConstraints := make(map[string]struct{})
 	for _, url := range urls {
 		if err := ctx.Err(); err != nil {
@@ -511,6 +515,7 @@ func ensureConstraintsCompiled(sd *StructureDefinition, engine fhirpath.Engine) 
 		return
 	}
 	compiled := make(map[string]fhirpath.CompiledExpression)
+	compileErrors := make(map[string]error)
 	for i := range sd.Elements {
 		for j := range sd.Elements[i].Constraints {
 			c := sd.Elements[i].Constraints[j]
@@ -520,12 +525,19 @@ func ensureConstraintsCompiled(sd *StructureDefinition, engine fhirpath.Engine) 
 			if _, ok := compiled[c.Key]; ok {
 				continue
 			}
-			if expr, err := engine.Compile(c.Expression); err == nil {
-				compiled[c.Key] = expr
+			if _, ok := compileErrors[c.Key]; ok {
+				continue
 			}
+			expr, err := engine.Compile(c.Expression)
+			if err != nil {
+				compileErrors[c.Key] = err
+				continue
+			}
+			compiled[c.Key] = expr
 		}
 	}
 	sd.compiledConstraints = compiled
+	sd.constraintCompileErrors = compileErrors
 }
 
 func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope, sd *StructureDefinition, engine fhirpath.Engine, evaluatedKeys map[string]struct{}, issues *[]ValidationIssue) {
@@ -543,6 +555,15 @@ func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope
 				continue
 			}
 			evaluatedKeys[c.Key] = struct{}{}
+			if compileErr := sd.constraintCompileErrors[c.Key]; compileErr != nil {
+				*issues = append(*issues, ValidationIssue{
+					Severity:    "warning",
+					Code:        "invariant-evaluation",
+					Diagnostics: fmt.Sprintf("%s: compile: %v", c.Key, compileErr),
+					Expression:  []string{el.Path},
+				})
+				continue
+			}
 			var (
 				ok  bool
 				err error

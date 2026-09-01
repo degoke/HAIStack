@@ -239,6 +239,45 @@ func TestRegistryProfileCatalogLoadsBasePatient(t *testing.T) {
 	}
 }
 
+func TestRegistryProfileCatalogWarmPropagatesParseError(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	mgr := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	if err := mgr.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	if err := mgr.EnableResource(ctx, "Patient"); err != nil {
+		t.Fatalf("EnableResource: %v", err)
+	}
+	bad := []byte(`{"resourceType":"StructureDefinition","url":"http://hl7.org/fhir/StructureDefinition/Patient","type":"Patient","kind":"resource","snapshot":{"element":"not-an-array"}}`)
+	if err := definitions.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL:     validate.BaseStructureDefinitionURL("Patient"),
+		Version:          "4.0.1",
+		FHIRVersion:      "4.0.1",
+		FHIRResourceType: "StructureDefinition",
+		DefinitionKind:   store.DefinitionKindStructureDefinition,
+		Name:             "Patient",
+		Status:           "active",
+		JSONData:         bad,
+	}, []store.DefinitionTargetRecord{{
+		CanonicalURL:       validate.BaseStructureDefinitionURL("Patient"),
+		Version:            "4.0.1",
+		TargetResourceType: "Patient",
+		TargetRole:         "defines",
+	}}); err != nil {
+		t.Fatalf("Upsert bad definition: %v", err)
+	}
+	snapshot, err := mgr.RebuildSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("RebuildSnapshot: %v", err)
+	}
+	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := catalog.Warm(); err == nil {
+		t.Fatal("expected Warm to return profile parse error")
+	}
+}
+
 func TestParseDefinitionOperationDefinitionBooleanType(t *testing.T) {
 	raw := []byte(`{
 		"resourceType":"OperationDefinition",
