@@ -1,5 +1,7 @@
 {
   "mustFail": true,
   "profile": "http://haistack.example.org/fhir/StructureDefinition/hai-patient",
+  "expectedCodes": ["required"],
+  "expectedExpressions": ["Patient.identifier"],
   "expectedSubstrings": ["identifier"]
 }

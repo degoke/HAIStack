@@ -285,6 +285,19 @@ func (s *Snapshot) Operations() []DefinitionRef {
 	return append([]DefinitionRef(nil), s.operations...)
 }
 
+// EnabledResourceTypes returns installed resource types in sorted order.
+func (s *Snapshot) EnabledResourceTypes() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.enabled))
+	for resourceType := range s.enabled {
+		out = append(out, resourceType)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // IsResourceEnabled reports whether resourceType is enabled in the compiled snapshot.
 func (s *Snapshot) IsResourceEnabled(resourceType string) bool {
 	if s == nil {
@@ -359,6 +372,27 @@ func (s *Snapshot) DefinitionsByCanonical(canonicalURL, version string) ([]byte,
 	}
 	data, ok := versions[version]
 	return data, ok
+}
+
+// AnyDefinitionByCanonical returns raw JSON for canonicalURL, preferring common
+// FHIR and module versions when multiple are installed.
+func (s *Snapshot) AnyDefinitionByCanonical(canonicalURL string) ([]byte, bool) {
+	if s == nil {
+		return nil, false
+	}
+	versions, ok := s.canonical[canonicalURL]
+	if !ok || len(versions) == 0 {
+		return nil, false
+	}
+	for _, preferred := range []string{"4.0.1", "3.0.0", "1.0.0"} {
+		if data, ok := versions[preferred]; ok {
+			return data, true
+		}
+	}
+	for _, data := range versions {
+		return data, true
+	}
+	return nil, false
 }
 
 // CapabilitySnapshot returns a lightweight capability view for runtime consumers.

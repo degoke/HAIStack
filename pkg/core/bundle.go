@@ -37,18 +37,30 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 	}()
 
 	responseEntries := make([]bundleResponseEntry, 0, len(parsed.Entries))
+	var writtenDefinitions []*types.ResourceEnvelope
+	var deletedDefinitions []*types.ResourceEnvelope
 	for _, entry := range parsed.Entries {
-		resp, writeErr := s.executeBundleEntry(ctx, session, entry)
+		result, writeErr := s.executeBundleEntry(ctx, session, entry)
 		if writeErr != nil {
 			return nil, writeErr
 		}
-		responseEntries = append(responseEntries, resp)
+		responseEntries = append(responseEntries, result.response)
+		if result.written != nil {
+			writtenDefinitions = append(writtenDefinitions, result.written)
+		}
+		if result.deleted != nil {
+			deletedDefinitions = append(deletedDefinitions, result.deleted)
+		}
 	}
 
 	if err := session.Commit(ctx); err != nil {
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+
+	if err := s.syncDefinitionCatalog(ctx, writtenDefinitions, deletedDefinitions); err != nil {
+		return nil, exceptionErr("sync definition catalog from transaction bundle", err)
+	}
 
 	responseJSON, err := buildTransactionResponseBundle(responseEntries)
 	if err != nil {
@@ -79,6 +91,12 @@ type bundleResponseEntry struct {
 	Location     string
 	ETag         string
 	LastModified time.Time
+}
+
+type bundleExecutionResult struct {
+	response bundleResponseEntry
+	written  *types.ResourceEnvelope
+	deleted  *types.ResourceEnvelope
 }
 
 func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle, error) {
@@ -170,7 +188,7 @@ func (s *ResourceService) executeBundleEntry(
 	ctx context.Context,
 	session store.WriteSession,
 	entry bundleRequestEntry,
-) (bundleResponseEntry, error) {
+) (bundleExecutionResult, error) {
 	switch entry.Method {
 	case "POST":
 		return s.executeBundleCreate(ctx, session, entry)
@@ -179,7 +197,7 @@ func (s *ResourceService) executeBundleEntry(
 	case "DELETE":
 		return s.executeBundleDelete(ctx, session, entry)
 	default:
-		return bundleResponseEntry{}, notSupportedErr(fmt.Sprintf("method %q is not supported", entry.Method), nil)
+		return bundleExecutionResult{}, notSupportedErr(fmt.Sprintf("method %q is not supported", entry.Method), nil)
 	}
 }
 
@@ -187,24 +205,24 @@ func (s *ResourceService) executeBundleCreate(
 	ctx context.Context,
 	session store.WriteSession,
 	entry bundleRequestEntry,
-) (bundleResponseEntry, error) {
+) (bundleExecutionResult, error) {
 	if entry.IfMatch != "" {
-		return bundleResponseEntry{}, notSupportedErr("If-Match is not valid for bundle create", nil)
+		return bundleExecutionResult{}, notSupportedErr("If-Match is not valid for bundle create", nil)
 	}
 	expectedType := entry.URL
 	if strings.Contains(expectedType, "/") {
-		return bundleResponseEntry{}, invalidErr("POST url must be a resource type", nil, "Bundle.entry.request.url")
+		return bundleExecutionResult{}, invalidErr("POST url must be a resource type", nil, "Bundle.entry.request.url")
 	}
 
 	envelope, err := s.normalizeEnvelope(entry.Resource)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
 	if envelope.ResourceType == "" {
 		envelope.ResourceType = expectedType
 	}
 	if envelope.ResourceType != expectedType {
-		return bundleResponseEntry{}, invalidErr(
+		return bundleExecutionResult{}, invalidErr(
 			fmt.Sprintf("resourceType mismatch: expected %s, got %s", expectedType, envelope.ResourceType),
 			nil,
 		)
@@ -212,63 +230,63 @@ func (s *ResourceService) executeBundleCreate(
 
 	if s.validator != nil {
 		if err := s.validator.ValidateResource(ctx, envelope); err != nil {
-			return bundleResponseEntry{}, invalidErr("resource validation failed", err)
+			return bundleExecutionResult{}, invalidErr("resource validation failed", err)
 		}
 	}
 
 	id := envelope.ID
 	if id != "" {
 		if err := s.idPolicy.Validate(envelope.ResourceType, id); err != nil {
-			return bundleResponseEntry{}, invalidErr("invalid resource id", err, "Resource.id")
+			return bundleExecutionResult{}, invalidErr("invalid resource id", err, "Resource.id")
 		}
 	} else {
 		generated, err := s.idPolicy.Generate(envelope.ResourceType)
 		if err != nil {
-			return bundleResponseEntry{}, exceptionErr("generate resource id", err)
+			return bundleExecutionResult{}, exceptionErr("generate resource id", err)
 		}
 		id = generated
 	}
 	envelope.ID = id
 	jsonWithID, err := types.SetID(envelope.JSON, id)
 	if err != nil {
-		return bundleResponseEntry{}, invalidErr("set resource id", err, "Resource.id")
+		return bundleExecutionResult{}, invalidErr("set resource id", err, "Resource.id")
 	}
 	envelope.JSON = jsonWithID
 
 	exists, err := session.ResourceStore().Exists(ctx, envelope.ResourceType, id)
 	if err != nil {
-		return bundleResponseEntry{}, exceptionErr("check resource existence", err)
+		return bundleExecutionResult{}, exceptionErr("check resource existence", err)
 	}
 	if exists {
-		return bundleResponseEntry{}, conflictErr(fmt.Sprintf("resource already exists: %s/%s", envelope.ResourceType, id), nil)
+		return bundleExecutionResult{}, conflictErr(fmt.Sprintf("resource already exists: %s/%s", envelope.ResourceType, id), nil)
 	}
 
 	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
-	return bundleResponseFromWrite("201 Created", written), nil
+	return bundleExecutionFromWrite("201 Created", written), nil
 }
 
 func (s *ResourceService) executeBundleUpdate(
 	ctx context.Context,
 	session store.WriteSession,
 	entry bundleRequestEntry,
-) (bundleResponseEntry, error) {
+) (bundleExecutionResult, error) {
 	resourceType, id, err := parseResourceURL(entry.URL)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
 
 	envelope, err := s.normalizeEnvelope(entry.Resource)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
 	if envelope.ResourceType == "" {
 		envelope.ResourceType = resourceType
 	}
 	if envelope.ResourceType != resourceType {
-		return bundleResponseEntry{}, invalidErr(
+		return bundleExecutionResult{}, invalidErr(
 			fmt.Sprintf("resourceType mismatch: expected %s, got %s", resourceType, envelope.ResourceType),
 			nil,
 		)
@@ -276,71 +294,71 @@ func (s *ResourceService) executeBundleUpdate(
 	envelope.ID = id
 	jsonWithID, err := types.SetID(envelope.JSON, id)
 	if err != nil {
-		return bundleResponseEntry{}, invalidErr("set resource id", err, "Resource.id")
+		return bundleExecutionResult{}, invalidErr("set resource id", err, "Resource.id")
 	}
 	envelope.JSON = jsonWithID
 
 	if err := s.idPolicy.Validate(resourceType, id); err != nil {
-		return bundleResponseEntry{}, invalidErr("invalid resource id", err, "Resource.id")
+		return bundleExecutionResult{}, invalidErr("invalid resource id", err, "Resource.id")
 	}
 	if s.validator != nil {
 		if err := s.validator.ValidateResource(ctx, envelope); err != nil {
-			return bundleResponseEntry{}, invalidErr("resource validation failed", err)
+			return bundleExecutionResult{}, invalidErr("resource validation failed", err)
 		}
 	}
 
 	exists, err := session.ResourceStore().Exists(ctx, resourceType, id)
 	if err != nil {
-		return bundleResponseEntry{}, exceptionErr("check resource existence", err)
+		return bundleExecutionResult{}, exceptionErr("check resource existence", err)
 	}
 	if !exists {
-		return bundleResponseEntry{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), nil)
+		return bundleExecutionResult{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), nil)
 	}
 	if entry.IfMatch != "" {
 		expected, ok := versionFromETag(entry.IfMatch)
 		if !ok {
-			return bundleResponseEntry{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
+			return bundleExecutionResult{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
 		}
 		current, err := session.ResourceStore().Read(ctx, resourceType, id)
 		if err != nil {
-			return bundleResponseEntry{}, exceptionErr("read current resource for ifMatch", err)
+			return bundleExecutionResult{}, exceptionErr("read current resource for ifMatch", err)
 		}
 		if expected != "*" && expected != current.VersionID {
-			return bundleResponseEntry{}, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expected), nil)
+			return bundleExecutionResult{}, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expected), nil)
 		}
 		written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expected)
 		if err != nil {
-			return bundleResponseEntry{}, err
+			return bundleExecutionResult{}, err
 		}
-		return bundleResponseFromWrite("200 OK", written), nil
+		return bundleExecutionFromWrite("200 OK", written), nil
 	}
 
 	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
-	return bundleResponseFromWrite("200 OK", written), nil
+	return bundleExecutionFromWrite("200 OK", written), nil
 }
 
 func (s *ResourceService) executeBundleDelete(
 	ctx context.Context,
 	session store.WriteSession,
 	entry bundleRequestEntry,
-) (bundleResponseEntry, error) {
+) (bundleExecutionResult, error) {
 	resourceType, id, err := parseResourceURL(entry.URL)
 	if err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
 	if err := s.idPolicy.Validate(resourceType, id); err != nil {
-		return bundleResponseEntry{}, invalidErr("invalid resource id", err, "Resource.id")
+		return bundleExecutionResult{}, invalidErr("invalid resource id", err, "Resource.id")
 	}
 
 	current, err := session.ResourceStore().Read(ctx, resourceType, id)
 	if err != nil {
 		if isStoreNotFound(err) {
-			return bundleResponseEntry{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), err)
+			return bundleExecutionResult{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), err)
 		}
-		return bundleResponseEntry{}, exceptionErr("read resource for delete", err)
+		return bundleExecutionResult{}, exceptionErr("read resource for delete", err)
 	}
 
 	expected := ""
@@ -348,13 +366,13 @@ func (s *ResourceService) executeBundleDelete(
 		var ok bool
 		expected, ok = versionFromETag(entry.IfMatch)
 		if !ok {
-			return bundleResponseEntry{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
+			return bundleExecutionResult{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
 		}
 	}
 	if err := s.applyDeleteExpectedVersion(ctx, session, current, expected); err != nil {
-		return bundleResponseEntry{}, err
+		return bundleExecutionResult{}, err
 	}
-	return bundleResponseEntry{Status: "204 No Content"}, nil
+	return bundleDeleteResult(current), nil
 }
 
 func versionFromETag(raw string) (string, bool) {
@@ -393,6 +411,20 @@ func bundleResponseFromWrite(status string, written *types.ResourceEnvelope) bun
 		Location:     fmt.Sprintf("%s/%s/_history/%s", written.ResourceType, written.ID, written.VersionID),
 		ETag:         fmt.Sprintf("W/\"%s\"", written.VersionID),
 		LastModified: written.LastUpdated,
+	}
+}
+
+func bundleExecutionFromWrite(status string, written *types.ResourceEnvelope) bundleExecutionResult {
+	return bundleExecutionResult{
+		response: bundleResponseFromWrite(status, written),
+		written:  written,
+	}
+}
+
+func bundleDeleteResult(deleted *types.ResourceEnvelope) bundleExecutionResult {
+	return bundleExecutionResult{
+		response: bundleResponseEntry{Status: "204 No Content"},
+		deleted:  deleted,
 	}
 }
 
