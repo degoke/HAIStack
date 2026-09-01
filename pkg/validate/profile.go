@@ -27,8 +27,6 @@ type ElementConstraint struct {
 	Severity   string
 	Expression string
 	Human      string
-	compiled   fhirpath.CompiledExpression
-	compileMu  sync.Mutex
 }
 
 // ElementBinding is a terminology binding from a StructureDefinition element.
@@ -73,6 +71,9 @@ type StructureDefinition struct {
 	UseSnapshot  bool
 	Elements     []ElementDefinition
 	allowedChild map[string]map[string]struct{}
+
+	compiledConstraints map[string]fhirpath.CompiledExpression
+	constraintCompileMu sync.Mutex
 }
 
 // MemoryProfileCatalog is an in-memory ProfileCatalog.
@@ -595,29 +596,37 @@ func ensureConstraintsCompiled(sd *StructureDefinition, engine fhirpath.Engine) 
 	if sd == nil || engine == nil {
 		return
 	}
+	sd.constraintCompileMu.Lock()
+	defer sd.constraintCompileMu.Unlock()
+	if sd.compiledConstraints != nil {
+		return
+	}
+	compiled := make(map[string]fhirpath.CompiledExpression)
 	for i := range sd.Elements {
 		for j := range sd.Elements[i].Constraints {
-			c := &sd.Elements[i].Constraints[j]
-			if c.Expression == "" {
+			c := sd.Elements[i].Constraints[j]
+			if c.Expression == "" || c.Key == "" {
 				continue
 			}
-			c.compileMu.Lock()
-			if c.compiled == nil {
-				if compiled, err := engine.Compile(c.Expression); err == nil {
-					c.compiled = compiled
-				}
+			if _, ok := compiled[c.Key]; ok {
+				continue
 			}
-			c.compileMu.Unlock()
+			if expr, err := engine.Compile(c.Expression); err == nil {
+				compiled[c.Key] = expr
+			}
 		}
 	}
+	sd.compiledConstraints = compiled
 }
 
 func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope, sd *StructureDefinition, engine fhirpath.Engine, evaluatedKeys map[string]struct{}, issues *[]ValidationIssue) {
 	if res == nil {
 		return
 	}
-	for _, el := range sd.Elements {
-		for _, c := range el.Constraints {
+	for i := range sd.Elements {
+		el := &sd.Elements[i]
+		for j := range el.Constraints {
+			c := &el.Constraints[j]
 			if c.Expression == "" {
 				continue
 			}
@@ -629,8 +638,8 @@ func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope
 				ok  bool
 				err error
 			)
-			if c.compiled != nil {
-				ok, err = c.compiled.EvalBool(ctx, res)
+			if compiled := sd.compiledConstraints[c.Key]; compiled != nil {
+				ok, err = compiled.EvalBool(ctx, res)
 			} else {
 				ok, err = engine.EvalBool(ctx, c.Expression, res)
 			}
