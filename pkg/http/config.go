@@ -49,6 +49,10 @@ type Config struct {
 	// $everything or implementation-specific operations.
 	OperationService OperationService
 
+	// ValidateService handles FHIR Resource/$validate for non-SDC resource types.
+	// When nil, POST /fhir/{type}/$validate returns not-supported.
+	ValidateService ValidateService
+
 	// CapabilitySource is optional; when nil, /metadata returns not-supported.
 	CapabilitySource CapabilitySource
 

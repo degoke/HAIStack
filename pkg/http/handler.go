@@ -73,6 +73,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$validate" && !isSDCResourceOperation(route.operation, route.resourceType) {
+			h.handleValidateOperation(w, r, route)
+			return
+		}
 		if isSDCOperation(route.operation) && r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, r.Method, http.MethodPost)
 			return

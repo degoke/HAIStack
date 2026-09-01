@@ -81,3 +81,17 @@ type OperationRequest struct {
 type OperationService interface {
 	Execute(context.Context, OperationRequest) (*types.ResourceEnvelope, error)
 }
+
+// ValidateRequest carries FHIR Resource/$validate inputs.
+type ValidateRequest struct {
+	ResourceType string
+	ID           string
+	ContentType  string
+	Body         []byte
+	Query        url.Values
+}
+
+// ValidateService runs FHIR Resource/$validate and returns an OperationOutcome.
+type ValidateService interface {
+	Validate(context.Context, ValidateRequest) (*types.OperationOutcome, error)
+}

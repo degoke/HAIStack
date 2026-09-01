@@ -413,9 +413,19 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		Engine:   engine,
 	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:          hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:            httpSearchSvc,
-		SDCService:               sdcService,
+		ResourceService: hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:   httpSearchSvc,
+		SDCService:      sdcService,
+		ValidateService: hahttp.CoreValidateService{
+			Engine:    validateEngine,
+			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
+			Options: validate.ValidateOptions{
+				EnforceBaseProfile:      true,
+				EnforceDeclaredProfiles: true,
+				Terminology:             state.services.TerminologyService,
+				ResourceTypeRegistry:    snapshot,
+			},
+		},
 		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,

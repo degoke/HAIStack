@@ -120,8 +120,12 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 			interactions = append(interactions, map[string]string{"code": "search-type"})
 		}
 		resourceEntries = append(resourceEntries, map[string]interface{}{
-			"type":         res.ResourceType,
-			"interaction":  interactions,
+			"type":        res.ResourceType,
+			"interaction": interactions,
+			"operation": []map[string]string{{
+				"name":       "validate",
+				"definition": "http://hl7.org/fhir/OperationDefinition/Resource-validate",
+			}},
 			"searchParam":  searchParamsForCapability(res.SearchParameters),
 			"versioning":   "versioned",
 			"readHistory":  true,
