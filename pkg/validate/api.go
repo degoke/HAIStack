@@ -31,6 +31,18 @@ func (m MapResourceTypeRegistry) IsInstalled(resourceType string) bool {
 	return ok
 }
 
+// ValidationMode selects how deeply profile validation runs.
+type ValidationMode int
+
+const (
+	// ValidationModeFast checks cardinality, unknown elements, and optional
+	// FHIRPath invariants. This is the default for runtime API writes.
+	ValidationModeFast ValidationMode = iota
+	// ValidationModeFull adds slicing, StructureDefinition terminology bindings,
+	// and extension policy checks. Use for certification-style validation.
+	ValidationModeFull
+)
+
 // ValidateOptions configures a single Validate invocation.
 type ValidateOptions struct {
 	RequireID               bool
@@ -44,6 +56,8 @@ type ValidateOptions struct {
 	EnforceBaseProfile      bool
 	EnforceDeclaredProfiles bool
 	ProfileConstraints      bool
+	// Mode selects fast vs full profile validation. Zero defaults to Fast.
+	Mode ValidationMode
 }
 
 type TerminologyBinding struct{ URL, Version, Strength string }

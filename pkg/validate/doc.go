@@ -6,7 +6,9 @@
 // and structural/primitive constraints via the Google FHIR R4 proto layer.
 // Optional profile cardinality checks run when a ProfileCatalog is configured
 // and ValidateOptions enable base and/or declared profiles. The runtime enables
-// base HL7 R4 StructureDefinition validation by default.
+// base HL7 R4 StructureDefinition validation by default (fast mode). Set
+// ValidateOptions.Mode to ValidationModeFull for slicing, SD terminology
+// bindings, and extension policy.
 //
 // # Two integration paths
 //

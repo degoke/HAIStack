@@ -295,6 +295,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		EnforceBaseProfile:      true,
 		EnforceDeclaredProfiles: true,
 		ProfileConstraints:      true,
+		Terminology:             state.services.TerminologyService,
 	})
 	validator := &sdc.ResponseValidator{
 		Base:     baseValidator,

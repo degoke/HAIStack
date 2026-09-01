@@ -110,6 +110,11 @@ StructureDefinition for the resource type, plus any declared `meta.profile`
 URLs. Checks include cardinality, unknown elements (base snapshot), and
 FHIRPath invariants (best-effort).
 
+**Fast mode (default):** cardinality, unknown elements, FHIRPath invariants.
+
+**Full mode:** adds slicing, StructureDefinition terminology bindings, and
+extension policy. Use for certification-style checks or `haistack validate --full`.
+
 ```go
 catalog := validate.NewRegistryProfileCatalog(snapshot)
 fp, _ := fhirpath.NewEngine(fhirpath.Config{})
@@ -120,13 +125,14 @@ svc, _ := core.NewResourceService(core.ResourceServiceConfig{
         EnforceBaseProfile:      true,
         EnforceDeclaredProfiles: true,
         ProfileConstraints:      true,
+        Terminology:             termService,
+        Mode:                    validate.ValidationModeFull, // optional
     }),
 })
 ```
 
-Issue codes include `required`, `unknown-element`, `unknown-profile`, and
-`invariant`. This is not a full HL7 Java validator — use `make validate-ig` for
-certification-grade checking.
+Runtime API writes use **fast** mode by default. The HL7 Java validator
+(`make validate-ig`) remains the reference for IG certification.
 
 ## Where it fits
 
@@ -154,8 +160,10 @@ FHIR JSON envelope
 - Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
-- Profile checks: cardinality, unknown elements (base snapshot), and FHIRPath invariants (best-effort) — no slicing, terminology bindings, or extension policy
+- **Fast mode (runtime default):** cardinality, unknown elements, FHIRPath invariants
+- **Full mode:** slicing, SD terminology bindings, extension url policy (set `Mode: ValidationModeFull`)
 - Custom profiles require `ProfileCatalog` + `EnforceDeclaredProfiles` or explicit `Profiles`
+- Full Go validation does not yet match every HL7 Java validator rule; use `make validate-ig` for IG certification
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

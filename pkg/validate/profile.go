@@ -27,6 +27,25 @@ type ElementConstraint struct {
 	Human      string
 }
 
+// ElementBinding is a terminology binding from a StructureDefinition element.
+type ElementBinding struct {
+	Strength string
+	ValueSet string
+	Version  string
+}
+
+// ElementSlicing describes how a repeating element is sliced.
+type ElementSlicing struct {
+	Discriminators []SliceDiscriminator
+	Rules          string
+}
+
+// SliceDiscriminator matches array items to named slices.
+type SliceDiscriminator struct {
+	Type string
+	Path string
+}
+
 // ElementDefinition is one snapshot or differential element.
 type ElementDefinition struct {
 	Path        string
@@ -34,6 +53,10 @@ type ElementDefinition struct {
 	Max         string
 	Types       []string
 	Constraints []ElementConstraint
+	Binding     *ElementBinding
+	Slicing     *ElementSlicing
+	SliceName   string
+	Pattern     map[string]interface{}
 }
 
 // StructureDefinition is the subset of a FHIR StructureDefinition used for
@@ -123,6 +146,18 @@ type elementDefinitionJSON struct {
 		Expression string `json:"expression"`
 		Human      string `json:"human"`
 	} `json:"constraint"`
+	Binding *struct {
+		Strength string `json:"strength"`
+		ValueSet string `json:"valueSet"`
+	} `json:"binding"`
+	Slicing *struct {
+		Discriminator []struct {
+			Type string `json:"type"`
+			Path string `json:"path"`
+		} `json:"discriminator"`
+		Rules string `json:"rules"`
+	} `json:"slicing"`
+	Pattern json.RawMessage `json:"pattern"`
 }
 
 func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
@@ -179,10 +214,48 @@ func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
 					Human:      c.Human,
 				})
 			}
+			if el.Binding != nil && el.Binding.ValueSet != "" {
+				url, version := splitValueSetCanonical(el.Binding.ValueSet)
+				parsed.Binding = &ElementBinding{
+					Strength: el.Binding.Strength,
+					ValueSet: url,
+					Version:  version,
+				}
+			}
+			if el.Slicing != nil {
+				slicing := &ElementSlicing{Rules: el.Slicing.Rules}
+				for _, d := range el.Slicing.Discriminator {
+					slicing.Discriminators = append(slicing.Discriminators, SliceDiscriminator{
+						Type: d.Type,
+						Path: d.Path,
+					})
+				}
+				parsed.Slicing = slicing
+			}
+			if len(el.Pattern) > 0 && string(el.Pattern) != "null" {
+				var pattern map[string]interface{}
+				if err := json.Unmarshal(el.Pattern, &pattern); err == nil && len(pattern) > 0 {
+					parsed.Pattern = pattern
+				}
+			}
+			if i := strings.Index(parsed.Path, ":"); i >= 0 {
+				parsed.SliceName = parsed.Path[i+1:]
+			}
 			sd.Elements = append(sd.Elements, parsed)
 		}
 	}
 	return sd, true, nil
+}
+
+func splitValueSetCanonical(canonical string) (url, version string) {
+	if i := strings.Index(canonical, "|"); i >= 0 {
+		return canonical[:i], canonical[i+1:]
+	}
+	return canonical, ""
+}
+
+func profileValidationFull(opts ValidateOptions) bool {
+	return opts.Mode == ValidationModeFull
 }
 
 func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]interface{}, resourceType string, opts ValidateOptions, issues *[]ValidationIssue) {
@@ -246,17 +319,28 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 			))
 			continue
 		}
-		applyProfileValidation(ctx, obj, sd, e.fhirpath, opts.ProfileConstraints, issues)
+		applyProfileValidation(ctx, obj, sd, e.fhirpath, opts, issues)
 	}
 }
 
-func applyProfileValidation(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, constraints bool, issues *[]ValidationIssue) {
-	validateProfileCardinality(obj, sd, issues)
+func applyProfileValidation(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, opts ValidateOptions, issues *[]ValidationIssue) {
+	full := profileValidationFull(opts)
+	if full {
+		validateProfileSlicing(obj, sd, issues)
+	} else {
+		validateProfileCardinality(obj, sd, issues)
+	}
 	if sd.UseSnapshot {
 		validateUnknownElements(obj, sd, issues)
-		if constraints && engine != nil {
+		if opts.ProfileConstraints && engine != nil {
 			validateProfileConstraints(ctx, obj, sd, engine, issues)
 		}
+		if full {
+			validateExtensionPolicy(obj, sd, issues)
+		}
+	}
+	if full && opts.Terminology != nil {
+		validateProfileTerminology(ctx, obj, sd, opts, issues)
 	}
 }
 
