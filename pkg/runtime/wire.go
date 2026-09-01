@@ -468,14 +468,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	packageService := hahttp.CorePackageInstallService{
 		Installer: packageInstaller,
-		Runtime:   conformanceRuntime,
 		JobStore:  pc.jobStore,
 	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService: hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:   httpSearchSvc,
-		SDCService:      sdcService,
-		OperationService: hahttp.NPMOperationService{Packages: packageService},
+		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:         httpSearchSvc,
+		SDCService:            sdcService,
+		PackageInstallService: packageService,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
@@ -501,11 +500,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
-	adminHandler := hahttp.NewAdminHandler(packageService)
 	rootCfg := hahttp.RootConfig{
-		FHIR:            handler,
-		Admin:           adminHandler,
-		AdminMiddleware: b.httpMiddleware,
+		FHIR: handler,
 	}
 	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
 		rootCfg.Sync = hubServer

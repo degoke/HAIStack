@@ -8,63 +8,83 @@ import (
 	"testing"
 
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/packages"
-	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 type fakePackageService struct {
-	refreshed bool
+	installedFromRegistry bool
+	installedFromArchive  bool
+	enqueued              bool
 }
 
 func (f *fakePackageService) InstallFromRegistry(context.Context, string, string) (*packages.InstallResult, error) {
-	return &packages.InstallResult{PackageID: "pkg", Version: "1", Installed: 1}, nil
+	f.installedFromRegistry = true
+	return &packages.InstallResult{PackageID: "hl7.fhir.us.core", Version: "6.1.0", Installed: 1}, nil
 }
-func (f *fakePackageService) InstallFromDirectory(context.Context, string) (*packages.InstallResult, error) {
-	return nil, nil
+
+func (f *fakePackageService) InstallFromArchive(context.Context, string, string, io.Reader) (*packages.InstallResult, error) {
+	f.installedFromArchive = true
+	return &packages.InstallResult{PackageID: "local.pkg", Version: "1.0.0", Installed: 2}, nil
 }
-func (f *fakePackageService) InstallFromUpload(context.Context, string, string, io.Reader) (*packages.InstallResult, error) {
-	return nil, nil
-}
-func (f *fakePackageService) EnqueueInstall(context.Context, jobs.PackageInstallPayload) (store.JobRecord, error) {
+
+func (f *fakePackageService) EnqueueRegistryInstall(context.Context, string, string) (store.JobRecord, error) {
+	f.enqueued = true
 	return store.JobRecord{ID: "job-1"}, nil
 }
-func (f *fakePackageService) Refresh(context.Context) (*registry.Snapshot, error) {
-	f.refreshed = true
-	return nil, nil
+
+func (f *fakePackageService) EnqueueArchiveInstall(context.Context, string, string, io.Reader) (store.JobRecord, error) {
+	f.enqueued = true
+	return store.JobRecord{ID: "job-2"}, nil
 }
 
-func TestAdminConformanceRefresh(t *testing.T) {
+func TestImplementationGuideInstallAsyncDefault(t *testing.T) {
 	svc := &fakePackageService{}
-	handler := hahttp.NewAdminHandler(svc)
-	rec := doRequest(t, handler, http.MethodPost, "/admin/conformance/refresh", nil)
-	if rec.Code != http.StatusOK {
+	h := newTestHandler(t, hahttp.Config{
+		ResourceService:       &fakeResourceService{},
+		PackageInstallService: svc,
+	})
+	rec := doRequest(t, h, http.MethodPost, "/fhir/ImplementationGuide/$install?packageId=hl7.fhir.us.core&version=6.1.0", nil)
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !svc.refreshed {
-		t.Fatal("expected refresh to be called")
+	if !svc.enqueued {
+		t.Fatal("expected async enqueue")
 	}
+	if svc.installedFromRegistry {
+		t.Fatal("did not expect sync install")
+	}
+	assertParametersStatus(t, rec.Body.Bytes(), "accepted")
 }
 
-func TestNPMOperationInstall(t *testing.T) {
+func TestImplementationGuideInstallSync(t *testing.T) {
+	svc := &fakePackageService{}
 	h := newTestHandler(t, hahttp.Config{
-		ResourceService:  &fakeResourceService{},
-		OperationService: hahttp.NPMOperationService{Packages: &fakePackageService{}},
+		ResourceService:       &fakeResourceService{},
+		PackageInstallService: svc,
 	})
-	rec := doRequest(t, h, http.MethodPost, "/fhir/$npm?id=hl7.fhir.us.core&version=6.1.0", nil)
+	rec := doRequest(t, h, http.MethodPost, "/fhir/ImplementationGuide/$install?packageId=hl7.fhir.us.core&version=6.1.0&_sync=true", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var params struct {
-		ResourceType string `json:"resourceType"`
+	if !svc.installedFromRegistry {
+		t.Fatal("expected sync install")
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &params); err != nil {
-		t.Fatal(err)
+	if svc.enqueued {
+		t.Fatal("did not expect async enqueue")
 	}
-	if params.ResourceType != "Parameters" {
-		t.Fatalf("type=%q", params.ResourceType)
+	assertParametersStatus(t, rec.Body.Bytes(), "completed")
+}
+
+func TestImplementationGuidePackageExportNotImplemented(t *testing.T) {
+	h := newTestHandler(t, hahttp.Config{
+		ResourceService:       &fakeResourceService{},
+		PackageInstallService: &fakePackageService{},
+	})
+	rec := doRequest(t, h, http.MethodPost, "/fhir/ImplementationGuide/$package", nil)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -88,6 +108,29 @@ func TestCoreValidateServiceFastModeDisablesInvariants(t *testing.T) {
 	if captured.ProfileConstraints {
 		t.Fatal("expected ProfileConstraints false in fast mode")
 	}
+}
+
+func assertParametersStatus(t *testing.T, body []byte, want string) {
+	t.Helper()
+	var params struct {
+		ResourceType string `json:"resourceType"`
+		Parameter    []struct {
+			Name        string `json:"name"`
+			ValueString string `json:"valueString"`
+		} `json:"parameter"`
+	}
+	if err := json.Unmarshal(body, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.ResourceType != "Parameters" {
+		t.Fatalf("type=%q", params.ResourceType)
+	}
+	for _, p := range params.Parameter {
+		if p.Name == "status" && p.ValueString == want {
+			return
+		}
+	}
+	t.Fatalf("status parameter %q not found in %s", want, string(body))
 }
 
 var _ hahttp.PackageInstallService = (*fakePackageService)(nil)

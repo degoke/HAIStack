@@ -174,14 +174,7 @@ func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 		}
 		mux.Handle("/sync/", syncHandler)
 	}
-	if cfg.Admin != nil {
-		adminHandler := cfg.Admin
-		if cfg.AdminMiddleware != nil {
-			adminHandler = cfg.AdminMiddleware(adminHandler)
-		}
-		mux.Handle("/admin/", adminHandler)
-	}
-	if cfg.FHIR == nil && cfg.Sync == nil && cfg.Admin == nil {
+	if cfg.FHIR == nil && cfg.Sync == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, unsupportedEndpoint(r.URL.Path))
 		})
@@ -199,10 +192,6 @@ type RootConfig struct {
 	// SyncMiddleware must enforce the caller's node/tenant authentication and
 	// authorization when sync routes are exposed.
 	SyncMiddleware func(http.Handler) http.Handler
-	// Admin serves /admin/* package and conformance management routes.
-	Admin http.Handler
-	// AdminMiddleware wraps admin routes when auth is enabled.
-	AdminMiddleware func(http.Handler) http.Handler
 }
 
 // NotImplemented returns an error mapped to HTTP 501 by the HTTP adapter.

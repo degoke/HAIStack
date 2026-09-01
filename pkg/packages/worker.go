@@ -3,6 +3,7 @@ package packages
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -26,6 +27,15 @@ func (w *InstallWorker) HandleJob(ctx context.Context, job store.JobRecord) erro
 	case "registry":
 		_, err := w.Installer.InstallFromRegistry(ctx, payload.PackageID, payload.Version)
 		return err
+	case "upload":
+		f, err := os.Open(payload.Path)
+		if err != nil {
+			return fmt.Errorf("open uploaded package: %w", err)
+		}
+		_, installErr := w.Installer.InstallFromArchive(ctx, payload.PackageID, payload.Version, f)
+		_ = f.Close()
+		_ = os.Remove(payload.Path)
+		return installErr
 	case "path":
 		_, err := w.Installer.InstallFromDirectory(ctx, payload.Path)
 		return err

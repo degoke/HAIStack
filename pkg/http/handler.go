@@ -77,6 +77,16 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleValidateOperation(w, r, route)
 			return
 		}
+		if route.resourceType == "ImplementationGuide" {
+			switch route.operation {
+			case "$install":
+				h.handleImplementationGuideInstall(w, r, route)
+				return
+			case "$package":
+				writeError(w, notImplementedEndpoint("ImplementationGuide/$package export is not implemented; use CRMI $package semantics"))
+				return
+			}
+		}
 		if isSDCOperation(route.operation) && r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, r.Method, http.MethodPost)
 			return
