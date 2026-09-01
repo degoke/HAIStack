@@ -17,10 +17,8 @@ func walkExtensions(node interface{}, path, profileURL string, issues *[]Validat
 				validateExtensionArray(value, path+"."+key, profileURL, issues)
 				continue
 			}
-			nextPath := path
-			if path == "" {
-				nextPath = key
-			} else {
+			nextPath := key
+			if path != "" {
 				nextPath = path + "." + key
 			}
 			walkExtensions(value, nextPath, profileURL, issues)
