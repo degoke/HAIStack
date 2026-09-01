@@ -7,8 +7,8 @@
 // Optional profile cardinality checks run when a ProfileCatalog is configured
 // and ValidateOptions enable base and/or declared profiles. The runtime enables
 // base HL7 R4 StructureDefinition validation by default (fast mode). Set
-// ValidateOptions.Mode to ValidationModeFull for slicing, SD terminology
-// bindings, and extension policy.
+// ValidateOptions.Mode to ValidationModeFull for SD terminology bindings and
+// extension policy.
 //
 // # Two integration paths
 //
@@ -39,11 +39,10 @@
 //
 // Profile validation modes:
 //
-//   - Fast (default): slicing, unknown elements on snapshot profiles, optional
-//     FHIRPath invariants (opt-in via ProfileConstraints). Named slice paths
-//     are validated in fast mode.
+//   - Fast (default): slice cardinality, unknown elements on snapshot profiles,
+//     optional FHIRPath invariants (opt-in via ProfileConstraints).
 //   - Full: adds SD terminology bindings (except preferred strength) and
-//     extension URL policy.
+//     extension URL policy (including nested extensions).
 //
 // Constraint profiles (differential only, e.g. hai-patient) apply cardinality overlays.
 // Unknown-element checks run on the base HL7 snapshot profile when EnforceBaseProfile
@@ -51,7 +50,8 @@
 //
 // Not a full HL7 validator. Still limited compared to the Java reference validator:
 //
-//   - incomplete slicing and extension-definition policy in full mode
+//   - slicing discriminators follow FHIR value/type/pattern/exists/profile rules;
+//     complex nested extension definitions are not resolved against Extension URLs
 //   - module-specific business rules
 //
 // Resource-type installation checks are allowlist-based and optional. When no

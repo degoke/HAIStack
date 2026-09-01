@@ -1,41 +1,48 @@
 package validate
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
-func validateExtensionPolicy(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	walkExtensions(obj, sd.Type, sd.URL, issues)
+func validateExtensionPolicy(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
+	walkExtensions(ctx, obj, sd.Type, sd.URL, issues)
 }
 
-func walkExtensions(node interface{}, path, profileURL string, issues *[]ValidationIssue) {
+func walkExtensions(ctx context.Context, node interface{}, path, profileURL string, issues *[]ValidationIssue) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
 	switch current := node.(type) {
 	case map[string]interface{}:
 		for key, value := range current {
 			if key == "extension" || key == "modifierExtension" {
-				validateExtensionArray(value, path+"."+key, profileURL, issues)
+				validateExtensionArray(ctx, value, path+"."+key, profileURL, issues)
 				continue
 			}
 			nextPath := key
 			if path != "" {
 				nextPath = path + "." + key
 			}
-			walkExtensions(value, nextPath, profileURL, issues)
+			walkExtensions(ctx, value, nextPath, profileURL, issues)
 		}
 	case []interface{}:
 		for _, item := range current {
-			walkExtensions(item, path, profileURL, issues)
+			walkExtensions(ctx, item, path, profileURL, issues)
 		}
 	}
 }
 
-func validateExtensionArray(raw interface{}, path, profileURL string, issues *[]ValidationIssue) {
+func validateExtensionArray(ctx context.Context, raw interface{}, path, profileURL string, issues *[]ValidationIssue) {
 	items, ok := raw.([]interface{})
 	if !ok {
 		return
 	}
 	for i, rawItem := range items {
+		if err := ctx.Err(); err != nil {
+			return
+		}
 		item, ok := rawItem.(map[string]interface{})
 		if !ok {
 			continue
@@ -49,5 +56,6 @@ func validateExtensionArray(raw interface{}, path, profileURL string, issues *[]
 				[]string{expr},
 			))
 		}
+		walkExtensions(ctx, item, fmt.Sprintf("%s[%d]", path, i), profileURL, issues)
 	}
 }

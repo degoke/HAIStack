@@ -68,9 +68,7 @@ func (c *RegistryProfileCatalog) ResolveStructureDefinition(canonicalURL string)
 	return sd, nil
 }
 
-type structureDefinitionResolver interface {
-	ResolveStructureDefinition(canonicalURL string) (*StructureDefinition, error)
-}
+type structureDefinitionResolver = ProfileCatalogResolver
 
 func lookupStructureDefinition(catalog ProfileCatalog, canonicalURL string) (*StructureDefinition, error) {
 	if catalog == nil {

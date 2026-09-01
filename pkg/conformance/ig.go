@@ -125,18 +125,11 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 			failures = append(failures, fmt.Sprintf("invalid example %s unexpectedly passed", name))
 			continue
 		}
-		blob := issueBlob(result.Issues)
-		matched := true
-		for _, needle := range expected.ExpectedSubstrings {
-			if !strings.Contains(blob, strings.ToLower(needle)) {
-				failures = append(failures, fmt.Sprintf("invalid example %s did not mention %q:\n%s", name, needle, formatIssues(result.Issues)))
-				matched = false
-				break
-			}
+		if !matchesExpectedIssues(result.Issues, expected) {
+			failures = append(failures, fmt.Sprintf("invalid example %s did not match expected sidecar:\n%s", name, formatIssues(result.Issues)))
+			continue
 		}
-		if matched {
-			fmt.Printf("PASS invalid %s (failed as expected)\n", name)
-		}
+		fmt.Printf("PASS invalid %s (failed as expected)\n", name)
 	}
 
 	if len(failures) > 0 {
@@ -168,9 +161,60 @@ func profileOnlyValidationOptions(term terminology.Service, profileURL string) v
 }
 
 type expectedExample struct {
-	MustFail           bool     `json:"mustFail"`
-	Profile            string   `json:"profile"`
-	ExpectedSubstrings []string `json:"expectedSubstrings"`
+	MustFail            bool     `json:"mustFail"`
+	Profile             string   `json:"profile"`
+	ExpectedSubstrings  []string `json:"expectedSubstrings"`
+	ExpectedCodes       []string `json:"expectedCodes"`
+	ExpectedExpressions []string `json:"expectedExpressions"`
+}
+
+func matchesExpectedIssues(issues []validate.ValidationIssue, expected *expectedExample) bool {
+	if len(expected.ExpectedCodes) > 0 || len(expected.ExpectedExpressions) > 0 {
+		for _, code := range expected.ExpectedCodes {
+			if !issueHasCode(issues, code) {
+				return false
+			}
+		}
+		for _, expr := range expected.ExpectedExpressions {
+			if !issueHasExpression(issues, expr) {
+				return false
+			}
+		}
+		return true
+	}
+	if len(expected.ExpectedSubstrings) == 0 {
+		return true
+	}
+	blob := issueBlob(issues)
+	for _, needle := range expected.ExpectedSubstrings {
+		if !strings.Contains(blob, strings.ToLower(needle)) {
+			return false
+		}
+	}
+	return true
+}
+
+func issueHasCode(issues []validate.ValidationIssue, code string) bool {
+	for _, iss := range issues {
+		if iss.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func issueHasExpression(issues []validate.ValidationIssue, expr string) bool {
+	for _, iss := range issues {
+		for _, got := range iss.Expression {
+			if got == expr || strings.HasSuffix(got, "."+expr) || strings.Contains(got, expr) {
+				return true
+			}
+		}
+		if strings.Contains(strings.ToLower(iss.Diagnostics), strings.ToLower(expr)) {
+			return true
+		}
+	}
+	return false
 }
 
 func readExpected(path string) (*expectedExample, error) {

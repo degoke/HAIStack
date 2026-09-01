@@ -10,6 +10,9 @@ import (
 
 func validateProfileTerminology(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, opts ValidateOptions, issues *[]ValidationIssue) {
 	for _, el := range sd.Elements {
+		if err := ctx.Err(); err != nil {
+			return
+		}
 		if el.Binding == nil || el.Binding.ValueSet == "" {
 			continue
 		}
@@ -80,8 +83,6 @@ func validateBoundValue(ctx context.Context, obj map[string]interface{}, resourc
 		))
 	}
 	if !valid && !unknown && !invalid && strength == "required" {
-		_ = resourceType
-		_ = obj
 		*issues = append(*issues, issue(
 			"terminology-invalid",
 			fmt.Sprintf("%s: no coding is valid for binding %q", path, binding.ValueSet),

@@ -1,6 +1,10 @@
 package validate
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 // profileStructureState accumulates path counts and slice metadata during a single
 // resource tree walk used for cardinality and unknown-element checks.
@@ -30,23 +34,29 @@ func buildSliceParents(sd *StructureDefinition) map[string]*ElementSlicing {
 	return sliceParents
 }
 
-func validateProfileSnapshotStructure(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
+func validateProfileSnapshotStructure(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
 	state := newProfileStructureState(sd)
 	accumulateProfilePathCounts(obj, sd.Type, state.counts)
-	walkProfileStructure(obj, sd.Type, state, issues)
-	validateProfileSlicingWithCounts(obj, sd, state, issues)
+	walkProfileStructure(ctx, obj, sd.Type, state, issues)
+	validateProfileSlicingWithCounts(ctx, obj, sd, state, issues)
 }
 
 func (state *profileStructureState) pathCount(path string) int {
 	return state.counts[path]
 }
 
-func walkProfileStructure(node interface{}, path string, state *profileStructureState, issues *[]ValidationIssue) {
+func walkProfileStructure(ctx context.Context, node interface{}, path string, state *profileStructureState, issues *[]ValidationIssue) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
 	sd := state.sd
 	switch current := node.(type) {
 	case map[string]interface{}:
 		if isMetaElementPath(path) {
 			for key, value := range current {
+				if err := ctx.Err(); err != nil {
+					return
+				}
 				if _, ok := metaFieldAllowlist[key]; !ok {
 					*issues = append(*issues, issue(
 						"unknown-element",
@@ -55,12 +65,15 @@ func walkProfileStructure(node interface{}, path string, state *profileStructure
 					))
 					continue
 				}
-				walkProfileStructure(value, path+"."+key, state, issues)
+				walkProfileStructure(ctx, value, path+"."+key, state, issues)
 			}
 			return
 		}
 		allowed := sd.allowedChild[path]
 		for key, value := range current {
+			if err := ctx.Err(); err != nil {
+				return
+			}
 			if isAlwaysAllowedKey(key) {
 				nextPath := path
 				if key == "meta" || key == "text" {
@@ -71,11 +84,21 @@ func walkProfileStructure(node interface{}, path string, state *profileStructure
 					}
 				}
 				if key != "extension" && key != "modifierExtension" {
-					walkProfileStructure(value, nextPath, state, issues)
+					walkProfileStructure(ctx, value, nextPath, state, issues)
 				}
 				continue
 			}
 			if allowed == nil {
+				if hasElementPath(sd, path) || isUnderOpaqueComplexType(sd, path) {
+					nextPath := elementPathForJSONKey(sd, path, key)
+					walkProfileStructure(ctx, value, nextPath, state, issues)
+					continue
+				}
+				*issues = append(*issues, issue(
+					"unknown-element",
+					fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
+					[]string{path + "." + key},
+				))
 				continue
 			}
 			if _, ok := allowed[key]; !ok {
@@ -87,13 +110,39 @@ func walkProfileStructure(node interface{}, path string, state *profileStructure
 				continue
 			}
 			nextPath := elementPathForJSONKey(sd, path, key)
-			walkProfileStructure(value, nextPath, state, issues)
+			walkProfileStructure(ctx, value, nextPath, state, issues)
 		}
 	case []interface{}:
 		for _, item := range current {
-			walkProfileStructure(item, path, state, issues)
+			walkProfileStructure(ctx, item, path, state, issues)
 		}
 	}
+}
+
+func hasElementPath(sd *StructureDefinition, path string) bool {
+	for _, el := range sd.Elements {
+		if el.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnderOpaqueComplexType(sd *StructureDefinition, path string) bool {
+	best := ""
+	for _, el := range sd.Elements {
+		if el.Path == "" || el.Path == path {
+			continue
+		}
+		if strings.HasPrefix(path, el.Path+".") && len(el.Path) > len(best) {
+			best = el.Path
+		}
+	}
+	if best == "" {
+		return false
+	}
+	children := sd.allowedChild[best]
+	return len(children) == 0
 }
 
 func accumulateProfilePathCounts(node interface{}, path string, counts map[string]int) {

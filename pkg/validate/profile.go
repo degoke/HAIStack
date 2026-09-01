@@ -21,6 +21,14 @@ type ProfileCatalog interface {
 	GetStructureDefinition(canonicalURL string) (*StructureDefinition, bool)
 }
 
+// ProfileCatalogResolver extends ProfileCatalog with explicit lookup errors.
+// Implementations should return ErrProfileNotFound for missing profiles and a
+// non-nil error for parse failures.
+type ProfileCatalogResolver interface {
+	ProfileCatalog
+	ResolveStructureDefinition(canonicalURL string) (*StructureDefinition, error)
+}
+
 // ElementConstraint is a FHIRPath invariant from a StructureDefinition element.
 type ElementConstraint struct {
 	Key        string
@@ -317,9 +325,8 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 		return
 	}
 
-	// evaluatedConstraints deduplicates invariant keys across base + declared profiles.
-	// Constraints with the same key are evaluated once; if a later profile overrides
-	// the expression for that key, the first profile's constraint wins.
+	// evaluatedConstraints deduplicates invariants across profiles by key and
+	// expression so overridden constraints with the same key are still evaluated.
 	evaluatedConstraints := make(map[string]struct{})
 	for _, url := range urls {
 		if err := ctx.Err(); err != nil {
@@ -327,17 +334,18 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 		}
 		sd, err := lookupStructureDefinition(catalog, url)
 		if err != nil {
+			expr := profileReferenceExpression(url, resourceType)
 			if errors.Is(err, ErrProfileNotFound) {
 				*issues = append(*issues, issue(
 					"unknown-profile",
 					fmt.Sprintf("profile %q is not installed", url),
-					[]string{"Resource.meta.profile"},
+					[]string{expr},
 				))
 			} else {
 				*issues = append(*issues, issue(
 					"profile-parse",
 					fmt.Sprintf("profile %q could not be parsed: %v", url, err),
-					[]string{"Resource.meta.profile"},
+					[]string{expr},
 				))
 			}
 			continue
@@ -346,7 +354,7 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 			*issues = append(*issues, issue(
 				"profile",
 				fmt.Sprintf("profile %s applies to %s, not %s", url, sd.Type, resourceType),
-				[]string{"Resource.meta.profile"},
+				[]string{profileReferenceExpression(url, resourceType)},
 			))
 			continue
 		}
@@ -354,12 +362,19 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 	}
 }
 
+func profileReferenceExpression(profileURL, resourceType string) string {
+	if resourceType != "" && profileURL == BaseStructureDefinitionURL(resourceType) {
+		return "Resource"
+	}
+	return "Resource.meta.profile"
+}
+
 func applyProfileValidation(ctx context.Context, res *types.ResourceEnvelope, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, opts ValidateOptions, evaluatedConstraints map[string]struct{}, issues *[]ValidationIssue) {
 	full := profileValidationFull(opts)
 	if sd.UseSnapshot {
-		validateProfileSnapshotStructure(obj, sd, issues)
+		validateProfileSnapshotStructure(ctx, obj, sd, issues)
 	} else {
-		validateProfileSlicing(obj, sd, issues)
+		validateProfileSlicing(ctx, obj, sd, issues)
 	}
 	if sd.UseSnapshot {
 		if opts.ProfileConstraints && engine != nil {
@@ -367,7 +382,7 @@ func applyProfileValidation(ctx context.Context, res *types.ResourceEnvelope, ob
 			validateProfileConstraints(ctx, res, sd, engine, evaluatedConstraints, issues)
 		}
 		if full {
-			validateExtensionPolicy(obj, sd, issues)
+			validateExtensionPolicy(ctx, obj, sd, issues)
 		}
 	}
 	if full && opts.Terminology != nil {
@@ -450,6 +465,9 @@ func choiceJSONKeys(choiceName string, types []string) []string {
 	}
 	out := make([]string, 0, len(types))
 	for _, typ := range types {
+		if typ == "" {
+			continue
+		}
 		runes := []rune(typ)
 		runes[0] = unicode.ToUpper(runes[0])
 		out = append(out, base+string(runes))
@@ -545,16 +563,20 @@ func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope
 		return
 	}
 	for i := range sd.Elements {
+		if err := ctx.Err(); err != nil {
+			return
+		}
 		el := &sd.Elements[i]
 		for j := range el.Constraints {
 			c := &el.Constraints[j]
 			if c.Expression == "" {
 				continue
 			}
-			if _, ok := evaluatedKeys[c.Key]; ok {
+			identity := constraintIdentity(c.Key, c.Expression)
+			if _, ok := evaluatedKeys[identity]; ok {
 				continue
 			}
-			evaluatedKeys[c.Key] = struct{}{}
+			evaluatedKeys[identity] = struct{}{}
 			if compileErr := sd.constraintCompileErrors[c.Key]; compileErr != nil {
 				*issues = append(*issues, ValidationIssue{
 					Severity:    "warning",
@@ -603,16 +625,28 @@ func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope
 	}
 }
 
+func constraintIdentity(key, expression string) string {
+	return key + "\x00" + expression
+}
+
 func parseMax(max string) (int, bool) {
+	n, bounded, invalid := parseCardinalityMax(max)
+	if invalid || !bounded {
+		return 0, false
+	}
+	return n, true
+}
+
+func parseCardinalityMax(max string) (n int, bounded bool, invalid bool) {
 	switch max {
 	case "", "*":
-		return 0, false
+		return 0, false, false
 	default:
-		n, err := strconv.Atoi(max)
+		parsed, err := strconv.Atoi(max)
 		if err != nil {
-			return 0, false
+			return 0, false, true
 		}
-		return n, true
+		return parsed, true, false
 	}
 }
 
