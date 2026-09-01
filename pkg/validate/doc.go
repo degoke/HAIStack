@@ -5,7 +5,8 @@
 // exposure. It validates JSON shape, resource types, IDs, required fields, reference syntax,
 // and structural/primitive constraints via the Google FHIR R4 proto layer.
 // Optional profile cardinality checks run when a ProfileCatalog is configured
-// and ValidateOptions.EnforceDeclaredProfiles or Profiles is set.
+// and ValidateOptions enable base and/or declared profiles. The runtime enables
+// base HL7 R4 StructureDefinition validation by default.
 //
 // # Two integration paths
 //

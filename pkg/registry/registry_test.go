@@ -208,6 +208,34 @@ func TestParseDefinitionSearchParameterMultiTarget(t *testing.T) {
 	}
 }
 
+func TestRegistryProfileCatalogLoadsBasePatient(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	mgr := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	if err := mgr.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	if err := mgr.EnableResource(ctx, "Patient"); err != nil {
+		t.Fatalf("EnableResource: %v", err)
+	}
+	snapshot, err := mgr.RebuildSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("RebuildSnapshot: %v", err)
+	}
+	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL("Patient"))
+	if !ok {
+		t.Fatal("expected base Patient StructureDefinition")
+	}
+	if !sd.UseSnapshot {
+		t.Fatal("base Patient profile should use snapshot elements")
+	}
+	if len(sd.Elements) < 40 {
+		t.Fatalf("elements = %d, want full snapshot", len(sd.Elements))
+	}
+}
+
 func TestParseDefinitionOperationDefinitionBooleanType(t *testing.T) {
 	raw := []byte(`{
 		"resourceType":"OperationDefinition",

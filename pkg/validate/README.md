@@ -103,27 +103,30 @@ eng, _ := validate.NewEngine(validate.Config{
 
 You can also pass a per-request allowlist via `ValidateOptions.ResourceTypeRegistry`.
 
-### Profile enforcement (opt-in)
+### Profile enforcement
 
-Installed StructureDefinitions can be enforced on write. Cardinality constraints
-from the profile differential (or snapshot) are checked; this is not a full HL7
-validator.
+The runtime validates every write against the bundled HL7 R4 base
+StructureDefinition for the resource type, plus any declared `meta.profile`
+URLs. Checks include cardinality, unknown elements (base snapshot), and
+FHIRPath invariants (best-effort).
 
 ```go
-catalog, err := validate.LoadProfileCatalogFromDir("modules/core/ig")
-eng, err := validate.NewEngine(validate.Config{ProfileCatalog: catalog})
+catalog := validate.NewRegistryProfileCatalog(snapshot)
+fp, _ := fhirpath.NewEngine(fhirpath.Config{})
+eng, _ := validate.NewEngine(validate.Config{ProfileCatalog: catalog, FHIRPath: fp})
 
-svc, err := core.NewResourceService(core.ResourceServiceConfig{
+svc, _ := core.NewResourceService(core.ResourceServiceConfig{
     Validator: validate.NewCoreValidator(eng, validate.ValidateOptions{
-        EnforceDeclaredProfiles: true, // honor meta.profile
-        // Profiles: []string{"http://haistack.example.org/fhir/StructureDefinition/hai-patient"},
+        EnforceBaseProfile:      true,
+        EnforceDeclaredProfiles: true,
+        ProfileConstraints:      true,
     }),
 })
 ```
 
-Missing required elements produce issue code `required`. Unknown `meta.profile`
-URLs produce `unknown-profile`. Certification-grade checking still uses
-`make validate-ig` (HL7 FHIR Validator) against `conformance/examples`.
+Issue codes include `required`, `unknown-element`, `unknown-profile`, and
+`invariant`. This is not a full HL7 Java validator — use `make validate-ig` for
+certification-grade checking.
 
 ## Where it fits
 
@@ -146,14 +149,13 @@ FHIR JSON envelope
 
 ## MVP limits
 
-- Structural and safety-oriented by default; profile cardinality is opt-in
+- Structural and safety checks always run; base HL7 R4 profile validation is enabled by default in `pkg/runtime`
 - Syntactic reference checks only (no existence resolution; bare IDs without slashes are accepted; typed references are not checked against the installed resource-type registry)
 - Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
-- No slicing, custom FHIRPath invariants, or module-specific business rules
-- Profile cardinality is opt-in via `ProfileCatalog` + `EnforceBaseProfile` / `EnforceDeclaredProfiles` / `Profiles`
-- Runtime enables base R4 + declared profile validation by default when wired through `pkg/runtime`
+- Profile checks: cardinality, unknown elements (base snapshot), and FHIRPath invariants (best-effort) — no slicing, terminology bindings, or extension policy
+- Custom profiles require `ProfileCatalog` + `EnforceDeclaredProfiles` or explicit `Profiles`
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 
