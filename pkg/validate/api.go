@@ -35,11 +35,12 @@ func (m MapResourceTypeRegistry) IsInstalled(resourceType string) bool {
 type ValidationMode int
 
 const (
-	// ValidationModeFast checks cardinality, unknown elements, and optional
-	// FHIRPath invariants. This is the default for runtime API writes.
+	// ValidationModeFast checks slice cardinality, unknown elements on snapshot
+	// profiles, and optional FHIRPath invariants (ProfileConstraints). This is
+	// the default for runtime API writes.
 	ValidationModeFast ValidationMode = iota
-	// ValidationModeFull adds slicing, StructureDefinition terminology bindings,
-	// and extension policy checks. Use for certification-style validation.
+	// ValidationModeFull adds StructureDefinition terminology bindings (except
+	// preferred strength) and extension URL policy checks.
 	ValidationModeFull
 )
 

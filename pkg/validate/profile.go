@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -70,6 +71,10 @@ type StructureDefinition struct {
 	UseSnapshot  bool
 	Elements     []ElementDefinition
 	allowedChild map[string]map[string]struct{}
+
+	compiledConstraints     map[string]fhirpath.CompiledExpression
+	constraintCompileErrors map[string]error
+	constraintCompileMu     sync.Mutex
 }
 
 // MemoryProfileCatalog is an in-memory ProfileCatalog.
@@ -272,7 +277,7 @@ func profileValidationFull(opts ValidateOptions) bool {
 	return opts.Mode == ValidationModeFull
 }
 
-func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]interface{}, resourceType string, opts ValidateOptions, issues *[]ValidationIssue) {
+func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.ResourceEnvelope, obj map[string]interface{}, resourceType string, opts ValidateOptions, issues *[]ValidationIssue) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
@@ -312,6 +317,10 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 		return
 	}
 
+	// evaluatedConstraints deduplicates invariant keys across base + declared profiles.
+	// Constraints with the same key are evaluated once; if a later profile overrides
+	// the expression for that key, the first profile's constraint wins.
+	evaluatedConstraints := make(map[string]struct{})
 	for _, url := range urls {
 		if err := ctx.Err(); err != nil {
 			return
@@ -341,26 +350,21 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 			))
 			continue
 		}
-		applyProfileValidation(ctx, obj, sd, e.fhirpath, opts, issues)
+		applyProfileValidation(ctx, res, obj, sd, e.fhirpath, opts, evaluatedConstraints, issues)
 	}
 }
 
-func applyProfileValidation(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, opts ValidateOptions, issues *[]ValidationIssue) {
+func applyProfileValidation(ctx context.Context, res *types.ResourceEnvelope, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, opts ValidateOptions, evaluatedConstraints map[string]struct{}, issues *[]ValidationIssue) {
 	full := profileValidationFull(opts)
-	if full {
-		validateProfileSlicing(obj, sd, issues)
-	} else {
-		// Fast mode checks overall element cardinality only. Named slice paths
-		// (containing ":") are validated in full mode via validateProfileSlicing.
-		validateProfileCardinality(obj, sd, issues)
-	}
-	// Snapshot-based profiles (base HL7 SDs) walk the full element tree.
-	// Constraint profiles (differential only) rely on the base profile for
-	// unknown-element checks when EnforceBaseProfile is enabled.
 	if sd.UseSnapshot {
-		validateUnknownElements(obj, sd, issues)
+		validateProfileSnapshotStructure(obj, sd, issues)
+	} else {
+		validateProfileSlicing(obj, sd, issues)
+	}
+	if sd.UseSnapshot {
 		if opts.ProfileConstraints && engine != nil {
-			validateProfileConstraints(ctx, obj, sd, engine, issues)
+			ensureConstraintsCompiled(sd, engine)
+			validateProfileConstraints(ctx, res, sd, engine, evaluatedConstraints, issues)
 		}
 		if full {
 			validateExtensionPolicy(obj, sd, issues)
@@ -395,38 +399,6 @@ func metaProfiles(obj map[string]interface{}) []string {
 		return []string{v}
 	default:
 		return nil
-	}
-}
-
-func validateProfileCardinality(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	for _, el := range sd.Elements {
-		if el.Path == "" || el.Path == sd.Type {
-			continue
-		}
-		if strings.Contains(el.Path, "[x]") || strings.Contains(el.Path, ":") {
-			continue
-		}
-		parent, _ := splitElementPath(el.Path)
-		if parent != sd.Type && parent != "" {
-			if countPath(obj, parent) == 0 {
-				continue
-			}
-		}
-		count := countPath(obj, el.Path)
-		if el.Min > 0 && count < el.Min {
-			*issues = append(*issues, issue(
-				"required",
-				fmt.Sprintf("%s: minimum required = %d, but only found %d (%s)", el.Path, el.Min, count, sd.URL),
-				[]string{el.Path},
-			))
-		}
-		if max, ok := parseMax(el.Max); ok && count > max {
-			*issues = append(*issues, issue(
-				"structure",
-				fmt.Sprintf("%s: max allowed = %d, but found %d (%s)", el.Path, max, count, sd.URL),
-				[]string{el.Path},
-			))
-		}
 	}
 }
 
@@ -502,11 +474,6 @@ func isAlwaysAllowedKey(key string) bool {
 	return ok
 }
 
-func validateUnknownElements(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	sd.buildAllowedChildren()
-	walkUnknownElements(obj, sd.Type, sd, issues)
-}
-
 var metaFieldAllowlist = map[string]struct{}{
 	"profile":     {},
 	"version":     {},
@@ -518,60 +485,6 @@ var metaFieldAllowlist = map[string]struct{}{
 
 func isMetaElementPath(path string) bool {
 	return strings.HasSuffix(path, ".meta")
-}
-
-func walkUnknownElements(node interface{}, path string, sd *StructureDefinition, issues *[]ValidationIssue) {
-	switch current := node.(type) {
-	case map[string]interface{}:
-		if isMetaElementPath(path) {
-			for key, value := range current {
-				if _, ok := metaFieldAllowlist[key]; !ok {
-					*issues = append(*issues, issue(
-						"unknown-element",
-						fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
-						[]string{path + "." + key},
-					))
-					continue
-				}
-				walkUnknownElements(value, path+"."+key, sd, issues)
-			}
-			return
-		}
-		allowed := sd.allowedChild[path]
-		for key, value := range current {
-			if isAlwaysAllowedKey(key) {
-				nextPath := path
-				if key == "meta" || key == "text" {
-					if path == "" {
-						nextPath = key
-					} else {
-						nextPath = path + "." + key
-					}
-				}
-				if key != "extension" && key != "modifierExtension" {
-					walkUnknownElements(value, nextPath, sd, issues)
-				}
-				continue
-			}
-			if allowed == nil {
-				continue
-			}
-			if _, ok := allowed[key]; !ok {
-				*issues = append(*issues, issue(
-					"unknown-element",
-					fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
-					[]string{path + "." + key},
-				))
-				continue
-			}
-			nextPath := elementPathForJSONKey(sd, path, key)
-			walkUnknownElements(value, nextPath, sd, issues)
-		}
-	case []interface{}:
-		for _, item := range current {
-			walkUnknownElements(item, path, sd, issues)
-		}
-	}
 }
 
 func elementPathForJSONKey(sd *StructureDefinition, parentPath, jsonKey string) string {
@@ -592,26 +505,74 @@ func elementPathForJSONKey(sd *StructureDefinition, parentPath, jsonKey string) 
 	return parentPath + "." + jsonKey
 }
 
-func validateProfileConstraints(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, issues *[]ValidationIssue) {
-	data, err := json.Marshal(obj)
-	if err != nil {
+func ensureConstraintsCompiled(sd *StructureDefinition, engine fhirpath.Engine) {
+	if sd == nil || engine == nil {
 		return
 	}
-	env := &types.ResourceEnvelope{
-		ResourceType: sd.Type,
-		JSON:         data,
+	sd.constraintCompileMu.Lock()
+	defer sd.constraintCompileMu.Unlock()
+	if sd.compiledConstraints != nil {
+		return
 	}
-	seen := make(map[string]struct{})
-	for _, el := range sd.Elements {
-		for _, c := range el.Constraints {
+	compiled := make(map[string]fhirpath.CompiledExpression)
+	compileErrors := make(map[string]error)
+	for i := range sd.Elements {
+		for j := range sd.Elements[i].Constraints {
+			c := sd.Elements[i].Constraints[j]
+			if c.Expression == "" || c.Key == "" {
+				continue
+			}
+			if _, ok := compiled[c.Key]; ok {
+				continue
+			}
+			if _, ok := compileErrors[c.Key]; ok {
+				continue
+			}
+			expr, err := engine.Compile(c.Expression)
+			if err != nil {
+				compileErrors[c.Key] = err
+				continue
+			}
+			compiled[c.Key] = expr
+		}
+	}
+	sd.compiledConstraints = compiled
+	sd.constraintCompileErrors = compileErrors
+}
+
+func validateProfileConstraints(ctx context.Context, res *types.ResourceEnvelope, sd *StructureDefinition, engine fhirpath.Engine, evaluatedKeys map[string]struct{}, issues *[]ValidationIssue) {
+	if res == nil {
+		return
+	}
+	for i := range sd.Elements {
+		el := &sd.Elements[i]
+		for j := range el.Constraints {
+			c := &el.Constraints[j]
 			if c.Expression == "" {
 				continue
 			}
-			if _, ok := seen[c.Key]; ok {
+			if _, ok := evaluatedKeys[c.Key]; ok {
 				continue
 			}
-			seen[c.Key] = struct{}{}
-			ok, err := engine.EvalBool(ctx, c.Expression, env)
+			evaluatedKeys[c.Key] = struct{}{}
+			if compileErr := sd.constraintCompileErrors[c.Key]; compileErr != nil {
+				*issues = append(*issues, ValidationIssue{
+					Severity:    "warning",
+					Code:        "invariant-evaluation",
+					Diagnostics: fmt.Sprintf("%s: compile: %v", c.Key, compileErr),
+					Expression:  []string{el.Path},
+				})
+				continue
+			}
+			var (
+				ok  bool
+				err error
+			)
+			if compiled := sd.compiledConstraints[c.Key]; compiled != nil {
+				ok, err = compiled.EvalBool(ctx, res)
+			} else {
+				ok, err = engine.EvalBool(ctx, c.Expression, res)
+			}
 			if err != nil {
 				*issues = append(*issues, ValidationIssue{
 					Severity:    "warning",

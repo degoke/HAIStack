@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -14,8 +15,19 @@ import (
 // PatientReferenceResolver extracts the patient id linked to a FHIR resource
 // using the same SearchParameter selection as patient-scoped search.
 type PatientReferenceResolver struct {
+	mu       sync.RWMutex
 	Snapshot *Snapshot
 	Engine   fhirpath.Engine
+}
+
+// SetSnapshot replaces the compiled snapshot used for patient resolution.
+func (r *PatientReferenceResolver) SetSnapshot(snapshot *Snapshot) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.Snapshot = snapshot
+	r.mu.Unlock()
 }
 
 // PatientIDForResource returns the patient id when the resource is linked to
@@ -37,14 +49,18 @@ func (r *PatientReferenceResolver) PatientIDForResource(ctx context.Context, res
 		}
 		return id, true, nil
 	}
-	if r.Snapshot == nil || r.Engine == nil {
+	r.mu.RLock()
+	snapshot := r.Snapshot
+	engine := r.Engine
+	r.mu.RUnlock()
+	if snapshot == nil || engine == nil {
 		return "", false, fmt.Errorf("registry patient reference resolver is not configured")
 	}
-	param, ok := r.Snapshot.PatientSearchParameter(resourceType)
+	param, ok := snapshot.PatientSearchParameter(resourceType)
 	if !ok || param.Expression == "" {
 		return "", false, nil
 	}
-	values, err := r.Engine.Eval(ctx, param.Expression, resource)
+	values, err := engine.Eval(ctx, param.Expression, resource)
 	if err != nil {
 		return "", false, fmt.Errorf("evaluate patient scope expression: %w", err)
 	}

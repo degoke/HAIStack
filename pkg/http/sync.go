@@ -157,19 +157,24 @@ func NewRootHandler(fhir http.Handler, sync hasync.HubServer) http.Handler {
 // constructor when FHIR auth is enabled; the two route trees do not otherwise
 // share middleware automatically.
 func NewRootHandlerWithSyncMiddleware(fhir http.Handler, sync hasync.HubServer, syncMiddleware func(http.Handler) http.Handler) http.Handler {
+	return NewRootHandlerFromConfig(RootConfig{FHIR: fhir, Sync: sync, SyncMiddleware: syncMiddleware})
+}
+
+// NewRootHandlerFromConfig builds a root handler from RootConfig.
+func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 	mux := http.NewServeMux()
-	if fhir != nil {
-		mux.Handle("/fhir/", fhir)
-		mux.Handle("/fhir", fhir)
+	if cfg.FHIR != nil {
+		mux.Handle("/fhir/", cfg.FHIR)
+		mux.Handle("/fhir", cfg.FHIR)
 	}
-	if sync != nil {
-		syncHandler := NewSyncHandler(sync)
-		if syncMiddleware != nil {
-			syncHandler = syncMiddleware(syncHandler)
+	if cfg.Sync != nil {
+		syncHandler := NewSyncHandler(cfg.Sync)
+		if cfg.SyncMiddleware != nil {
+			syncHandler = cfg.SyncMiddleware(syncHandler)
 		}
 		mux.Handle("/sync/", syncHandler)
 	}
-	if fhir == nil && sync == nil {
+	if cfg.FHIR == nil && cfg.Sync == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, unsupportedEndpoint(r.URL.Path))
 		})
@@ -187,11 +192,6 @@ type RootConfig struct {
 	// SyncMiddleware must enforce the caller's node/tenant authentication and
 	// authorization when sync routes are exposed.
 	SyncMiddleware func(http.Handler) http.Handler
-}
-
-// NewRootHandlerFromConfig builds a root handler from RootConfig.
-func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
-	return NewRootHandlerWithSyncMiddleware(cfg.FHIR, cfg.Sync, cfg.SyncMiddleware)
 }
 
 // NotImplemented returns an error mapped to HTTP 501 by the HTTP adapter.

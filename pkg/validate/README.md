@@ -110,10 +110,12 @@ StructureDefinition for the resource type, plus any declared `meta.profile`
 URLs. Checks include cardinality, unknown elements (base snapshot), and
 FHIRPath invariants (best-effort).
 
-**Fast mode (default):** cardinality, unknown elements, FHIRPath invariants.
+**Fast mode (default):** slicing, unknown elements, optional FHIRPath invariants
+(`ProfileConstraints`). Runtime API writes leave invariants off by default.
 
-**Full mode:** adds slicing, StructureDefinition terminology bindings, and
-extension policy. Use for certification-style checks or `haistack validate --full`.
+**Full mode:** adds StructureDefinition terminology bindings (skips preferred
+strength) and extension policy. Use for certification-style checks or
+`haistack validate --full`.
 
 ```go
 catalog := validate.NewRegistryProfileCatalog(snapshot)
@@ -124,7 +126,7 @@ svc, _ := core.NewResourceService(core.ResourceServiceConfig{
     Validator: validate.NewCoreValidator(eng, validate.ValidateOptions{
         EnforceBaseProfile:      true,
         EnforceDeclaredProfiles: true,
-        ProfileConstraints:      true,
+        ProfileConstraints:      true, // opt-in; runtime defaults to false
         Terminology:             termService,
         Mode:                    validate.ValidationModeFull, // optional
     }),

@@ -6,14 +6,13 @@ import (
 )
 
 func validateProfileSlicing(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
-	sliceParents := make(map[string]*ElementSlicing)
-	for i := range sd.Elements {
-		el := &sd.Elements[i]
-		if el.Slicing != nil {
-			sliceParents[el.Path] = el.Slicing
-		}
-	}
+	state := newProfileStructureState(sd)
+	accumulateProfilePathCounts(obj, sd.Type, state.counts)
+	validateProfileSlicingWithCounts(obj, sd, state, issues)
+}
 
+func validateProfileSlicingWithCounts(obj map[string]interface{}, sd *StructureDefinition, state *profileStructureState, issues *[]ValidationIssue) {
+	sliceParents := state.sliceParents
 	for _, el := range sd.Elements {
 		if el.Path == "" || el.Path == sd.Type {
 			continue
@@ -23,7 +22,7 @@ func validateProfileSlicing(obj map[string]interface{}, sd *StructureDefinition,
 		}
 		parent, _ := splitElementPath(el.Path)
 		if parent != sd.Type && parent != "" {
-			if countPath(obj, parent) == 0 {
+			if state.pathCount(parent) == 0 {
 				continue
 			}
 		}
@@ -36,7 +35,7 @@ func validateProfileSlicing(obj map[string]interface{}, sd *StructureDefinition,
 		if _, sliced := sliceParents[el.Path]; sliced {
 			continue
 		}
-		count := countPath(obj, el.Path)
+		count := state.pathCount(el.Path)
 		reportSliceCardinality(el, count, sd.URL, issues)
 	}
 }
