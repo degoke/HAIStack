@@ -143,9 +143,9 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 }
 
 type expectedExample struct {
-	MustFail            bool     `json:"mustFail"`
-	Profile             string   `json:"profile"`
-	ExpectedSubstrings  []string `json:"expectedSubstrings"`
+	MustFail           bool     `json:"mustFail"`
+	Profile            string   `json:"profile"`
+	ExpectedSubstrings []string `json:"expectedSubstrings"`
 }
 
 func readExpected(path string) (*expectedExample, error) {
