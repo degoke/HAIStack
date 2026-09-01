@@ -103,6 +103,53 @@ func TestInstanceValidateAllowsEmptyBody(t *testing.T) {
 	}
 }
 
+func TestCoreValidateServiceDefaultsToFullMode(t *testing.T) {
+	var captured validate.ValidateOptions
+	engine := &captureValidateEngine{opts: &captured}
+	svc := hahttp.CoreValidateService{
+		Engine: engine,
+	}
+	_, err := svc.Validate(context.Background(), hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		Body:         []byte(`{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.Mode != validate.ValidationModeFull {
+		t.Fatalf("mode = %v, want full", captured.Mode)
+	}
+	if !captured.ProfileConstraints {
+		t.Fatal("expected ProfileConstraints true by default")
+	}
+}
+
+type captureValidateEngine struct {
+	opts *validate.ValidateOptions
+}
+
+func (c *captureValidateEngine) Validate(ctx context.Context, res *types.ResourceEnvelope, opts validate.ValidateOptions) (*validate.ValidationResult, error) {
+	*c.opts = opts
+	return &validate.ValidationResult{Valid: true}, nil
+}
+
+func TestCoreValidateServiceFastModeQuery(t *testing.T) {
+	var captured validate.ValidateOptions
+	engine := &captureValidateEngine{opts: &captured}
+	svc := hahttp.CoreValidateService{Engine: engine}
+	req := hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		Body:         []byte(`{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}`),
+	}
+	req.Query = map[string][]string{"_fast": {"true"}}
+	if _, err := svc.Validate(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Mode != validate.ValidationModeFast {
+		t.Fatalf("mode = %v, want fast", captured.Mode)
+	}
+}
+
 func TestCoreValidateServiceRejectsUnknownElement(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "registry", "internal", "bundles", "r4", "structure-definitions", "Patient.json"))
 	if err != nil {

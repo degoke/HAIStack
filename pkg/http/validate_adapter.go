@@ -73,16 +73,13 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 	if queryProfile := strings.TrimSpace(req.Query.Get("profile")); queryProfile != "" {
 		opts.Profiles = append(opts.Profiles, queryProfile)
 	}
-	if truthy(req.Query.Get("_full")) {
+	if truthy(req.Query.Get("_fast")) {
+		opts.Mode = validate.ValidationModeFast
+	} else {
 		opts.Mode = validate.ValidationModeFull
 		opts.ProfileConstraints = true
 	}
 	if truthy(req.Query.Get("_invariants")) {
-		opts.ProfileConstraints = true
-	}
-	if !opts.ProfileConstraints && opts.Mode != validate.ValidationModeFull {
-		// Explicit validate calls default to running FHIRPath invariants unless
-		// the caller opts into the lightweight runtime write profile.
 		opts.ProfileConstraints = true
 	}
 

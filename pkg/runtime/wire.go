@@ -422,6 +422,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Options: validate.ValidateOptions{
 				EnforceBaseProfile:      true,
 				EnforceDeclaredProfiles: true,
+				ProfileConstraints:      true,
+				Mode:                    validate.ValidationModeFull,
 				Terminology:             state.services.TerminologyService,
 				ResourceTypeRegistry:    snapshot,
 			},
