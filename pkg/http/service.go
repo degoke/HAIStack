@@ -83,6 +83,12 @@ type OperationService interface {
 }
 
 // ValidateRequest carries FHIR Resource/$validate inputs.
+//
+// Query parameters:
+//   - mode — create, update, delete, or profile (delete requires an instance URL)
+//   - profile — additional StructureDefinition canonical URL
+//   - _fast=true — lightweight validation (runtime write profile; invariants off)
+//   - _invariants=true — force FHIRPath invariant checks even when _fast=true
 type ValidateRequest struct {
 	ResourceType string
 	ID           string

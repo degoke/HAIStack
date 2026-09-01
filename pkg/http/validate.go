@@ -15,6 +15,8 @@ func (h *handler) handleValidateOperation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.authorizeRead(r.Context(), route.resourceType, route.id); err != nil {
+		// $validate is authorized like read: type-level checks CanReadResource;
+		// instance-level checks access to the stored resource.
 		writeError(w, err)
 		return
 	}

@@ -33,20 +33,26 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 	if req.ResourceType == "" {
 		return nil, invalidRequest("resource type is required", nil)
 	}
-	mode := strings.TrimSpace(req.Query.Get("mode"))
-	if mode == "delete" {
-		return s.validateDelete(ctx, req)
-	}
 
 	codec := s.Codec
 	if codec == nil {
 		codec = types.NewJSONCodec()
 	}
 
-	envelope, profiles, err := parseValidateInput(codec, req.ResourceType, req.ContentType, req.Body)
+	parsed, err := parseValidateInput(codec, req.ResourceType, req.ContentType, req.Body)
 	if err != nil {
 		return nil, err
 	}
+	mode, err := resolveValidateMode(req.Query.Get("mode"), parsed.mode)
+	if err != nil {
+		return nil, err
+	}
+	if mode == "delete" {
+		return s.validateDelete(ctx, req)
+	}
+
+	envelope := parsed.envelope
+	profiles := parsed.profiles
 	if envelope == nil {
 		if req.ID == "" {
 			return nil, invalidRequest("resource input is required", nil)
@@ -85,6 +91,7 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 		opts.Mode = validate.ValidationModeFull
 		opts.ProfileConstraints = true
 	}
+	// _invariants=true re-enables FHIRPath invariant checks when _fast=true.
 	if truthy(req.Query.Get("_invariants")) {
 		opts.ProfileConstraints = true
 	}
@@ -99,6 +106,8 @@ func (s CoreValidateService) Validate(ctx context.Context, req ValidateRequest) 
 	return validate.ToOperationOutcome(result), nil
 }
 
+// validateDelete checks whether a resource instance exists before delete.
+// MVP: existence only; referential integrity and cascade rules are not evaluated.
 func (s CoreValidateService) validateDelete(ctx context.Context, req ValidateRequest) (*types.OperationOutcome, error) {
 	if req.ID == "" {
 		return nil, invalidRequest("delete validation requires a resource instance", nil)
@@ -132,39 +141,68 @@ type validateParameters struct {
 	} `json:"parameter"`
 }
 
-func parseValidateInput(codec types.ResourceCodec, resourceType, contentType string, body []byte) (*types.ResourceEnvelope, []string, error) {
+type parsedValidateInput struct {
+	envelope *types.ResourceEnvelope
+	profiles []string
+	mode     string
+}
+
+func resolveValidateMode(queryMode, paramMode string) (string, error) {
+	queryMode = strings.TrimSpace(queryMode)
+	paramMode = strings.TrimSpace(paramMode)
+	if queryMode != "" && paramMode != "" && !strings.EqualFold(queryMode, paramMode) {
+		return "", invalidRequest("mode in query and Parameters must match", nil)
+	}
+	mode := queryMode
+	if mode == "" {
+		mode = paramMode
+	}
+	return normalizeValidateMode(mode)
+}
+
+func normalizeValidateMode(mode string) (string, error) {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return "", nil
+	}
+	switch strings.ToLower(mode) {
+	case "create", "update", "delete", "profile":
+		return strings.ToLower(mode), nil
+	default:
+		return "", invalidRequest(fmt.Sprintf("unsupported validate mode %q", mode), nil)
+	}
+}
+
+func parseValidateInput(codec types.ResourceCodec, resourceType, contentType string, body []byte) (parsedValidateInput, error) {
 	if len(body) == 0 {
-		return nil, nil, nil
+		return parsedValidateInput{}, nil
 	}
 	data, _, err := requestBodyJSON(contentType, body)
 	if err != nil {
-		return nil, nil, invalidRequest("parse validate input", err)
+		return parsedValidateInput{}, invalidRequest("parse validate input", err)
 	}
 	var peek struct {
 		ResourceType string `json:"resourceType"`
 	}
 	if err := json.Unmarshal(data, &peek); err != nil {
-		return nil, nil, invalidRequest("parse validate input", err)
+		return parsedValidateInput{}, invalidRequest("parse validate input", err)
 	}
 	if peek.ResourceType == "Parameters" {
 		return parseValidateParameters(codec, resourceType, data)
 	}
 	envelope, err := codec.ParseJSON(resourceType, data)
 	if err != nil {
-		return nil, nil, invalidRequest("parse validate resource", err)
+		return parsedValidateInput{}, invalidRequest("parse validate resource", err)
 	}
-	return envelope, nil, nil
+	return parsedValidateInput{envelope: envelope}, nil
 }
 
-func parseValidateParameters(codec types.ResourceCodec, resourceType string, data []byte) (*types.ResourceEnvelope, []string, error) {
+func parseValidateParameters(codec types.ResourceCodec, resourceType string, data []byte) (parsedValidateInput, error) {
 	var params validateParameters
 	if err := json.Unmarshal(data, &params); err != nil {
-		return nil, nil, invalidRequest("parse Parameters", err)
+		return parsedValidateInput{}, invalidRequest("parse Parameters", err)
 	}
-	var (
-		envelope *types.ResourceEnvelope
-		profiles []string
-	)
+	var out parsedValidateInput
 	for _, param := range params.Parameter {
 		switch param.Name {
 		case "resource":
@@ -173,20 +211,23 @@ func parseValidateParameters(codec types.ResourceCodec, resourceType string, dat
 			}
 			parsed, err := codec.ParseJSON(resourceType, param.Resource)
 			if err != nil {
-				return nil, nil, invalidRequest("parse Parameters.resource", err)
+				return parsedValidateInput{}, invalidRequest("parse Parameters.resource", err)
 			}
-			envelope = parsed
+			out.envelope = parsed
 		case "profile":
 			if profile := strings.TrimSpace(param.ValueCanonical); profile != "" {
-				profiles = append(profiles, profile)
+				out.profiles = append(out.profiles, profile)
 			} else if profile := strings.TrimSpace(param.ValueUri); profile != "" {
-				profiles = append(profiles, profile)
+				out.profiles = append(out.profiles, profile)
 			}
 		case "mode":
-			if code := strings.TrimSpace(param.ValueCode); code == "delete" {
-				return nil, nil, invalidRequest("delete mode requires an instance-level validate URL", nil)
+			if code := strings.TrimSpace(param.ValueCode); code != "" {
+				if out.mode != "" && !strings.EqualFold(out.mode, code) {
+					return parsedValidateInput{}, invalidRequest("Parameters contains conflicting mode values", nil)
+				}
+				out.mode = code
 			}
 		}
 	}
-	return envelope, profiles, nil
+	return out, nil
 }

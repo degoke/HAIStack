@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -125,11 +126,17 @@ func TestCoreValidateServiceDefaultsToFullMode(t *testing.T) {
 }
 
 type captureValidateEngine struct {
-	opts *validate.ValidateOptions
+	opts   *validate.ValidateOptions
+	called *bool
 }
 
 func (c *captureValidateEngine) Validate(ctx context.Context, res *types.ResourceEnvelope, opts validate.ValidateOptions) (*validate.ValidationResult, error) {
-	*c.opts = opts
+	if c.called != nil {
+		*c.called = true
+	}
+	if c.opts != nil {
+		*c.opts = opts
+	}
 	return &validate.ValidationResult{Valid: true}, nil
 }
 
@@ -150,6 +157,119 @@ func TestCoreValidateServiceFastModeQuery(t *testing.T) {
 	}
 	if captured.ProfileConstraints {
 		t.Fatal("expected ProfileConstraints false in fast mode")
+	}
+}
+
+func TestCoreValidateServiceInvariantsOverrideFastMode(t *testing.T) {
+	var captured validate.ValidateOptions
+	engine := &captureValidateEngine{opts: &captured}
+	svc := hahttp.CoreValidateService{Engine: engine}
+	req := hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		Body:         []byte(`{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}`),
+	}
+	req.Query = map[string][]string{
+		"_fast":       {"true"},
+		"_invariants": {"true"},
+	}
+	if _, err := svc.Validate(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Mode != validate.ValidationModeFast {
+		t.Fatalf("mode = %v, want fast", captured.Mode)
+	}
+	if !captured.ProfileConstraints {
+		t.Fatal("expected ProfileConstraints true when _invariants=true")
+	}
+}
+
+func TestCoreValidateServiceParametersDeleteModeOnInstance(t *testing.T) {
+	patient := &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		ID:           "p1",
+		JSON:         []byte(`{"resourceType":"Patient","id":"p1"}`),
+	}
+	svc := hahttp.CoreValidateService{
+		Engine: &captureValidateEngine{},
+		Resources: &fakeResourceService{
+			readFn: func(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+				if resourceType == "Patient" && id == "p1" {
+					return patient, nil
+				}
+				return nil, nil
+			},
+		},
+	}
+	body := []byte(`{"resourceType":"Parameters","parameter":[{"name":"mode","valueCode":"delete"}]}`)
+	outcome, err := svc.Validate(context.Background(), hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		ID:           "p1",
+		Body:         body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome == nil || outcome.ResourceType != "OperationOutcome" {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+}
+
+func TestCoreValidateServiceParametersDeleteModeRequiresInstance(t *testing.T) {
+	svc := hahttp.CoreValidateService{
+		Engine:    &captureValidateEngine{},
+		Resources: &fakeResourceService{},
+	}
+	body := []byte(`{"resourceType":"Parameters","parameter":[{"name":"mode","valueCode":"delete"}]}`)
+	_, err := svc.Validate(context.Background(), hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		Body:         body,
+	})
+	if err == nil {
+		t.Fatal("expected error for type-level delete validate")
+	}
+}
+
+func TestCoreValidateServiceParametersCreateModeValidatesResource(t *testing.T) {
+	var called bool
+	engine := &captureValidateEngine{called: &called}
+	svc := hahttp.CoreValidateService{Engine: engine}
+	body := []byte(`{
+		"resourceType":"Parameters",
+		"parameter":[
+			{"name":"mode","valueCode":"create"},
+			{"name":"resource","resource":{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}}
+		]
+	}`)
+	if _, err := svc.Validate(context.Background(), hahttp.ValidateRequest{
+		ResourceType: "Patient",
+		Body:         body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("expected engine validate for create mode")
+	}
+}
+
+func TestValidateOperationReturnsXMLOperationOutcome(t *testing.T) {
+	h := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		ValidateService: hahttp.CoreValidateService{
+			Engine: &captureValidateEngine{},
+		},
+	})
+	body := []byte(`{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost, "/fhir/Patient/$validate?_format=xml", body, map[string]string{
+		"Accept": "application/fhir+xml",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "xml") {
+		t.Fatalf("content-type=%q want xml", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "OperationOutcome") {
+		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
 
