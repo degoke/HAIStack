@@ -86,6 +86,18 @@ func lookupStructureDefinition(catalog ProfileCatalog, canonicalURL string) (*St
 	return sd, nil
 }
 
+// Reload swaps the backing snapshot and clears the parse cache.
+func (c *RegistryProfileCatalog) Reload(snapshot *registry.Snapshot) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	c.snapshot = snapshot
+	c.cache = make(map[string]*StructureDefinition)
+	c.mu.Unlock()
+	return c.Warm()
+}
+
 // Warm pre-parses base StructureDefinitions for all enabled resource types.
 func (c *RegistryProfileCatalog) Warm() error {
 	if c == nil || c.snapshot == nil {

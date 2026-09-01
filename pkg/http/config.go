@@ -45,6 +45,10 @@ type Config struct {
 	// OperationOutcome with a not-supported error.
 	SDCService SDCService
 
+	// PackageInstallService handles ImplementationGuide/$install.
+	// When nil, POST /fhir/ImplementationGuide/$install returns not-supported.
+	PackageInstallService PackageInstallService
+
 	// OperationService handles non-SDC custom operations such as
 	// $everything or implementation-specific operations.
 	OperationService OperationService
