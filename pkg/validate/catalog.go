@@ -21,7 +21,7 @@ func MergeProfileCatalogs(catalogs ...MemoryProfileCatalog) MemoryProfileCatalog
 
 // LoadProfileCatalogFromDirs loads StructureDefinitions from multiple directories.
 func LoadProfileCatalogFromDirs(dirs ...string) (MemoryProfileCatalog, error) {
-	merged := make(MemoryProfileCatalog)
+	var catalogs []MemoryProfileCatalog
 	for _, dir := range dirs {
 		if strings.TrimSpace(dir) == "" {
 			continue
@@ -33,11 +33,9 @@ func LoadProfileCatalogFromDirs(dirs ...string) (MemoryProfileCatalog, error) {
 			}
 			return nil, fmt.Errorf("load profiles from %q: %w", dir, err)
 		}
-		for url, sd := range catalog {
-			merged[url] = sd
-		}
+		catalogs = append(catalogs, catalog)
 	}
-	return merged, nil
+	return MergeProfileCatalogs(catalogs...), nil
 }
 
 // LoadProfileCatalogFromDirTree walks dir and loads StructureDefinitions from every

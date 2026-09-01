@@ -22,7 +22,6 @@ conformance/
   module-map.json           # which generated resources belong to which module
   scripts/
     build-ig.sh
-    validate-ig.sh
     write-lock.sh
 ```
 

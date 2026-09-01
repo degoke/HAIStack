@@ -9,14 +9,15 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 // IGValidatorConfig configures conformance example validation.
 type IGValidatorConfig struct {
-	// BaseSDDir contains bundled HL7 R4 StructureDefinitions.
-	BaseSDDir string
+	// BaseBundleRoot is the HL7 R4 bundle root (contains structure-definitions/).
+	BaseBundleRoot string
 	// IGResourcesDir contains SUSHI-generated IG resources.
 	IGResourcesDir string
 	ValidDir       string
@@ -35,9 +36,13 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 		return err
 	}
 
-	catalog, err := validate.LoadProfileCatalogFromDirs(cfg.BaseSDDir, cfg.IGResourcesDir)
+	catalog, err := loadProfileCatalog(cfg)
 	if err != nil {
-		return fmt.Errorf("load profile catalog: %w", err)
+		return err
+	}
+	term, err := loadTerminology(ctx, cfg.IGResourcesDir)
+	if err != nil {
+		return fmt.Errorf("load terminology: %w", err)
 	}
 	fp, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
@@ -51,12 +56,7 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 		return fmt.Errorf("validate engine: %w", err)
 	}
 
-	valOpts := validate.ValidateOptions{
-		EnforceBaseProfile:      true,
-		EnforceDeclaredProfiles: true,
-		ProfileConstraints:      true,
-		Mode:                    validate.ValidationModeFull,
-	}
+	validOpts := fullValidationOptions(term)
 
 	var failures []string
 
@@ -74,7 +74,7 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 			failures = append(failures, fmt.Sprintf("valid example %s: %v", entry.Name(), err))
 			continue
 		}
-		result, err := engine.Validate(ctx, env, valOpts)
+		result, err := engine.Validate(ctx, env, validOpts)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("valid example %s: %v", entry.Name(), err))
 			continue
@@ -102,16 +102,20 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 			failures = append(failures, fmt.Sprintf("invalid example %s: %v", name, err))
 			continue
 		}
+		if !expected.MustFail {
+			failures = append(failures, fmt.Sprintf("invalid example %s: expected sidecar must set mustFail: true", name))
+			continue
+		}
+		if expected.Profile == "" {
+			failures = append(failures, fmt.Sprintf("invalid example %s: expected sidecar must set profile", name))
+			continue
+		}
 		env, err := readEnvelope(examplePath)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("invalid example %s: %v", name, err))
 			continue
 		}
-		opts := valOpts
-		if expected.Profile != "" {
-			opts.Profiles = []string{expected.Profile}
-			opts.EnforceDeclaredProfiles = false
-		}
+		opts := profileOnlyValidationOptions(term, expected.Profile)
 		result, err := engine.Validate(ctx, env, opts)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("invalid example %s: %v", name, err))
@@ -140,6 +144,27 @@ func ValidateIG(ctx context.Context, cfg IGValidatorConfig) error {
 	}
 	fmt.Println("all IG examples matched expected validator outcomes")
 	return nil
+}
+
+func fullValidationOptions(term terminology.Service) validate.ValidateOptions {
+	return validate.ValidateOptions{
+		EnforceBaseProfile:      true,
+		EnforceDeclaredProfiles: true,
+		ProfileConstraints:      true,
+		Mode:                    validate.ValidationModeFull,
+		Terminology:             term,
+	}
+}
+
+func profileOnlyValidationOptions(term terminology.Service, profileURL string) validate.ValidateOptions {
+	return validate.ValidateOptions{
+		EnforceBaseProfile:      false,
+		EnforceDeclaredProfiles: false,
+		Profiles:                []string{profileURL},
+		ProfileConstraints:      true,
+		Mode:                    validate.ValidationModeFull,
+		Terminology:             term,
+	}
 }
 
 type expectedExample struct {

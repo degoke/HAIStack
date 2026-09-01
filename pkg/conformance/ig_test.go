@@ -2,6 +2,7 @@ package conformance_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,37 +11,50 @@ import (
 )
 
 func TestValidateIGExamples(t *testing.T) {
-	root := repoRoot(t)
+	root, err := conformance.RepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	igDir := filepath.Join(root, "conformance/fsh-generated/resources")
 	if _, err := os.Stat(igDir); err != nil {
 		t.Skip("IG resources missing; run make ig")
 	}
-	cfg := conformance.IGValidatorConfig{
-		BaseSDDir:      filepath.Join(root, "pkg/registry/internal/bundles/r4/structure-definitions"),
-		IGResourcesDir: filepath.Join(root, "conformance/fsh-generated/resources"),
-		ValidDir:       filepath.Join(root, "conformance/examples/valid"),
-		InvalidDir:     filepath.Join(root, "conformance/examples/invalid"),
-	}
-	if err := conformance.ValidateIG(context.Background(), cfg); err != nil {
+	if err := conformance.ValidateIG(context.Background(), conformance.DefaultIGValidatorConfig(root)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
+func TestInvalidExampleSidecarsRequireMustFail(t *testing.T) {
+	root, err := conformance.RepoRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("could not find repository root")
-		}
-		dir = parent
+	invalidDir := filepath.Join(root, "conformance/examples/invalid")
+	entries, err := os.ReadDir(invalidDir)
+	if err != nil {
+		t.Skip("invalid examples missing")
 	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !stringsHasSuffix(name, ".expected.json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(invalidDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var expected struct {
+			MustFail bool `json:"mustFail"`
+		}
+		if err := json.Unmarshal(data, &expected); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		if !expected.MustFail {
+			t.Fatalf("%s must set mustFail: true", name)
+		}
+	}
+}
+
+func stringsHasSuffix(s, suffix string) bool {
+	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }

@@ -57,7 +57,7 @@ jobs:
 
       - name: Validate examples
         working-directory: .
-        run: bash conformance/scripts/validate-ig.sh
+        run: make validate-ig
 
       - name: Record certification lock
         working-directory: .
