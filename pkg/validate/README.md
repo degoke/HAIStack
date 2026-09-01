@@ -160,8 +160,11 @@ FHIR JSON envelope
 - Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
-- **Fast mode (runtime default):** cardinality, unknown elements, FHIRPath invariants
-- **Full mode:** slicing, SD terminology bindings, extension url policy (set `Mode: ValidationModeFull` or `make validate-ig`)
+- **Fast mode (runtime default):** cardinality on non-sliced paths, unknown elements (snapshot profiles), FHIRPath invariants. Named slice paths (`:`) are checked only in full mode.
+- **Full mode:** slice cardinality, SD terminology bindings, extension URL policy (set `Mode: ValidationModeFull` or `make validate-ig`)
+- **Constraint profiles** (`hai-patient`, SDC): differential cardinality overlays only; unknown-element checks come from the base HL7 profile when `EnforceBaseProfile` is enabled
+- Corrupt installed StructureDefinitions surface `profile-parse` issues instead of `unknown-profile`
+- FHIRPath evaluation failures emit `invariant-evaluation` warnings
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

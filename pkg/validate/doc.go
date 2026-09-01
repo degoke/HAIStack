@@ -35,11 +35,21 @@
 //   - minimal configured required-field checks
 //   - syntactic Reference.reference validation
 //   - proto/jsonformat structural and primitive validation
-//   - optional StructureDefinition cardinality checks (meta.profile or explicit Profiles)
+//   - optional StructureDefinition profile checks (base, declared profiles, invariants)
 //
-// Not a full HL7 validator. Still out of scope for the built-in engine:
+// Profile validation modes:
 //
-//   - slicing, custom FHIRPath invariants, extension policy
+//   - Fast (default): cardinality on non-sliced paths, unknown elements on snapshot
+//     profiles, FHIRPath invariants. Named slice paths (":") are deferred to full mode.
+//   - Full: adds slice cardinality, SD terminology bindings, and extension URL policy.
+//
+// Constraint profiles (differential only, e.g. hai-patient) apply cardinality overlays.
+// Unknown-element checks run on the base HL7 snapshot profile when EnforceBaseProfile
+// is enabled; differential profiles do not repeat that walk.
+//
+// Not a full HL7 validator. Still limited compared to the Java reference validator:
+//
+//   - incomplete slicing and extension-definition policy in full mode
 //   - module-specific business rules
 //
 // Resource-type installation checks are allowlist-based and optional. When no

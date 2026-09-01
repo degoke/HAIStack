@@ -3,6 +3,7 @@ package validate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -315,13 +316,21 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 		if err := ctx.Err(); err != nil {
 			return
 		}
-		sd, ok := catalog.GetStructureDefinition(url)
-		if !ok {
-			*issues = append(*issues, issue(
-				"unknown-profile",
-				fmt.Sprintf("profile %q is not installed", url),
-				[]string{"Resource.meta.profile"},
-			))
+		sd, err := lookupStructureDefinition(catalog, url)
+		if err != nil {
+			if errors.Is(err, ErrProfileNotFound) {
+				*issues = append(*issues, issue(
+					"unknown-profile",
+					fmt.Sprintf("profile %q is not installed", url),
+					[]string{"Resource.meta.profile"},
+				))
+			} else {
+				*issues = append(*issues, issue(
+					"profile-parse",
+					fmt.Sprintf("profile %q could not be parsed: %v", url, err),
+					[]string{"Resource.meta.profile"},
+				))
+			}
 			continue
 		}
 		if sd.Type != "" && resourceType != "" && sd.Type != resourceType {
@@ -341,8 +350,13 @@ func applyProfileValidation(ctx context.Context, obj map[string]interface{}, sd 
 	if full {
 		validateProfileSlicing(obj, sd, issues)
 	} else {
+		// Fast mode checks overall element cardinality only. Named slice paths
+		// (containing ":") are validated in full mode via validateProfileSlicing.
 		validateProfileCardinality(obj, sd, issues)
 	}
+	// Snapshot-based profiles (base HL7 SDs) walk the full element tree.
+	// Constraint profiles (differential only) rely on the base profile for
+	// unknown-element checks when EnforceBaseProfile is enabled.
 	if sd.UseSnapshot {
 		validateUnknownElements(obj, sd, issues)
 		if opts.ProfileConstraints && engine != nil {
@@ -599,6 +613,12 @@ func validateProfileConstraints(ctx context.Context, obj map[string]interface{},
 			seen[c.Key] = struct{}{}
 			ok, err := engine.EvalBool(ctx, c.Expression, env)
 			if err != nil {
+				*issues = append(*issues, ValidationIssue{
+					Severity:    "warning",
+					Code:        "invariant-evaluation",
+					Diagnostics: fmt.Sprintf("%s: %v", c.Key, err),
+					Expression:  []string{el.Path},
+				})
 				continue
 			}
 			if ok {
