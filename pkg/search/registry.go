@@ -2,6 +2,7 @@ package search
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/registry"
 )
@@ -38,6 +39,7 @@ type Registry interface {
 
 // SnapshotRegistry adapts a registry.Snapshot for search indexing and query resolution.
 type SnapshotRegistry struct {
+	mu       sync.RWMutex
 	snapshot *registry.Snapshot
 }
 
@@ -51,24 +53,37 @@ func (r *SnapshotRegistry) SetSnapshot(snapshot *registry.Snapshot) {
 	if r == nil {
 		return
 	}
+	r.mu.Lock()
 	r.snapshot = snapshot
+	r.mu.Unlock()
+}
+
+func (r *SnapshotRegistry) currentSnapshot() *registry.Snapshot {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.snapshot
 }
 
 func (r *SnapshotRegistry) IsResourceEnabled(resourceType string) bool {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return false
 	}
-	return r.snapshot.IsResourceEnabled(resourceType)
+	return snapshot.IsResourceEnabled(resourceType)
 }
 
 func (r *SnapshotRegistry) SearchParametersFor(resourceType string) []ParameterInfo {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return nil
 	}
-	params := r.snapshot.SearchParametersFor(resourceType)
+	params := snapshot.SearchParametersFor(resourceType)
 	out := make([]ParameterInfo, 0, len(params))
 	for _, p := range params {
-		out = append(out, toParameterInfo(r.snapshot, p))
+		out = append(out, toParameterInfo(snapshot, p))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	if len(out) == 0 {
@@ -78,22 +93,24 @@ func (r *SnapshotRegistry) SearchParametersFor(resourceType string) []ParameterI
 }
 
 func (r *SnapshotRegistry) SearchParameter(resourceType, code string) (ParameterInfo, bool) {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return ParameterInfo{}, false
 	}
-	info, ok := r.snapshot.SearchParameter(resourceType, code)
+	info, ok := snapshot.SearchParameter(resourceType, code)
 	if !ok {
 		return ParameterInfo{}, false
 	}
-	return toParameterInfo(r.snapshot, *info), true
+	return toParameterInfo(snapshot, *info), true
 }
 
 func (r *SnapshotRegistry) EnabledResourceTypes() []string {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return nil
 	}
 	types := make([]string, 0)
-	for _, cap := range r.snapshot.CapabilitySnapshot().Resources {
+	for _, cap := range snapshot.CapabilitySnapshot().Resources {
 		types = append(types, cap.ResourceType)
 	}
 	sort.Strings(types)
@@ -101,21 +118,23 @@ func (r *SnapshotRegistry) EnabledResourceTypes() []string {
 }
 
 func (r *SnapshotRegistry) HasSearchParameter(resourceType, code string) bool {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return false
 	}
-	_, ok := r.snapshot.SearchParameter(resourceType, code)
+	_, ok := snapshot.SearchParameter(resourceType, code)
 	return ok
 }
 
 func (r *SnapshotRegistry) ResolveComponentCode(canonicalURL string) (ParameterInfo, bool) {
-	if r == nil || r.snapshot == nil {
+	snapshot := r.currentSnapshot()
+	if snapshot == nil {
 		return ParameterInfo{}, false
 	}
-	for _, cap := range r.snapshot.CapabilitySnapshot().Resources {
+	for _, cap := range snapshot.CapabilitySnapshot().Resources {
 		for _, p := range cap.SearchParameters {
 			if p.CanonicalURL == canonicalURL {
-				return toParameterInfo(r.snapshot, p), true
+				return toParameterInfo(snapshot, p), true
 			}
 		}
 	}

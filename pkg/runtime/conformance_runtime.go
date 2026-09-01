@@ -68,7 +68,7 @@ func NewConformanceRuntime(cfg ConformanceRuntimeConfig) (*ConformanceRuntime, e
 		cfg.SearchRegistry.SetSnapshot(snapshot)
 	}
 	if cfg.PatientResolver != nil {
-		cfg.PatientResolver.Snapshot = snapshot
+		cfg.PatientResolver.SetSnapshot(snapshot)
 	}
 	return &ConformanceRuntime{
 		manager:         cfg.Manager,
@@ -89,6 +89,7 @@ func (r *ConformanceRuntime) Refresh(ctx context.Context) (*registry.Snapshot, e
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	oldSnapshot := r.snapshot
 	snapshot, err := r.manager.RebuildSnapshot(ctx)
 	if err != nil {
 		return nil, err
@@ -100,13 +101,16 @@ func (r *ConformanceRuntime) Refresh(ctx context.Context) (*registry.Snapshot, e
 	engineCfg.InstalledTypes = snapshot
 	engineCfg.ProfileCatalog = r.profileCatalog
 	if err := r.engine.Reload(engineCfg); err != nil {
+		if oldSnapshot != nil {
+			_ = r.profileCatalog.Reload(oldSnapshot)
+		}
 		return nil, err
 	}
 	if r.searchRegistry != nil {
 		r.searchRegistry.SetSnapshot(snapshot)
 	}
 	if r.patientResolver != nil {
-		r.patientResolver.Snapshot = snapshot
+		r.patientResolver.SetSnapshot(snapshot)
 	}
 	r.snapshot = snapshot
 	return snapshot, nil

@@ -20,6 +20,24 @@ type LiveCapabilitySource struct {
 	Runtime ConformanceRuntime
 }
 
+// LivePatientSearchParamResolver resolves patient search scope from the current
+// conformance snapshot on each request.
+type LivePatientSearchParamResolver struct {
+	Runtime ConformanceRuntime
+}
+
+// PatientSearchParameterCode implements auth.PatientSearchParamResolver.
+func (r LivePatientSearchParamResolver) PatientSearchParameterCode(resourceType string) (string, bool) {
+	if r.Runtime == nil {
+		return "", false
+	}
+	snapshot := r.Runtime.Snapshot()
+	if snapshot == nil {
+		return "", false
+	}
+	return snapshot.PatientSearchParameterCode(resourceType)
+}
+
 // CapabilitySnapshot implements CapabilitySource.
 func (s LiveCapabilitySource) CapabilitySnapshot() registry.CapabilitySnapshot {
 	if s.Runtime == nil || s.Runtime.Snapshot() == nil {

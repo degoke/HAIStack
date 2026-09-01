@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,12 +20,12 @@ const defaultRegistryBase = "https://packages.fhir.org"
 
 // Installer ingests FHIR NPM packages into the registry catalog.
 type Installer struct {
-	Registry      *registry.Manager
-	Refresh       func(ctx context.Context) error
-	RegistryBase  string
-	HTTPClient    *http.Client
-	TempDir       string
-	EnableTypes   bool
+	Registry     *registry.Manager
+	Refresh      func(ctx context.Context) error
+	RegistryBase string
+	HTTPClient   *http.Client
+	TempDir      string
+	EnableTypes  bool
 }
 
 // InstallResult summarizes a package install.
@@ -141,10 +142,10 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 	}
 	for resourceType := range enabled {
 		if err := i.Registry.EnableResource(ctx, resourceType); err != nil {
-			if !strings.Contains(err.Error(), "already") {
-				// EnableResource returns ErrMissingDefinition when base SD absent; skip.
+			if errors.Is(err, registry.ErrMissingDefinition) {
 				continue
 			}
+			return nil, fmt.Errorf("enable resource type %s: %w", resourceType, err)
 		}
 		result.Enabled = append(result.Enabled, resourceType)
 	}
@@ -221,14 +222,31 @@ func loadPackageDefinitions(dir string) ([][]byte, error) {
 		if !strings.EqualFold(filepath.Ext(d.Name()), ".json") {
 			return nil
 		}
+		if strings.EqualFold(d.Name(), "package.json") {
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		if !isFHIRDefinitionJSON(data) {
+			return nil
 		}
 		out = append(out, data)
 		return nil
 	})
 	return out, err
+}
+
+func isFHIRDefinitionJSON(data []byte) bool {
+	var envelope struct {
+		ResourceType string `json:"resourceType"`
+		URL          string `json:"url"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return false
+	}
+	return strings.TrimSpace(envelope.ResourceType) != "" && strings.TrimSpace(envelope.URL) != ""
 }
 
 func structureDefinitionResourceType(raw []byte) string {

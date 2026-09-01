@@ -338,17 +338,17 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
-		Resources:        pc.resources,
-		History:          pc.history,
-		Sessions:         pc.sessions,
-		IDPolicy:         core.DefaultIDPolicy{},
-		Validator:        validator,
-		Indexer:          indexer,
-		Outbox:           &hasync.EventStoreOutbox{Events: pc.outboxEvents},
-		Terminology:      pc.terminology,
-		TerminologyScope: termScope,
-		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
-		DefinitionIngestor:      regManager,
+		Resources:          pc.resources,
+		History:            pc.history,
+		Sessions:           pc.sessions,
+		IDPolicy:           core.DefaultIDPolicy{},
+		Validator:          validator,
+		Indexer:            indexer,
+		Outbox:             &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Terminology:        pc.terminology,
+		TerminologyScope:   termScope,
+		TerminologyCache:   state.services.TerminologyService.(terminology.Invalidator),
+		DefinitionIngestor: regManager,
 		ConformanceRefresh: func(ctx context.Context) error {
 			snap, err := conformanceRuntime.Refresh(ctx)
 			if err != nil {
@@ -449,8 +449,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var httpSearchSvc hahttp.SearchService
 	if state.services.SearchService != nil {
 		httpSearchSvc = hahttp.SearchServiceAdapter{
-			Svc:                        state.services.SearchService,
-			PatientSearchParamResolver: conformanceRuntime.Snapshot(),
+			Svc: state.services.SearchService,
+			PatientSearchParamResolver: hahttp.LivePatientSearchParamResolver{
+				Runtime: conformanceRuntime,
+			},
 		}
 	}
 

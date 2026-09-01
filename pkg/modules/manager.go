@@ -27,12 +27,12 @@ type Config struct {
 // Manager is the public runtime-facing API for installing, upgrading,
 // uninstalling, and inspecting modules.
 type Manager struct {
-	cfg       Config
-	loader    *Loader
-	resolver  *DependencyResolver
-	installer *Installer
-	builder   *CapabilitySnapshotBuilder
-	mu        sync.Mutex
+	cfg         Config
+	loader      *Loader
+	resolver    *DependencyResolver
+	installer   *Installer
+	builder     *CapabilitySnapshotBuilder
+	mu          sync.Mutex
 	afterChange func(ctx context.Context) error
 }
 
