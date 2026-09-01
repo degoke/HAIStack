@@ -10,38 +10,20 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
-// PackageInstallService installs FHIR NPM packages into the registry catalog.
+// PackageInstallService enqueues FHIR NPM package install jobs.
 // Install jobs refresh conformance state automatically on completion.
 type PackageInstallService interface {
-	InstallFromRegistry(ctx context.Context, packageID, version string) (*packages.InstallResult, error)
-	InstallFromArchive(ctx context.Context, packageID, version string, r io.Reader) (*packages.InstallResult, error)
 	EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error)
 	EnqueueArchiveInstall(ctx context.Context, packageID, version string, r io.Reader) (store.JobRecord, error)
 }
 
 // CorePackageInstallService implements package install using registry and jobs.
 type CorePackageInstallService struct {
-	Installer *packages.Installer
-	JobStore  store.JobStore
-}
-
-func (s CorePackageInstallService) InstallFromRegistry(ctx context.Context, packageID, version string) (*packages.InstallResult, error) {
-	if s.Installer == nil {
-		return nil, notConfigured("package installer")
-	}
-	return s.Installer.InstallFromRegistry(ctx, packageID, version)
-}
-
-func (s CorePackageInstallService) InstallFromArchive(ctx context.Context, packageID, version string, r io.Reader) (*packages.InstallResult, error) {
-	if s.Installer == nil {
-		return nil, notConfigured("package installer")
-	}
-	return s.Installer.InstallFromArchive(ctx, packageID, version, r)
+	JobStore store.JobStore
 }
 
 func (s CorePackageInstallService) EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error) {
@@ -126,26 +108,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func installResultParameters(result *packages.InstallResult) *types.ResourceEnvelope {
-	payload := map[string]any{
-		"resourceType": "Parameters",
-		"parameter": []map[string]any{
-			{"name": "packageId", "valueString": result.PackageID},
-			{"name": "version", "valueString": result.Version},
-			{"name": "installedDefinitions", "valueInteger": result.Installed},
-			{"name": "status", "valueString": "completed"},
-		},
-	}
-	if len(result.Enabled) > 0 {
-		payload["parameter"] = append(payload["parameter"].([]map[string]any), map[string]any{
-			"name":        "enabledResources",
-			"valueString": strings.Join(result.Enabled, ","),
-		})
-	}
-	raw, _ := json.Marshal(payload)
-	return &types.ResourceEnvelope{ResourceType: "Parameters", JSON: raw}
 }
 
 func installJobParameters(jobID, packageID, version string) *types.ResourceEnvelope {

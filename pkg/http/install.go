@@ -26,11 +26,9 @@ func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *htt
 		return
 	}
 
-	sync := truthy(r.URL.Query().Get("_sync"))
 	contentType := r.Header.Get("Content-Type")
-
 	if isPackageArchiveContentType(contentType) && len(body) > 0 {
-		h.handleImplementationGuideInstallArchive(w, r, body, sync)
+		h.handleImplementationGuideInstallArchive(w, r, body)
 		return
 	}
 
@@ -53,16 +51,6 @@ func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if sync {
-		result, err := h.cfg.PackageInstallService.InstallFromRegistry(r.Context(), packageID, version)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeEnvelope(w, http.StatusOK, installResultParameters(result), nil)
-		return
-	}
-
 	job, err := h.cfg.PackageInstallService.EnqueueRegistryInstall(r.Context(), packageID, version)
 	if err != nil {
 		writeError(w, err)
@@ -71,20 +59,10 @@ func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *htt
 	writeEnvelope(w, http.StatusAccepted, installJobParameters(job.ID, packageID, version), nil)
 }
 
-func (h *handler) handleImplementationGuideInstallArchive(w http.ResponseWriter, r *http.Request, body []byte, sync bool) {
+func (h *handler) handleImplementationGuideInstallArchive(w http.ResponseWriter, r *http.Request, body []byte) {
 	packageID := strings.TrimSpace(r.URL.Query().Get("packageId"))
 	version := strings.TrimSpace(r.URL.Query().Get("version"))
 	reader := bytes.NewReader(body)
-
-	if sync {
-		result, err := h.cfg.PackageInstallService.InstallFromArchive(r.Context(), packageID, version, reader)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeEnvelope(w, http.StatusOK, installResultParameters(result), nil)
-		return
-	}
 
 	job, err := h.cfg.PackageInstallService.EnqueueArchiveInstall(r.Context(), packageID, version, reader)
 	if err != nil {

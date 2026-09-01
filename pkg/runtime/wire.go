@@ -458,17 +458,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if sdcService == nil {
 		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
 	}
-	packageInstaller := &packages.Installer{
-		Registry: regManager,
-		Refresh: func(ctx context.Context) error {
-			_, err := conformanceRuntime.Refresh(ctx)
-			return err
-		},
-		EnableTypes: true,
-	}
 	packageService := hahttp.CorePackageInstallService{
-		Installer: packageInstaller,
-		JobStore:  pc.jobStore,
+		JobStore: pc.jobStore,
 	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},

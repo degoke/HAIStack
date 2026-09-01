@@ -8,25 +8,12 @@ import (
 	"testing"
 
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 type fakePackageService struct {
-	installedFromRegistry bool
-	installedFromArchive  bool
-	enqueued              bool
-}
-
-func (f *fakePackageService) InstallFromRegistry(context.Context, string, string) (*packages.InstallResult, error) {
-	f.installedFromRegistry = true
-	return &packages.InstallResult{PackageID: "hl7.fhir.us.core", Version: "6.1.0", Installed: 1}, nil
-}
-
-func (f *fakePackageService) InstallFromArchive(context.Context, string, string, io.Reader) (*packages.InstallResult, error) {
-	f.installedFromArchive = true
-	return &packages.InstallResult{PackageID: "local.pkg", Version: "1.0.0", Installed: 2}, nil
+	enqueued bool
 }
 
 func (f *fakePackageService) EnqueueRegistryInstall(context.Context, string, string) (store.JobRecord, error) {
@@ -39,7 +26,7 @@ func (f *fakePackageService) EnqueueArchiveInstall(context.Context, string, stri
 	return store.JobRecord{ID: "job-2"}, nil
 }
 
-func TestImplementationGuideInstallAsyncDefault(t *testing.T) {
+func TestImplementationGuideInstallEnqueuesJob(t *testing.T) {
 	svc := &fakePackageService{}
 	h := newTestHandler(t, hahttp.Config{
 		ResourceService:       &fakeResourceService{},
@@ -52,29 +39,7 @@ func TestImplementationGuideInstallAsyncDefault(t *testing.T) {
 	if !svc.enqueued {
 		t.Fatal("expected async enqueue")
 	}
-	if svc.installedFromRegistry {
-		t.Fatal("did not expect sync install")
-	}
 	assertParametersStatus(t, rec.Body.Bytes(), "accepted")
-}
-
-func TestImplementationGuideInstallSync(t *testing.T) {
-	svc := &fakePackageService{}
-	h := newTestHandler(t, hahttp.Config{
-		ResourceService:       &fakeResourceService{},
-		PackageInstallService: svc,
-	})
-	rec := doRequest(t, h, http.MethodPost, "/fhir/ImplementationGuide/$install?packageId=hl7.fhir.us.core&version=6.1.0&_sync=true", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !svc.installedFromRegistry {
-		t.Fatal("expected sync install")
-	}
-	if svc.enqueued {
-		t.Fatal("did not expect async enqueue")
-	}
-	assertParametersStatus(t, rec.Body.Bytes(), "completed")
 }
 
 func TestImplementationGuidePackageExportNotImplemented(t *testing.T) {
