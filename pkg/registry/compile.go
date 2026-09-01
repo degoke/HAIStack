@@ -361,6 +361,27 @@ func (s *Snapshot) DefinitionsByCanonical(canonicalURL, version string) ([]byte,
 	return data, ok
 }
 
+// AnyDefinitionByCanonical returns raw JSON for canonicalURL, preferring common
+// FHIR and module versions when multiple are installed.
+func (s *Snapshot) AnyDefinitionByCanonical(canonicalURL string) ([]byte, bool) {
+	if s == nil {
+		return nil, false
+	}
+	versions, ok := s.canonical[canonicalURL]
+	if !ok || len(versions) == 0 {
+		return nil, false
+	}
+	for _, preferred := range []string{"4.0.1", "3.0.0", "1.0.0"} {
+		if data, ok := versions[preferred]; ok {
+			return data, true
+		}
+	}
+	for _, data := range versions {
+		return data, true
+	}
+	return nil, false
+}
+
 // CapabilitySnapshot returns a lightweight capability view for runtime consumers.
 func (s *Snapshot) CapabilitySnapshot() CapabilitySnapshot {
 	if s == nil {

@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
+
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 // ProfileCatalog looks up compiled StructureDefinitions by canonical URL.
@@ -15,20 +19,33 @@ type ProfileCatalog interface {
 	GetStructureDefinition(canonicalURL string) (*StructureDefinition, bool)
 }
 
-// StructureDefinition is the subset of a FHIR StructureDefinition needed for
-// cardinality enforcement on write.
-type StructureDefinition struct {
-	URL      string
-	Type     string
-	Kind     string
-	Elements []ElementDefinition
+// ElementConstraint is a FHIRPath invariant from a StructureDefinition element.
+type ElementConstraint struct {
+	Key        string
+	Severity   string
+	Expression string
+	Human      string
 }
 
 // ElementDefinition is one snapshot or differential element.
 type ElementDefinition struct {
-	Path string
-	Min  int
-	Max  string
+	Path        string
+	Min         int
+	Max         string
+	Types       []string
+	Constraints []ElementConstraint
+}
+
+// StructureDefinition is the subset of a FHIR StructureDefinition used for
+// profile validation on write.
+type StructureDefinition struct {
+	URL          string
+	Type         string
+	Kind         string
+	Derivation   string
+	UseSnapshot  bool
+	Elements     []ElementDefinition
+	allowedChild map[string]map[string]struct{}
 }
 
 // MemoryProfileCatalog is an in-memory ProfileCatalog.
@@ -84,6 +101,7 @@ type structureDefinitionJSON struct {
 	URL          string `json:"url"`
 	Type         string `json:"type"`
 	Kind         string `json:"kind"`
+	Derivation   string `json:"derivation"`
 	Snapshot     *struct {
 		Element []elementDefinitionJSON `json:"element"`
 	} `json:"snapshot"`
@@ -96,6 +114,15 @@ type elementDefinitionJSON struct {
 	Path string `json:"path"`
 	Min  *int   `json:"min"`
 	Max  string `json:"max"`
+	Type []struct {
+		Code string `json:"code"`
+	} `json:"type"`
+	Constraint []struct {
+		Key        string `json:"key"`
+		Severity   string `json:"severity"`
+		Expression string `json:"expression"`
+		Human      string `json:"human"`
+	} `json:"constraint"`
 }
 
 func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
@@ -107,13 +134,26 @@ func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
 		return nil, false, nil
 	}
 	sd := &StructureDefinition{
-		URL:  env.URL,
-		Type: env.Type,
-		Kind: env.Kind,
+		URL:        env.URL,
+		Type:       env.Type,
+		Kind:       env.Kind,
+		Derivation: env.Derivation,
 	}
-	src := env.Snapshot
-	if env.Differential != nil && len(env.Differential.Element) > 0 {
+	var src *struct {
+		Element []elementDefinitionJSON `json:"element"`
+	}
+	switch {
+	case env.Derivation == "constraint" && env.Differential != nil && len(env.Differential.Element) > 0:
 		src = env.Differential
+		sd.UseSnapshot = false
+	case env.Snapshot != nil && len(env.Snapshot.Element) > 0:
+		src = env.Snapshot
+		sd.UseSnapshot = true
+	case env.Differential != nil && len(env.Differential.Element) > 0:
+		src = env.Differential
+		sd.UseSnapshot = false
+	default:
+		src = nil
 	}
 	if src != nil {
 		for _, el := range src.Element {
@@ -121,11 +161,25 @@ func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
 			if el.Min != nil {
 				min = *el.Min
 			}
-			sd.Elements = append(sd.Elements, ElementDefinition{
+			parsed := ElementDefinition{
 				Path: el.Path,
 				Min:  min,
 				Max:  el.Max,
-			})
+			}
+			for _, typ := range el.Type {
+				if typ.Code != "" {
+					parsed.Types = append(parsed.Types, typ.Code)
+				}
+			}
+			for _, c := range el.Constraint {
+				parsed.Constraints = append(parsed.Constraints, ElementConstraint{
+					Key:        c.Key,
+					Severity:   c.Severity,
+					Expression: c.Expression,
+					Human:      c.Human,
+				})
+			}
+			sd.Elements = append(sd.Elements, parsed)
 		}
 	}
 	return sd, true, nil
@@ -155,6 +209,9 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 		}
 		seen[url] = struct{}{}
 		urls = append(urls, url)
+	}
+	if opts.EnforceBaseProfile && resourceType != "" {
+		appendURL(BaseStructureDefinitionURL(resourceType))
 	}
 	for _, url := range opts.Profiles {
 		appendURL(url)
@@ -189,7 +246,17 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, obj map[string]int
 			))
 			continue
 		}
-		validateProfileCardinality(obj, sd, issues)
+		applyProfileValidation(ctx, obj, sd, e.fhirpath, opts.ProfileConstraints, issues)
+	}
+}
+
+func applyProfileValidation(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, constraints bool, issues *[]ValidationIssue) {
+	validateProfileCardinality(obj, sd, issues)
+	if sd.UseSnapshot {
+		validateUnknownElements(obj, sd, issues)
+		if constraints && engine != nil {
+			validateProfileConstraints(ctx, obj, sd, engine, issues)
+		}
 	}
 }
 
@@ -228,6 +295,12 @@ func validateProfileCardinality(obj map[string]interface{}, sd *StructureDefinit
 		if strings.Contains(el.Path, "[x]") || strings.Contains(el.Path, ":") {
 			continue
 		}
+		parent, _ := splitElementPath(el.Path)
+		if parent != sd.Type && parent != "" {
+			if countPath(obj, parent) == 0 {
+				continue
+			}
+		}
 		count := countPath(obj, el.Path)
 		if el.Min > 0 && count < el.Min {
 			*issues = append(*issues, issue(
@@ -242,6 +315,177 @@ func validateProfileCardinality(obj map[string]interface{}, sd *StructureDefinit
 				fmt.Sprintf("%s: max allowed = %d, but found %d (%s)", el.Path, max, count, sd.URL),
 				[]string{el.Path},
 			))
+		}
+	}
+}
+
+func (sd *StructureDefinition) buildAllowedChildren() {
+	if sd.allowedChild != nil {
+		return
+	}
+	sd.allowedChild = make(map[string]map[string]struct{})
+	for _, el := range sd.Elements {
+		if el.Path == "" || el.Path == sd.Type {
+			continue
+		}
+		parent, child := splitElementPath(el.Path)
+		if parent == "" || child == "" {
+			continue
+		}
+		if strings.Contains(child, "[x]") {
+			for _, key := range choiceJSONKeys(child, el.Types) {
+				addAllowedChild(sd.allowedChild, parent, key)
+			}
+			continue
+		}
+		if strings.Contains(child, ":") {
+			continue
+		}
+		addAllowedChild(sd.allowedChild, parent, child)
+	}
+}
+
+func addAllowedChild(index map[string]map[string]struct{}, parent, child string) {
+	if index[parent] == nil {
+		index[parent] = make(map[string]struct{})
+	}
+	index[parent][child] = struct{}{}
+}
+
+func splitElementPath(path string) (parent, child string) {
+	i := strings.LastIndex(path, ".")
+	if i < 0 {
+		return path, ""
+	}
+	return path[:i], path[i+1:]
+}
+
+func choiceJSONKeys(choiceName string, types []string) []string {
+	base := strings.TrimSuffix(choiceName, "[x]")
+	if base == "" || len(types) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(types))
+	for _, typ := range types {
+		runes := []rune(typ)
+		runes[0] = unicode.ToUpper(runes[0])
+		out = append(out, base+string(runes))
+	}
+	return out
+}
+
+var backboneAllowlist = map[string]struct{}{
+	"resourceType":      {},
+	"id":                {},
+	"meta":              {},
+	"implicitRules":     {},
+	"language":          {},
+	"text":              {},
+	"contained":         {},
+	"extension":         {},
+	"modifierExtension": {},
+}
+
+func isAlwaysAllowedKey(key string) bool {
+	_, ok := backboneAllowlist[key]
+	return ok
+}
+
+func validateUnknownElements(obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
+	sd.buildAllowedChildren()
+	walkUnknownElements(obj, sd.Type, sd, issues)
+}
+
+func walkUnknownElements(node interface{}, path string, sd *StructureDefinition, issues *[]ValidationIssue) {
+	switch current := node.(type) {
+	case map[string]interface{}:
+		allowed := sd.allowedChild[path]
+		for key, value := range current {
+			if isAlwaysAllowedKey(key) {
+				if key != "extension" && key != "modifierExtension" {
+					walkUnknownElements(value, path, sd, issues)
+				}
+				continue
+			}
+			if allowed == nil {
+				continue
+			}
+			if _, ok := allowed[key]; !ok {
+				*issues = append(*issues, issue(
+					"unknown-element",
+					fmt.Sprintf("element %q is not allowed at %s (%s)", key, path, sd.URL),
+					[]string{path + "." + key},
+				))
+				continue
+			}
+			nextPath := elementPathForJSONKey(sd, path, key)
+			walkUnknownElements(value, nextPath, sd, issues)
+		}
+	case []interface{}:
+		for _, item := range current {
+			walkUnknownElements(item, path, sd, issues)
+		}
+	}
+}
+
+func elementPathForJSONKey(sd *StructureDefinition, parentPath, jsonKey string) string {
+	for _, el := range sd.Elements {
+		p, child := splitElementPath(el.Path)
+		if p != parentPath {
+			continue
+		}
+		if child == jsonKey {
+			return el.Path
+		}
+		for _, choiceKey := range choiceJSONKeys(child, el.Types) {
+			if choiceKey == jsonKey {
+				return el.Path
+			}
+		}
+	}
+	return parentPath + "." + jsonKey
+}
+
+func validateProfileConstraints(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, issues *[]ValidationIssue) {
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	env := &types.ResourceEnvelope{
+		ResourceType: sd.Type,
+		JSON:         data,
+	}
+	seen := make(map[string]struct{})
+	for _, el := range sd.Elements {
+		for _, c := range el.Constraints {
+			if c.Expression == "" {
+				continue
+			}
+			if _, ok := seen[c.Key]; ok {
+				continue
+			}
+			seen[c.Key] = struct{}{}
+			ok, err := engine.EvalBool(ctx, c.Expression, env)
+			if err != nil {
+				continue
+			}
+			if ok {
+				continue
+			}
+			severity := strings.ToLower(c.Severity)
+			if severity == "" {
+				severity = "error"
+			}
+			diagnostics := c.Human
+			if diagnostics == "" {
+				diagnostics = c.Key + ": " + c.Expression
+			}
+			*issues = append(*issues, ValidationIssue{
+				Severity:    severity,
+				Code:        "invariant",
+				Diagnostics: diagnostics,
+				Expression:  []string{el.Path},
+			})
 		}
 	}
 }

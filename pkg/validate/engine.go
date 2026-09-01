@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/proto"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -17,6 +18,7 @@ type builtinEngine struct {
 	installedTypes     ResourceTypeRegistry
 	requiredFields     map[string][]string
 	profileCatalog     ProfileCatalog
+	fhirpath           fhirpath.Engine
 }
 
 // NewEngine returns the built-in haistack-validate engine.
@@ -38,6 +40,7 @@ func NewEngine(cfg Config) (Engine, error) {
 		installedTypes:     cfg.InstalledTypes,
 		requiredFields:     cfg.RequiredFields,
 		profileCatalog:     cfg.ProfileCatalog,
+		fhirpath:           cfg.FHIRPath,
 	}, nil
 }
 
@@ -150,7 +153,7 @@ func (e *builtinEngine) Validate(ctx context.Context, res *types.ResourceEnvelop
 		e.validateTerminology(ctx, obj, resourceType, opts, &issues)
 	}
 	if opts.ProfileCatalog != nil || e.profileCatalog != nil {
-		if len(opts.Profiles) > 0 || opts.EnforceDeclaredProfiles {
+		if opts.EnforceBaseProfile || opts.EnforceDeclaredProfiles || len(opts.Profiles) > 0 {
 			e.validateProfiles(ctx, obj, resourceType, opts, &issues)
 			if err := ctx.Err(); err != nil {
 				return nil, err

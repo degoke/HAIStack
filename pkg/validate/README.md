@@ -152,7 +152,8 @@ FHIR JSON envelope
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
 - No slicing, custom FHIRPath invariants, or module-specific business rules
-- Profile cardinality is opt-in via `ProfileCatalog` + `EnforceDeclaredProfiles` / `Profiles`
+- Profile cardinality is opt-in via `ProfileCatalog` + `EnforceBaseProfile` / `EnforceDeclaredProfiles` / `Profiles`
+- Runtime enables base R4 + declared profile validation by default when wired through `pkg/runtime`
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

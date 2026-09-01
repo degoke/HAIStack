@@ -3,6 +3,7 @@ package validate
 import (
 	"context"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/proto"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -40,7 +41,9 @@ type ValidateOptions struct {
 	TerminologyBindings     map[string]TerminologyBinding
 	Profiles                []string
 	ProfileCatalog          ProfileCatalog
+	EnforceBaseProfile      bool
 	EnforceDeclaredProfiles bool
+	ProfileConstraints      bool
 }
 
 type TerminologyBinding struct{ URL, Version, Strength string }
@@ -71,4 +74,5 @@ type Config struct {
 	InstalledTypes     ResourceTypeRegistry
 	RequiredFields     map[string][]string
 	ProfileCatalog     ProfileCatalog
+	FHIRPath           fhirpath.Engine
 }

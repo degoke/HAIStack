@@ -282,12 +282,20 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 
-	validateEngine, err := validate.NewEngine(validate.Config{InstalledTypes: snapshot})
+	validateEngine, err := validate.NewEngine(validate.Config{
+		InstalledTypes: snapshot,
+		ProfileCatalog: validate.NewRegistryProfileCatalog(snapshot),
+		FHIRPath:       engine,
+	})
 	if err != nil {
 		return fmt.Errorf("runtime: validate engine: %w", err)
 	}
 	questionnaireResolver := sdc.StoreQuestionnaireResolver{Resources: pc.resources}
-	baseValidator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{})
+	baseValidator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{
+		EnforceBaseProfile:      true,
+		EnforceDeclaredProfiles: true,
+		ProfileConstraints:      true,
+	})
 	validator := &sdc.ResponseValidator{
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
