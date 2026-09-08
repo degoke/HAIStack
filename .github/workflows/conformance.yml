@@ -67,15 +67,14 @@ jobs:
         working-directory: .
         run: make conformance-lock
 
-      - name: Verify certification lock
+      - name: Reject PR gitCommit lock edits
+        if: github.event_name == 'pull_request'
         working-directory: .
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            python3 conformance/scripts/verify-lock.py \
-              --mode pr \
-              --base-ref "${{ github.event.pull_request.base.sha }}"
-          else
-            python3 conformance/scripts/verify-lock.py --mode main
+          if git diff "${{ github.event.pull_request.base.sha }}...HEAD" -- conformance-lock.json \
+            | grep -E '^[+-].*"gitCommit"'; then
+            echo "do not update conformance-lock.json gitCommit in pull requests; main CI refreshes it after merge"
+            exit 1
           fi
 
       - name: Commit refreshed certification lock
