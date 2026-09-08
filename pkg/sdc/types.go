@@ -36,15 +36,24 @@ type DefinitionStore interface {
 // package boundaries. It remains exported temporarily for compatibility with
 // the first SDC API revision.
 type Questionnaire struct {
-	ResourceType string         `json:"resourceType"`
-	ID           string         `json:"id,omitempty"`
-	URL          string         `json:"url,omitempty"`
-	Version      string         `json:"version,omitempty"`
-	Status       string         `json:"status,omitempty"`
-	SubjectType  []string       `json:"subjectType,omitempty"`
-	Item         []Item         `json:"item,omitempty"`
-	Extension    []Extension    `json:"extension,omitempty"`
-	Meta         map[string]any `json:"meta,omitempty"`
+	ResourceType          string                  `json:"resourceType"`
+	ID                    string                  `json:"id,omitempty"`
+	URL                   string                  `json:"url,omitempty"`
+	Version               string                  `json:"version,omitempty"`
+	Status                string                  `json:"status,omitempty"`
+	SubjectType           []string                `json:"subjectType,omitempty"`
+	Item                  []Item                  `json:"item,omitempty"`
+	Extension             []Extension             `json:"extension,omitempty"`
+	Meta                  map[string]any          `json:"meta,omitempty"`
+	LaunchContexts        []LaunchContextDef      `json:"-"`
+	Variables             []QuestionnaireVariable `json:"-"`
+	CanonicalOverride     string                  `json:"-"`
+	AssembledFrom         []string                `json:"-"`
+	SourceStructureMap    string                  `json:"-"`
+	AdditionalDefinitions []string                `json:"-"`
+	ObservationExtract    bool                    `json:"-"`
+	ObservationLinkPeriod *Period                 `json:"-"`
+	SignatureRequired     bool                    `json:"-"`
 }
 
 // QuestionnaireResponse is a JSON behavior projection, not a replacement for
@@ -58,6 +67,11 @@ type QuestionnaireResponse struct {
 	Subject       map[string]any `json:"subject,omitempty"`
 	Authored      string         `json:"authored,omitempty"`
 	Item          []ResponseItem `json:"item,omitempty"`
+	Extension     []Extension    `json:"extension,omitempty"`
+	Author        []Reference    `json:"-"`
+	Reviewer      []Reference    `json:"-"`
+	Signatures      []Signature    `json:"-"`
+	CompletionMode string        `json:"-"`
 }
 type Item struct {
 	LinkID                string         `json:"linkId"`
@@ -72,9 +86,29 @@ type Item struct {
 	Required              bool           `json:"required,omitempty"`
 	Repeats               bool           `json:"repeats,omitempty"`
 	ReadOnly              bool           `json:"readOnly,omitempty"`
-	MaxLength             *int           `json:"maxLength,omitempty"`
-	Regex                 string         `json:"-"`
+	MaxLength             *int             `json:"maxLength,omitempty"`
+	Regex                 string           `json:"-"`
 	Constraints           []ItemConstraint `json:"-"`
+	MinLength             *int             `json:"-"`
+	MinValue              *BoundValue      `json:"-"`
+	MaxValue              *BoundValue      `json:"-"`
+	MinOccurs             *int             `json:"-"`
+	MaxOccurs             *int             `json:"-"`
+	ReferenceResources    []string         `json:"-"`
+	ReferenceProfiles     []string         `json:"-"`
+	ReferenceFilter       string           `json:"-"`
+	Unit                  *Coding          `json:"-"`
+	UnitOptions           []Coding         `json:"-"`
+	UnitValueSet          string           `json:"-"`
+	ChoiceOrientation     string           `json:"-"`
+	OptionExclusive       bool             `json:"-"`
+	SliderStepValue       *float64         `json:"-"`
+	UsageMode             string           `json:"-"`
+	DisplayCategory       string           `json:"-"`
+	SupportLinks          []SupportLink    `json:"-"`
+	FHIRType              string           `json:"-"`
+	BaseType              string           `json:"-"`
+	RequiredExpression    *Expression      `json:"requiredExpression,omitempty"`
 	AnswerOption          []AnswerOption `json:"answerOption,omitempty"`
 	AnswerValueSet        string         `json:"answerValueSet,omitempty"`
 	Initial               []Answer       `json:"initial,omitempty"`
@@ -130,6 +164,7 @@ func (it Item) MarshalJSON() ([]byte, error) {
 		"answerExpression",
 		"calculatedExpression",
 		"itemPopulationContext",
+		"requiredExpression",
 		"media",
 		"textReference",
 	} {
@@ -162,12 +197,10 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	if it.TextRef != "" {
 		ext = upsertExtension(ext, Extension{URL: SDCTextReferenceExtension, Value: it.TextRef, valueType: "String"})
 	}
-	if it.Regex != "" {
-		ext = upsertExtension(ext, Extension{URL: QuestionnaireRegexExtension, Value: it.Regex, valueType: "String"})
+	if it.RequiredExpression != nil {
+		ext = upsertExtension(ext, Extension{URL: SDCRequiredExtension, Value: *it.RequiredExpression, valueType: "Expression"})
 	}
-	for _, constraint := range it.Constraints {
-		ext = append(ext, itemConstraintExtension(constraint))
-	}
+	ext = appendItemBehaviorExtensions(ext, it)
 	if len(ext) > 0 {
 		encoded, err := json.Marshal(ext)
 		if err != nil {
@@ -243,6 +276,17 @@ func itemValueType(itemType string, value any) string {
 	}
 }
 
+func (q *Questionnaire) UnmarshalJSON(b []byte) error {
+	type questionnaireAlias Questionnaire
+	var decoded questionnaireAlias
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		return err
+	}
+	*q = Questionnaire(decoded)
+	finalizeQuestionnaire(q)
+	return nil
+}
+
 func (it *Item) UnmarshalJSON(b []byte) error {
 	type itemAlias Item
 	var decoded itemAlias
@@ -280,9 +324,72 @@ func (it *Item) UnmarshalJSON(b []byte) error {
 			if text, ok := ext.Value.(string); ok {
 				it.TextRef = text
 			}
+		case SDCRequiredExtension:
+			if expression, ok := extensionExpression(ext); ok {
+				it.RequiredExpression = &expression
+			}
 		}
 	}
 	absorbItemBehaviorExtensions(it)
+	return nil
+}
+
+func (q Questionnaire) MarshalJSON() ([]byte, error) {
+	type questionnaireAlias Questionnaire
+	encoded := q
+	b, err := json.Marshal(questionnaireAlias(encoded))
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	ext := appendQuestionnaireBehaviorExtensions(append([]Extension(nil), q.Extension...), q)
+	if len(ext) > 0 {
+		raw, err := json.Marshal(ext)
+		if err != nil {
+			return nil, err
+		}
+		obj["extension"] = raw
+	} else {
+		delete(obj, "extension")
+	}
+	return json.Marshal(obj)
+}
+
+func (r QuestionnaireResponse) MarshalJSON() ([]byte, error) {
+	type responseAlias QuestionnaireResponse
+	encoded := r
+	b, err := json.Marshal(responseAlias(encoded))
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	ext := appendResponseBehaviorExtensions(append([]Extension(nil), r.Extension...), r)
+	if len(ext) > 0 {
+		raw, err := json.Marshal(ext)
+		if err != nil {
+			return nil, err
+		}
+		obj["extension"] = raw
+	} else {
+		delete(obj, "extension")
+	}
+	return json.Marshal(obj)
+}
+
+func (r *QuestionnaireResponse) UnmarshalJSON(b []byte) error {
+	type responseAlias QuestionnaireResponse
+	var decoded responseAlias
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		return err
+	}
+	*r = QuestionnaireResponse(decoded)
+	finalizeQuestionnaireResponse(r)
 	return nil
 }
 
@@ -368,10 +475,11 @@ type Answer struct {
 	valueType string
 }
 type AnswerOption struct {
-	InitialSelected bool `json:"initialSelected,omitempty"`
-	Value           any  `json:"-"`
-	// ValueType optionally names the FHIR value[x] suffix.
-	ValueType          string `json:"-"`
+	InitialSelected bool        `json:"initialSelected,omitempty"`
+	Value           any         `json:"-"`
+	ValueType       string      `json:"-"`
+	OptionPrefix    string      `json:"-"`
+	Extension       []Extension `json:"extension,omitempty"`
 	valueType          string
 	initialSelectedSet bool
 }
@@ -453,6 +561,13 @@ func (a AnswerOption) MarshalJSON() ([]byte, error) {
 	if a.Value != nil {
 		m[valueKeyWithType("value", a.Value, firstNonEmpty(a.ValueType, a.valueType))] = a.Value
 	}
+	ext := append([]Extension(nil), a.Extension...)
+	if a.OptionPrefix != "" {
+		ext = upsertExtension(ext, Extension{URL: QuestionnaireOptionPrefixExtension, Value: a.OptionPrefix, valueType: "String"})
+	}
+	if len(ext) > 0 {
+		m["extension"] = ext
+	}
 	return json.Marshal(m)
 }
 func (a *AnswerOption) UnmarshalJSON(b []byte) error {
@@ -467,6 +582,10 @@ func (a *AnswerOption) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			a.initialSelectedSet = true
+		} else if k == "extension" {
+			if err := json.Unmarshal(v, &a.Extension); err != nil {
+				return err
+			}
 		} else if strings.HasPrefix(k, "value") && len(k) > len("value") {
 			suffix := strings.TrimPrefix(k, "value")
 			x, err := decodePolymorphicValue(v, suffix)
@@ -478,6 +597,7 @@ func (a *AnswerOption) UnmarshalJSON(b []byte) error {
 			a.valueType = suffix
 		}
 	}
+	absorbAnswerOptionExtensions(a)
 	return nil
 }
 func (e Extension) MarshalJSON() ([]byte, error) {

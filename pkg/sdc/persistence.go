@@ -28,6 +28,7 @@ func DecodeQuestionnaire(raw []byte) (Questionnaire, error) {
 	if q.ResourceType == "" {
 		q.ResourceType = "Questionnaire"
 	}
+	finalizeQuestionnaire(&q)
 	return q, nil
 }
 func DecodeResponse(raw []byte) (QuestionnaireResponse, error) {
@@ -38,6 +39,7 @@ func DecodeResponse(raw []byte) (QuestionnaireResponse, error) {
 	if r.ResourceType == "" {
 		r.ResourceType = "QuestionnaireResponse"
 	}
+	finalizeQuestionnaireResponse(&r)
 	return r, nil
 }
 func Envelope(resourceType, id string, v any) (*types.ResourceEnvelope, error) {

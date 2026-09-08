@@ -19,8 +19,8 @@
 // # Behavior services
 //
 // The package supports questionnaire normalization, linkId indexing, repeats,
-// enableWhen rules, calculated expressions, generic item constraints
-// (maxLength, regex, questionnaire-constraint), population, response building,
+// enableWhen rules, calculated expressions, generic item constraints,
+// FHIR/SDC questionnaire extensions (tiers 1-6), population, response building,
 // modular assembly,
 // renderer-neutral form state, validation diagnostics, and transaction Bundle
 // extraction. FHIRPath is supported through the existing pkg/fhirpath.Engine.

@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	QuestionnaireRegexExtension      = "http://hl7.org/fhir/StructureDefinition/regex"
-	QuestionnaireConstraintExtension = "http://hl7.org/fhir/StructureDefinition/questionnaire-constraint"
-)
-
 // ItemConstraint is a FHIR questionnaire-constraint extension on Questionnaire.item.
 type ItemConstraint struct {
 	Key          string `json:"key,omitempty"`
@@ -38,29 +33,6 @@ func maxLengthEnforcedItemType(typ string) bool {
 	default:
 		return false
 	}
-}
-
-func absorbItemBehaviorExtensions(it *Item) {
-	if it == nil || len(it.Extension) == 0 {
-		return
-	}
-	filtered := make([]Extension, 0, len(it.Extension))
-	for _, ext := range it.Extension {
-		switch ext.URL {
-		case QuestionnaireRegexExtension:
-			if pattern := extensionScalarString(ext); pattern != "" {
-				it.Regex = pattern
-			}
-			continue
-		case QuestionnaireConstraintExtension:
-			if constraint, ok := parseItemConstraint(ext); ok {
-				it.Constraints = append(it.Constraints, constraint)
-			}
-			continue
-		}
-		filtered = append(filtered, ext)
-	}
-	it.Extension = filtered
 }
 
 func parseItemConstraint(ext Extension) (ItemConstraint, bool) {
@@ -103,24 +75,6 @@ func itemConstraintExtension(c ItemConstraint) Extension {
 	return Extension{URL: QuestionnaireConstraintExtension, Extension: children}
 }
 
-func childURLSuffix(url string) string {
-	if i := strings.LastIndex(url, "/"); i >= 0 {
-		return url[i+1:]
-	}
-	return url
-}
-
-func extensionScalarString(ext Extension) string {
-	switch x := ext.Value.(type) {
-	case string:
-		return x
-	case fmt.Stringer:
-		return x.String()
-	default:
-		return ""
-	}
-}
-
 func validateItemDefinitionConstraints(item *Item, linkID string, o *Outcome) {
 	path := "Questionnaire.item[" + linkID + "]"
 	if item.MaxLength != nil {
@@ -135,6 +89,19 @@ func validateItemDefinitionConstraints(item *Item, linkID string, o *Outcome) {
 			o.add("error", "value", "regex extension is not a valid regular expression: "+err.Error(), path+".extension")
 		}
 	}
+	if item.MinLength != nil && *item.MinLength <= 0 {
+		o.add("error", "value", "minLength must be positive", path+".extension")
+	}
+	if item.MinOccurs != nil && *item.MinOccurs < 0 {
+		o.add("error", "value", "minOccurs must be non-negative", path+".extension")
+	}
+	if item.MaxOccurs != nil && *item.MaxOccurs < 0 {
+		o.add("error", "value", "maxOccurs must be non-negative", path+".extension")
+	}
+	if item.MinOccurs != nil && item.MaxOccurs != nil && *item.MinOccurs > *item.MaxOccurs {
+		o.add("error", "invariant", "minOccurs must be less than or equal to maxOccurs", path+".extension")
+	}
+	validateItemDefinitionConstraintsExtended(item, linkID, o)
 	for _, constraint := range item.Constraints {
 		constraintPath := path + ".extension.questionnaire-constraint[" + constraint.Key + "]"
 		if constraint.Key == "" {
@@ -159,6 +126,9 @@ func validateAnswerValueConstraints(o *Outcome, item *Item, answer Answer, path 
 	}
 	if item.MaxLength != nil && maxLengthEnforcedItemType(item.Type) && len(text) > *item.MaxLength {
 		o.add("error", "max", fmt.Sprintf("answer exceeds maxLength %d", *item.MaxLength), path)
+	}
+	if item.MinLength != nil && maxLengthEnforcedItemType(item.Type) && len(text) < *item.MinLength {
+		o.add("error", "min", fmt.Sprintf("answer is shorter than minLength %d", *item.MinLength), path)
 	}
 	if item.Regex != "" {
 		pattern, err := regexp.Compile(item.Regex)

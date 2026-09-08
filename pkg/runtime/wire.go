@@ -333,7 +333,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
 		Options: sdc.ValidationOptions{
-			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+			Expressions:   sdc.FHIRPathExpressions{Engine: engine},
+			Terminology:   sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 		},
 	}
 
@@ -458,7 +459,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
-		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
+		sdcService = hahttp.CoreSDCService{
+			Resources:   state.services.ResourceService,
+			Resolver:      sdc.StoreQuestionnaireResolver{Resources: pc.resources},
+			Provider:      sdc.FHIRPathExpressions{Engine: engine},
+			Terminology:   sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
+		}
 	}
 	packageService := hahttp.CorePackageInstallService{
 		JobStore: pc.jobStore,

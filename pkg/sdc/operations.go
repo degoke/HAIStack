@@ -66,7 +66,7 @@ func ValidateQuestionnaire(q Questionnaire, opts ValidationOptions) Outcome {
 			o.add("error", "duplicate", "duplicate linkId: "+id, "Questionnaire.item")
 		}
 	}
-	validTypes := map[string]bool{"group": true, "display": true, "boolean": true, "decimal": true, "integer": true, "date": true, "dateTime": true, "time": true, "string": true, "text": true, "url": true, "choice": true, "open-choice": true, "quantity": true, "attachment": true, "reference": true}
+	validTypes := map[string]bool{"group": true, "display": true, "question": true, "boolean": true, "decimal": true, "integer": true, "date": true, "dateTime": true, "time": true, "string": true, "text": true, "url": true, "choice": true, "open-choice": true, "quantity": true, "attachment": true, "reference": true}
 	for _, id := range t.LinkIDs() {
 		for _, d := range t.Resolve(id) {
 			if !validTypes[d.Type] {
@@ -74,6 +74,9 @@ func ValidateQuestionnaire(q Questionnaire, opts ValidationOptions) Outcome {
 			}
 			if d.Type == "display" && (d.Required || d.Repeats || len(d.AnswerOption) > 0 || len(d.Initial) > 0) {
 				o.add("error", "invalid", "display items cannot be required, repeated, or have answer options", "Questionnaire.item["+id+"]")
+			}
+			if d.Type == "question" && (d.Required || d.Repeats || len(d.AnswerOption) > 0 || len(d.Initial) > 0) {
+				o.add("error", "invalid", "question items cannot be required, repeated, or have answer options", "Questionnaire.item["+id+"]")
 			}
 			if d.Type == "group" && (len(d.AnswerOption) > 0 || len(d.Initial) > 0) {
 				o.add("error", "invalid", "group items cannot have answers or initial values", "Questionnaire.item["+id+"]")
@@ -209,7 +212,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				o.add("error", "structure", "response item is not allowed at this level", p)
 			}
 			validateResponseItem(&o, d, responseItem, r, opts, p)
-			if d.Type == "group" || d.Type == "display" {
+			if d.Type == "group" || d.Type == "display" || d.Type == "question" {
 				validateLevel(d.Item, responseItem.Item, p+".")
 			}
 			for ai, answer := range responseItem.Answer {
@@ -228,6 +231,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				}
 				if enabled {
 					validateItemInvariantConstraints(&o, &item, r, opts, path+"item["+item.LinkID+"]")
+					validateRequiredExpression(&o, &item, r, opts, path+"item["+item.LinkID+"]", false)
 				}
 			} else if !item.Repeats && len(matches) > 1 {
 				o.add("error", "max", "question item does not repeat", path+"item["+item.LinkID+"]")
@@ -235,6 +239,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 		}
 	}
 	validateLevel(q.Item, r.Item, "")
+	validateQuestionnaireResponseMetadata(q, r, &o)
 	return o
 }
 
@@ -246,9 +251,10 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 	if !enabled && (hasPresentAnswers(responseItem.Answer) || len(responseItem.Item) > 0) {
 		o.add("error", "invariant", fmt.Sprintf("disabled item %q must not contain answers or child items (enableWhen: %s)", d.LinkID, enableWhenSummary(*d)), path)
 	}
-	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && d.Type != "group" {
+	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && d.Type != "group" && d.Type != "question" {
 		o.add("error", "required", "required answer is missing", path)
 	}
+	validateRequiredExpression(o, d, r, opts, path, hasPresentAnswers(responseItem.Answer))
 	if !d.Repeats && countPresentAnswers(responseItem.Answer) > 1 {
 		o.add("error", "max", "question does not repeat", path)
 	}
@@ -262,12 +268,8 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 		if !answerTypeOK(d.Type, answer.Value) {
 			o.add("error", "type", "answer type does not match question type", path)
 		}
-		if opts.Terminology != nil && (d.Type == "choice" || d.Type == "open-choice") {
-			if c, ok := codingFrom(answer.Value); ok {
-				if err := opts.Terminology.ValidateCode(context.Background(), c, d.AnswerValueSet); err != nil {
-					o.add("error", "code-invalid", err.Error(), path)
-				}
-			}
+		if len(d.AnswerOption) == 0 {
+			validateAnswerValueSet(o, d, answer, opts, path)
 		}
 		if len(d.AnswerOption) > 0 {
 			matched := false
@@ -283,9 +285,14 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 		}
 		if enabled {
 			validateAnswerValueConstraints(o, d, answer, path)
+			validateAnswerBounds(o, d, answer, path)
+			validateReferenceAnswer(o, d, answer, path)
+			validateQuantityAnswer(o, d, answer, opts, path)
 		}
 	}
 	if enabled {
+		validateOptionExclusive(o, d, responseItem, path)
+		validateChildOccurs(o, *d, responseItem, path)
 		validateItemInvariantConstraints(o, d, r, opts, path)
 	}
 }
@@ -399,7 +406,7 @@ func answerTypeOK(typ string, v any) bool {
 			}
 		}
 		return false
-	case "group", "display":
+	case "group", "display", "question":
 		return false
 	}
 	return false
@@ -480,6 +487,16 @@ type PopulationProvider interface {
 
 func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*QuestionnaireResponse, Outcome) {
 	o := Outcome{ResourceType: "OperationOutcome"}
+	pc.LaunchContext = mergeLaunchContext(q.LaunchContexts, pc.LaunchContext)
+	if pc.Provider != nil {
+		vars := evaluateQuestionnaireVariables(ctx, q, pc, pc.Provider)
+		if len(vars) > 0 {
+			if pc.LaunchContext == nil {
+				pc.LaunchContext = map[string]any{}
+			}
+			pc.LaunchContext["variable"] = vars
+		}
+	}
 	if pc.PopulationProvider != nil {
 		r, e := pc.PopulationProvider.Populate(ctx, q, pc)
 		if e != nil {
@@ -488,6 +505,9 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 		return r, o
 	}
 	r := &QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Questionnaire: Canonical(q), Status: "in-progress"}
+	if q.CanonicalOverride != "" {
+		r.Questionnaire = q.CanonicalOverride
+	}
 	if pc.InitialResponse != nil {
 		r.ID = pc.InitialResponse.ID
 		r.Subject = pc.InitialResponse.Subject
@@ -742,24 +762,44 @@ func EvaluateCalculated(ctx context.Context, q Questionnaire, r QuestionnaireRes
 }
 
 type FieldState struct {
-	LinkID         string
-	Text           string
-	Type           string
-	Visible        bool
-	Enabled        bool
-	Required       bool
-	ReadOnly       bool
-	Repeats        bool
-	MaxLength      *int
-	Regex          string
-	Constraints    []ItemConstraint
-	Answers        []Answer
-	Options        []AnswerOption
-	Issues         []Issue
-	Media          []Attachment
-	ItemControl    string
-	EntryFormat    string
-	NavigationHint string
+	LinkID              string
+	Text                string
+	Type                string
+	Visible             bool
+	Enabled             bool
+	Required            bool
+	ReadOnly            bool
+	Repeats             bool
+	MaxLength           *int
+	MinLength           *int
+	MinValue            *BoundValue
+	MaxValue            *BoundValue
+	MinOccurs           *int
+	MaxOccurs           *int
+	Regex               string
+	Constraints         []ItemConstraint
+	ReferenceResources  []string
+	ReferenceProfiles   []string
+	ReferenceFilter     string
+	Unit                *Coding
+	UnitOptions         []Coding
+	UnitValueSet        string
+	ChoiceOrientation   string
+	OptionExclusive     bool
+	SliderStepValue     *float64
+	UsageMode           string
+	DisplayCategory     string
+	SupportLinks        []SupportLink
+	FHIRType            string
+	BaseType            string
+	RequiredExpression  *Expression
+	Answers             []Answer
+	Options             []AnswerOption
+	Issues              []Issue
+	Media               []Attachment
+	ItemControl         string
+	EntryFormat         string
+	NavigationHint      string
 }
 type FormModel struct {
 	Questionnaire Questionnaire
@@ -832,21 +872,42 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 			enabled := enabledForValidation(it, r, opts)
 			visible := enabled && !extensionBool(it.Extension, QuestionnaireHiddenExtension)
 			f := FieldState{
-				LinkID:      it.LinkID,
-				Text:        it.Text,
-				Type:        it.Type,
-				Visible:     visible,
-				Enabled:     enabled,
-				Required:    it.Required,
-				ReadOnly:    it.ReadOnly,
-				Repeats:     it.Repeats,
-				MaxLength:   it.MaxLength,
-				Regex:       it.Regex,
-				Constraints: append([]ItemConstraint(nil), it.Constraints...),
-				Options:     it.AnswerOption,
-				Media:       it.Media,
-				ItemControl: extensionString(it.Extension, QuestionnaireItemControlExtension),
-				EntryFormat: extensionString(it.Extension, QuestionnaireEntryFormatExtension),
+				LinkID:             it.LinkID,
+				Text:               it.Text,
+				Type:               it.Type,
+				Visible:            visible,
+				Enabled:            enabled,
+				Required:           it.Required,
+				ReadOnly:           it.ReadOnly,
+				Repeats:            it.Repeats,
+				MaxLength:          it.MaxLength,
+				MinLength:          it.MinLength,
+				MinValue:           it.MinValue,
+				MaxValue:           it.MaxValue,
+				MinOccurs:          it.MinOccurs,
+				MaxOccurs:          it.MaxOccurs,
+				Regex:              it.Regex,
+				Constraints:        append([]ItemConstraint(nil), it.Constraints...),
+				ReferenceResources: append([]string(nil), it.ReferenceResources...),
+				ReferenceProfiles:  append([]string(nil), it.ReferenceProfiles...),
+				ReferenceFilter:    it.ReferenceFilter,
+				Unit:               it.Unit,
+				UnitOptions:        append([]Coding(nil), it.UnitOptions...),
+				UnitValueSet:       it.UnitValueSet,
+				ChoiceOrientation:  it.ChoiceOrientation,
+				OptionExclusive:    it.OptionExclusive,
+				SliderStepValue:    it.SliderStepValue,
+				UsageMode:          it.UsageMode,
+				DisplayCategory:    it.DisplayCategory,
+				SupportLinks:       append([]SupportLink(nil), it.SupportLinks...),
+				FHIRType:           it.FHIRType,
+				BaseType:           it.BaseType,
+				RequiredExpression: it.RequiredExpression,
+				Options:            it.AnswerOption,
+				Media:              it.Media,
+				ItemControl:        extensionString(it.Extension, QuestionnaireItemControlExtension),
+				EntryFormat:        extensionString(it.Extension, QuestionnaireEntryFormatExtension),
+				NavigationHint:     itemNavigationHint(it),
 			}
 			for _, x := range findResponsesDeep(r.Item, it.LinkID) {
 				f.Answers = append(f.Answers, x.Answer...)

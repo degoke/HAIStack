@@ -16,6 +16,7 @@ type CoreSDCService struct {
 	Resources      *core.ResourceService
 	Resolver       sdc.QuestionnaireResolver
 	Provider       sdc.ExpressionProvider
+	Terminology    sdc.TerminologyResolver
 	Extractor      sdc.Extractor
 	AdaptiveEngine sdc.AdaptiveEngine
 }
@@ -103,7 +104,7 @@ func (a CoreSDCService) Validate(ctx context.Context, req SDCRequest) (*types.Op
 	if e != nil {
 		return nil, e
 	}
-	o := sdc.ValidateResponse(q, r, sdc.ValidationOptions{Expressions: a.Provider})
+	o := sdc.ValidateResponse(q, r, sdc.ValidationOptions{Expressions: a.Provider, Terminology: a.Terminology})
 	outcome := sdc.ToOperationOutcome(o)
 	return &outcome, nil
 }
