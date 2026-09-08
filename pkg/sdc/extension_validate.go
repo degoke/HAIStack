@@ -65,7 +65,7 @@ func compareAnswerToBound(answer any, itemType string, bound BoundValue) (bool, 
 	}
 }
 
-func validateReferenceAnswer(o *Outcome, item *Item, answer Answer, path string) {
+func validateReferenceAnswer(o *Outcome, item *Item, answer Answer, opts ValidationOptions, path string) {
 	if item.Type != "reference" || answerValueAbsent(answer.Value) {
 		return
 	}
@@ -87,6 +87,48 @@ func validateReferenceAnswer(o *Outcome, item *Item, answer Answer, path string)
 		}
 		if !allowed {
 			o.add("error", "invalid", "reference type "+rt+" is not permitted", path)
+		}
+	}
+	if len(item.ReferenceProfiles) == 0 && item.ReferenceFilter == "" {
+		return
+	}
+	if opts.References == nil {
+		o.add("error", "exception", "reference resolver is unavailable", path)
+		return
+	}
+	resource, err := opts.References.ResolveReference(context.Background(), ref)
+	if err != nil {
+		o.add("error", "not-found", err.Error(), path)
+		return
+	}
+	for _, want := range item.ReferenceProfiles {
+		profiles := profilesFromResource(resource)
+		matched := false
+		for _, got := range profiles {
+			if profileMatches(want, got) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			o.add("error", "invalid", "reference does not declare profile "+want, path)
+		}
+	}
+	if item.ReferenceFilter != "" {
+		if opts.Expressions == nil {
+			o.add("error", "exception", "reference filter expression provider is unavailable", path)
+			return
+		}
+		values, err := opts.Expressions.Evaluate(context.Background(), Expression{
+			Language:   "text/fhirpath",
+			Expression: item.ReferenceFilter,
+		}, resource)
+		if err != nil {
+			o.add("error", "exception", err.Error(), path)
+			return
+		}
+		if len(values) == 0 || !truthy(values[0]) {
+			o.add("error", "invalid", "reference does not satisfy referenceFilter", path)
 		}
 	}
 }

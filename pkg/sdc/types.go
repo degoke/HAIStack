@@ -72,6 +72,7 @@ type QuestionnaireResponse struct {
 	Reviewer      []Reference    `json:"-"`
 	Signatures      []Signature    `json:"-"`
 	CompletionMode string        `json:"-"`
+	ResponseReasons []CodeableConcept `json:"-"`
 }
 type Item struct {
 	LinkID                string         `json:"linkId"`
@@ -104,6 +105,8 @@ type Item struct {
 	OptionExclusive       bool             `json:"-"`
 	SliderStepValue       *float64         `json:"-"`
 	UsageMode             string           `json:"-"`
+	IsSubject             bool             `json:"-"`
+	InputKeyboard         string           `json:"-"`
 	DisplayCategory       string           `json:"-"`
 	SupportLinks          []SupportLink    `json:"-"`
 	FHIRType              string           `json:"-"`
@@ -461,11 +464,49 @@ func replaceExtensionsByURL(ext []Extension, url string, replacements []Extensio
 }
 
 type ResponseItem struct {
-	LinkID string         `json:"linkId"`
-	Text   string         `json:"text,omitempty"`
-	Answer []Answer       `json:"answer,omitempty"`
-	Item   []ResponseItem `json:"item,omitempty"`
+	LinkID    string         `json:"linkId"`
+	Text      string         `json:"text,omitempty"`
+	Answer    []Answer       `json:"answer,omitempty"`
+	Item      []ResponseItem `json:"item,omitempty"`
+	Extension []Extension    `json:"extension,omitempty"`
+	IsSubject bool           `json:"-"`
 }
+
+func (ri ResponseItem) MarshalJSON() ([]byte, error) {
+	type responseItemAlias ResponseItem
+	encoded := ri
+	b, err := json.Marshal(responseItemAlias(encoded))
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil, err
+	}
+	ext := appendResponseItemExtensions(append([]Extension(nil), ri.Extension...), ri)
+	if len(ext) > 0 {
+		raw, err := json.Marshal(ext)
+		if err != nil {
+			return nil, err
+		}
+		obj["extension"] = raw
+	} else {
+		delete(obj, "extension")
+	}
+	return json.Marshal(obj)
+}
+
+func (ri *ResponseItem) UnmarshalJSON(b []byte) error {
+	type responseItemAlias ResponseItem
+	var decoded responseItemAlias
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		return err
+	}
+	*ri = ResponseItem(decoded)
+	absorbResponseItemExtensions(ri)
+	return nil
+}
+
 type Answer struct {
 	Value any `json:"-"`
 	// ValueType optionally names the FHIR primitive suffix (for example Date

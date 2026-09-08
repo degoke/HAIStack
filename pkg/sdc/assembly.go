@@ -272,14 +272,41 @@ func transactionEnvelope(entries []map[string]any) (*types.ResourceEnvelope, err
 }
 
 type StructureMapExtractor struct {
-	Run func(context.Context, QuestionnaireResponse) ([]json.RawMessage, error)
+	Run func(context.Context, Questionnaire, QuestionnaireResponse) ([]json.RawMessage, error)
 }
 
-func (s StructureMapExtractor) Extract(ctx context.Context, _ Questionnaire, r QuestionnaireResponse) (ExtractionResult, error) {
+func (s StructureMapExtractor) Extract(ctx context.Context, q Questionnaire, r QuestionnaireResponse) (ExtractionResult, error) {
 	if s.Run == nil {
 		return ExtractionResult{}, fmt.Errorf("StructureMap runtime is unavailable")
 	}
-	return TemplateExtractor{Template: func(c context.Context, r QuestionnaireResponse) ([]json.RawMessage, error) { return s.Run(c, r) }}.Extract(ctx, Questionnaire{}, r)
+	rs, e := s.Run(ctx, q, r)
+	if e != nil {
+		return ExtractionResult{}, e
+	}
+	var entries []map[string]any
+	for _, raw := range rs {
+		var h struct {
+			ResourceType string `json:"resourceType"`
+			ID           string `json:"id,omitempty"`
+		}
+		if json.Unmarshal(raw, &h) != nil || h.ResourceType == "" {
+			return ExtractionResult{}, fmt.Errorf("StructureMap produced invalid FHIR resource")
+		}
+		method, url := "POST", h.ResourceType
+		if h.ID != "" {
+			method, url = "PUT", h.ResourceType+"/"+h.ID
+		}
+		entries = append(entries, map[string]any{"resource": raw, "request": map[string]any{"method": method, "url": url}})
+	}
+	env, e := transactionEnvelope(entries)
+	if e != nil {
+		return ExtractionResult{}, e
+	}
+	diagnostics := []ExtractionDiagnostic{{Severity: "information", Message: "extracted using StructureMap"}}
+	if q.SourceStructureMap != "" {
+		diagnostics[0].Message = "extracted using StructureMap " + q.SourceStructureMap
+	}
+	return ExtractionResult{Bundle: env, Diagnostics: diagnostics}, nil
 }
 
 type AdaptiveSession struct {

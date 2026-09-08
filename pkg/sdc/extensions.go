@@ -48,9 +48,19 @@ const (
 	QuestionnaireResponseReviewerExtension     = FHIRBaseURL + "questionnaire-responseReviewer"
 	QuestionnaireResponseSignatureExtension    = FHIRBaseURL + "questionnaire-responseSignature"
 	QuestionnaireCompletionModeExtension       = FHIRBaseURL + "questionnaire-completionMode"
+	QuestionnaireResponseReasonExtension       = FHIRBaseURL + "questionnaireresponse-reason"
+
+	SDCIsSubjectExtension          = SDCBaseURL + "sdc-questionnaire-isSubject"
+	SDCResponseIsSubjectExtension = SDCBaseURL + "sdc-questionnaireresponse-isSubject"
+	SDCKeyboardExtension           = SDCBaseURL + "sdc-questionnaire-keyboard"
 )
 
-// BoundValue is a typed questionnaire min/max value extension value.
+// CodeableConcept is a lightweight FHIR CodeableConcept projection.
+type CodeableConcept struct {
+	Coding []Coding `json:"coding,omitempty"`
+	Text   string   `json:"text,omitempty"`
+}
+
 type BoundValue struct {
 	Value     any    `json:"-"`
 	ValueType string `json:"-"`
@@ -197,10 +207,16 @@ func absorbQuestionnaireResponseExtensions(r *QuestionnaireResponse) {
 				r.CompletionMode = v
 			}
 			continue
+		case QuestionnaireResponseReasonExtension:
+			if cc, ok := extensionCodeableConcept(ext); ok {
+				r.ResponseReasons = append(r.ResponseReasons, cc)
+			}
+			continue
 		}
 		filtered = append(filtered, ext)
 	}
 	r.Extension = filtered
+	walkResponseItems(&r.Item, absorbResponseItemExtensions)
 }
 
 func absorbItemBehaviorExtensions(it *Item) {
@@ -313,6 +329,16 @@ func absorbItemBehaviorExtensions(it *Item) {
 				it.BaseType = v
 			}
 			continue
+		case SDCIsSubjectExtension:
+			it.IsSubject = extensionBoolValue(ext)
+			continue
+		case SDCKeyboardExtension:
+			if c, ok := extensionCoding(ext); ok && c.Code != "" {
+				it.InputKeyboard = c.Code
+			} else if v := extensionCodeScalar(ext); v != "" {
+				it.InputKeyboard = v
+			}
+			continue
 		}
 		filtered = append(filtered, ext)
 	}
@@ -412,6 +438,12 @@ func appendItemBehaviorExtensions(ext []Extension, it Item) []Extension {
 	if it.BaseType != "" {
 		ext = upsertExtension(ext, Extension{URL: QuestionnaireBaseTypeExtension, Value: it.BaseType, valueType: "Code"})
 	}
+	if it.IsSubject {
+		ext = upsertExtension(ext, Extension{URL: SDCIsSubjectExtension, Value: true, valueType: "Boolean"})
+	}
+	if it.InputKeyboard != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCKeyboardExtension, Value: Coding{Code: it.InputKeyboard}, valueType: "Coding"})
+	}
 	if it.Regex != "" {
 		ext = upsertExtension(ext, Extension{URL: QuestionnaireRegexExtension, Value: it.Regex, valueType: "String"})
 	}
@@ -464,6 +496,9 @@ func appendResponseBehaviorExtensions(ext []Extension, r QuestionnaireResponse) 
 	}
 	if r.CompletionMode != "" {
 		ext = upsertExtension(ext, Extension{URL: QuestionnaireCompletionModeExtension, Value: r.CompletionMode, valueType: "Code"})
+	}
+	for _, reason := range r.ResponseReasons {
+		ext = append(ext, Extension{URL: QuestionnaireResponseReasonExtension, Value: reason, valueType: "CodeableConcept"})
 	}
 	return ext
 }
@@ -677,6 +712,75 @@ func extensionSupportLink(ext Extension) (SupportLink, bool) {
 		return SupportLink{URL: x}, x != ""
 	default:
 		return SupportLink{}, false
+	}
+}
+
+func walkResponseItems(items *[]ResponseItem, fn func(*ResponseItem)) {
+	if items == nil {
+		return
+	}
+	for i := range *items {
+		fn(&(*items)[i])
+		for j := range (*items)[i].Answer {
+			walkResponseItems(&(*items)[i].Answer[j].Item, fn)
+		}
+		walkResponseItems(&(*items)[i].Item, fn)
+	}
+}
+
+func absorbResponseItemExtensions(ri *ResponseItem) {
+	if ri == nil || len(ri.Extension) == 0 {
+		return
+	}
+	filtered := make([]Extension, 0, len(ri.Extension))
+	for _, ext := range ri.Extension {
+		if ext.URL == SDCResponseIsSubjectExtension {
+			ri.IsSubject = extensionBoolValue(ext)
+			continue
+		}
+		filtered = append(filtered, ext)
+	}
+	ri.Extension = filtered
+}
+
+func appendResponseItemExtensions(ext []Extension, ri ResponseItem) []Extension {
+	if ri.IsSubject {
+		ext = upsertExtension(ext, Extension{URL: SDCResponseIsSubjectExtension, Value: true, valueType: "Boolean"})
+	}
+	return ext
+}
+
+func extensionCodeableConcept(ext Extension) (CodeableConcept, bool) {
+	switch x := ext.Value.(type) {
+	case CodeableConcept:
+		return x, len(x.Coding) > 0 || x.Text != ""
+	case map[string]any:
+		cc := CodeableConcept{}
+		if text, ok := x["text"].(string); ok {
+			cc.Text = text
+		}
+		if raw, ok := x["coding"].([]any); ok {
+			for _, item := range raw {
+				if m, ok := item.(map[string]any); ok {
+					c := Coding{}
+					if s, ok := m["system"].(string); ok {
+						c.System = s
+					}
+					if s, ok := m["code"].(string); ok {
+						c.Code = s
+					}
+					if s, ok := m["display"].(string); ok {
+						c.Display = s
+					}
+					if c.Code != "" || c.System != "" {
+						cc.Coding = append(cc.Coding, c)
+					}
+				}
+			}
+		}
+		return cc, len(cc.Coding) > 0 || cc.Text != ""
+	default:
+		return CodeableConcept{}, false
 	}
 }
 

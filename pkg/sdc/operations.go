@@ -15,6 +15,9 @@ type ValidationOptions struct {
 	Terminology     TerminologyResolver
 	AllowIncomplete bool
 	Expressions     ExpressionProvider
+	LaunchContext   map[string]any
+	Subject         any
+	References      ReferenceResolver
 }
 type TerminologyResolver interface {
 	ValidateCode(context.Context, Coding, string) error
@@ -169,6 +172,8 @@ func ValidateQuestionnaire(q Questionnaire, opts ValidationOptions) Outcome {
 }
 func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationOptions) Outcome {
 	o := Outcome{ResourceType: "OperationOutcome"}
+	opts = validationOptionsWithContext(context.Background(), q, r, opts)
+	validateLaunchContexts(q, opts, &o)
 	t, err := Normalize(q)
 	if err != nil {
 		return Outcome{ResourceType: "OperationOutcome", Issue: []Issue{{Severity: "error", Code: "structure", Diagnostics: err.Error()}}}
@@ -226,7 +231,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				if expressionErr != nil {
 					o.add("error", "exception", expressionErr.Error(), path+"item["+item.LinkID+"]")
 				}
-				if item.Required && enabled && !opts.AllowIncomplete {
+				if item.Required && enabled && !opts.AllowIncomplete && capturesAnswers(item) {
 					o.add("error", "required", "required answer is missing", path+"item["+item.LinkID+"]")
 				}
 				if enabled {
@@ -248,10 +253,13 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 	if expressionErr != nil {
 		o.add("error", "exception", expressionErr.Error(), path)
 	}
+	if isDisplayOnlyUsageMode(d.UsageMode) && hasPresentAnswers(responseItem.Answer) {
+		o.add("error", "forbidden", "display-only item must not contain answers", path)
+	}
 	if !enabled && (hasPresentAnswers(responseItem.Answer) || len(responseItem.Item) > 0) {
 		o.add("error", "invariant", fmt.Sprintf("disabled item %q must not contain answers or child items (enableWhen: %s)", d.LinkID, enableWhenSummary(*d)), path)
 	}
-	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && d.Type != "group" && d.Type != "question" {
+	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && capturesAnswers(*d) {
 		o.add("error", "required", "required answer is missing", path)
 	}
 	validateRequiredExpression(o, d, r, opts, path, hasPresentAnswers(responseItem.Answer))
@@ -286,7 +294,7 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 		if enabled {
 			validateAnswerValueConstraints(o, d, answer, path)
 			validateAnswerBounds(o, d, answer, path)
-			validateReferenceAnswer(o, d, answer, path)
+			validateReferenceAnswer(o, d, answer, opts, path)
 			validateQuantityAnswer(o, d, answer, opts, path)
 		}
 	}
@@ -327,6 +335,12 @@ func enabledForValidationOutcome(item Item, r QuestionnaireResponse, opts Valida
 			return false, err
 		}
 		enabled = len(values) > 0 && truthy(values[0])
+	}
+	if item.Type == "group" || item.Type == "question" {
+		return enabled, nil
+	}
+	if !capturesAnswers(item) {
+		return false, nil
 	}
 	return enabled, nil
 }
@@ -788,6 +802,8 @@ type FieldState struct {
 	OptionExclusive     bool
 	SliderStepValue     *float64
 	UsageMode           string
+	IsSubject           bool
+	InputKeyboard       string
 	DisplayCategory     string
 	SupportLinks        []SupportLink
 	FHIRType            string
@@ -870,7 +886,10 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 	walk = func(items []Item) {
 		for _, it := range items {
 			enabled := enabledForValidation(it, r, opts)
-			visible := enabled && !extensionBool(it.Extension, QuestionnaireHiddenExtension)
+			visible := fieldVisible(it, r, enabled)
+			if it.UsageMode != "" {
+				enabled = fieldEnabled(it, enabled)
+			}
 			f := FieldState{
 				LinkID:             it.LinkID,
 				Text:               it.Text,
@@ -898,6 +917,8 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 				OptionExclusive:    it.OptionExclusive,
 				SliderStepValue:    it.SliderStepValue,
 				UsageMode:          it.UsageMode,
+				IsSubject:          it.IsSubject,
+				InputKeyboard:      it.InputKeyboard,
 				DisplayCategory:    it.DisplayCategory,
 				SupportLinks:       append([]SupportLink(nil), it.SupportLinks...),
 				FHIRType:           it.FHIRType,

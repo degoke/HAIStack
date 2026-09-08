@@ -52,10 +52,29 @@ and calculated/enablement constraints.
 
 Diagnostics are OperationOutcome-compatible and retain renderer field paths.
 
-Generic FHIR item constraints (`maxLength`, `regex`, `questionnaire-constraint`)
-are preserved on the questionnaire model and enforced during response
-validation. Product-specific policies such as phone-number standards, email
-rules, or country-specific postal-code formats remain application-owned.
+Generic FHIR item constraints (`maxLength`, `minLength`, `regex`,
+`questionnaire-constraint`, `questionnaire-minValue`, `questionnaire-maxValue`,
+`questionnaire-minOccurs`, `questionnaire-maxOccurs`) are preserved on the
+questionnaire model and enforced during response validation.
+
+SDC and FHIR presentation extensions (`questionnaire-itemControl`,
+`questionnaire-entryFormat`, `questionnaire-choiceOrientation`,
+`questionnaire-optionExclusive`, `questionnaire-usageMode`,
+`questionnaire-displayCategory`, `questionnaire-supportLink`, reference and
+unit extensions, questionnaire-level launch context/variables, and
+QuestionnaireResponse workflow extensions) are modeled on the projection and
+exposed on `FieldState` for renderers.
+
+`answerValueSet` validation uses the configured terminology service (including
+expansion for `open-choice` string answers). Reference answers honor
+`referenceProfile` and `referenceFilter` when a `ReferenceResolver` is supplied.
+Validation accepts launch context, subject, and evaluates questionnaire
+variables in FHIRPath expressions. `usageMode` affects capture vs display
+semantics in validation and `Render`. Tier-5 extraction metadata drives
+`QuestionnaireExtractor` (`sourceStructureMap`, item definitions,
+`observationExtract`). Product-specific policies such as
+phone-number standards, email rules, or country-specific postal-code formats
+remain application-owned.
 
 ### Response builder
 
