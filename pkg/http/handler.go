@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -701,6 +702,7 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 				Method string `json:"method"`
 				URL    string `json:"url"`
 			} `json:"request"`
+			Resource json.RawMessage `json:"resource"`
 		} `json:"entry"`
 	}
 	if err := json.Unmarshal(body, &bundle); err != nil {
@@ -753,8 +755,34 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 		default:
 			return invalidRequest("unsupported bundle entry method", nil)
 		}
+		if len(entry.Resource) > 0 {
+			if err := h.enforcePatientScopeOnBundleResource(r.Context(), resourceType, id, entry.Resource); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func (h *handler) enforcePatientScopeOnBundleResource(ctx context.Context, resourceType, id string, raw json.RawMessage) error {
+	if h.cfg.PatientReferenceResolver == nil || h.cfg.Codec == nil {
+		return nil
+	}
+	tenant, ok := h.tenantFromContext(ctx)
+	if !ok || tenant.PatientScope == "" {
+		return nil
+	}
+	envelope, err := h.cfg.Codec.ParseJSON(resourceType, raw)
+	if err != nil {
+		return invalidRequest("parse bundle entry resource", err)
+	}
+	if envelope.ResourceType == "" {
+		envelope.ResourceType = resourceType
+	}
+	if envelope.ID == "" {
+		envelope.ID = id
+	}
+	return h.enforcePatientScopeOnEnvelope(ctx, envelope)
 }
 
 func parseSearchFormBody(body []byte, contentType string) (url.Values, error) {

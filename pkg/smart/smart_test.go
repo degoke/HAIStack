@@ -622,3 +622,90 @@ func TestClientRegistration_MinimalType(t *testing.T) {
 		t.Fatalf("reg = %#v", reg)
 	}
 }
+
+func TestTokenValidator_NbfInFutureRejected(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	token := unsignedJWT(t, map[string]any{
+		"iss":   "https://issuer.example",
+		"aud":   "https://aud.example",
+		"exp":   now.Add(2 * time.Hour).Unix(),
+		"nbf":   now.Add(time.Hour).Unix(),
+		"scope": "patient/*.read",
+	})
+	tv := smart.NewTokenValidator(nil)
+	tv.Now = func() time.Time { return now }
+	_, err := tv.ValidateToken(token, smart.TokenValidateOptions{
+		ExpectedIssuer:   "https://issuer.example",
+		ExpectedAudience: "https://aud.example",
+	})
+	if !errors.Is(err, smart.ErrTokenNotYetValid) {
+		t.Fatalf("nbf err = %v, want ErrTokenNotYetValid", err)
+	}
+}
+
+func TestScopePolicyAuthChecker_PolicyDeniesDespiteScope(t *testing.T) {
+	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
+		DefaultTenantID:  "tenant-a",
+		DefaultUserRoles: []string{"smart-user"},
+	})
+	scopes, _ := smart.ParseScopes("patient/*.read launch/patient")
+	claims := smart.TokenClaims{
+		Subject: "user-1", Patient: "pat-1",
+		Scope: scopes.SpaceSeparated(), Scopes: scopes,
+	}
+	bundle, err := adapter.ToAuthRequests(claims, smart.BuildLaunchContext(smart.LaunchContextInput{
+		Claims: &claims, Scopes: scopes,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := auth.NewEngine(auth.Config{
+		Roles: []auth.Role{{
+			Name:        "smart-user",
+			Permissions: []auth.Permission{"*.read"},
+		}},
+		Principals: []auth.Principal{bundle.Principal},
+		PolicyBytes: []byte(`{
+			"version": "1",
+			"rules": [{
+				"name": "observation-only",
+				"effect": "allow",
+				"match": {
+					"actions": ["read"],
+					"resourceTypes": ["Observation"],
+					"anyPermissions": ["*.read"]
+				}
+			}]
+		}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := smart.ScopePolicyAuthChecker{
+		Engine: eng, Adapter: adapter,
+		BundleFor: func(_ auth.Principal, _ auth.TenantContext) (smart.AuthBundle, bool) {
+			return bundle, true
+		},
+	}
+	allowObs, err := checker.AuthorizeRead(context.Background(), bundle.Principal, bundle.Tenant, "Observation", "obs-1")
+	if err != nil || !allowObs.Allowed {
+		t.Fatalf("observation = %#v err=%v", allowObs, err)
+	}
+	denyAppt, err := checker.AuthorizeRead(context.Background(), bundle.Principal, bundle.Tenant, "Appointment", "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denyAppt.Allowed {
+		t.Fatalf("expected policy deny for appointment despite patient/*.read scope, got %#v", denyAppt)
+	}
+}
+
+func TestDefaultConfiguration(t *testing.T) {
+	cfg := smart.DefaultConfiguration("https://fhir.example")
+	if cfg.Issuer != "https://fhir.example" {
+		t.Fatalf("issuer = %q", cfg.Issuer)
+	}
+	if len(cfg.ScopesSupported) == 0 || len(cfg.Capabilities) == 0 {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
