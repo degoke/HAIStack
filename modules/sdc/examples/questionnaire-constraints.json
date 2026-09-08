@@ -1,0 +1,48 @@
+{
+  "resourceType": "Questionnaire",
+  "url": "http://example.org/sdc/questionnaire/constraints",
+  "version": "1.0.0",
+  "status": "active",
+  "item": [
+    {
+      "linkId": "nickname",
+      "text": "Nickname",
+      "type": "string",
+      "maxLength": 12,
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/StructureDefinition/regex",
+          "valueString": "^[a-z]+$"
+        }
+      ]
+    },
+    {
+      "linkId": "email",
+      "text": "Email",
+      "type": "string",
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/StructureDefinition/questionnaire-constraint",
+          "extension": [
+            {
+              "url": "key",
+              "valueId": "email-present"
+            },
+            {
+              "url": "requirements",
+              "valueString": "Email answer must be present when this item is enabled"
+            },
+            {
+              "url": "severity",
+              "valueCode": "error"
+            },
+            {
+              "url": "expression",
+              "valueString": "item.where(linkId='email').answer.value.exists()"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -43,12 +43,19 @@ compatibility views for behavior evaluation. They are not replacements for
 ### Validation
 
 `ValidateQuestionnaireResource` checks questionnaire structure, duplicate
-linkIds, item types, enablement declarations, and required SDC fields.
+linkIds, item types, enablement declarations, generic item constraints
+(`maxLength`, `regex`, `questionnaire-constraint`), and required SDC fields.
 `ValidateQuestionnaireResponseResource` checks response identity, required and
 disabled items, repeats/cardinality, answer types, answer options, terminology,
+value constraints (`maxLength`, `regex`), questionnaire-constraint invariants,
 and calculated/enablement constraints.
 
 Diagnostics are OperationOutcome-compatible and retain renderer field paths.
+
+Generic FHIR item constraints (`maxLength`, `regex`, `questionnaire-constraint`)
+are preserved on the questionnaire model and enforced during response
+validation. Product-specific policies such as phone-number standards, email
+rules, or country-specific postal-code formats remain application-owned.
 
 ### Response builder
 

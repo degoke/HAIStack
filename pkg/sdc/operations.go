@@ -145,6 +145,7 @@ func ValidateQuestionnaire(q Questionnaire, opts ValidationOptions) Outcome {
 					o.add("error", "structure", "questionnaire extension cannot have both a value and nested extensions", "Questionnaire.item["+id+"]")
 				}
 			}
+			validateItemDefinitionConstraints(d, id, &o)
 		}
 	}
 	validateExtensions := func(extensions []Extension, path string) {
@@ -225,6 +226,9 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				if item.Required && enabled && !opts.AllowIncomplete {
 					o.add("error", "required", "required answer is missing", path+"item["+item.LinkID+"]")
 				}
+				if enabled {
+					validateItemInvariantConstraints(&o, &item, r, opts, path+"item["+item.LinkID+"]")
+				}
 			} else if !item.Repeats && len(matches) > 1 {
 				o.add("error", "max", "question item does not repeat", path+"item["+item.LinkID+"]")
 			}
@@ -277,6 +281,12 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 				o.add("error", "code-invalid", "answer is not one of the permitted answer options", path)
 			}
 		}
+		if enabled {
+			validateAnswerValueConstraints(o, d, answer, path)
+		}
+	}
+	if enabled {
+		validateItemInvariantConstraints(o, d, r, opts, path)
 	}
 }
 
@@ -740,6 +750,9 @@ type FieldState struct {
 	Required       bool
 	ReadOnly       bool
 	Repeats        bool
+	MaxLength      *int
+	Regex          string
+	Constraints    []ItemConstraint
 	Answers        []Answer
 	Options        []AnswerOption
 	Issues         []Issue
@@ -827,6 +840,9 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 				Required:    it.Required,
 				ReadOnly:    it.ReadOnly,
 				Repeats:     it.Repeats,
+				MaxLength:   it.MaxLength,
+				Regex:       it.Regex,
+				Constraints: append([]ItemConstraint(nil), it.Constraints...),
 				Options:     it.AnswerOption,
 				Media:       it.Media,
 				ItemControl: extensionString(it.Extension, QuestionnaireItemControlExtension),

@@ -72,6 +72,9 @@ type Item struct {
 	Required              bool           `json:"required,omitempty"`
 	Repeats               bool           `json:"repeats,omitempty"`
 	ReadOnly              bool           `json:"readOnly,omitempty"`
+	MaxLength             *int           `json:"maxLength,omitempty"`
+	Regex                 string         `json:"-"`
+	Constraints           []ItemConstraint `json:"-"`
 	AnswerOption          []AnswerOption `json:"answerOption,omitempty"`
 	AnswerValueSet        string         `json:"answerValueSet,omitempty"`
 	Initial               []Answer       `json:"initial,omitempty"`
@@ -158,6 +161,12 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	}
 	if it.TextRef != "" {
 		ext = upsertExtension(ext, Extension{URL: SDCTextReferenceExtension, Value: it.TextRef, valueType: "String"})
+	}
+	if it.Regex != "" {
+		ext = upsertExtension(ext, Extension{URL: QuestionnaireRegexExtension, Value: it.Regex, valueType: "String"})
+	}
+	for _, constraint := range it.Constraints {
+		ext = append(ext, itemConstraintExtension(constraint))
 	}
 	if len(ext) > 0 {
 		encoded, err := json.Marshal(ext)
@@ -273,6 +282,7 @@ func (it *Item) UnmarshalJSON(b []byte) error {
 			}
 		}
 	}
+	absorbItemBehaviorExtensions(it)
 	return nil
 }
 
