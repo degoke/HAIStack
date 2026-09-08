@@ -45,3 +45,10 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 /tmp/
+
+# Conformance toolchain
+conformance/node_modules/
+conformance/fsh-generated/
+conformance/.tools/
+conformance/input/
+

@@ -61,16 +61,22 @@ func (l *Loader) Load(path string) (*Module, error) {
 		return nil, err
 	}
 
-	definitions, err := l.loadDefinitions(path, manifest.DefinitionFiles)
+	files, err := l.definitionFileList(path, &manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	definitions, err := l.loadDefinitions(path, files)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Module{
-		Path:          path,
-		Manifest:      manifest,
-		ManifestBytes: append([]byte(nil), data...),
-		Definitions:   definitions,
+		Path:            path,
+		Manifest:        manifest,
+		ManifestBytes:   append([]byte(nil), data...),
+		Definitions:     definitions,
+		DefinitionPaths: append([]string(nil), files...),
 	}, nil
 }
 
@@ -125,7 +131,100 @@ func validateManifest(m *Manifest) error {
 		}
 		seenFiles[f] = struct{}{}
 	}
+	if strings.TrimSpace(m.IGPackage) == "" {
+		return nil
+	}
+	if filepath.IsAbs(m.IGPackage) {
+		return fmt.Errorf("%w: igPackage must be relative to the module directory", ErrInvalidManifest)
+	}
 	return nil
+}
+
+func (l *Loader) definitionFileList(path string, m *Manifest) ([]string, error) {
+	files := append([]string(nil), m.DefinitionFiles...)
+	if strings.TrimSpace(m.IGPackage) == "" {
+		return files, nil
+	}
+	igFiles, err := l.listIGPackageFiles(path, m.IGPackage)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		seen[f] = struct{}{}
+	}
+	for _, f := range igFiles {
+		if _, ok := seen[f]; ok {
+			continue
+		}
+		files = append(files, f)
+	}
+	if len(files) > maxDefinitionFiles {
+		return nil, fmt.Errorf("%w: too many definition files (maximum %d)", ErrInvalidManifest, maxDefinitionFiles)
+	}
+	return files, nil
+}
+
+func (l *Loader) listIGPackageFiles(modulePath, igPackage string) ([]string, error) {
+	dir := filepath.Join(modulePath, igPackage)
+	if !isPathUnderRoot(modulePath, dir) {
+		return nil, fmt.Errorf("%w: igPackage %q escapes module directory", ErrInvalidManifest, igPackage)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read igPackage %q: %w", igPackage, err)
+	}
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.EqualFold(filepath.Ext(name), ".json") {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join(igPackage, name))
+		files = append(files, rel)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// LoadDefinitionsFromIG reads FHIR JSON definition files from a compiled IG
+// output directory (SUSHI fsh-generated/resources or an unpacked NPM package).
+func LoadDefinitionsFromIG(dir string) ([][]byte, error) {
+	loader := NewLoader()
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve IG directory: %w", err)
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, fmt.Errorf("read IG directory: %w", err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	if len(names) > maxDefinitionFiles {
+		return nil, fmt.Errorf("%w: too many definition files (maximum %d)", ErrInvalidManifest, maxDefinitionFiles)
+	}
+	out := make([][]byte, 0, len(names))
+	for _, name := range names {
+		data, err := loader.fs.ReadFile(filepath.Join(abs, name), maxDefinitionBytes)
+		if err != nil {
+			return nil, fmt.Errorf("read IG resource %q: %w", name, err)
+		}
+		out = append(out, data)
+	}
+	return out, nil
 }
 
 func (l *Loader) loadDefinitions(path string, files []string) ([][]byte, error) {

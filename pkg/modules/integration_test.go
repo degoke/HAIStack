@@ -91,7 +91,7 @@ func runModuleInstallAndInspect(t *testing.T, ctx context.Context, mgr *modules.
 		t.Errorf("permissions = %v, want [read-patient]", installed[0].Deferred.Permissions)
 	}
 	if len(installed[0].Definitions) != 1 {
-		t.Errorf("definitions = %d, want 1", len(installed[0].Definitions))
+		t.Errorf("definitions = %d, want 1 search parameter (structure definitions are tracked separately)", len(installed[0].Definitions))
 	}
 
 	record, err := mgr.Inspect(ctx, "core")

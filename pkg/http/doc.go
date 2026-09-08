@@ -84,7 +84,8 @@
 //   - POST   /sync/push, GET /sync/pull        — optional sync hub routes via NewRootHandlerWithSyncMiddleware;
 //     pull defaults to 100 events and accepts limits from 1 through 1000
 //   - POST   /fhir/Questionnaire/$populate, $assemble
-//   - POST   /fhir/QuestionnaireResponse/$validate, $extract
+//   - POST   /fhir/{ResourceType}/$validate — FHIR Resource/$validate (OperationOutcome)
+//   - POST   /fhir/QuestionnaireResponse/$validate, $extract — SDC operations
 //   - POST   /fhir/Questionnaire/$next-question, $next, $answer (adaptive adapter)
 //
 // Routing uses the Go standard library net/http ServeHTTP pattern; no third-party

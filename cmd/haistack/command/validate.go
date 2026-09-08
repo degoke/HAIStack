@@ -9,11 +9,13 @@ import (
 )
 
 func newValidateCommand(opts *Options, printer *app.Printer) *cobra.Command {
+	var full bool
 	cmd := &cobra.Command{
 		Use:   "validate <file>",
 		Short: "Validate one JSON FHIR resource file",
 		Args:  cobra.ExactArgs(1),
 		Example: `  haistack validate patient.json
+  haistack validate patient.json --full
   haistack validate patient.json --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.loadConfig()
@@ -34,11 +36,22 @@ func newValidateCommand(opts *Options, printer *app.Printer) *cobra.Command {
 
 			engine, err := validate.NewEngine(validate.Config{
 				InstalledTypes: session.Runtime.Services().RegistrySnapshot,
+				ProfileCatalog: validate.NewRegistryProfileCatalog(session.Runtime.Services().RegistrySnapshot),
+				FHIRPath:       session.Runtime.Services().FHIRPathEngine,
 			})
 			if err != nil {
 				return exitErr(printer, err)
 			}
-			result, err := engine.Validate(ctx, env, validate.ValidateOptions{})
+			valOpts := validate.ValidateOptions{
+				EnforceBaseProfile:      true,
+				EnforceDeclaredProfiles: true,
+				ProfileConstraints:      true,
+				Terminology:             session.Runtime.Services().TerminologyService,
+			}
+			if full {
+				valOpts.Mode = validate.ValidationModeFull
+			}
+			result, err := engine.Validate(ctx, env, valOpts)
 			if err != nil {
 				return exitErr(printer, err)
 			}
@@ -64,6 +77,7 @@ func newValidateCommand(opts *Options, printer *app.Printer) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&full, "full", false, "run full profile validation (slicing, SD terminology bindings, extension policy)")
 	return cmd
 }
 

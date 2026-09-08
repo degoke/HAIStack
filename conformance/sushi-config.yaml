@@ -1,0 +1,25 @@
+id: haistack.fhir.r4
+canonical: http://haistack.example.org/fhir
+name: HAIStack
+title: HAIStack FHIR Implementation Guide
+description: Conformance artefacts for Health AI Stack core and SDC capability modules.
+status: draft
+version: 0.1.0
+fhirVersion: 4.0.1
+copyrightYear: 2026+
+releaseLabel: ci-build
+license: Apache-2.0
+publisher:
+  name: HAIStack
+  url: https://github.com/degoke/HAIStack
+contact:
+  - name: HAIStack
+    telecom:
+      - system: url
+        value: https://github.com/degoke/HAIStack
+FSHOnly: true
+parameters:
+  path-resource:
+    - fsh-generated/resources
+dependencies:
+  hl7.fhir.r4.core: 4.0.1

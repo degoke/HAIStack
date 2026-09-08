@@ -1,0 +1,18 @@
+{
+  "resourceType": "Questionnaire",
+  "id": "sdc-questionnaire-valid",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire"
+    ]
+  },
+  "url": "http://fhir.haistack.io/Questionnaire/intake",
+  "status": "draft",
+  "item": [
+    {
+      "linkId": "name",
+      "text": "Name",
+      "type": "string"
+    }
+  ]
+}

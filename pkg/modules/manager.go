@@ -27,12 +27,13 @@ type Config struct {
 // Manager is the public runtime-facing API for installing, upgrading,
 // uninstalling, and inspecting modules.
 type Manager struct {
-	cfg       Config
-	loader    *Loader
-	resolver  *DependencyResolver
-	installer *Installer
-	builder   *CapabilitySnapshotBuilder
-	mu        sync.Mutex
+	cfg         Config
+	loader      *Loader
+	resolver    *DependencyResolver
+	installer   *Installer
+	builder     *CapabilitySnapshotBuilder
+	mu          sync.Mutex
+	afterChange func(ctx context.Context) error
 }
 
 // NewManager constructs a module manager from persistence stores.
@@ -48,6 +49,21 @@ func NewManager(cfg Config) *Manager {
 		installer: NewInstallerWithResources(cfg.ModuleStore, cfg.DefinitionStore, cfg.RegistryInstallStore, cfg.RegistryManager, cfg.ResourceStore, now),
 		builder:   NewCapabilitySnapshotBuilder(cfg.ModuleStore, cfg.RegistryInstallStore),
 	}
+}
+
+// SetAfterChange registers a callback invoked after successful install,
+// upgrade, or uninstall operations.
+func (m *Manager) SetAfterChange(fn func(ctx context.Context) error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.afterChange = fn
+}
+
+func (m *Manager) notifyChange(ctx context.Context) error {
+	if m.afterChange == nil {
+		return nil
+	}
+	return m.afterChange(ctx)
 }
 
 // Install loads a local module directory and applies it to the registry.
@@ -77,6 +93,9 @@ func (m *Manager) installLocked(ctx context.Context, path string) (InstallResult
 	}
 	result, err := m.installer.Install(ctx, mod)
 	if err != nil {
+		return InstallResult{}, err
+	}
+	if err := m.notifyChange(ctx); err != nil {
 		return InstallResult{}, err
 	}
 	return *result, nil
@@ -127,6 +146,9 @@ func (m *Manager) Upgrade(ctx context.Context, path string) (UpgradeResult, erro
 	if err != nil {
 		return UpgradeResult{}, err
 	}
+	if err := m.notifyChange(ctx); err != nil {
+		return UpgradeResult{}, err
+	}
 	return *result, nil
 }
 
@@ -135,7 +157,10 @@ func (m *Manager) Uninstall(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.installer.Uninstall(ctx, name)
+	if err := m.installer.Uninstall(ctx, name); err != nil {
+		return err
+	}
+	return m.notifyChange(ctx)
 }
 
 // List returns all installed modules with their runtime contributions.

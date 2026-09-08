@@ -16,7 +16,10 @@ It looks at a `*types.ResourceEnvelope` — mainly the JSON inside it — and ch
 - Are references syntactically valid (e.g. `Patient/123`, URLs, URNs)?
 - Are fields structurally sane (via Google’s FHIR JSON/proto parser — e.g. `active` must be a boolean, not a string)?
 
-**What it does not do (MVP):** full FHIR conformance — profiles, terminology, business rules, or whether a referenced resource actually exists.
+**What it does not do by default:** live terminology-server validation on API
+writes or FHIRPath invariants (both opt-in). Profile cardinality, slicing, and
+unknown-element checks against installed StructureDefinitions run on every write
+when the runtime profile catalog is configured.
 
 ## When to use it
 
@@ -101,6 +104,39 @@ eng, _ := validate.NewEngine(validate.Config{
 
 You can also pass a per-request allowlist via `ValidateOptions.ResourceTypeRegistry`.
 
+### Profile enforcement
+
+The runtime validates every write against the bundled HL7 R4 base
+StructureDefinition for the resource type, plus any declared `meta.profile`
+URLs. Checks include cardinality, unknown elements (base snapshot), and
+FHIRPath invariants (best-effort).
+
+**Fast mode (default):** slicing, unknown elements, optional FHIRPath invariants
+(`ProfileConstraints`). Runtime API writes leave invariants off by default.
+
+**Full mode:** adds StructureDefinition terminology bindings (skips preferred
+strength) and extension policy. Use for certification-style checks or
+`haistack validate --full`.
+
+```go
+catalog := validate.NewRegistryProfileCatalog(snapshot)
+fp, _ := fhirpath.NewEngine(fhirpath.Config{})
+eng, _ := validate.NewEngine(validate.Config{ProfileCatalog: catalog, FHIRPath: fp})
+
+svc, _ := core.NewResourceService(core.ResourceServiceConfig{
+    Validator: validate.NewCoreValidator(eng, validate.ValidateOptions{
+        EnforceBaseProfile:      true,
+        EnforceDeclaredProfiles: true,
+        ProfileConstraints:      true, // opt-in; runtime defaults to false
+        Terminology:             termService,
+        Mode:                    validate.ValidationModeFull, // optional
+    }),
+})
+```
+
+Runtime API writes use **fast** mode by default. `make validate-ig` runs the
+same Go validator in **full** mode against conformance examples.
+
 ## Where it fits
 
 ```
@@ -122,12 +158,16 @@ FHIR JSON envelope
 
 ## MVP limits
 
-- Structural and safety-oriented, not full profile conformance
+- Structural and safety checks always run; base HL7 R4 profile validation is enabled by default in `pkg/runtime`
 - Syntactic reference checks only (no existence resolution; bare IDs without slashes are accepted; typed references are not checked against the installed resource-type registry)
 - Default required fields: `Observation.status`, `Bundle.type` only — `Patient` has none unless you configure `RequiredFields` (custom maps replace per-type defaults entirely)
 - Optional installed resource-type allowlist
 - Google FHIR R4 proto/jsonformat for primitive and structural validation; structural diagnostics use FHIR element paths (for example `Patient.id: …`) rather than raw jsonformat prefixes
-- No terminology, slicing, custom invariants, or module-specific rules
+- **Fast mode (runtime default):** slice cardinality, unknown elements (snapshot profiles), optional FHIRPath invariants (`ProfileConstraints`).
+- **Full mode:** SD terminology bindings (skips preferred strength) and extension URL policy including nested extensions (set `Mode: ValidationModeFull` or `make validate-ig`)
+- **Constraint profiles** (`hai-patient`, SDC): differential cardinality overlays only; unknown-element checks come from the base HL7 profile when `EnforceBaseProfile` is enabled
+- Corrupt installed StructureDefinitions surface `profile-parse` issues instead of `unknown-profile`
+- FHIRPath evaluation failures emit `invariant-evaluation` warnings
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 

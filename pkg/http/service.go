@@ -81,3 +81,23 @@ type OperationRequest struct {
 type OperationService interface {
 	Execute(context.Context, OperationRequest) (*types.ResourceEnvelope, error)
 }
+
+// ValidateRequest carries FHIR Resource/$validate inputs.
+//
+// Query parameters:
+//   - mode — create, update, delete, or profile (delete requires an instance URL)
+//   - profile — additional StructureDefinition canonical URL
+//   - _fast=true — lightweight validation (runtime write profile; invariants off)
+//   - _invariants=true — force FHIRPath invariant checks even when _fast=true
+type ValidateRequest struct {
+	ResourceType string
+	ID           string
+	ContentType  string
+	Body         []byte
+	Query        url.Values
+}
+
+// ValidateService runs FHIR Resource/$validate and returns an OperationOutcome.
+type ValidateService interface {
+	Validate(context.Context, ValidateRequest) (*types.OperationOutcome, error)
+}

@@ -12,6 +12,7 @@ import (
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/sdc"
@@ -271,10 +272,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	state.services.FHIRPathEngine = engine
 
 	var indexer search.Indexer
+	var searchRegistry *search.SnapshotRegistry
 	if b.searchEnabled {
-		reg := search.NewSnapshotRegistry(snapshot)
+		searchRegistry = search.NewSnapshotRegistry(snapshot)
 		indexer, err = search.NewRegistryIndexer(search.RegistryIndexerConfig{
-			Registry: reg,
+			Registry: searchRegistry,
 			Engine:   engine,
 		})
 		if err != nil {
@@ -282,12 +284,51 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 
-	validateEngine, err := validate.NewEngine(validate.Config{InstalledTypes: snapshot})
+	profileCatalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := profileCatalog.Warm(); err != nil {
+		return fmt.Errorf("runtime: warm profile catalog: %w", err)
+	}
+
+	reloadableEngine, err := validate.NewReloadableEngine(validate.Config{
+		InstalledTypes: snapshot,
+		ProfileCatalog: profileCatalog,
+		FHIRPath:       engine,
+	})
 	if err != nil {
 		return fmt.Errorf("runtime: validate engine: %w", err)
 	}
+	patientRefResolver := &registry.PatientReferenceResolver{
+		Snapshot: snapshot,
+		Engine:   engine,
+	}
+	conformanceRuntime, err := NewConformanceRuntime(ConformanceRuntimeConfig{
+		Manager:         regManager,
+		FHIRPath:        engine,
+		ProfileCatalog:  profileCatalog,
+		Engine:          reloadableEngine,
+		SearchRegistry:  searchRegistry,
+		PatientResolver: patientRefResolver,
+		InitialSnapshot: snapshot,
+	})
+	if err != nil {
+		return fmt.Errorf("runtime: conformance runtime: %w", err)
+	}
+	state.services.ConformanceRuntime = conformanceRuntime
+	modManager.SetAfterChange(func(ctx context.Context) error {
+		snap, err := conformanceRuntime.Refresh(ctx)
+		if err != nil {
+			return err
+		}
+		state.services.RegistrySnapshot = snap
+		return nil
+	})
+
 	questionnaireResolver := sdc.StoreQuestionnaireResolver{Resources: pc.resources}
-	baseValidator := validate.NewCoreValidator(validateEngine, validate.ValidateOptions{})
+	baseValidator := validate.NewCoreValidator(reloadableEngine, validate.ValidateOptions{
+		EnforceBaseProfile:      true,
+		EnforceDeclaredProfiles: true,
+		Terminology:             state.services.TerminologyService,
+	})
 	validator := &sdc.ResponseValidator{
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
@@ -297,16 +338,25 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
-		Resources:        pc.resources,
-		History:          pc.history,
-		Sessions:         pc.sessions,
-		IDPolicy:         core.DefaultIDPolicy{},
-		Validator:        validator,
-		Indexer:          indexer,
-		Outbox:           &hasync.EventStoreOutbox{Events: pc.outboxEvents},
-		Terminology:      pc.terminology,
-		TerminologyScope: termScope,
-		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
+		Resources:          pc.resources,
+		History:            pc.history,
+		Sessions:           pc.sessions,
+		IDPolicy:           core.DefaultIDPolicy{},
+		Validator:          validator,
+		Indexer:            indexer,
+		Outbox:             &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Terminology:        pc.terminology,
+		TerminologyScope:   termScope,
+		TerminologyCache:   state.services.TerminologyService.(terminology.Invalidator),
+		DefinitionIngestor: regManager,
+		ConformanceRefresh: func(ctx context.Context) error {
+			snap, err := conformanceRuntime.Refresh(ctx)
+			if err != nil {
+				return err
+			}
+			state.services.RegistrySnapshot = snap
+			return nil
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: resource service: %w", err)
@@ -314,7 +364,6 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	state.services.ResourceService = coreSvc
 
 	if b.searchEnabled {
-		reg := search.NewSnapshotRegistry(snapshot)
 		executorBackend, ok := pc.searchStore.(store.SearchQueryExecutor)
 		if !ok {
 			return fmt.Errorf("runtime: search store does not implement query execution")
@@ -324,7 +373,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 		executor := search.NewStoreExecutor(executorBackend, pc.resources)
 		searchSvc, err := search.NewService(search.ServiceConfig{
-			Registry:  reg,
+			Registry:  searchRegistry,
 			Executor:  executor,
 			Resources: pc.resources,
 			BaseURL:   "/fhir",
@@ -369,16 +418,30 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		state.syncProcessor = &hasync.JobProcessor{Engine: engine, Jobs: pc.jobStore}
 	}
 
-	if pc.reindexJobs && indexer != nil {
-		state.reindexWorker = &search.ReindexWorker{
-			Registry:  search.NewSnapshotRegistry(snapshot),
-			Indexer:   indexer,
-			Resources: pc.resources,
-			Search:    pc.searchStore,
-		}
+	if pc.jobStore != nil {
 		runner := jobs.NewRunner(pc.jobStore)
-		if err := runner.Register(search.ReindexJobType, jobs.HandlerFunc(state.reindexWorker.HandleJob)); err != nil {
-			return fmt.Errorf("runtime: register reindex handler: %w", err)
+		if pc.reindexJobs && indexer != nil {
+			state.reindexWorker = &search.ReindexWorker{
+				Registry:  searchRegistry,
+				Indexer:   indexer,
+				Resources: pc.resources,
+				Search:    pc.searchStore,
+			}
+			if err := runner.Register(search.ReindexJobType, jobs.HandlerFunc(state.reindexWorker.HandleJob)); err != nil {
+				return fmt.Errorf("runtime: register reindex handler: %w", err)
+			}
+		}
+		packageInstaller := &packages.Installer{
+			Registry: regManager,
+			Refresh: func(ctx context.Context) error {
+				_, err := conformanceRuntime.Refresh(ctx)
+				return err
+			},
+			EnableTypes: true,
+		}
+		packageWorker := &packages.InstallWorker{Installer: packageInstaller}
+		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
+			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
 		state.jobRunner = runner
 	}
@@ -386,8 +449,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var httpSearchSvc hahttp.SearchService
 	if state.services.SearchService != nil {
 		httpSearchSvc = hahttp.SearchServiceAdapter{
-			Svc:                        state.services.SearchService,
-			PatientSearchParamResolver: snapshot,
+			Svc: state.services.SearchService,
+			PatientSearchParamResolver: hahttp.LivePatientSearchParamResolver{
+				Runtime: conformanceRuntime,
+			},
 		}
 	}
 
@@ -395,15 +460,26 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if sdcService == nil {
 		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
 	}
-	patientRefResolver := &registry.PatientReferenceResolver{
-		Snapshot: snapshot,
-		Engine:   engine,
+	packageService := hahttp.CorePackageInstallService{
+		JobStore: pc.jobStore,
 	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:          hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:            httpSearchSvc,
-		SDCService:               sdcService,
-		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: state.services.RegistrySnapshot},
+		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:         httpSearchSvc,
+		SDCService:            sdcService,
+		PackageInstallService: packageService,
+		ValidateService: hahttp.CoreValidateService{
+			Runtime:   conformanceRuntime,
+			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
+			Options: validate.ValidateOptions{
+				EnforceBaseProfile:      true,
+				EnforceDeclaredProfiles: true,
+				ProfileConstraints:      true,
+				Mode:                    validate.ValidationModeFull,
+				Terminology:             state.services.TerminologyService,
+			},
+		},
+		CapabilitySource:         hahttp.LiveCapabilitySource{Runtime: conformanceRuntime},
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,
 		PrincipalResolver:        b.httpPrincipalResolver,
@@ -417,12 +493,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
-	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
-		state.httpHandler = hahttp.NewRootHandlerWithSyncMiddleware(handler, hubServer, b.syncMiddleware)
-	} else if b.syncServer != nil {
-		state.httpHandler = hahttp.NewRootHandlerWithSyncMiddleware(handler, b.syncServer, b.syncMiddleware)
-	} else {
-		state.httpHandler = handler
+	rootCfg := hahttp.RootConfig{
+		FHIR: handler,
 	}
+	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
+		rootCfg.Sync = hubServer
+		rootCfg.SyncMiddleware = b.syncMiddleware
+	} else if b.syncServer != nil {
+		rootCfg.Sync = b.syncServer
+		rootCfg.SyncMiddleware = b.syncMiddleware
+	}
+	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil
 }

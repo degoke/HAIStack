@@ -1,0 +1,14 @@
+{
+  "resourceType": "Parameters",
+  "id": "haistack-expansion-params",
+  "parameter": [
+    {
+      "name": "system-version",
+      "valueUri": "http://hl7.org/fhir/item-type|4.0.1"
+    },
+    {
+      "name": "tx-server",
+      "valueString": "n/a"
+    }
+  ]
+}

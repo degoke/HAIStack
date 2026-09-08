@@ -1,0 +1,28 @@
+{
+  "resourceType": "StructureDefinition",
+  "id": "sdc-questionnaireresponse",
+  "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-response",
+  "version": "3.0.0",
+  "name": "SDCQuestionnaireResponse",
+  "title": "SDC QuestionnaireResponse",
+  "status": "active",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "description": "HAIStack SDC QuestionnaireResponse profile. A canonical questionnaire reference is required.",
+  "fhirVersion": "4.0.1",
+  "kind": "resource",
+  "abstract": false,
+  "type": "QuestionnaireResponse",
+  "baseDefinition": "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse",
+  "derivation": "constraint",
+  "differential": {
+    "element": [
+      {
+        "id": "QuestionnaireResponse.questionnaire",
+        "path": "QuestionnaireResponse.questionnaire",
+        "min": 1,
+        "mustSupport": true
+      }
+    ]
+  }
+}

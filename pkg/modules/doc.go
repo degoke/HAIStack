@@ -11,14 +11,17 @@
 // # Module layout
 //
 // A module is a directory containing a module.json manifest and optional
-// definition JSON files, typically under a definitions/ subdirectory:
+// definition JSON files. Compiled IG artefacts may be loaded from an ig/
+// directory declared as igPackage:
 //
 //	modules/<name>/
 //	├── module.json
+//	├── ig/*.json
 //	└── definitions/*.json
 //
 // module.json declares the module identity, dependencies, resources to enable,
-// definition files to ingest, and deferred subsystem declarations.
+// definition files and/or an igPackage directory to ingest, and deferred
+// subsystem declarations.
 //
 // # Manifest format
 //
@@ -44,6 +47,7 @@
 //   - dependencies: required modules with a minimum compatible semver version.
 //   - resources: FHIR resource types to enable from the seeded base definitions.
 //   - definitionFiles: relative JSON files to ingest as profiles or search parameters.
+//   - igPackage: relative directory of compiled IG JSON (all *.json files are loaded).
 //   - views, aiTools, permissions, syncPolicies, subscriptions, migrations:
 //     declaration-only arrays stored in ModuleRecord.Metadata for future subsystems.
 //

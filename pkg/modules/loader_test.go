@@ -22,8 +22,61 @@ func TestLoaderReadsManifestAndDefinitions(t *testing.T) {
 	if mod.Manifest.Version != "1.0.0" {
 		t.Errorf("version = %q, want 1.0.0", mod.Manifest.Version)
 	}
+	if len(mod.Definitions) != 2 {
+		t.Errorf("definitions = %d, want 2", len(mod.Definitions))
+	}
+	if mod.Manifest.IGPackage != "ig" {
+		t.Errorf("igPackage = %q, want ig", mod.Manifest.IGPackage)
+	}
+}
+
+func TestLoaderReadsIGPackage(t *testing.T) {
+	dir := t.TempDir()
+	igDir := filepath.Join(dir, "ig")
+	if err := os.MkdirAll(igDir, 0o755); err != nil {
+		t.Fatalf("mkdir ig: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(igDir, "SearchParameter-example.json"), []byte(`{
+		"resourceType":"SearchParameter","id":"example",
+		"url":"http://example.org/SearchParameter/example","version":"1.0.0",
+		"name":"example","status":"draft","code":"example","base":["Patient"],"type":"token"
+	}`))
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{
+		"name":"x","version":"1.0.0","igPackage":"ig"
+	}`))
+	mod, err := modules.NewLoader().Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if len(mod.Definitions) != 1 {
-		t.Errorf("definitions = %d, want 1", len(mod.Definitions))
+		t.Fatalf("definitions = %d, want 1", len(mod.Definitions))
+	}
+	if len(mod.DefinitionPaths) != 1 || mod.DefinitionPaths[0] != "ig/SearchParameter-example.json" {
+		t.Fatalf("definition paths = %v", mod.DefinitionPaths)
+	}
+}
+
+func TestLoaderRejectsIGPackageEscape(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "module.json"), []byte(`{
+		"name":"x","version":"1.0.0","igPackage":"../outside"
+	}`))
+	_, err := modules.NewLoader().Load(dir)
+	if err == nil || !errors.Is(err, modules.ErrInvalidManifest) {
+		t.Fatalf("Load = %v, want ErrInvalidManifest", err)
+	}
+}
+
+func TestLoadDefinitionsFromIG(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "a.json"), []byte(`{"resourceType":"ValueSet","url":"http://example.org/vs"}`))
+	mustWriteFile(t, filepath.Join(dir, "ignore.txt"), []byte("nope"))
+	defs, err := modules.LoadDefinitionsFromIG(dir)
+	if err != nil {
+		t.Fatalf("LoadDefinitionsFromIG: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("loaded %d, want 1", len(defs))
 	}
 }
 
