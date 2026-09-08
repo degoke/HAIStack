@@ -44,6 +44,7 @@ type Questionnaire struct {
 	SubjectType           []string                `json:"subjectType,omitempty"`
 	Item                  []Item                  `json:"item,omitempty"`
 	Extension             []Extension             `json:"extension,omitempty"`
+	Contained             []map[string]any        `json:"contained,omitempty"`
 	Meta                  map[string]any          `json:"meta,omitempty"`
 	LaunchContexts        []LaunchContextDef      `json:"-"`
 	Variables             []QuestionnaireVariable `json:"-"`
@@ -57,6 +58,9 @@ type Questionnaire struct {
 	EntryMode             string                  `json:"-"`
 	Endpoint              string                  `json:"-"`
 	TargetConstraints     []ItemConstraint        `json:"-"`
+	AssembleExpectation   string                  `json:"-"`
+	PerformerTypes        []string                `json:"-"`
+	CQFLibraries          []CQFLibraryRef         `json:"-"`
 }
 
 // QuestionnaireResponse is a JSON behavior projection, not a replacement for
@@ -115,6 +119,14 @@ type Item struct {
 	Variables             []QuestionnaireVariable `json:"-"`
 	DefinitionExtract     *DefinitionExtractContext `json:"-"`
 	DefinitionExtractValues []DefinitionExtractValue `json:"-"`
+	ExtractAllocateID       string                   `json:"-"`
+	TemplateExtract         *TemplateExtractContext  `json:"-"`
+	TemplateExtractValues   []TemplateExtractValue   `json:"-"`
+	AssembleContexts        []string                 `json:"-"`
+	SubQuestionnaire        string                   `json:"-"`
+	ContextExpressions      []ContextExpression      `json:"-"`
+	ChoiceColumns           []ChoiceColumn           `json:"-"`
+	OptionalDisplay         bool                     `json:"-"`
 	LookupQuestionnaire   string           `json:"-"`
 	MinQuantity           *BoundValue      `json:"-"`
 	MaxQuantity           *BoundValue      `json:"-"`
@@ -535,6 +547,8 @@ type AnswerOption struct {
 	OptionWeight      *float64    `json:"-"`
 	ToggleExpression  *Expression `json:"-"`
 	Disabled          bool        `json:"-"`
+	OptionalDisplay   bool        `json:"-"`
+	ChoiceColumns     []ChoiceColumn `json:"-"`
 	Extension         []Extension `json:"extension,omitempty"`
 	valueType          string
 	initialSelectedSet bool
@@ -626,6 +640,12 @@ func (a AnswerOption) MarshalJSON() ([]byte, error) {
 	}
 	if a.OptionWeight != nil {
 		ext = upsertExtension(ext, Extension{URL: ItemWeightExtension, Value: *a.OptionWeight, valueType: "Decimal"})
+	}
+	if a.OptionalDisplay {
+		ext = upsertExtension(ext, Extension{URL: SDCItemOptionalDisplayExt, Value: true, valueType: "Boolean"})
+	}
+	for _, column := range a.ChoiceColumns {
+		ext = append(ext, choiceColumnExtension(column))
 	}
 	if len(ext) > 0 {
 		m["extension"] = ext

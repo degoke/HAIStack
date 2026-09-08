@@ -13,7 +13,10 @@ import (
 type QuestionnaireResolver interface {
 	Resolve(context.Context, string) (Questionnaire, error)
 }
-type Assembler struct{ Resolver QuestionnaireResolver }
+type Assembler struct {
+	Resolver QuestionnaireResolver
+	Context  map[string]any
+}
 
 // AssembleResource performs modular assembly for a canonical Questionnaire
 // envelope using this assembler's resolver.
@@ -23,29 +26,50 @@ func (a Assembler) AssembleResource(ctx context.Context, env *types.ResourceEnve
 
 func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire, Outcome) {
 	o := ValidateQuestionnaire(q, ValidationOptions{})
+	if strings.EqualFold(q.AssembleExpectation, "child-only") {
+		o.add("warning", "information", "questionnaire is marked child-only and may not be suitable as an assembly root", "Questionnaire.extension")
+	}
 	if len(o.Issue) > 0 {
-		return q, o
+		onlyWarnings := true
+		for _, issue := range o.Issue {
+			if issue.Severity != "warning" {
+				onlyWarnings = false
+				break
+			}
+		}
+		if !onlyWarnings {
+			return q, o
+		}
 	}
 	out := q
+	sourceCanonical := Canonical(q)
 	resolving := map[string]bool{}
 	var expand func([]Item) []Item
 	expand = func(items []Item) []Item {
 		var r []Item
 		for _, it := range items {
-			if strings.TrimSpace(it.Definition) != "" {
+			canonical := firstNonEmpty(it.SubQuestionnaire, it.Definition)
+			if it.SubQuestionnaire != "" && len(it.AssembleContexts) > 0 {
+				for _, name := range it.AssembleContexts {
+					if a.Context == nil || a.Context[name] == nil {
+						o.add("error", "required", "assemble context "+name+" is required for sub-questionnaire "+it.SubQuestionnaire, it.LinkID)
+					}
+				}
+			}
+			if strings.TrimSpace(canonical) != "" {
 				if a.Resolver == nil {
 					o.add("error", "exception", "questionnaire resolver is unavailable", it.LinkID)
 					r = append(r, it)
 					continue
 				}
-				if resolving[it.Definition] {
-					o.add("error", "invariant", "cyclic questionnaire definition: "+it.Definition, it.LinkID)
+				if resolving[canonical] {
+					o.add("error", "invariant", "cyclic questionnaire definition: "+canonical, it.LinkID)
 					r = append(r, it)
 					continue
 				}
-				resolving[it.Definition] = true
-				ref, e := a.Resolver.Resolve(ctx, it.Definition)
-				delete(resolving, it.Definition)
+				resolving[canonical] = true
+				ref, e := a.Resolver.Resolve(ctx, canonical)
+				delete(resolving, canonical)
 				if e != nil {
 					o.add("error", "not-found", e.Error(), it.LinkID)
 					r = append(r, it)
@@ -60,6 +84,17 @@ func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire
 		return r
 	}
 	out.Item = expand(out.Item)
+	if out.AssembleExpectation != "" {
+		out.AssembleExpectation = ""
+	}
+	if sourceCanonical != "" {
+		out.AssembledFrom = append(out.AssembledFrom, sourceCanonical)
+	}
+	if out.Version != "" && !strings.HasSuffix(out.Version, "-assembled") {
+		out.Version = out.Version + "-assembled"
+	} else if out.Version == "" {
+		out.Version = "assembled"
+	}
 	if _, e := Normalize(out); e != nil {
 		o.add("error", "duplicate", e.Error(), "Questionnaire.item")
 	}

@@ -447,3 +447,78 @@ func TestCandidateExpressionOnRender(t *testing.T) {
 		t.Fatalf("expected candidates: %#v", model.Fields[0])
 	}
 }
+
+func TestTemplateExtractUsesContainedResource(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		Contained: []map[string]any{{
+			"resourceType": "Patient",
+			"id":           "template",
+			"name":         []map[string]any{{"family": "Template"}},
+		}},
+		Item: []Item{{
+			LinkID: "patient",
+			Type:   "group",
+			TemplateExtract: &TemplateExtractContext{TemplateReference: "#template"},
+			Item: []Item{{
+				LinkID:     "family",
+				Type:       "string",
+				Definition: "http://hl7.org/fhir/StructureDefinition/Patient#Patient.name.family",
+			}},
+		}},
+	}
+	r := QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item: []ResponseItem{{LinkID: "patient", Item: []ResponseItem{{
+			LinkID: "family", Answer: []Answer{{Value: "Doe"}},
+		}}}},
+	}
+	result, err := QuestionnaireExtractor{}.Extract(context.Background(), q, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bundle == nil || !strings.Contains(string(result.Bundle.JSON), "Doe") {
+		t.Fatalf("expected template extraction bundle: %s", result.Bundle.JSON)
+	}
+}
+
+func TestWeightFunctionUsesAnswerOptionWeight(t *testing.T) {
+	item := Item{
+		LinkID: "score",
+		Type:   "choice",
+		AnswerOption: []AnswerOption{{
+			Value: Coding{Code: "yes"}, ValueType: "Coding", OptionWeight: ptrFloat(3),
+		}},
+	}
+	var result fhirpath.Collection
+	withSDCFHIRPathItem(&item, func() {
+		result, _ = sdcWeightFunction(nil, fhirpath.Collection{fhirpath.NewValue(Coding{Code: "yes"})})
+	})
+	if len(result) == 0 {
+		t.Fatal("expected weight result")
+	}
+	weight, err := result[0].Float64()
+	if err != nil || weight != 3 {
+		t.Fatalf("expected weight 3, got %v (%v)", weight, err)
+	}
+}
+
+func TestAssembleContextRequiredForSubQuestionnaire(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "module", Type: "group",
+		SubQuestionnaire: "http://example/module",
+		AssembleContexts: []string{"patient"},
+	}})
+	_, outcome := Assembler{Resolver: testQuestionnaireResolverFunc(func(_ context.Context, canonical string) (Questionnaire, error) {
+		return NewDraft(canonical, []Item{{LinkID: "leaf", Type: "string"}}), nil
+	})}.Assemble(context.Background(), q)
+	for _, issue := range outcome.Issue {
+		if issue.Code == "required" && strings.Contains(issue.Diagnostics, "assemble context patient") {
+			return
+		}
+	}
+	t.Fatalf("expected assemble context issue: %#v", outcome.Issue)
+}
+
+func ptrFloat(v float64) *float64 { return &v }

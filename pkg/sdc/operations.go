@@ -837,6 +837,10 @@ type FieldState struct {
 	ItemControl         string
 	EntryFormat         string
 	NavigationHint      string
+	ContextExpressions  []ContextExpression
+	ChoiceColumns       []ChoiceColumn
+	OptionalDisplay     bool
+	PerformerTypes      []string
 }
 type FormModel struct {
 	Questionnaire Questionnaire
@@ -958,6 +962,10 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 				ItemControl:        extensionString(it.Extension, QuestionnaireItemControlExtension),
 				EntryFormat:        extensionString(it.Extension, QuestionnaireEntryFormatExtension),
 				NavigationHint:     itemNavigationHint(it),
+				ContextExpressions: append([]ContextExpression(nil), it.ContextExpressions...),
+				ChoiceColumns:      append([]ChoiceColumn(nil), it.ChoiceColumns...),
+				OptionalDisplay:    it.OptionalDisplay,
+				PerformerTypes:     append([]string(nil), q.PerformerTypes...),
 			}
 			for _, x := range findResponsesDeep(r.Item, it.LinkID) {
 				f.Answers = append(f.Answers, x.Answer...)

@@ -201,6 +201,21 @@ func absorbQuestionnaireExtensions(q *Questionnaire) {
 				q.Endpoint = v
 			}
 			continue
+		case SDCAssembleExpectationExt:
+			if v := extensionCodeScalar(ext); v != "" {
+				q.AssembleExpectation = v
+			}
+			continue
+		case SDCPerformerTypeExt:
+			for _, code := range extensionCodeValues(ext) {
+				q.PerformerTypes = append(q.PerformerTypes, code)
+			}
+			continue
+		case SDCCQFLibraryExt:
+			if lib, ok := parseCQFLibrary(ext); ok {
+				q.CQFLibraries = append(q.CQFLibraries, lib)
+			}
+			continue
 		case TargetConstraintExtension:
 			if constraint, ok := parseItemConstraint(ext); ok {
 				q.TargetConstraints = append(q.TargetConstraints, constraint)
@@ -413,9 +428,45 @@ func absorbItemBehaviorExtensions(it *Item) {
 				it.DefinitionExtractValues = append(it.DefinitionExtractValues, value)
 			}
 			continue
+		case SDCExtractAllocateIDExt:
+			if v := extensionScalarString(ext); v != "" {
+				it.ExtractAllocateID = v
+			}
+			continue
+		case SDCTemplateExtractExt:
+			if extract, ok := parseTemplateExtract(ext); ok {
+				it.TemplateExtract = &extract
+			}
+			continue
+		case SDCTemplateExtractValueExt:
+			if value, ok := parseTemplateExtractValue(ext); ok {
+				it.TemplateExtractValues = append(it.TemplateExtractValues, value)
+			}
+			continue
+		case SDCAssembleContextExt:
+			if v := extensionScalarString(ext); v != "" {
+				it.AssembleContexts = append(it.AssembleContexts, v)
+			}
+			continue
+		case SDCContextExpressionExt:
+			if expr, ok := parseContextExpression(ext); ok {
+				it.ContextExpressions = append(it.ContextExpressions, expr)
+			}
+			continue
+		case SDCChoiceColumnExt:
+			if column, ok := parseChoiceColumn(ext); ok {
+				it.ChoiceColumns = append(it.ChoiceColumns, column)
+			}
+			continue
+		case SDCItemOptionalDisplayExt:
+			it.OptionalDisplay = extensionBoolValue(ext)
+			continue
 		case SDCSubQuestionnaireExtension:
-			if v := extensionScalarString(ext); v != "" && it.Definition == "" {
-				it.Definition = v
+			if v := extensionScalarString(ext); v != "" {
+				it.SubQuestionnaire = v
+				if it.Definition == "" {
+					it.Definition = v
+				}
 			}
 			continue
 		}
@@ -445,6 +496,16 @@ func absorbAnswerOptionExtensions(opt *AnswerOption) {
 		if ext.URL == SDCAnswerOptionToggleExprExt {
 			if expression, ok := extensionExpression(ext); ok {
 				opt.ToggleExpression = &expression
+			}
+			continue
+		}
+		if ext.URL == SDCItemOptionalDisplayExt {
+			opt.OptionalDisplay = extensionBoolValue(ext)
+			continue
+		}
+		if ext.URL == SDCChoiceColumnExt {
+			if column, ok := parseChoiceColumn(ext); ok {
+				opt.ChoiceColumns = append(opt.ChoiceColumns, column)
 			}
 			continue
 		}
@@ -559,6 +620,30 @@ func appendItemBehaviorExtensions(ext []Extension, it Item) []Extension {
 	for _, value := range it.DefinitionExtractValues {
 		ext = append(ext, definitionExtractValueExtension(value))
 	}
+	if it.ExtractAllocateID != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCExtractAllocateIDExt, Value: it.ExtractAllocateID, valueType: "String"})
+	}
+	if it.TemplateExtract != nil {
+		ext = upsertExtension(ext, templateExtractExtension(*it.TemplateExtract))
+	}
+	for _, value := range it.TemplateExtractValues {
+		ext = append(ext, templateExtractValueExtension(value))
+	}
+	for _, name := range it.AssembleContexts {
+		ext = append(ext, Extension{URL: SDCAssembleContextExt, Value: name, valueType: "String"})
+	}
+	for _, expr := range it.ContextExpressions {
+		ext = append(ext, contextExpressionExtension(expr))
+	}
+	for _, column := range it.ChoiceColumns {
+		ext = append(ext, choiceColumnExtension(column))
+	}
+	if it.OptionalDisplay {
+		ext = upsertExtension(ext, Extension{URL: SDCItemOptionalDisplayExt, Value: true, valueType: "Boolean"})
+	}
+	if it.SubQuestionnaire != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCSubQuestionnaireExtension, Value: it.SubQuestionnaire, valueType: "Canonical"})
+	}
 	for _, constraint := range it.TargetConstraints {
 		ext = append(ext, targetConstraintExtension(constraint))
 	}
@@ -604,6 +689,15 @@ func appendQuestionnaireBehaviorExtensions(ext []Extension, q Questionnaire) []E
 	}
 	if q.Endpoint != "" {
 		ext = upsertExtension(ext, Extension{URL: SDCEndpointExtension, Value: q.Endpoint, valueType: "Uri"})
+	}
+	if q.AssembleExpectation != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCAssembleExpectationExt, Value: q.AssembleExpectation, valueType: "Code"})
+	}
+	for _, performer := range q.PerformerTypes {
+		ext = append(ext, Extension{URL: SDCPerformerTypeExt, Value: performer, valueType: "Code"})
+	}
+	for _, library := range q.CQFLibraries {
+		ext = append(ext, cqfLibraryExtension(library))
 	}
 	for _, constraint := range q.TargetConstraints {
 		ext = append(ext, targetConstraintExtension(constraint))

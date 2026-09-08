@@ -197,7 +197,15 @@ func (p contextualExpressionProvider) Evaluate(ctx context.Context, e Expression
 			env["questionnaire"] = envQR
 		}
 	}
-	vs, err := p.inner.EvalWithEnv(ctx, e.Expression, root, env)
+	var vs []fhirpath.Value
+	eval := func() {
+		vs, err = p.inner.EvalWithEnv(ctx, e.Expression, root, env)
+	}
+	if item, ok := p.env.QItem.(Item); ok {
+		withSDCFHIRPathItem(&item, eval)
+	} else {
+		eval()
+	}
 	if err != nil {
 		return nil, err
 	}

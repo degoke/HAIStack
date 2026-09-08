@@ -36,6 +36,11 @@ func (e QuestionnaireExtractor) Extract(ctx context.Context, q Questionnaire, r 
 	if err != nil {
 		return ExtractionResult{}, err
 	}
+	templateEntries, err := templateExtractBundleEntries(ctx, q, r, provider)
+	if err != nil {
+		return ExtractionResult{}, err
+	}
+	extractEntries = append(extractEntries, templateEntries...)
 	def := e.Definition
 	mappings := append([]DefinitionMap(nil), def.Mappings...)
 	mappings = append(mappings, definitionMapsFromQuestionnaire(q)...)
@@ -70,7 +75,7 @@ func (e QuestionnaireExtractor) Extract(ctx context.Context, q Questionnaire, r 
 	result := ExtractionResult{Bundle: env}
 	result.Diagnostics = append(result.Diagnostics, extractionDiagnostics(q)...)
 	if len(extractEntries) > 0 {
-		result.Diagnostics = append(result.Diagnostics, ExtractionDiagnostic{Severity: "information", Message: "extracted using definitionExtract"})
+		result.Diagnostics = append(result.Diagnostics, ExtractionDiagnostic{Severity: "information", Message: "extracted using definitionExtract and/or templateExtract"})
 	}
 	return result, nil
 }
