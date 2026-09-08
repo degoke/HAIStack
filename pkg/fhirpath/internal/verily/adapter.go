@@ -20,8 +20,8 @@ func (c *CompiledExpression) Expr() string {
 }
 
 // Evaluate runs the expression against a single FHIR resource root.
-func (c *CompiledExpression) Evaluate(resource verilyfhirpath.Resource) (system.Collection, error) {
-	return c.expr.Evaluate([]verilyfhirpath.Resource{resource})
+func (c *CompiledExpression) Evaluate(resource verilyfhirpath.Resource, options ...verilyfhirpath.EvaluateOption) (system.Collection, error) {
+	return c.expr.Evaluate([]verilyfhirpath.Resource{resource}, options...)
 }
 
 // Compile parses and compiles a FHIRPath expression with optional custom functions.

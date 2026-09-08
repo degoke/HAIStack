@@ -16,8 +16,10 @@ type CoreSDCService struct {
 	Resources      *core.ResourceService
 	Resolver       sdc.QuestionnaireResolver
 	Provider       sdc.ExpressionProvider
+	Terminology    sdc.TerminologyResolver
 	Extractor      sdc.Extractor
 	AdaptiveEngine sdc.AdaptiveEngine
+	Elements       sdc.DefinitionElementResolver
 }
 
 func (a CoreSDCService) questionnaire(ctx context.Context, req SDCRequest) (sdc.Questionnaire, error) {
@@ -85,7 +87,7 @@ func (a CoreSDCService) Populate(ctx context.Context, req SDCRequest) (*types.Re
 		}
 		initial = &r
 	}
-	r, o := sdc.Populate(ctx, q, sdc.PopulationContext{InitialResponse: initial, Provider: a.Provider})
+	r, o := sdc.Populate(ctx, q, populationContext(a, req, initial))
 	if err := sdc.ErrFromOutcome(o); err != nil {
 		return nil, err
 	}
@@ -103,7 +105,7 @@ func (a CoreSDCService) Validate(ctx context.Context, req SDCRequest) (*types.Op
 	if e != nil {
 		return nil, e
 	}
-	o := sdc.ValidateResponse(q, r, sdc.ValidationOptions{Expressions: a.Provider})
+	o := sdc.ValidateResponse(q, r, validationOptions(a, req))
 	outcome := sdc.ToOperationOutcome(o)
 	return &outcome, nil
 }
@@ -134,7 +136,7 @@ func (a CoreSDCService) Assemble(ctx context.Context, req SDCRequest) (*types.Re
 	if e != nil {
 		return nil, e
 	}
-	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, a.Resolver)
+	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, sdc.AssemblerFromParameters(operationParameters(req), a.Resolver, a.Elements))
 	if err := sdc.ErrFromOutcome(o); err != nil {
 		return nil, err
 	}

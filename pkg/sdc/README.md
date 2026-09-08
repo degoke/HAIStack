@@ -43,12 +43,40 @@ compatibility views for behavior evaluation. They are not replacements for
 ### Validation
 
 `ValidateQuestionnaireResource` checks questionnaire structure, duplicate
-linkIds, item types, enablement declarations, and required SDC fields.
+linkIds, item types, enablement declarations, generic item constraints
+(`maxLength`, `regex`, `questionnaire-constraint`), and required SDC fields.
 `ValidateQuestionnaireResponseResource` checks response identity, required and
 disabled items, repeats/cardinality, answer types, answer options, terminology,
+value constraints (`maxLength`, `regex`), questionnaire-constraint invariants,
 and calculated/enablement constraints.
 
 Diagnostics are OperationOutcome-compatible and retain renderer field paths.
+
+Generic FHIR item constraints (`maxLength`, `minLength`, `regex`,
+`questionnaire-constraint`, `questionnaire-minValue`, `questionnaire-maxValue`,
+`questionnaire-minOccurs`, `questionnaire-maxOccurs`) are preserved on the
+questionnaire model and enforced during response validation.
+
+SDC and FHIR presentation extensions (`questionnaire-itemControl`,
+`questionnaire-entryFormat`, `questionnaire-choiceOrientation`,
+`questionnaire-optionExclusive`, `questionnaire-usageMode`,
+`questionnaire-displayCategory`, `questionnaire-supportLink`, reference and
+unit extensions, questionnaire-level launch context/variables, and
+QuestionnaireResponse workflow extensions) are modeled on the projection and
+exposed on `FieldState` for renderers.
+
+`answerValueSet` validation uses the configured terminology service (including
+expansion for `open-choice` string answers). Reference answers honor
+`referenceProfile` and `referenceFilter` when a `ReferenceResolver` is supplied.
+Validation accepts launch context, subject, and evaluates questionnaire
+variables in FHIRPath expressions. `usageMode` is tied to response status (capture
+for in-progress, display for completed/amended) in validation and `Render`.
+Tier-5 extraction metadata drives `QuestionnaireExtractor` (`sourceStructureMap`,
+item definitions, `observationExtract`). HTTP `$populate` and `$validate` parse
+Parameters for `subject` and launch context; the default runtime wires
+`ReferenceResolver` and `QuestionnaireExtractor`.
+phone-number standards, email rules, or country-specific postal-code formats
+remain application-owned.
 
 ### Response builder
 

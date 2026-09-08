@@ -101,6 +101,10 @@ func (errorFHIRPathEngine) Eval(ctx context.Context, expr string, resource any) 
 	return nil, errors.New("eval failed")
 }
 
+func (errorFHIRPathEngine) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]fhirpath.Value, error) {
+	return nil, errors.New("eval failed")
+}
+
 func (errorFHIRPathEngine) EvalBool(ctx context.Context, expr string, resource any) (bool, error) {
 	return false, errors.New("eval failed")
 }

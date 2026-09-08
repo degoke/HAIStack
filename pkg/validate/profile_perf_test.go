@@ -318,6 +318,10 @@ func (c countingFHIRPath) Eval(ctx context.Context, expr string, resource any) (
 	return nil, nil
 }
 
+func (c countingFHIRPath) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]fhirpath.Value, error) {
+	return nil, nil
+}
+
 func (c countingFHIRPath) EvalBool(ctx context.Context, expr string, resource any) (bool, error) {
 	if c.evals != nil {
 		*c.evals++
@@ -340,6 +344,10 @@ func (c countingCompiled) Eval(ctx context.Context, resource any) ([]fhirpath.Va
 	return nil, nil
 }
 
+func (c countingCompiled) EvalWithEnv(ctx context.Context, resource any, env map[string]any) ([]fhirpath.Value, error) {
+	return nil, nil
+}
+
 func (c countingCompiled) EvalBool(ctx context.Context, resource any) (bool, error) {
 	if c.evals != nil {
 		*c.evals++
@@ -358,6 +366,10 @@ func (compileErrorFHIRPath) Compile(expr string) (fhirpath.CompiledExpression, e
 }
 
 func (compileErrorFHIRPath) Eval(ctx context.Context, expr string, resource any) ([]fhirpath.Value, error) {
+	return nil, nil
+}
+
+func (compileErrorFHIRPath) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]fhirpath.Value, error) {
 	return nil, nil
 }
 

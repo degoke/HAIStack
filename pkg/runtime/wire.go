@@ -264,7 +264,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	engine := b.fhirPathEngine
 	if engine == nil {
-		engine, err = fhirpath.NewEngine(fhirpath.Config{})
+		engine, err = sdc.NewSDCFHIRPathEngine(fhirpath.Config{})
 		if err != nil {
 			return fmt.Errorf("runtime: fhirpath engine: %w", err)
 		}
@@ -334,6 +334,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		Resolver: questionnaireResolver,
 		Options: sdc.ValidationOptions{
 			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 		},
 	}
 
@@ -458,7 +459,14 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
-		sdcService = hahttp.CoreSDCService{Resources: state.services.ResourceService, Resolver: sdc.StoreQuestionnaireResolver{Resources: pc.resources}, Provider: sdc.FHIRPathExpressions{Engine: engine}}
+		sdcService = hahttp.CoreSDCService{
+			Resources:   state.services.ResourceService,
+			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
+			Provider:    sdc.FHIRPathExpressions{Engine: engine},
+			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
+			Extractor:   sdc.QuestionnaireExtractor{Expressions: sdc.FHIRPathExpressions{Engine: engine}},
+			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
+		}
 	}
 	packageService := hahttp.CorePackageInstallService{
 		JobStore: pc.jobStore,

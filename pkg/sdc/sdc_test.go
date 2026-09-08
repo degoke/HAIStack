@@ -275,7 +275,7 @@ func TestAssembleQuestionnaireResourceIsEnvelopeFirstAndRecursive(t *testing.T) 
 		}
 		return NewDraft(canonical, []Item{{LinkID: "leaf", Type: "string"}}), nil
 	})
-	assembled, outcome := AssembleQuestionnaireResource(context.Background(), env, resolver)
+	assembled, outcome := AssembleQuestionnaireResource(context.Background(), env, Assembler{Resolver: resolver})
 	if len(outcome.Issue) != 0 || assembled == nil {
 		t.Fatalf("assembly: env=%#v outcome=%#v", assembled, outcome)
 	}
