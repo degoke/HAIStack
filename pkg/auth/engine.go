@@ -106,7 +106,7 @@ func (e *Engine) CanReadResource(ctx context.Context, req ReadRequest) (Decision
 	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
 		return d, nil
 	}
-	if d := e.checkPatientStub(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
+	if d := e.checkPatientScopeConstraint(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
 		return d, nil
 	}
 	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
@@ -136,7 +136,7 @@ func (e *Engine) CanWriteResource(ctx context.Context, req WriteRequest) (Decisi
 	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
 		return d, nil
 	}
-	if d := e.checkPatientStub(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
+	if d := e.checkPatientScopeConstraint(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
 		return d, nil
 	}
 	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
@@ -302,9 +302,11 @@ func (e *Engine) CanInstallModule(ctx context.Context, req ModuleInstallRequest)
 	}), nil
 }
 
-// CheckPatientScope implements the patient-level access stub. A principal with
-// an empty PatientScope is unrestricted. A scoped principal may only access the
-// listed patient id.
+// CheckPatientScope enforces patient-level access for SMART launch and
+// patient-scoped principals. An empty TenantContext.PatientScope is unrestricted.
+// A scoped principal may only access the listed patient id and resources in that
+// compartment (enforced on Patient reads/writes in Engine and on loaded resources
+// via CheckEnvelopePatientScope in HTTP/search paths).
 func (e *Engine) CheckPatientScope(ctx context.Context, req PatientScopeRequest) (Decision, error) {
 	if err := requirePrincipalTenant(req.Principal, req.Tenant); err != nil {
 		return Decision{}, err
@@ -315,7 +317,7 @@ func (e *Engine) CheckPatientScope(ctx context.Context, req PatientScopeRequest)
 	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
 		return d, nil
 	}
-	if d := e.checkPatientStub(req.Tenant, req.PatientID); !d.Allowed {
+	if d := e.checkPatientScopeConstraint(req.Tenant, req.PatientID); !d.Allowed {
 		return d, nil
 	}
 	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
@@ -354,7 +356,7 @@ func (e *Engine) checkTenantBinding(p Principal, tenant TenantContext) Decision 
 	return Deny(fmt.Sprintf("principal %q is not bound to tenant %q", p.ID, tenant.TenantID))
 }
 
-func (e *Engine) checkPatientStub(tenant TenantContext, patientID string) Decision {
+func (e *Engine) checkPatientScopeConstraint(tenant TenantContext, patientID string) Decision {
 	if patientID == "" || tenant.PatientScope == "" {
 		return Allow("patient scope not constrained")
 	}
