@@ -2,8 +2,6 @@ package sdc
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 )
 
@@ -12,66 +10,10 @@ type ReferenceResolver interface {
 	ResolveReference(context.Context, Reference) (map[string]any, error)
 }
 
-// validationExpressionProvider wraps an expression provider with questionnaire
-// variables substituted into FHIRPath text (%name tokens).
-type validationExpressionProvider struct {
-	inner     ExpressionProvider
-	variables map[string]any
-}
-
-func (p validationExpressionProvider) Evaluate(ctx context.Context, e Expression, input any) ([]any, error) {
-	if p.inner == nil {
-		return nil, fmt.Errorf("expression provider is unavailable")
-	}
-	if len(p.variables) > 0 && strings.EqualFold(e.Language, "text/fhirpath") {
-		e.Expression = substituteFHIRPathVariables(e.Expression, p.variables)
-	}
-	return p.inner.Evaluate(ctx, e, input)
-}
-
-func substituteFHIRPathVariables(expression string, variables map[string]any) string {
-	out := expression
-	for name, value := range variables {
-		out = strings.ReplaceAll(out, "%"+name, fhirPathLiteral(value))
-	}
-	return out
-}
-
-func fhirPathLiteral(value any) string {
-	switch x := value.(type) {
-	case string:
-		return "'" + strings.ReplaceAll(x, "'", "''") + "'"
-	case bool:
-		if x {
-			return "true"
-		}
-		return "false"
-	case int, int32, int64, float32, float64:
-		return fmt.Sprint(x)
-	default:
-		b, err := json.Marshal(x)
-		if err != nil {
-			return "''"
-		}
-		return string(b)
-	}
-}
-
 func validationOptionsWithContext(ctx context.Context, q Questionnaire, r QuestionnaireResponse, opts ValidationOptions) ValidationOptions {
-	if opts.Expressions == nil {
-		return opts
+	if opts.Expressions != nil {
+		opts.Expressions = wrapExpressionProvider(ctx, q, r, opts, opts.Expressions)
 	}
-	launch := mergeLaunchContext(q.LaunchContexts, opts.LaunchContext)
-	pc := PopulationContext{
-		Subject:       opts.Subject,
-		LaunchContext: launch,
-		Provider:      opts.Expressions,
-	}
-	vars := evaluateQuestionnaireVariables(ctx, q, pc, opts.Expressions)
-	if len(vars) == 0 {
-		return opts
-	}
-	opts.Expressions = validationExpressionProvider{inner: opts.Expressions, variables: vars}
 	return opts
 }
 

@@ -86,11 +86,15 @@ func (e *engine) Compile(expr string) (CompiledExpression, error) {
 }
 
 func (e *engine) Eval(ctx context.Context, expr string, resource any) ([]Value, error) {
+	return e.EvalWithEnv(ctx, expr, resource, nil)
+}
+
+func (e *engine) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]Value, error) {
 	compiled, err := e.Compile(expr)
 	if err != nil {
 		return nil, err
 	}
-	return compiled.Eval(ctx, resource)
+	return compiled.EvalWithEnv(ctx, resource, env)
 }
 
 func (e *engine) EvalBool(ctx context.Context, expr string, resource any) (bool, error) {
@@ -114,7 +118,11 @@ func (c *compiledExpression) Expr() string {
 }
 
 func (c *compiledExpression) Eval(ctx context.Context, resource any) ([]Value, error) {
-	items, err := c.engine.evalWithContext(ctx, c.inner, resource)
+	return c.EvalWithEnv(ctx, resource, nil)
+}
+
+func (c *compiledExpression) EvalWithEnv(ctx context.Context, resource any, env map[string]any) ([]Value, error) {
+	items, err := c.engine.evalWithContext(ctx, c.inner, resource, env)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +130,7 @@ func (c *compiledExpression) Eval(ctx context.Context, resource any) ([]Value, e
 }
 
 func (c *compiledExpression) EvalBool(ctx context.Context, resource any) (bool, error) {
-	items, err := c.engine.evalWithContext(ctx, c.inner, resource)
+	items, err := c.engine.evalWithContext(ctx, c.inner, resource, nil)
 	if err != nil {
 		return false, err
 	}
@@ -142,7 +150,7 @@ func (c *compiledExpression) EvalBool(ctx context.Context, resource any) (bool, 
 }
 
 func (c *compiledExpression) EvalString(ctx context.Context, resource any) (string, error) {
-	items, err := c.engine.evalWithContext(ctx, c.inner, resource)
+	items, err := c.engine.evalWithContext(ctx, c.inner, resource, nil)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +176,7 @@ func (e *engine) validateExprLen(expr string) error {
 	return nil
 }
 
-func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledExpression, resource any) ([]any, error) {
+func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledExpression, resource any, env map[string]any) ([]any, error) {
 	if err := e.validateExprLen(compiled.Expr()); err != nil {
 		return nil, err
 	}
@@ -186,7 +194,12 @@ func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledE
 			done <- evalResult{err: mapVerilyError(err)}
 			return
 		}
-		collection, err := compiled.Evaluate(fhirResource)
+		evalOpts, err := verily.EvalOptionsFromEnv(env, e.codec)
+		if err != nil {
+			done <- evalResult{err: err}
+			return
+		}
+		collection, err := compiled.Evaluate(fhirResource, evalOpts...)
 		if err != nil {
 			done <- evalResult{err: mapVerilyError(err)}
 			return

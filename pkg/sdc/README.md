@@ -69,10 +69,12 @@ exposed on `FieldState` for renderers.
 expansion for `open-choice` string answers). Reference answers honor
 `referenceProfile` and `referenceFilter` when a `ReferenceResolver` is supplied.
 Validation accepts launch context, subject, and evaluates questionnaire
-variables in FHIRPath expressions. `usageMode` affects capture vs display
-semantics in validation and `Render`. Tier-5 extraction metadata drives
-`QuestionnaireExtractor` (`sourceStructureMap`, item definitions,
-`observationExtract`). Product-specific policies such as
+variables in FHIRPath expressions. `usageMode` is tied to response status (capture
+for in-progress, display for completed/amended) in validation and `Render`.
+Tier-5 extraction metadata drives `QuestionnaireExtractor` (`sourceStructureMap`,
+item definitions, `observationExtract`). HTTP `$populate` and `$validate` parse
+Parameters for `subject` and launch context; the default runtime wires
+`ReferenceResolver` and `QuestionnaireExtractor`.
 phone-number standards, email rules, or country-specific postal-code formats
 remain application-owned.
 

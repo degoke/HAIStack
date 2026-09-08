@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 type stubReferenceResolver struct {
@@ -158,7 +159,7 @@ func TestUsageModeSemantics(t *testing.T) {
 	if !hasForbidden {
 		t.Fatalf("expected forbidden issue for display item answer: %#v", o.Issue)
 	}
-	model := Render(q, r)
+	model := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "completed", Item: r.Item})
 	byID := map[string]FieldState{}
 	for _, f := range model.Fields {
 		byID[f.LinkID] = f
@@ -235,6 +236,33 @@ func TestQuestionnaireExtractorUsesMetadata(t *testing.T) {
 	}
 	if result.Bundle == nil || len(result.Diagnostics) == 0 {
 		t.Fatalf("expected bundle and diagnostics: %#v", result)
+	}
+}
+
+func TestParametersParsing(t *testing.T) {
+	raw := []byte(`{"resourceType":"Parameters","parameter":[{"name":"subject","valueReference":{"reference":"Patient/1"}},{"name":"patient","resource":{"resourceType":"Patient","id":"1"}}]}`)
+	env, err := types.NewJSONCodec().ParseJSON("Parameters", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := ParseOperationParameters(env)
+	if params.Subject == nil {
+		t.Fatal("expected subject")
+	}
+	if params.LaunchContext["patient"] == nil {
+		t.Fatalf("expected patient launch context: %#v", params.LaunchContext)
+	}
+}
+
+func TestUsageModeRespectsResponseStatus(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{LinkID: "score", Type: "string", UsageMode: "display"}})
+	capture := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"})
+	if capture.Fields[0].Visible {
+		t.Fatal("display item should be hidden during capture")
+	}
+	display := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "completed"})
+	if !display.Fields[0].Visible {
+		t.Fatal("display item should be visible when completed")
 	}
 }
 

@@ -53,6 +53,18 @@ const (
 	SDCIsSubjectExtension          = SDCBaseURL + "sdc-questionnaire-isSubject"
 	SDCResponseIsSubjectExtension = SDCBaseURL + "sdc-questionnaireresponse-isSubject"
 	SDCKeyboardExtension           = SDCBaseURL + "sdc-questionnaire-keyboard"
+	SDCCandidateExpressionExt    = SDCBaseURL + "sdc-questionnaire-candidateExpression"
+	SDCEntryModeExtension          = SDCBaseURL + "sdc-questionnaire-entryMode"
+	SDCEndpointExtension           = SDCBaseURL + "sdc-questionnaire-endpoint"
+	SDCMinQuantityExtension        = SDCBaseURL + "sdc-questionnaire-minQuantity"
+	SDCMaxQuantityExtension        = SDCBaseURL + "sdc-questionnaire-maxQuantity"
+	SDCUnitOpenExtension           = SDCBaseURL + "sdc-questionnaire-unitOpen"
+	SDCSubQuestionnaireExtension   = SDCBaseURL + "sdc-questionnaire-subQuestionnaire"
+	SDCAnswerOptionToggleExprExt   = SDCBaseURL + "sdc-questionnaire-answerOptionToggleExpression"
+
+	TargetConstraintExtension      = FHIRBaseURL + "targetConstraint"
+	QuestionnaireLookupQuestionnaireExt = FHIRBaseURL + "questionnaire-lookupQuestionnaire"
+	ItemWeightExtension            = FHIRBaseURL + "itemWeight"
 )
 
 // CodeableConcept is a lightweight FHIR CodeableConcept projection.
@@ -176,6 +188,21 @@ func absorbQuestionnaireExtensions(q *Questionnaire) {
 			continue
 		case SDCSignatureRequiredExtension:
 			q.SignatureRequired = extensionBoolValue(ext)
+			continue
+		case SDCEntryModeExtension:
+			if v := extensionCodeScalar(ext); v != "" {
+				q.EntryMode = v
+			}
+			continue
+		case SDCEndpointExtension:
+			if v := extensionScalarString(ext); v != "" {
+				q.Endpoint = v
+			}
+			continue
+		case TargetConstraintExtension:
+			if constraint, ok := parseItemConstraint(ext); ok {
+				q.TargetConstraints = append(q.TargetConstraints, constraint)
+			}
 			continue
 		}
 		filtered = append(filtered, ext)
@@ -339,6 +366,41 @@ func absorbItemBehaviorExtensions(it *Item) {
 				it.InputKeyboard = v
 			}
 			continue
+		case SDCCandidateExpressionExt:
+			if expression, ok := extensionExpression(ext); ok {
+				it.CandidateExpression = &expression
+			}
+			continue
+		case QuestionnaireLookupQuestionnaireExt:
+			if v := extensionScalarString(ext); v != "" {
+				it.LookupQuestionnaire = v
+			}
+			continue
+		case SDCMinQuantityExtension:
+			if bv, ok := extensionQuantityBound(ext); ok {
+				it.MinQuantity = &bv
+			}
+			continue
+		case SDCMaxQuantityExtension:
+			if bv, ok := extensionQuantityBound(ext); ok {
+				it.MaxQuantity = &bv
+			}
+			continue
+		case SDCUnitOpenExtension:
+			if v := extensionCodeScalar(ext); v != "" {
+				it.UnitOpen = v
+			}
+			continue
+		case TargetConstraintExtension:
+			if constraint, ok := parseItemConstraint(ext); ok {
+				it.TargetConstraints = append(it.TargetConstraints, constraint)
+			}
+			continue
+		case SDCSubQuestionnaireExtension:
+			if v := extensionScalarString(ext); v != "" && it.Definition == "" {
+				it.Definition = v
+			}
+			continue
 		}
 		filtered = append(filtered, ext)
 	}
@@ -354,6 +416,12 @@ func absorbAnswerOptionExtensions(opt *AnswerOption) {
 		if ext.URL == QuestionnaireOptionPrefixExtension {
 			if v := extensionScalarString(ext); v != "" {
 				opt.OptionPrefix = v
+			}
+			continue
+		}
+		if ext.URL == ItemWeightExtension {
+			if v, ok := extensionDecimal(ext); ok {
+				opt.OptionWeight = &v
 			}
 			continue
 		}
@@ -444,6 +512,24 @@ func appendItemBehaviorExtensions(ext []Extension, it Item) []Extension {
 	if it.InputKeyboard != "" {
 		ext = upsertExtension(ext, Extension{URL: SDCKeyboardExtension, Value: Coding{Code: it.InputKeyboard}, valueType: "Coding"})
 	}
+	if it.CandidateExpression != nil {
+		ext = upsertExtension(ext, Extension{URL: SDCCandidateExpressionExt, Value: *it.CandidateExpression, valueType: "Expression"})
+	}
+	if it.LookupQuestionnaire != "" {
+		ext = upsertExtension(ext, Extension{URL: QuestionnaireLookupQuestionnaireExt, Value: it.LookupQuestionnaire, valueType: "Canonical"})
+	}
+	if it.MinQuantity != nil {
+		ext = upsertExtension(ext, quantityBoundExtension(SDCMinQuantityExtension, *it.MinQuantity))
+	}
+	if it.MaxQuantity != nil {
+		ext = upsertExtension(ext, quantityBoundExtension(SDCMaxQuantityExtension, *it.MaxQuantity))
+	}
+	if it.UnitOpen != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCUnitOpenExtension, Value: it.UnitOpen, valueType: "Code"})
+	}
+	for _, constraint := range it.TargetConstraints {
+		ext = append(ext, targetConstraintExtension(constraint))
+	}
 	if it.Regex != "" {
 		ext = upsertExtension(ext, Extension{URL: QuestionnaireRegexExtension, Value: it.Regex, valueType: "String"})
 	}
@@ -480,6 +566,15 @@ func appendQuestionnaireBehaviorExtensions(ext []Extension, q Questionnaire) []E
 	}
 	if q.SignatureRequired {
 		ext = upsertExtension(ext, Extension{URL: SDCSignatureRequiredExtension, Value: true, valueType: "Boolean"})
+	}
+	if q.EntryMode != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCEntryModeExtension, Value: q.EntryMode, valueType: "Code"})
+	}
+	if q.Endpoint != "" {
+		ext = upsertExtension(ext, Extension{URL: SDCEndpointExtension, Value: q.Endpoint, valueType: "Uri"})
+	}
+	for _, constraint := range q.TargetConstraints {
+		ext = append(ext, targetConstraintExtension(constraint))
 	}
 	return ext
 }
@@ -555,6 +650,23 @@ func parseQuestionnaireVariable(ext Extension) (QuestionnaireVariable, bool) {
 		}
 	}
 	return v, v.Name != "" && v.Expression.Expression != ""
+}
+
+func targetConstraintExtension(c ItemConstraint) Extension {
+	ext := itemConstraintExtension(c)
+	ext.URL = TargetConstraintExtension
+	return ext
+}
+
+func quantityBoundExtension(url string, bv BoundValue) Extension {
+	return Extension{URL: url, Value: bv.Value, valueType: "Quantity"}
+}
+
+func extensionQuantityBound(ext Extension) (BoundValue, bool) {
+	if q, ok := quantityFrom(ext.Value); ok {
+		return BoundValue{Value: map[string]any{"value": q.Value, "code": q.Code, "system": q.System}, ValueType: "Quantity"}, true
+	}
+	return BoundValue{}, false
 }
 
 func boundValueExtension(url string, bv BoundValue) Extension {

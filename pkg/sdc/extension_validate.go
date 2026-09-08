@@ -209,6 +209,40 @@ func validateRequiredExpression(o *Outcome, item *Item, response QuestionnaireRe
 	}
 }
 
+func validateQuantityBounds(o *Outcome, item *Item, answer Answer, path string) {
+	if item.Type != "quantity" || answerValueAbsent(answer.Value) {
+		return
+	}
+	qty, ok := quantityFrom(answer.Value)
+	if !ok {
+		return
+	}
+	if item.MinQuantity != nil {
+		if less, ok := compareQuantityToBound(qty, *item.MinQuantity, true); ok && less {
+			o.add("error", "min", "quantity is less than minQuantity", path)
+		}
+	}
+	if item.MaxQuantity != nil {
+		if exceeds, ok := compareQuantityToBound(qty, *item.MaxQuantity, false); ok && exceeds {
+			o.add("error", "max", "quantity is greater than maxQuantity", path)
+		}
+	}
+}
+
+func compareQuantityToBound(qty simpleQuantity, bound BoundValue, isMin bool) (bool, bool) {
+	bq, ok := quantityFrom(bound.Value)
+	if !ok {
+		return false, false
+	}
+	if qty.Code != "" && bq.Code != "" && qty.Code != bq.Code {
+		return false, false
+	}
+	if isMin {
+		return qty.Value < bq.Value, true
+	}
+	return qty.Value > bq.Value, true
+}
+
 func validateAnswerValueSet(o *Outcome, item *Item, answer Answer, opts ValidationOptions, path string) {
 	if item.AnswerValueSet == "" || opts.Terminology == nil {
 		return

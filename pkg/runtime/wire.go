@@ -461,9 +461,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if sdcService == nil {
 		sdcService = hahttp.CoreSDCService{
 			Resources:   state.services.ResourceService,
-			Resolver:      sdc.StoreQuestionnaireResolver{Resources: pc.resources},
-			Provider:      sdc.FHIRPathExpressions{Engine: engine},
-			Terminology:   sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
+			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
+			Provider:    sdc.FHIRPathExpressions{Engine: engine},
+			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
+			Extractor:   sdc.QuestionnaireExtractor{},
 		}
 	}
 	packageService := hahttp.CorePackageInstallService{

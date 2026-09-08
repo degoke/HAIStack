@@ -174,6 +174,8 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 	o := Outcome{ResourceType: "OperationOutcome"}
 	opts = validationOptionsWithContext(context.Background(), q, r, opts)
 	validateLaunchContexts(q, opts, &o)
+	validateIsSubjectItems(&o, q.Item, r.Item, "")
+	validateQuestionnaireTargetConstraints(&o, q, r, opts)
 	t, err := Normalize(q)
 	if err != nil {
 		return Outcome{ResourceType: "OperationOutcome", Issue: []Issue{{Severity: "error", Code: "structure", Diagnostics: err.Error()}}}
@@ -231,7 +233,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 				if expressionErr != nil {
 					o.add("error", "exception", expressionErr.Error(), path+"item["+item.LinkID+"]")
 				}
-				if item.Required && enabled && !opts.AllowIncomplete && capturesAnswers(item) {
+				if item.Required && enabled && !opts.AllowIncomplete && capturesAnswers(item, formModeFromResponse(r), r) {
 					o.add("error", "required", "required answer is missing", path+"item["+item.LinkID+"]")
 				}
 				if enabled {
@@ -259,7 +261,7 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 	if !enabled && (hasPresentAnswers(responseItem.Answer) || len(responseItem.Item) > 0) {
 		o.add("error", "invariant", fmt.Sprintf("disabled item %q must not contain answers or child items (enableWhen: %s)", d.LinkID, enableWhenSummary(*d)), path)
 	}
-	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && capturesAnswers(*d) {
+	if d.Required && enabled && !hasPresentAnswers(responseItem.Answer) && !opts.AllowIncomplete && capturesAnswers(*d, formModeFromResponse(r), r) {
 		o.add("error", "required", "required answer is missing", path)
 	}
 	validateRequiredExpression(o, d, r, opts, path, hasPresentAnswers(responseItem.Answer))
@@ -296,6 +298,7 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 			validateAnswerBounds(o, d, answer, path)
 			validateReferenceAnswer(o, d, answer, opts, path)
 			validateQuantityAnswer(o, d, answer, opts, path)
+			validateQuantityBounds(o, d, answer, path)
 		}
 	}
 	if enabled {
@@ -339,7 +342,7 @@ func enabledForValidationOutcome(item Item, r QuestionnaireResponse, opts Valida
 	if item.Type == "group" || item.Type == "question" {
 		return enabled, nil
 	}
-	if !capturesAnswers(item) {
+	if !capturesAnswers(item, formModeFromResponse(r), r) {
 		return false, nil
 	}
 	return enabled, nil
@@ -502,6 +505,9 @@ type PopulationProvider interface {
 func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*QuestionnaireResponse, Outcome) {
 	o := Outcome{ResourceType: "OperationOutcome"}
 	pc.LaunchContext = mergeLaunchContext(q.LaunchContexts, pc.LaunchContext)
+	if pc.Provider != nil {
+		pc.Provider = wrapPopulationExpressionProvider(ctx, q, pc, pc.Provider)
+	}
 	if pc.Provider != nil {
 		vars := evaluateQuestionnaireVariables(ctx, q, pc, pc.Provider)
 		if len(vars) > 0 {
@@ -804,6 +810,7 @@ type FieldState struct {
 	UsageMode           string
 	IsSubject           bool
 	InputKeyboard       string
+	LookupQuestionnaire string
 	DisplayCategory     string
 	SupportLinks        []SupportLink
 	FHIRType            string
@@ -820,6 +827,7 @@ type FieldState struct {
 type FormModel struct {
 	Questionnaire Questionnaire
 	Response      QuestionnaireResponse
+	EntryMode     string
 	Fields        []FieldState
 	Issues        []Issue
 }
@@ -881,6 +889,9 @@ func Render(q Questionnaire, r QuestionnaireResponse) FormModel {
 // response-validation issues to the corresponding fields.
 func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts ValidationOptions) FormModel {
 	m := FormModel{Questionnaire: q, Response: r}
+	if q.EntryMode != "" {
+		m.EntryMode = q.EntryMode
+	}
 	validation := ValidateResponse(q, r, opts)
 	var walk func([]Item)
 	walk = func(items []Item) {
@@ -888,7 +899,7 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 			enabled := enabledForValidation(it, r, opts)
 			visible := fieldVisible(it, r, enabled)
 			if it.UsageMode != "" {
-				enabled = fieldEnabled(it, enabled)
+				enabled = fieldEnabled(it, r, enabled)
 			}
 			f := FieldState{
 				LinkID:             it.LinkID,
@@ -919,6 +930,7 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 				UsageMode:          it.UsageMode,
 				IsSubject:          it.IsSubject,
 				InputKeyboard:      it.InputKeyboard,
+				LookupQuestionnaire: it.LookupQuestionnaire,
 				DisplayCategory:    it.DisplayCategory,
 				SupportLinks:       append([]SupportLink(nil), it.SupportLinks...),
 				FHIRType:           it.FHIRType,

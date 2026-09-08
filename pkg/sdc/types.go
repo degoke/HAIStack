@@ -54,6 +54,9 @@ type Questionnaire struct {
 	ObservationExtract    bool                    `json:"-"`
 	ObservationLinkPeriod *Period                 `json:"-"`
 	SignatureRequired     bool                    `json:"-"`
+	EntryMode             string                  `json:"-"`
+	Endpoint              string                  `json:"-"`
+	TargetConstraints     []ItemConstraint        `json:"-"`
 }
 
 // QuestionnaireResponse is a JSON behavior projection, not a replacement for
@@ -108,6 +111,12 @@ type Item struct {
 	IsSubject             bool             `json:"-"`
 	InputKeyboard         string           `json:"-"`
 	DisplayCategory       string           `json:"-"`
+	CandidateExpression   *Expression      `json:"-"`
+	LookupQuestionnaire   string           `json:"-"`
+	MinQuantity           *BoundValue      `json:"-"`
+	MaxQuantity           *BoundValue      `json:"-"`
+	UnitOpen              string           `json:"-"`
+	TargetConstraints     []ItemConstraint `json:"-"`
 	SupportLinks          []SupportLink    `json:"-"`
 	FHIRType              string           `json:"-"`
 	BaseType              string           `json:"-"`
@@ -520,6 +529,7 @@ type AnswerOption struct {
 	Value           any         `json:"-"`
 	ValueType       string      `json:"-"`
 	OptionPrefix    string      `json:"-"`
+	OptionWeight    *float64    `json:"-"`
 	Extension       []Extension `json:"extension,omitempty"`
 	valueType          string
 	initialSelectedSet bool

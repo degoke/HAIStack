@@ -11,6 +11,7 @@ import (
 type Engine interface {
 	Compile(expr string) (CompiledExpression, error)
 	Eval(ctx context.Context, expr string, resource any) ([]Value, error)
+	EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]Value, error)
 	EvalBool(ctx context.Context, expr string, resource any) (bool, error)
 	EvalString(ctx context.Context, expr string, resource any) (string, error)
 }
@@ -19,6 +20,7 @@ type Engine interface {
 type CompiledExpression interface {
 	Expr() string
 	Eval(ctx context.Context, resource any) ([]Value, error)
+	EvalWithEnv(ctx context.Context, resource any, env map[string]any) ([]Value, error)
 	EvalBool(ctx context.Context, resource any) (bool, error)
 	EvalString(ctx context.Context, resource any) (string, error)
 }
