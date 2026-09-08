@@ -629,14 +629,6 @@ func constraintIdentity(key, expression string) string {
 	return key + "\x00" + expression
 }
 
-func parseMax(max string) (int, bool) {
-	n, bounded, invalid := parseCardinalityMax(max)
-	if invalid || !bounded {
-		return 0, false
-	}
-	return n, true
-}
-
 func parseCardinalityMax(max string) (n int, bounded bool, invalid bool) {
 	switch max {
 	case "", "*":
