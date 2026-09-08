@@ -72,12 +72,18 @@ jobs:
           commit = lock.get("gitCommit") or ""
           if not commit:
               raise SystemExit("conformance-lock.json gitCommit is empty; run make conformance-lock and commit")
+          subprocess.check_call(["git", "cat-file", "-e", commit])
           head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           if commit != head:
-              raise SystemExit(
-                  f"conformance-lock.json gitCommit {commit[:12]} != HEAD {head[:12]}; "
-                  "run make conformance-lock and commit"
-              )
+              try:
+                  parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
+              except subprocess.CalledProcessError:
+                  parent = ""
+              if commit != parent:
+                  raise SystemExit(
+                      f"conformance-lock.json gitCommit {commit[:12]} must match "
+                      f"HEAD {head[:12]} or its parent; run make conformance-lock and commit"
+                  )
           print("conformance-lock.json", json.dumps(lock, indent=2))
           PY
 
