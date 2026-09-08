@@ -142,6 +142,13 @@ projections and resource-shaped JSON maps. A subject should normally be a
 CQL and FHIR Query are represented by safe provider interfaces. If no provider
 is installed, the operation reports an unavailable-expression diagnostic.
 
+`SearchFHIRQueryProvider` executes `application/x-fhir-query` expressions against
+`pkg/search`. `ComposeExpressions` combines FHIRPath, FHIR Query, and CQL
+providers for populate, validate, and render. `RenderWithOptions` evaluates
+`contextExpression` extensions and attaches results to `FieldState.ContextResources`.
+When no FHIR Query provider is configured, context expressions remain
+metadata-only and render a field-level diagnostic.
+
 ### Calculated expressions and rendering
 
 `EvaluateCalculated` iterates calculated expressions with a convergence limit,
@@ -242,7 +249,7 @@ Included:
 Injected by applications:
 
 - CQL runtime
-- FHIR Query runtime
+- FHIR Query runtime (default runtime wires `SearchFHIRQueryProvider` when search is enabled)
 - terminology service and value-set expansion
 - StructureMap runtime
 - extraction mappings/templates

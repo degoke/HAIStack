@@ -117,14 +117,29 @@ func extractFHIRPathEngine(provider ExpressionProvider) fhirpath.Engine {
 	switch p := provider.(type) {
 	case FHIRPathExpressions:
 		return p.Engine
+	case MultiExpressionProvider:
+		if p.FHIRPath != nil {
+			return extractFHIRPathEngine(p.FHIRPath)
+		}
 	case contextualExpressionProvider:
 		return p.inner
 	default:
 		return nil
 	}
+	return nil
 }
 
 func (p contextualExpressionProvider) Evaluate(ctx context.Context, e Expression, input any) ([]any, error) {
+	if strings.EqualFold(e.Language, FHIRQueryLanguage) {
+		if provider := extractFHIRQueryProvider(p.base); provider != nil {
+			substituted, err := substituteFHIRQueryConstants(e.Expression, p.env.Constants)
+			if err != nil {
+				return nil, err
+			}
+			return provider.ExecuteFHIRQuery(ctx, substituted, input)
+		}
+		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, input)
+	}
 	if !strings.EqualFold(e.Language, "text/fhirpath") {
 		return p.base.Evaluate(ctx, e, input)
 	}
