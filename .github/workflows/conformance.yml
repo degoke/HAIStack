@@ -1,0 +1,103 @@
+name: Conformance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: conformance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # PR workflows default to a merge commit whose first parent is main;
+          # fetch-depth: 2 then omits PR-branch ancestors referenced by the lock.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache FHIR packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.fhir/packages
+          key: fhir-conformance-${{ hashFiles('conformance-lock.json', 'conformance/package-lock.json') }}
+
+      - name: Install toolchain
+        run: npm ci
+
+      - name: Build IG
+        working-directory: .
+        run: make ig
+
+      - name: Check exported artefacts match FSH
+        working-directory: .
+        run: |
+          git diff --exit-code -- modules/core/ig modules/sdc/ig
+          if [[ -n "$(git ls-files --others --exclude-standard -- modules/core/ig modules/sdc/ig)" ]]; then
+            echo "untracked IG artefacts; run make ig and commit"
+            git status --short -- modules/core/ig modules/sdc/ig
+            exit 1
+          fi
+
+      - name: Validate examples
+        working-directory: .
+        run: make validate-ig
+
+      - name: Record certification lock
+        working-directory: .
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          lock = json.load(open("conformance-lock.json"))
+          pkg = json.load(open("conformance/package.json"))
+          sushi = pkg["devDependencies"]["fsh-sushi"]
+          if lock["tools"]["sushi"] != sushi:
+              raise SystemExit(f"lock sushi {lock['tools']['sushi']} != package.json {sushi}")
+          commit = lock.get("gitCommit") or ""
+          if not commit:
+              raise SystemExit("conformance-lock.json gitCommit is empty; run make conformance-lock and commit")
+          subprocess.check_call(["git", "cat-file", "-e", commit])
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if commit != head:
+              try:
+                  parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
+              except subprocess.CalledProcessError:
+                  parent = ""
+              if commit != parent:
+                  raise SystemExit(
+                      f"conformance-lock.json gitCommit {commit[:12]} must match "
+                      f"HEAD {head[:12]} or its parent; run make conformance-lock and commit"
+                  )
+          print("conformance-lock.json", json.dumps(lock, indent=2))
+          PY
+
+      - name: Upload IG artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: haistack-ig
+          path: |
+            conformance/fsh-generated/resources/
+            modules/core/ig/
+            modules/sdc/ig/
+            conformance-lock.json

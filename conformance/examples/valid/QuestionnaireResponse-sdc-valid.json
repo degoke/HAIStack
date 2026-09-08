@@ -1,0 +1,21 @@
+{
+  "resourceType": "QuestionnaireResponse",
+  "id": "sdc-response-valid",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-response"
+    ]
+  },
+  "questionnaire": "http://fhir.haistack.io/Questionnaire/intake",
+  "status": "in-progress",
+  "item": [
+    {
+      "linkId": "name",
+      "answer": [
+        {
+          "valueString": "Jane Doe"
+        }
+      ]
+    }
+  ]
+}

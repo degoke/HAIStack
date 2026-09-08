@@ -15,6 +15,7 @@ import (
 type ServiceContainer struct {
 	RegistryManager    *registry.Manager
 	RegistrySnapshot   *registry.Snapshot
+	ConformanceRuntime *ConformanceRuntime
 	ModuleManager      *modules.Manager
 	ResourceService    *core.ResourceService
 	SearchService      *search.Service

@@ -16,12 +16,16 @@ type Manifest struct {
 	Dependencies    []DependencyRef `json:"dependencies,omitempty"`
 	Resources       []string        `json:"resources,omitempty"`
 	DefinitionFiles []string        `json:"definitionFiles,omitempty"`
-	Views           []string        `json:"views,omitempty"`
-	AITools         []string        `json:"aiTools,omitempty"`
-	Permissions     []string        `json:"permissions,omitempty"`
-	SyncPolicies    []string        `json:"syncPolicies,omitempty"`
-	Subscriptions   []string        `json:"subscriptions,omitempty"`
-	Migrations      []string        `json:"migrations,omitempty"`
+	// IGPackage is a module-relative directory of compiled IG JSON resources
+	// (typically modules/<name>/ig produced by make ig). When set, every
+	// *.json file in that directory is loaded as a definition.
+	IGPackage     string   `json:"igPackage,omitempty"`
+	Views         []string `json:"views,omitempty"`
+	AITools       []string `json:"aiTools,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+	SyncPolicies  []string `json:"syncPolicies,omitempty"`
+	Subscriptions []string `json:"subscriptions,omitempty"`
+	Migrations    []string `json:"migrations,omitempty"`
 }
 
 // DependencyRef names a required module and its minimum compatible version.
@@ -44,10 +48,11 @@ type Declarations struct {
 // Module is a normalized, loaded module with its manifest and in-memory
 // definition payloads.
 type Module struct {
-	Path          string
-	Manifest      Manifest
-	ManifestBytes []byte
-	Definitions   [][]byte
+	Path            string
+	Manifest        Manifest
+	ManifestBytes   []byte
+	Definitions     [][]byte
+	DefinitionPaths []string
 }
 
 // DefinitionRef identifies one installed definition by canonical URL and

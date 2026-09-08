@@ -45,9 +45,17 @@ type Config struct {
 	// OperationOutcome with a not-supported error.
 	SDCService SDCService
 
+	// PackageInstallService handles ImplementationGuide/$install.
+	// When nil, POST /fhir/ImplementationGuide/$install returns not-supported.
+	PackageInstallService PackageInstallService
+
 	// OperationService handles non-SDC custom operations such as
 	// $everything or implementation-specific operations.
 	OperationService OperationService
+
+	// ValidateService handles FHIR Resource/$validate for non-SDC resource types.
+	// When nil, POST /fhir/{type}/$validate returns not-supported.
+	ValidateService ValidateService
 
 	// CapabilitySource is optional; when nil, /metadata returns not-supported.
 	CapabilitySource CapabilitySource

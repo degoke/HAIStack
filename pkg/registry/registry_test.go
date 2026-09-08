@@ -208,6 +208,102 @@ func TestParseDefinitionSearchParameterMultiTarget(t *testing.T) {
 	}
 }
 
+func TestRegistryProfileCatalogLoadsBasePatient(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	mgr := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	if err := mgr.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	if err := mgr.EnableResource(ctx, "Patient"); err != nil {
+		t.Fatalf("EnableResource: %v", err)
+	}
+	snapshot, err := mgr.RebuildSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("RebuildSnapshot: %v", err)
+	}
+	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := catalog.Warm(); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL("Patient"))
+	if !ok {
+		t.Fatal("expected base Patient StructureDefinition")
+	}
+	if !sd.UseSnapshot {
+		t.Fatal("base Patient profile should use snapshot elements")
+	}
+	if len(sd.Elements) < 40 {
+		t.Fatalf("elements = %d, want full snapshot", len(sd.Elements))
+	}
+}
+
+func TestRegistryProfileCatalogWarmPropagatesParseError(t *testing.T) {
+	ctx := context.Background()
+	definitions := newMemDefinitionStore()
+	installs := newMemInstallStore()
+	mgr := registry.NewManager(registry.Config{Definitions: definitions, Installs: installs})
+	if err := mgr.SeedBundled(ctx); err != nil {
+		t.Fatalf("SeedBundled: %v", err)
+	}
+	if err := mgr.EnableResource(ctx, "Patient"); err != nil {
+		t.Fatalf("EnableResource: %v", err)
+	}
+	bad := []byte(`{"resourceType":"StructureDefinition","url":"http://hl7.org/fhir/StructureDefinition/Patient","type":"Patient","kind":"resource","snapshot":{"element":"not-an-array"}}`)
+	if err := definitions.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL:     validate.BaseStructureDefinitionURL("Patient"),
+		Version:          "4.0.1",
+		FHIRVersion:      "4.0.1",
+		FHIRResourceType: "StructureDefinition",
+		DefinitionKind:   store.DefinitionKindStructureDefinition,
+		Name:             "Patient",
+		Status:           "active",
+		JSONData:         bad,
+	}, []store.DefinitionTargetRecord{{
+		CanonicalURL:       validate.BaseStructureDefinitionURL("Patient"),
+		Version:            "4.0.1",
+		TargetResourceType: "Patient",
+		TargetRole:         "defines",
+	}}); err != nil {
+		t.Fatalf("Upsert bad definition: %v", err)
+	}
+	snapshot, err := mgr.RebuildSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("RebuildSnapshot: %v", err)
+	}
+	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	if err := catalog.Warm(); err == nil {
+		t.Fatal("expected Warm to return profile parse error")
+	}
+}
+
+func TestParseDefinitionOperationDefinitionBooleanType(t *testing.T) {
+	raw := []byte(`{
+		"resourceType":"OperationDefinition",
+		"url":"http://hl7.org/fhir/uv/sdc/OperationDefinition/Questionnaire-populate",
+		"version":"3.0.0",
+		"name":"QuestionnairePopulate",
+		"status":"active",
+		"kind":"operation",
+		"code":"populate",
+		"system":false,
+		"type":true,
+		"instance":true,
+		"resource":["Questionnaire"]
+	}`)
+	parsed, targets, err := registry.ParseDefinition(raw)
+	if err != nil {
+		t.Fatalf("ParseDefinition: %v", err)
+	}
+	if parsed.CanonicalURL != "http://hl7.org/fhir/uv/sdc/OperationDefinition/Questionnaire-populate" {
+		t.Fatalf("url = %q", parsed.CanonicalURL)
+	}
+	if len(targets) != 0 {
+		t.Fatalf("targets = %d, want 0", len(targets))
+	}
+}
+
 func TestParseDefinitionRequiresResourceTypeAndSearchParameterFields(t *testing.T) {
 	for name, raw := range map[string][]byte{
 		"resourceType": []byte(`{"url":"http://example.org/definition"}`),

@@ -34,6 +34,8 @@ type ResourceService struct {
 	terminologyScope        string
 	terminologySourceModule string
 	terminologyCache        terminology.Invalidator
+	definitionIngestor      DefinitionIngestor
+	conformanceRefresh      func(ctx context.Context) error
 }
 
 // ResourceServiceConfig configures a ResourceService.
@@ -54,6 +56,8 @@ type ResourceServiceConfig struct {
 	TerminologyScope        string
 	TerminologySourceModule string
 	TerminologyCache        terminology.Invalidator
+	DefinitionIngestor      DefinitionIngestor
+	ConformanceRefresh      func(ctx context.Context) error
 }
 
 // NewResourceService constructs a ResourceService with required dependencies.
@@ -89,6 +93,8 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 		terminologyScope:        cfg.TerminologyScope,
 		terminologySourceModule: cfg.TerminologySourceModule,
 		terminologyCache:        cfg.TerminologyCache,
+		definitionIngestor:      cfg.DefinitionIngestor,
+		conformanceRefresh:      cfg.ConformanceRefresh,
 	}, nil
 }
 
@@ -159,6 +165,9 @@ func (s *ResourceService) Create(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	if err := s.ingestDefinitionResource(ctx, written); err != nil {
+		return written, exceptionErr("ingest definition into registry catalog", err)
+	}
 	return written, nil
 }
 
@@ -238,6 +247,9 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	if err := s.ingestDefinitionResource(ctx, written); err != nil {
+		return written, exceptionErr("ingest definition into registry catalog", err)
+	}
 	return written, nil
 }
 
@@ -276,6 +288,9 @@ func (s *ResourceService) Delete(ctx context.Context, resourceType, id string) e
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
+	if err := s.removeDefinitionResource(ctx, current); err != nil {
+		return exceptionErr("remove definition from registry catalog", err)
+	}
 	return nil
 }
 

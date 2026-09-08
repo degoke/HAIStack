@@ -290,6 +290,51 @@ func TestBuiltinValidatorAbortsWrite(t *testing.T) {
 	}
 }
 
+func TestProfileValidatorAbortsWrite(t *testing.T) {
+	catalog, err := validate.LoadProfileCatalogFromJSON([][]byte{[]byte(`{
+		"resourceType":"StructureDefinition",
+		"url":"http://haistack.example.org/fhir/StructureDefinition/hai-patient",
+		"type":"Patient",
+		"kind":"resource",
+		"differential":{"element":[{"path":"Patient.identifier","min":1,"max":"*"}]}
+	}`)})
+	if err != nil {
+		t.Fatalf("LoadProfileCatalogFromJSON: %v", err)
+	}
+	eng, err := validate.NewEngine(validate.Config{ProfileCatalog: catalog})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	harness := newTestHarness(t, harnessOptions{
+		validator: validate.NewCoreValidator(eng, validate.ValidateOptions{EnforceDeclaredProfiles: true}),
+	})
+	ctx := context.Background()
+
+	invalid := &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		JSON:         []byte(`{"resourceType":"Patient","id":"pat-1","meta":{"profile":["http://haistack.example.org/fhir/StructureDefinition/hai-patient"]}}`),
+	}
+	_, err = harness.svc.Create(ctx, invalid)
+	if err == nil || core.KindOf(err) != core.ErrorKindInvalid {
+		t.Fatalf("expected invalid error, got %v", err)
+	}
+	outcome := core.OperationOutcomeFromError(err)
+	if outcome == nil || len(outcome.Issue) == 0 || outcome.Issue[0].Code != "required" {
+		t.Fatalf("issue = %+v, want required", outcome)
+	}
+	if harness.mem.resourceCount() != 0 {
+		t.Fatalf("resource count = %d, want 0", harness.mem.resourceCount())
+	}
+
+	valid := &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		JSON:         []byte(`{"resourceType":"Patient","id":"pat-1","meta":{"profile":["http://haistack.example.org/fhir/StructureDefinition/hai-patient"]},"identifier":[{"system":"http://example.org/mrn","value":"1"}]}`),
+	}
+	if _, err := harness.svc.Create(ctx, valid); err != nil {
+		t.Fatalf("valid profile write: %v", err)
+	}
+}
+
 func TestIndexerFailureAbortsWrite(t *testing.T) {
 	mem := newMemBackend()
 	svc, err := core.NewResourceService(core.ResourceServiceConfig{

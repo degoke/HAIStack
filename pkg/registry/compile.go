@@ -31,20 +31,21 @@ const (
 // ParseDefinition extracts catalog metadata and target mappings from raw JSON.
 func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTargetRecord, error) {
 	var envelope struct {
-		ResourceType string   `json:"resourceType"`
-		URL          string   `json:"url"`
-		Version      string   `json:"version"`
-		FHIRVersion  string   `json:"fhirVersion"`
-		Name         string   `json:"name"`
-		Status       string   `json:"status"`
-		Kind         string   `json:"kind"`
-		Type         string   `json:"type"`
-		Code         string   `json:"code"`
-		Base         []string `json:"base"`
+		ResourceType string          `json:"resourceType"`
+		URL          string          `json:"url"`
+		Version      string          `json:"version"`
+		FHIRVersion  string          `json:"fhirVersion"`
+		Name         string          `json:"name"`
+		Status       string          `json:"status"`
+		Kind         string          `json:"kind"`
+		Type         json.RawMessage `json:"type"`
+		Code         string          `json:"code"`
+		Base         []string        `json:"base"`
 	}
 	if err := json.Unmarshal(jsonData, &envelope); err != nil {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: decode json: %v", ErrInvalidDefinition, err)
 	}
+	typeString := decodeJSONString(envelope.Type)
 	if strings.TrimSpace(envelope.ResourceType) == "" {
 		return ParsedDefinition{}, nil, fmt.Errorf("%w: missing resourceType", ErrInvalidDefinition)
 	}
@@ -73,11 +74,11 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 		if envelope.Kind == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: structure definition missing kind", ErrInvalidDefinition)
 		}
-		if envelope.Kind == "resource" && envelope.Type != "" {
+		if envelope.Kind == "resource" && typeString != "" {
 			targets := []store.DefinitionTargetRecord{{
 				CanonicalURL:       envelope.URL,
 				Version:            envelope.Version,
-				TargetResourceType: envelope.Type,
+				TargetResourceType: typeString,
 				TargetRole:         targetRoleDefines,
 			}}
 			return parsed, targets, nil
@@ -94,7 +95,7 @@ func ParseDefinition(jsonData []byte) (ParsedDefinition, []store.DefinitionTarge
 		if envelope.Code == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing code", ErrInvalidDefinition)
 		}
-		if envelope.Type == "" {
+		if typeString == "" {
 			return ParsedDefinition{}, nil, fmt.Errorf("%w: search parameter missing type", ErrInvalidDefinition)
 		}
 		targets := make([]store.DefinitionTargetRecord, 0, len(envelope.Base))
@@ -284,6 +285,19 @@ func (s *Snapshot) Operations() []DefinitionRef {
 	return append([]DefinitionRef(nil), s.operations...)
 }
 
+// EnabledResourceTypes returns installed resource types in sorted order.
+func (s *Snapshot) EnabledResourceTypes() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.enabled))
+	for resourceType := range s.enabled {
+		out = append(out, resourceType)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // IsResourceEnabled reports whether resourceType is enabled in the compiled snapshot.
 func (s *Snapshot) IsResourceEnabled(resourceType string) bool {
 	if s == nil {
@@ -360,6 +374,27 @@ func (s *Snapshot) DefinitionsByCanonical(canonicalURL, version string) ([]byte,
 	return data, ok
 }
 
+// AnyDefinitionByCanonical returns raw JSON for canonicalURL, preferring common
+// FHIR and module versions when multiple are installed.
+func (s *Snapshot) AnyDefinitionByCanonical(canonicalURL string) ([]byte, bool) {
+	if s == nil {
+		return nil, false
+	}
+	versions, ok := s.canonical[canonicalURL]
+	if !ok || len(versions) == 0 {
+		return nil, false
+	}
+	for _, preferred := range []string{"4.0.1", "3.0.0", "1.0.0"} {
+		if data, ok := versions[preferred]; ok {
+			return data, true
+		}
+	}
+	for _, data := range versions {
+		return data, true
+	}
+	return nil, false
+}
+
 // CapabilitySnapshot returns a lightweight capability view for runtime consumers.
 func (s *Snapshot) CapabilitySnapshot() CapabilitySnapshot {
 	if s == nil {
@@ -419,4 +454,15 @@ func LoadDefinitionJSONs(fsys fs.FS, root string) ([][]byte, error) {
 		return nil
 	})
 	return out, err
+}
+
+func decodeJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
 }

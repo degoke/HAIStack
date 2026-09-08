@@ -1,0 +1,28 @@
+{
+  "resourceType": "StructureDefinition",
+  "id": "sdc-questionnaire",
+  "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire",
+  "version": "3.0.0",
+  "name": "SDCQuestionnaire",
+  "title": "SDC Questionnaire",
+  "status": "active",
+  "date": "2026-01-01",
+  "publisher": "HAIStack",
+  "description": "HAIStack SDC Questionnaire profile. A canonical URL is required so assembled and populated questionnaires can be resolved offline.",
+  "fhirVersion": "4.0.1",
+  "kind": "resource",
+  "abstract": false,
+  "type": "Questionnaire",
+  "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Questionnaire",
+  "derivation": "constraint",
+  "differential": {
+    "element": [
+      {
+        "id": "Questionnaire.url",
+        "path": "Questionnaire.url",
+        "min": 1,
+        "mustSupport": true
+      }
+    ]
+  }
+}

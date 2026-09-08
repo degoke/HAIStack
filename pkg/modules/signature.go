@@ -115,7 +115,10 @@ func ModuleSigningDigest(module Module) []byte {
 	writeSignatureFrame(hash, module.ManifestBytes)
 	for i, definition := range module.Definitions {
 		name := ""
-		if i < len(module.Manifest.DefinitionFiles) {
+		switch {
+		case i < len(module.DefinitionPaths):
+			name = module.DefinitionPaths[i]
+		case i < len(module.Manifest.DefinitionFiles):
 			name = module.Manifest.DefinitionFiles[i]
 		}
 		writeSignatureFrame(hash, []byte(name))

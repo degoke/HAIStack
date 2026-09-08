@@ -1,0 +1,17 @@
+{
+  "resourceType": "Questionnaire",
+  "id": "sdc-questionnaire-missing-url",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire"
+    ]
+  },
+  "status": "draft",
+  "item": [
+    {
+      "linkId": "name",
+      "text": "Name",
+      "type": "string"
+    }
+  ]
+}

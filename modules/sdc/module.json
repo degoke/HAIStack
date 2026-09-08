@@ -4,7 +4,7 @@
   "description": "FHIR R4 Structured Data Capture 3.0.0 resources and profiles.",
   "dependencies": [{"name":"core","version":"1.0.0"}],
   "resources": ["Questionnaire","QuestionnaireResponse","StructureMap","StructureDefinition","ValueSet","CodeSystem","OperationDefinition","CapabilityStatement"],
-  "definitionFiles": ["definitions/sdc-structure-definition.json","definitions/sdc-profile-response.json","definitions/sdc-operations.json","definitions/sdc-terminology.json","definitions/sdc-codesystem.json","definitions/sdc-capability.json","definitions/sdc-extensions.json"],
+  "igPackage": "ig",
   "views": [], "aiTools": [], "permissions": ["read-questionnaire","write-questionnaire-response"],
   "syncPolicies": [], "subscriptions": [], "migrations": []
 }

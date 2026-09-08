@@ -1,0 +1,15 @@
+{
+  "resourceType": "Patient",
+  "id": "hai-patient-missing-identifier",
+  "meta": {
+    "profile": [
+      "http://haistack.example.org/fhir/StructureDefinition/hai-patient"
+    ]
+  },
+  "name": [
+    {
+      "family": "Doe",
+      "given": ["Jane"]
+    }
+  ]
+}
