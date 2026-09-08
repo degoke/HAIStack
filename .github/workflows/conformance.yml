@@ -19,6 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # PR workflows default to a merge commit whose first parent is main;
+          # fetch-depth: 2 then omits PR-branch ancestors referenced by the lock.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
 
       - name: Set up Node
