@@ -90,7 +90,7 @@ func BaseRoles() []auth.Role {
 			},
 		},
 		{
-			Name: "backend",
+			Name:        "backend",
 			Permissions: []auth.Permission{"*.read", "patient.read"},
 		},
 	}

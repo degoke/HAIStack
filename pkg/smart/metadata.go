@@ -4,15 +4,15 @@ package smart
 // /.well-known/smart-configuration. HAIStack does not run an OAuth server; this
 // type documents the contract for pkg/http integrations.
 type Configuration struct {
-	Issuer                string   `json:"issuer"`
-	JWKSURI               string   `json:"jwks_uri,omitempty"`
-	AuthorizationEndpoint string   `json:"authorization_endpoint,omitempty"`
-	TokenEndpoint         string   `json:"token_endpoint,omitempty"`
-	RegistrationEndpoint  string   `json:"registration_endpoint,omitempty"`
-	ScopesSupported       []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported []string `json:"response_types_supported,omitempty"`
-	GrantTypesSupported   []string `json:"grant_types_supported,omitempty"`
-	Capabilities          []string `json:"capabilities,omitempty"`
+	Issuer                        string   `json:"issuer"`
+	JWKSURI                       string   `json:"jwks_uri,omitempty"`
+	AuthorizationEndpoint         string   `json:"authorization_endpoint,omitempty"`
+	TokenEndpoint                 string   `json:"token_endpoint,omitempty"`
+	RegistrationEndpoint          string   `json:"registration_endpoint,omitempty"`
+	ScopesSupported               []string `json:"scopes_supported,omitempty"`
+	ResponseTypesSupported        []string `json:"response_types_supported,omitempty"`
+	GrantTypesSupported           []string `json:"grant_types_supported,omitempty"`
+	Capabilities                  []string `json:"capabilities,omitempty"`
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
 }
 

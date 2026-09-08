@@ -57,8 +57,8 @@ func AllScenarios() []Scenario {
 			Doc:  "Principal bound to tenant-a cannot read resources in tenant-b.",
 			Run: func(ctx context.Context, kit *Kit) error {
 				d, err := kit.Engine.CanReadResource(ctx, auth.ReadRequest{
-					Principal: RestrictedClinician(),
-					Tenant:    auth.TenantContext{TenantID: TenantB},
+					Principal:    RestrictedClinician(),
+					Tenant:       auth.TenantContext{TenantID: TenantB},
 					ResourceType: "Appointment", ID: "a1",
 				})
 				return AssertDecision("cross-tenant read", ExpectDeny, d, err)
@@ -372,7 +372,7 @@ func AllScenarios() []Scenario {
 			Run: func(ctx context.Context, kit *Kit) error {
 				d, err := kit.Engine.CanInstallModule(ctx, auth.ModuleInstallRequest{
 					Principal: RestrictedClinician(), Tenant: TenantContextA(),
-					ModuleName: "scheduling",
+					ModuleName:          "scheduling",
 					RequiredPermissions: []string{"module.install"},
 				})
 				return AssertDecision("module install clinician", ExpectDeny, d, err)
@@ -412,14 +412,14 @@ func AllScenarios() []Scenario {
 				tv.Now = func() time.Time { return now }
 				token := unsignedTestJWT(map[string]any{
 					"iss": "https://issuer.example", "aud": "https://aud.example",
-					"exp": now.Add(time.Hour).Unix(),
-					"nbf": now.Add(-time.Minute).Unix(),
+					"exp":   now.Add(time.Hour).Unix(),
+					"nbf":   now.Add(-time.Minute).Unix(),
 					"scope": "patient/*.read", "patient": "pat-1",
 				})
 				_, err := tv.ValidateToken(token, smart.TokenValidateOptions{
-					ExpectedIssuer: "https://issuer.example",
+					ExpectedIssuer:   "https://issuer.example",
 					ExpectedAudience: "https://aud.example",
-					RequiredScopes: []string{"patient/*.read"},
+					RequiredScopes:   []string{"patient/*.read"},
 				})
 				return err
 			},
@@ -436,7 +436,7 @@ func AllScenarios() []Scenario {
 					"exp": now.Add(-time.Minute).Unix(), "scope": "patient/*.read",
 				})
 				_, err := tv.ValidateToken(token, smart.TokenValidateOptions{
-					ExpectedIssuer: "https://issuer.example",
+					ExpectedIssuer:   "https://issuer.example",
 					ExpectedAudience: "https://aud.example",
 				})
 				if !errors.Is(err, smart.ErrTokenExpired) {
@@ -454,12 +454,12 @@ func AllScenarios() []Scenario {
 				tv.Now = func() time.Time { return now }
 				token := unsignedTestJWT(map[string]any{
 					"iss": "https://issuer.example", "aud": "https://aud.example",
-					"exp": now.Add(time.Hour).Unix(),
-					"nbf": now.Add(time.Hour).Unix(),
+					"exp":   now.Add(time.Hour).Unix(),
+					"nbf":   now.Add(time.Hour).Unix(),
 					"scope": "patient/*.read",
 				})
 				_, err := tv.ValidateToken(token, smart.TokenValidateOptions{
-					ExpectedIssuer: "https://issuer.example",
+					ExpectedIssuer:   "https://issuer.example",
 					ExpectedAudience: "https://aud.example",
 				})
 				if !errors.Is(err, smart.ErrTokenNotYetValid) {

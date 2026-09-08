@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/degoke/health-ai-stack/examples/internal/appkit"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
