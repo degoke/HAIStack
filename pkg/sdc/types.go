@@ -57,6 +57,7 @@ type Questionnaire struct {
 	SignatureRequired     bool                    `json:"-"`
 	EntryMode             string                  `json:"-"`
 	Endpoint              string                  `json:"-"`
+	TemplateExtractBundle *TemplateExtractContext `json:"-"`
 	TargetConstraints     []ItemConstraint        `json:"-"`
 	AssembleExpectation   string                  `json:"-"`
 	PerformerTypes        []string                `json:"-"`

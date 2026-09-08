@@ -68,6 +68,7 @@ func (e QuestionnaireExtractor) Extract(ctx context.Context, q Questionnaire, r 
 		}
 	}
 	entries = append(entries, extractEntries...)
+	entries = applyObservationMetadata(entries, q)
 	env, err := transactionEnvelope(entries)
 	if err != nil {
 		return ExtractionResult{}, err

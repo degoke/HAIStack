@@ -116,12 +116,12 @@ func ExtractResource(ctx context.Context, qenv, renv *types.ResourceEnvelope, x 
 
 // AssembleQuestionnaireResource resolves modular Questionnaire references and
 // returns the assembled resource as a canonical envelope.
-func AssembleQuestionnaireResource(ctx context.Context, env *types.ResourceEnvelope, resolver QuestionnaireResolver) (*types.ResourceEnvelope, Outcome) {
+func AssembleQuestionnaireResource(ctx context.Context, env *types.ResourceEnvelope, assembler Assembler) (*types.ResourceEnvelope, Outcome) {
 	q, err := DecodeQuestionnaireResource(env)
 	if err != nil {
 		return nil, failed(err)
 	}
-	assembled, outcome := (Assembler{Resolver: resolver}).Assemble(ctx, q)
+	assembled, outcome := assembler.Assemble(ctx, q)
 	if len(outcome.Issue) > 0 {
 		return nil, outcome
 	}
@@ -134,8 +134,8 @@ func AssembleQuestionnaireResource(ctx context.Context, env *types.ResourceEnvel
 
 // AssembleResource is the concise envelope-first alias for
 // AssembleQuestionnaireResource.
-func AssembleResource(ctx context.Context, env *types.ResourceEnvelope, resolver QuestionnaireResolver) (*types.ResourceEnvelope, Outcome) {
-	return AssembleQuestionnaireResource(ctx, env, resolver)
+func AssembleResource(ctx context.Context, env *types.ResourceEnvelope, assembler Assembler) (*types.ResourceEnvelope, Outcome) {
+	return AssembleQuestionnaireResource(ctx, env, assembler)
 }
 
 // ParseR4 returns the generated Google R4 representation through the existing

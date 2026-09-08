@@ -176,6 +176,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 	validateLaunchContexts(q, opts, &o)
 	validateIsSubjectItems(&o, q.Item, r.Item, "")
 	validateQuestionnaireTargetConstraints(&o, q, r, opts)
+	validatePerformerTypes(q, r, &o)
 	t, err := Normalize(q)
 	if err != nil {
 		return Outcome{ResourceType: "OperationOutcome", Issue: []Issue{{Severity: "error", Code: "structure", Diagnostics: err.Error()}}}
@@ -307,6 +308,7 @@ func validateResponseItem(o *Outcome, q Questionnaire, d *Item, responseItem *Re
 		validateChildOccurs(o, *d, responseItem, path)
 		validateItemInvariantConstraints(o, d, q, r, opts, path)
 		validateAnswerOptionsEnabled(o, d, q, r, opts, path)
+		validateItemTargetConstraints(o, d, r, opts, path)
 	}
 }
 

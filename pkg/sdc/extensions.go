@@ -216,6 +216,11 @@ func absorbQuestionnaireExtensions(q *Questionnaire) {
 				q.CQFLibraries = append(q.CQFLibraries, lib)
 			}
 			continue
+		case SDCTemplateExtractBundleExt:
+			if extract, ok := parseTemplateExtract(ext); ok {
+				q.TemplateExtractBundle = &extract
+			}
+			continue
 		case TargetConstraintExtension:
 			if constraint, ok := parseItemConstraint(ext); ok {
 				q.TargetConstraints = append(q.TargetConstraints, constraint)
@@ -698,6 +703,9 @@ func appendQuestionnaireBehaviorExtensions(ext []Extension, q Questionnaire) []E
 	}
 	for _, library := range q.CQFLibraries {
 		ext = append(ext, cqfLibraryExtension(library))
+	}
+	if q.TemplateExtractBundle != nil {
+		ext = upsertExtension(ext, templateExtractBundleExtension(*q.TemplateExtractBundle))
 	}
 	for _, constraint := range q.TargetConstraints {
 		ext = append(ext, targetConstraintExtension(constraint))

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -502,6 +503,157 @@ func TestWeightFunctionUsesAnswerOptionWeight(t *testing.T) {
 	if err != nil || weight != 3 {
 		t.Fatalf("expected weight 3, got %v (%v)", weight, err)
 	}
+}
+
+func TestPerformerTypeValidation(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		PerformerTypes: []string{"Practitioner"},
+	}
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Author:       []Reference{{Reference: "Patient/1"}},
+	}, ValidationOptions{})
+	for _, issue := range o.Issue {
+		if issue.Code == "invalid" && strings.Contains(issue.Diagnostics, "performerType") {
+			return
+		}
+	}
+	t.Fatalf("expected performerType issue: %#v", o.Issue)
+}
+
+func TestItemTargetConstraintValidation(t *testing.T) {
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "score",
+		Type:   "integer",
+		TargetConstraints: []ItemConstraint{{
+			Key:        "positive",
+			Expression: "item.where(linkId='score').answer.value >= 0",
+			Severity:   "error",
+		}},
+	}})
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item:         []ResponseItem{{LinkID: "score", Answer: []Answer{{Value: -1}}}},
+	}, ValidationOptions{Expressions: FHIRPathExpressions{Engine: engine}})
+	for _, issue := range o.Issue {
+		if issue.Code == "invariant" && strings.Contains(issue.Diagnostics, "positive") {
+			return
+		}
+	}
+	t.Fatalf("expected item targetConstraint issue: %#v", o.Issue)
+}
+
+func TestObservationLinkPeriodOnExtract(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		ObservationExtract: true,
+		ObservationLinkPeriod: &Period{Start: "2024-01-01", End: "2024-12-31"},
+		Item: []Item{{
+			LinkID:     "obs",
+			Type:       "quantity",
+			Definition: "http://hl7.org/fhir/StructureDefinition/Observation#Observation.valueQuantity",
+		}},
+	}
+	r := QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item:         []ResponseItem{{LinkID: "obs", Answer: []Answer{{Value: map[string]any{"value": 1, "code": "kg"}}}}},
+	}
+	result, err := QuestionnaireExtractor{}.Extract(context.Background(), q, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bundle == nil || !strings.Contains(string(result.Bundle.JSON), "2024-01-01") {
+		t.Fatalf("expected observationLinkPeriod on extract: %s", result.Bundle.JSON)
+	}
+}
+
+func TestTemplateExtractBundleUsesContainedBundle(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		Contained: []map[string]any{{
+			"resourceType": "Bundle",
+			"id":           "bundle-template",
+			"type":         "collection",
+			"entry": []map[string]any{{
+				"fullUrl": "urn:uuid:entry-1",
+				"resource": map[string]any{
+					"resourceType": "Patient",
+					"name":         []map[string]any{{"family": "Bundle"}},
+				},
+			}},
+		}},
+		TemplateExtractBundle: &TemplateExtractContext{TemplateReference: "#bundle-template"},
+	}
+	r := QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"}
+	result, err := QuestionnaireExtractor{}.Extract(context.Background(), q, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bundle == nil || !strings.Contains(string(result.Bundle.JSON), "Bundle") {
+		t.Fatalf("expected templateExtractBundle entries: %s", result.Bundle.JSON)
+	}
+}
+
+func TestDefinitionPropagationOnAssemble(t *testing.T) {
+	sd := map[string]any{
+		"resourceType": "StructureDefinition",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{
+					"id":        "Patient.name.family",
+					"short":     "Family name",
+					"definition": "Patient family name",
+					"maxLength": float64(40),
+				},
+			},
+		},
+	}
+	b, err := json.Marshal(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := StoreDefinitionElementResolver{Store: stubDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Patient": b,
+	}}}
+	q := NewDraft("http://example/q", []Item{{
+		LinkID:     "family",
+		Type:       "string",
+		Definition: "http://hl7.org/fhir/StructureDefinition/Patient#Patient.name.family",
+	}})
+	assembled, outcome := Assembler{Elements: resolver}.Assemble(context.Background(), q)
+	if len(outcome.Issue) != 0 {
+		t.Fatalf("unexpected assemble issues: %#v", outcome.Issue)
+	}
+	if assembled.Item[0].Text != "Patient family name" {
+		t.Fatalf("expected definition text propagation, got %#v", assembled.Item[0])
+	}
+	if assembled.Item[0].MaxLength == nil || *assembled.Item[0].MaxLength != 40 {
+		t.Fatalf("expected maxLength propagation, got %#v", assembled.Item[0].MaxLength)
+	}
+}
+
+type stubDefinitionStore struct {
+	records map[string][]byte
+}
+
+func (s stubDefinitionStore) Get(_ context.Context, canonicalURL, _ string) (*store.DefinitionResourceRecord, error) {
+	data, ok := s.records[canonicalURL]
+	if !ok {
+		return nil, context.Canceled
+	}
+	return &store.DefinitionResourceRecord{CanonicalURL: canonicalURL, JSONData: data}, nil
+}
+
+func (s stubDefinitionStore) List(context.Context, store.DefinitionFilter) ([]store.DefinitionResourceRecord, error) {
+	return nil, nil
 }
 
 func TestAssembleContextRequiredForSubQuestionnaire(t *testing.T) {

@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 const (
 	SDCExtractAllocateIDExt      = SDCBaseURL + "sdc-questionnaire-extractAllocateId"
 	SDCTemplateExtractExt          = SDCBaseURL + "sdc-questionnaire-templateExtract"
 	SDCTemplateExtractValueExt     = SDCBaseURL + "sdc-questionnaire-templateExtractValue"
+	SDCTemplateExtractContextExt   = SDCBaseURL + "sdc-questionnaire-templateExtractContext"
+	SDCTemplateExtractBundleExt    = SDCBaseURL + "sdc-questionnaire-templateExtractBundle"
 	SDCAssembleContextExt          = SDCBaseURL + "sdc-questionnaire-assembleContext"
 	SDCAssembleExpectationExt      = SDCBaseURL + "sdc-questionnaire-assemble-expectation"
 	SDCContextExpressionExt        = SDCBaseURL + "sdc-questionnaire-contextExpression"
@@ -42,6 +42,12 @@ func parseTemplateExtract(ext Extension) (TemplateExtractContext, bool) {
 		}
 	}
 	return ctx, ctx.TemplateReference != ""
+}
+
+func templateExtractBundleExtension(ctx TemplateExtractContext) Extension {
+	ext := templateExtractExtension(ctx)
+	ext.URL = SDCTemplateExtractBundleExt
+	return ext
 }
 
 func templateExtractExtension(ctx TemplateExtractContext) Extension {
@@ -186,36 +192,21 @@ func cloneMap(value map[string]any) map[string]any {
 	return out
 }
 
-func allocateExtractIDs(items []Item, responseItems []ResponseItem, scope map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range scope {
-		out[k] = v
-	}
-	var walk func([]Item, []ResponseItem)
-	walk = func(qItems []Item, rItems []ResponseItem) {
-		for _, item := range qItems {
-			if item.ExtractAllocateID != "" {
-				out[item.ExtractAllocateID] = "urn:uuid:" + uuid.NewString()
-			}
-			ri := findResponse(rItems, item.LinkID)
-			childResponse := []ResponseItem{}
-			if ri != nil {
-				childResponse = ri.Item
-			}
-			walk(item.Item, childResponse)
-		}
-	}
-	walk(items, responseItems)
-	return out
-}
-
 func templateExtractBundleEntries(ctx context.Context, q Questionnaire, r QuestionnaireResponse, provider ExpressionProvider) ([]map[string]any, error) {
 	var entries []map[string]any
+	rootScope := allocateExtractIDs(q.Item, r.Item, map[string]any{})
+	if q.TemplateExtractBundle != nil {
+		bundleEntries, err := extractContainedBundle(ctx, q, r, *q.TemplateExtractBundle, provider, rootScope)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, bundleEntries...)
+	}
 	var walk func([]Item, []ResponseItem, map[string]any, any)
 	walk = func(items []Item, responseItems []ResponseItem, allocScope map[string]any, evalRoot any) {
 		for _, item := range items {
 			ri := findResponse(responseItems, item.LinkID)
-			scope := allocateExtractIDs([]Item{item}, responseItems, allocScope)
+			scope := extractScopeForItem(q, item, responseItems, allocScope)
 			root := evalRoot
 			if ri != nil {
 				root = *ri
@@ -320,26 +311,42 @@ func applyTemplateExtensionsOnNode(ctx context.Context, resource map[string]any,
 	switch value := node.(type) {
 	case map[string]any:
 		if extensions, ok := value["extension"].([]any); ok {
+			evalRoot := root
 			for _, raw := range extensions {
 				extMap, ok := raw.(map[string]any)
 				if !ok {
 					continue
 				}
 				url, _ := extMap["url"].(string)
-				switch url {
-				case SDCTemplateExtractValueExt:
-					if path, expression, fixed, ok := embeddedTemplateExtractValue(extMap); ok {
-						v := fixed
-						if expression != nil && provider != nil {
-							results, err := provider.Evaluate(ctx, *expression, root)
-							if err != nil || len(results) == 0 {
-								continue
-							}
-							v = results[0]
+				if url != SDCTemplateExtractContextExt {
+					continue
+				}
+				if contextExpr, ok := embeddedTemplateExtractContext(extMap); ok && provider != nil {
+					if results, err := provider.Evaluate(ctx, contextExpr, root); err == nil && len(results) > 0 {
+						evalRoot = results[0]
+					}
+				}
+			}
+			for _, raw := range extensions {
+				extMap, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				url, _ := extMap["url"].(string)
+				if url != SDCTemplateExtractValueExt {
+					continue
+				}
+				if path, expression, fixed, ok := embeddedTemplateExtractValue(extMap); ok {
+					v := fixed
+					if expression != nil && provider != nil {
+						results, err := provider.Evaluate(ctx, *expression, evalRoot)
+						if err != nil || len(results) == 0 {
+							continue
 						}
-						if v != nil {
-							setPath(resource, path, v)
-						}
+						v = results[0]
+					}
+					if v != nil {
+						setPath(resource, path, v)
 					}
 				}
 			}
@@ -351,7 +358,7 @@ func applyTemplateExtensionsOnNode(ctx context.Context, resource map[string]any,
 					continue
 				}
 				url, _ := extMap["url"].(string)
-				if url == SDCTemplateExtractValueExt {
+				if url == SDCTemplateExtractValueExt || url == SDCTemplateExtractContextExt {
 					continue
 				}
 				filtered = append(filtered, raw)
@@ -399,4 +406,84 @@ func embeddedTemplateExtractValue(ext map[string]any) (path string, expression *
 		}
 	}
 	return path, expression, fixed, path != ""
+}
+
+func embeddedTemplateExtractContext(ext map[string]any) (Expression, bool) {
+	children, _ := ext["extension"].([]any)
+	for _, raw := range children {
+		child, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if childURLSuffix(child["url"].(string)) == "expression" {
+			if exprMap, ok := child["valueExpression"].(map[string]any); ok {
+				return Expression{
+					Language:   fmt.Sprint(exprMap["language"]),
+					Expression: fmt.Sprint(exprMap["expression"]),
+				}, true
+			}
+		}
+	}
+	if exprMap, ok := ext["valueExpression"].(map[string]any); ok {
+		return Expression{
+			Language:   fmt.Sprint(exprMap["language"]),
+			Expression: fmt.Sprint(exprMap["expression"]),
+		}, true
+	}
+	return Expression{}, false
+}
+
+func extractContainedBundle(ctx context.Context, q Questionnaire, r QuestionnaireResponse, spec TemplateExtractContext, provider ExpressionProvider, scope map[string]any) ([]map[string]any, error) {
+	template, ok := containedResource(q, spec.TemplateReference)
+	if !ok {
+		return nil, nil
+	}
+	if rt, _ := template["resourceType"].(string); rt != "Bundle" {
+		return nil, fmt.Errorf("templateExtractBundle must reference a contained Bundle")
+	}
+	cloned := cloneMap(template)
+	if cloned == nil {
+		return nil, nil
+	}
+	providerForBundle := provider
+	if provider != nil && len(scope) > 0 {
+		providerForBundle = expressionProviderWithScope(provider, scope)
+	}
+	applyEmbeddedTemplateExtensions(ctx, cloned, providerForBundle, r)
+	rawEntries, _ := cloned["entry"].([]any)
+	var entries []map[string]any
+	for _, raw := range rawEntries {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		resource, _ := entry["resource"].(map[string]any)
+		if resource == nil {
+			continue
+		}
+		delete(resource, "id")
+		b, err := json.Marshal(resource)
+		if err != nil {
+			continue
+		}
+		resourceType, _ := resource["resourceType"].(string)
+		if resourceType == "" {
+			continue
+		}
+		fullURL := ""
+		if s, ok := entry["fullUrl"].(string); ok {
+			fullURL = s
+		}
+		if fullURL == "" {
+			fullURL = "urn:uuid:template-bundle-entry"
+		}
+		method := "POST"
+		url := resourceType
+		entries = append(entries, map[string]any{
+			"fullUrl":  fullURL,
+			"resource": json.RawMessage(b),
+			"request":  map[string]any{"method": method, "url": url},
+		})
+	}
+	return entries, nil
 }

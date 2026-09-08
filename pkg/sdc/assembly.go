@@ -14,14 +14,15 @@ type QuestionnaireResolver interface {
 	Resolve(context.Context, string) (Questionnaire, error)
 }
 type Assembler struct {
-	Resolver QuestionnaireResolver
-	Context  map[string]any
+	Resolver  QuestionnaireResolver
+	Context   map[string]any
+	Elements  DefinitionElementResolver
 }
 
 // AssembleResource performs modular assembly for a canonical Questionnaire
 // envelope using this assembler's resolver.
 func (a Assembler) AssembleResource(ctx context.Context, env *types.ResourceEnvelope) (*types.ResourceEnvelope, Outcome) {
-	return AssembleQuestionnaireResource(ctx, env, a.Resolver)
+	return AssembleQuestionnaireResource(ctx, env, a)
 }
 
 func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire, Outcome) {
@@ -48,7 +49,7 @@ func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire
 	expand = func(items []Item) []Item {
 		var r []Item
 		for _, it := range items {
-			canonical := firstNonEmpty(it.SubQuestionnaire, it.Definition)
+			moduleCanonical := questionnaireModuleCanonical(it)
 			if it.SubQuestionnaire != "" && len(it.AssembleContexts) > 0 {
 				for _, name := range it.AssembleContexts {
 					if a.Context == nil || a.Context[name] == nil {
@@ -56,28 +57,30 @@ func (a Assembler) Assemble(ctx context.Context, q Questionnaire) (Questionnaire
 					}
 				}
 			}
-			if strings.TrimSpace(canonical) != "" {
+			if moduleCanonical != "" {
 				if a.Resolver == nil {
 					o.add("error", "exception", "questionnaire resolver is unavailable", it.LinkID)
 					r = append(r, it)
 					continue
 				}
-				if resolving[canonical] {
-					o.add("error", "invariant", "cyclic questionnaire definition: "+canonical, it.LinkID)
+				if resolving[moduleCanonical] {
+					o.add("error", "invariant", "cyclic questionnaire definition: "+moduleCanonical, it.LinkID)
 					r = append(r, it)
 					continue
 				}
-				resolving[canonical] = true
-				ref, e := a.Resolver.Resolve(ctx, canonical)
-				delete(resolving, canonical)
+				resolving[moduleCanonical] = true
+				ref, e := a.Resolver.Resolve(ctx, moduleCanonical)
+				delete(resolving, moduleCanonical)
 				if e != nil {
 					o.add("error", "not-found", e.Error(), it.LinkID)
 					r = append(r, it)
 					continue
 				}
+				mergeContainedResources(&out, ref, strings.ReplaceAll(moduleCanonical, "/", "_")+"_")
 				r = append(r, expand(ref.Item)...)
 				continue
 			}
+			propagateDefinitionMetadata(ctx, &it, a.Elements, &o)
 			it.Item = expand(it.Item)
 			r = append(r, it)
 		}

@@ -19,6 +19,7 @@ type CoreSDCService struct {
 	Terminology    sdc.TerminologyResolver
 	Extractor      sdc.Extractor
 	AdaptiveEngine sdc.AdaptiveEngine
+	Elements       sdc.DefinitionElementResolver
 }
 
 func (a CoreSDCService) questionnaire(ctx context.Context, req SDCRequest) (sdc.Questionnaire, error) {
@@ -135,7 +136,7 @@ func (a CoreSDCService) Assemble(ctx context.Context, req SDCRequest) (*types.Re
 	if e != nil {
 		return nil, e
 	}
-	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, a.Resolver)
+	assembled, o := sdc.AssembleQuestionnaireResource(ctx, qenv, sdc.AssemblerFromParameters(operationParameters(req), a.Resolver, a.Elements))
 	if err := sdc.ErrFromOutcome(o); err != nil {
 		return nil, err
 	}

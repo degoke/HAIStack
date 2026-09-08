@@ -124,3 +124,15 @@ func PopulationContextFromParameters(params OperationParameters, base Population
 	}
 	return base
 }
+
+// AssemblerFromParameters builds an assembler using named parameters as assemble context.
+func AssemblerFromParameters(params OperationParameters, resolver QuestionnaireResolver, elements DefinitionElementResolver) Assembler {
+	context := map[string]any{}
+	for k, v := range params.LaunchContext {
+		context[k] = v
+	}
+	if params.Subject != nil {
+		context["subject"] = params.Subject
+	}
+	return Assembler{Resolver: resolver, Context: context, Elements: elements}
+}

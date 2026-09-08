@@ -199,6 +199,10 @@ func definitionExtractBundleEntries(ctx context.Context, q Questionnaire, r Ques
 	if len(extracts) == 0 {
 		return nil, nil
 	}
+	rootScope := allocateExtractIDs(q.Item, r.Item, map[string]any{})
+	if provider != nil && len(rootScope) > 0 {
+		provider = expressionProviderWithScope(provider, rootScope)
+	}
 	var entries []map[string]any
 	for _, extract := range extracts {
 		res, err := buildExtractedResource(ctx, extract, r, provider)
