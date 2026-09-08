@@ -42,10 +42,15 @@ func (a searchServiceFHIRQuery) Search(ctx context.Context, resourceType string,
 	return result.Resources, nil
 }
 
-// ExecuteFHIRQuery parses a FHIR REST query, substitutes SDC context variables, and returns matches.
-func (p SearchFHIRQueryProvider) ExecuteFHIRQuery(ctx context.Context, query string, _ any) ([]any, error) {
+// ExecuteFHIRQuery parses a FHIR REST query and returns matching resources.
+// Callers that need SDC %variable substitution should use executeFHIRQueryWithConstants
+// or evaluate through a contextual expression provider.
+func (p SearchFHIRQueryProvider) ExecuteFHIRQuery(ctx context.Context, query string, input any) ([]any, error) {
 	if p.Search == nil {
 		return nil, fmt.Errorf("FHIR Query search service is unavailable")
+	}
+	if constants := fhirQueryConstantsFromInput(input); len(constants) > 0 {
+		return executeFHIRQueryWithConstants(ctx, p, query, constants, input)
 	}
 	resourceType, params, err := parseFHIRQuery(query)
 	if err != nil {
@@ -64,11 +69,53 @@ func (p SearchFHIRQueryProvider) ExecuteFHIRQuery(ctx context.Context, query str
 
 // ExecuteFHIRQueryWithConstants substitutes %variables from constants before executing the query.
 func (p SearchFHIRQueryProvider) ExecuteFHIRQueryWithConstants(ctx context.Context, query string, constants map[string]any) ([]any, error) {
+	return executeFHIRQueryWithConstants(ctx, p, query, constants, nil)
+}
+
+func executeFHIRQueryWithConstants(ctx context.Context, provider FHIRQueryProvider, query string, constants map[string]any, input any) ([]any, error) {
 	substituted, err := substituteFHIRQueryConstants(query, constants)
 	if err != nil {
 		return nil, err
 	}
-	return p.ExecuteFHIRQuery(ctx, substituted, nil)
+	if searchable, ok := provider.(SearchFHIRQueryProvider); ok {
+		return searchable.executePreparedQuery(ctx, substituted)
+	}
+	return provider.ExecuteFHIRQuery(ctx, substituted, input)
+}
+
+func (p SearchFHIRQueryProvider) executePreparedQuery(ctx context.Context, query string) ([]any, error) {
+	if p.Search == nil {
+		return nil, fmt.Errorf("FHIR Query search service is unavailable")
+	}
+	resourceType, params, err := parseFHIRQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.Search.Search(ctx, resourceType, params)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, len(result))
+	for i, res := range result {
+		out[i] = res
+	}
+	return out, nil
+}
+
+func isFHIRQueryExpression(e Expression) bool {
+	return strings.EqualFold(e.Language, FHIRQueryLanguage)
+}
+
+func fhirQueryConstantsFromInput(input any) map[string]any {
+	switch x := input.(type) {
+	case ExpressionEnvironment:
+		return x.Constants
+	case map[string]any:
+		if constants, ok := x["constants"].(map[string]any); ok {
+			return constants
+		}
+	}
+	return nil
 }
 
 // MultiExpressionProvider routes expressions to language-specific providers.
@@ -129,6 +176,10 @@ func parseFHIRQuery(query string) (string, url.Values, error) {
 	query = strings.TrimPrefix(query, "/")
 	parts := strings.SplitN(query, "?", 2)
 	resourceType := strings.Trim(parts[0], "/")
+	if strings.Contains(resourceType, "/") {
+		segments := strings.Split(resourceType, "/")
+		resourceType = segments[len(segments)-1]
+	}
 	if resourceType == "" {
 		return "", nil, fmt.Errorf("FHIR Query is missing a resource type")
 	}
@@ -164,11 +215,11 @@ func substituteFHIRQueryConstants(query string, constants map[string]any) (strin
 			continue
 		}
 		name := query[i+1 : j]
-		value, ok := constants[name]
+		value, ok := lookupFHIRQueryConstant(name, constants)
 		if !ok {
 			return "", fmt.Errorf("FHIR Query references unknown context variable %%%s", name)
 		}
-		b.WriteString(fhirQuerySubstituteValue(value))
+		b.WriteString(url.QueryEscape(fhirQuerySubstituteValue(value)))
 		i = j - 1
 	}
 	return b.String(), nil
@@ -208,6 +259,18 @@ func fhirQuerySubstituteValue(value any) string {
 	return fmt.Sprint(value)
 }
 
+func lookupFHIRQueryConstant(name string, constants map[string]any) (any, bool) {
+	if value, ok := constants[name]; ok {
+		return value, true
+	}
+	if name == "patient" {
+		if value, ok := constants["subject"]; ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
 func extractFHIRQueryProvider(provider ExpressionProvider) FHIRQueryProvider {
 	switch p := provider.(type) {
 	case FHIRQueryExpressions:
@@ -216,6 +279,7 @@ func extractFHIRQueryProvider(provider ExpressionProvider) FHIRQueryProvider {
 		if p.FHIRQuery != nil {
 			return extractFHIRQueryProvider(p.FHIRQuery)
 		}
+		return nil
 	case contextualExpressionProvider:
 		return extractFHIRQueryProvider(p.base)
 	case scopedExpressionProvider:
@@ -223,5 +287,4 @@ func extractFHIRQueryProvider(provider ExpressionProvider) FHIRQueryProvider {
 	default:
 		return nil
 	}
-	return nil
 }

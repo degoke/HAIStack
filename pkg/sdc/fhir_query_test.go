@@ -36,7 +36,7 @@ func TestParseFHIRQuery(t *testing.T) {
 	}
 
 	rt, params, err = parseFHIRQuery("http://example/fhir/Patient?active=true")
-	if err != nil || rt != "fhir/Patient" || params.Get("active") != "true" {
+	if err != nil || rt != "Patient" || params.Get("active") != "true" {
 		t.Fatalf("url parse: %s %#v %v", rt, params, err)
 	}
 
@@ -54,13 +54,37 @@ func TestSubstituteFHIRQueryConstants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if query != "Observation?subject=Patient/pat-1&code=8867-4" {
+	if query != "Observation?subject=Patient%2Fpat-1&code=8867-4" {
 		t.Fatalf("unexpected substitution: %s", query)
+	}
+
+	query, err = substituteFHIRQueryConstants(
+		"Observation?subject=%patient",
+		map[string]any{"subject": map[string]any{"reference": "Patient/pat-1"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query != "Observation?subject=Patient%2Fpat-1" {
+		t.Fatalf("unexpected patient alias substitution: %s", query)
 	}
 
 	_, err = substituteFHIRQueryConstants("Patient?subject=%missing", map[string]any{})
 	if err == nil || !strings.Contains(err.Error(), "%missing") {
 		t.Fatalf("expected missing variable error, got %v", err)
+	}
+}
+
+func TestSubstituteURLEncodesSpecialCharacters(t *testing.T) {
+	query, err := substituteFHIRQueryConstants(
+		"Observation?subject=%subject",
+		map[string]any{"subject": "Patient/abc|def"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query != "Observation?subject=Patient%2Fabc%7Cdef" {
+		t.Fatalf("unexpected encoding: %s", query)
 	}
 }
 
@@ -145,6 +169,46 @@ func TestContextExpressionOnRender(t *testing.T) {
 	}
 	if model.Fields[0].ContextResources[0].Label != "Recent vitals" {
 		t.Fatalf("unexpected label: %#v", model.Fields[0].ContextResources[0])
+	}
+}
+
+func TestContextExpressionFHIRQueryOnlyCompose(t *testing.T) {
+	search := &stubFHIRQuerySearch{
+		resources: []*types.ResourceEnvelope{{ResourceType: "Patient", ID: "pat-1"}},
+	}
+	provider := ComposeExpressions(nil, SearchFHIRQueryProvider{Search: search}, nil)
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "x",
+		Type:   "string",
+		ContextExpressions: []ContextExpression{{
+			Expression: Expression{Language: FHIRQueryLanguage, Expression: "Patient?active=true"},
+		}},
+	}})
+	model := RenderWithOptions(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+	}, ValidationOptions{Expressions: provider})
+	if len(model.Fields[0].ContextResources) != 1 || len(model.Fields[0].ContextResources[0].Resources) != 1 {
+		t.Fatalf("expected context resources: %#v", model.Fields[0].ContextResources)
+	}
+}
+
+func TestContextExpressionSearchErrorAddsDiagnostic(t *testing.T) {
+	search := &stubFHIRQuerySearch{err: context.Canceled}
+	provider := ComposeExpressions(nil, SearchFHIRQueryProvider{Search: search}, nil)
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "x",
+		Type:   "string",
+		ContextExpressions: []ContextExpression{{
+			Expression: Expression{Language: FHIRQueryLanguage, Expression: "Patient?active=true"},
+		}},
+	}})
+	model := RenderWithOptions(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+	}, ValidationOptions{Expressions: provider})
+	if len(model.Fields[0].Issues) == 0 {
+		t.Fatal("expected diagnostic when search fails")
 	}
 }
 

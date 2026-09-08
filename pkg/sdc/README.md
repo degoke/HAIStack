@@ -146,8 +146,11 @@ is installed, the operation reports an unavailable-expression diagnostic.
 `pkg/search`. `ComposeExpressions` combines FHIRPath, FHIR Query, and CQL
 providers for populate, validate, and render. `RenderWithOptions` evaluates
 `contextExpression` extensions and attaches results to `FieldState.ContextResources`.
-When no FHIR Query provider is configured, context expressions remain
-metadata-only and render a field-level diagnostic.
+FHIR Query substitution supports `%subject`, `%patient` (alias), launch context,
+questionnaire variables, and `%qitem` (current item linkId). When no FHIR Query
+provider is configured, context expressions remain metadata-only and render a
+field-level diagnostic. The default runtime only wires FHIR Query when search is
+enabled.
 
 ### Calculated expressions and rendering
 

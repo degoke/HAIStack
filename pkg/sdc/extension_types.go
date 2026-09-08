@@ -22,6 +22,7 @@ type ContextExpression struct {
 }
 
 // ContextResourceResult holds evaluated resources for one contextExpression.
+// An entry with only Label set means the query succeeded but returned no matches.
 type ContextResourceResult struct {
 	Label     string
 	Resources []any

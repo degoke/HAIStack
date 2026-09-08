@@ -44,6 +44,9 @@ func evaluateCandidates(ctx context.Context, q Questionnaire, item Item, r Quest
 	return values
 }
 
+// evaluateContextExpressions resolves contextExpression extensions during render.
+// Unlike evaluateCandidates, evaluation failures surface as field-level warnings
+// because context resources are optional UI hints rather than answer metadata.
 func evaluateContextExpressions(ctx context.Context, q Questionnaire, item Item, r QuestionnaireResponse, opts ValidationOptions) ([]ContextResourceResult, []Issue) {
 	if len(item.ContextExpressions) == 0 {
 		return nil, nil
@@ -53,6 +56,7 @@ func evaluateContextExpressions(ctx context.Context, q Questionnaire, item Item,
 	}
 	ancestors := questionnaireAncestors(q, item.LinkID)
 	provider := expressionProviderWithAncestors(ctx, opts.Expressions, ancestors, r)
+	// %qitem is the current questionnaire item; only linkId is substituted today.
 	provider = expressionProviderWithScope(provider, map[string]any{"qitem": item})
 	if provider == nil {
 		return nil, contextExpressionIssues(item, "context expression evaluation is unavailable")
