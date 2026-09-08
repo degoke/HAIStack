@@ -22,7 +22,6 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **golden** | Canonical `OperationOutcome` JSON comparison (inline goldens) |
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
-| **infernotest** | Inferno-aligned SMART discovery checks for CI |
 
 It does **not**:
 

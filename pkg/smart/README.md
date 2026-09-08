@@ -103,15 +103,4 @@ Malformed scopes return `ErrInvalidScope`. Duplicates and overlaps collapse
 | **auth** | Decision engine; receives adapted principals and tenant/patient scope |
 | **ai / view / sync / core** | Unchanged; SMART is optional and omitable |
 
-## Inferno CI (discovery)
-
-`pkg/smart/host` provides a reference SMART host (`cmd/inferno-reference`) that serves:
-
-- HAIStack FHIR APIs at `/fhir`
-- `GET /fhir/.well-known/smart-configuration` (Inferno discovery STU2 fields)
-- Stub OAuth `/oauth/authorize` and `/oauth/token` for future launch tests
-
-`pkg/testkit/infernotest` runs Inferno-aligned discovery checks in CI (`.github/workflows/inferno.yml`).
-Full Inferno Ruby test kit launch workflows are future work once the stub OAuth surface matures.
-
 See [doc.go](./doc.go) for API detail and non-goals.
