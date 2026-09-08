@@ -46,6 +46,12 @@ lock file. Hosts should pin a release tag (or that SHA) at deploy time and
 refuse to install `modules/*/ig` artefacts that were not produced from the same
 conformance build.
 
+**Do not run `make conformance-lock` on feature branches.** Pull requests may
+change FSH, exported `modules/*/ig` artefacts, and tool pins, but must not
+update `conformance-lock.json` `gitCommit`. After a squash merge to `main`, the
+Conformance workflow rebuilds the IG, refreshes the lock against the real
+`main` commit, and commits it back automatically.
+
 ## Commands
 
 ```bash
