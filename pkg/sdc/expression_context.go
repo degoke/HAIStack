@@ -77,47 +77,6 @@ func buildPopulationExpressionEnvironment(ctx context.Context, q Questionnaire, 
 	return env
 }
 
-func (e ExpressionEnvironment) withItem(item *Item, response QuestionnaireResponse) ExpressionEnvironment {
-	out := e
-	if item != nil {
-		out.QItem = *item
-	}
-	if response.ResourceType != "" {
-		out.Resource = response
-	}
-	return out
-}
-
-func (e ExpressionEnvironment) envMap() map[string]any {
-	env := map[string]any{}
-	if e.Resource != nil {
-		env["resource"] = e.Resource
-	}
-	if e.Questionnaire != nil {
-		switch q := e.Questionnaire.(type) {
-		case Questionnaire:
-			env["questionnaire"] = q
-		default:
-			env["questionnaire"] = e.Questionnaire
-		}
-	}
-	if e.Context != nil {
-		env["context"] = e.Context
-	}
-	if e.QItem != nil {
-		switch item := e.QItem.(type) {
-		case Item:
-			env["qitem"] = item
-		default:
-			env["qitem"] = e.QItem
-		}
-	}
-	for name, value := range e.Constants {
-		env[name] = value
-	}
-	return env
-}
-
 type contextualExpressionProvider struct {
 	inner fhirpath.Engine
 	base  ExpressionProvider

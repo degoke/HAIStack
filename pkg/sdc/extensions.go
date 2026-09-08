@@ -207,9 +207,7 @@ func absorbQuestionnaireExtensions(q *Questionnaire) {
 			}
 			continue
 		case SDCPerformerTypeExt:
-			for _, code := range extensionCodeValues(ext) {
-				q.PerformerTypes = append(q.PerformerTypes, code)
-			}
+			q.PerformerTypes = append(q.PerformerTypes, extensionCodeValues(ext)...)
 			continue
 		case SDCCQFLibraryExt:
 			if lib, ok := parseCQFLibrary(ext); ok {
@@ -311,9 +309,7 @@ func absorbItemBehaviorExtensions(it *Item) {
 			}
 			continue
 		case QuestionnaireReferenceResourceExt:
-			for _, code := range extensionCodeValues(ext) {
-				it.ReferenceResources = append(it.ReferenceResources, code)
-			}
+			it.ReferenceResources = append(it.ReferenceResources, extensionCodeValues(ext)...)
 			continue
 		case QuestionnaireReferenceProfileExt:
 			if v := extensionScalarString(ext); v != "" {

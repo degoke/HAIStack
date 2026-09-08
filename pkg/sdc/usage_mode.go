@@ -23,10 +23,6 @@ func isDisplayOnlyUsageMode(mode string) bool {
 	return strings.EqualFold(mode, "display")
 }
 
-func isDisplayWhenAnsweredUsageMode(mode string) bool {
-	return strings.EqualFold(mode, "display-non-empty")
-}
-
 func usageModeAllowsCapture(mode string, formMode FormMode, r QuestionnaireResponse, item Item) bool {
 	switch strings.ToLower(mode) {
 	case "", "capture-display", "capture-display-non-empty":
