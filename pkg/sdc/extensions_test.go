@@ -196,8 +196,8 @@ func TestRequiredExpressionValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := NewDraft("http://example/q", []Item{{
-		LinkID: "detail",
-		Type:   "string",
+		LinkID:             "detail",
+		Type:               "string",
 		RequiredExpression: &Expression{Language: "text/fhirpath", Expression: "true"},
 	}})
 	o := ValidateResponse(q, QuestionnaireResponse{

@@ -7,8 +7,8 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/proto"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/shopspring/decimal"
-	"github.com/verily-src/fhirpath-go/fhirpath/system"
 	verilyfhirpath "github.com/verily-src/fhirpath-go/fhirpath"
+	"github.com/verily-src/fhirpath-go/fhirpath/system"
 )
 
 // EnvValueFromAny converts a Go value into a FHIRPath environment constant.

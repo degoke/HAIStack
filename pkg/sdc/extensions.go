@@ -44,29 +44,29 @@ const (
 	SDCCanonicalExtension          = SDCBaseURL + "sdc-questionnaire-canonical"
 	SDCSignatureRequiredExtension  = SDCBaseURL + "sdc-questionnaire-signatureRequired"
 
-	QuestionnaireResponseAuthorExtension       = FHIRBaseURL + "questionnaire-responseAuthor"
-	QuestionnaireResponseReviewerExtension     = FHIRBaseURL + "questionnaire-responseReviewer"
-	QuestionnaireResponseSignatureExtension    = FHIRBaseURL + "questionnaire-responseSignature"
-	QuestionnaireCompletionModeExtension       = FHIRBaseURL + "questionnaire-completionMode"
-	QuestionnaireResponseReasonExtension       = FHIRBaseURL + "questionnaireresponse-reason"
+	QuestionnaireResponseAuthorExtension    = FHIRBaseURL + "questionnaire-responseAuthor"
+	QuestionnaireResponseReviewerExtension  = FHIRBaseURL + "questionnaire-responseReviewer"
+	QuestionnaireResponseSignatureExtension = FHIRBaseURL + "questionnaire-responseSignature"
+	QuestionnaireCompletionModeExtension    = FHIRBaseURL + "questionnaire-completionMode"
+	QuestionnaireResponseReasonExtension    = FHIRBaseURL + "questionnaireresponse-reason"
 
-	SDCIsSubjectExtension          = SDCBaseURL + "sdc-questionnaire-isSubject"
+	SDCIsSubjectExtension         = SDCBaseURL + "sdc-questionnaire-isSubject"
 	SDCResponseIsSubjectExtension = SDCBaseURL + "sdc-questionnaireresponse-isSubject"
-	SDCKeyboardExtension           = SDCBaseURL + "sdc-questionnaire-keyboard"
-	SDCCandidateExpressionExt    = SDCBaseURL + "sdc-questionnaire-candidateExpression"
-	SDCEntryModeExtension          = SDCBaseURL + "sdc-questionnaire-entryMode"
-	SDCEndpointExtension           = SDCBaseURL + "sdc-questionnaire-endpoint"
-	SDCMinQuantityExtension        = SDCBaseURL + "sdc-questionnaire-minQuantity"
-	SDCMaxQuantityExtension        = SDCBaseURL + "sdc-questionnaire-maxQuantity"
-	SDCUnitOpenExtension           = SDCBaseURL + "sdc-questionnaire-unitOpen"
-	SDCSubQuestionnaireExtension   = SDCBaseURL + "sdc-questionnaire-subQuestionnaire"
-	SDCAnswerOptionToggleExprExt   = SDCBaseURL + "sdc-questionnaire-answerOptionToggleExpression"
-	SDCDefinitionExtractExtension  = SDCBaseURL + "sdc-questionnaire-definitionExtract"
-	SDCDefinitionExtractValueExt   = SDCBaseURL + "sdc-questionnaire-definitionExtractValue"
+	SDCKeyboardExtension          = SDCBaseURL + "sdc-questionnaire-keyboard"
+	SDCCandidateExpressionExt     = SDCBaseURL + "sdc-questionnaire-candidateExpression"
+	SDCEntryModeExtension         = SDCBaseURL + "sdc-questionnaire-entryMode"
+	SDCEndpointExtension          = SDCBaseURL + "sdc-questionnaire-endpoint"
+	SDCMinQuantityExtension       = SDCBaseURL + "sdc-questionnaire-minQuantity"
+	SDCMaxQuantityExtension       = SDCBaseURL + "sdc-questionnaire-maxQuantity"
+	SDCUnitOpenExtension          = SDCBaseURL + "sdc-questionnaire-unitOpen"
+	SDCSubQuestionnaireExtension  = SDCBaseURL + "sdc-questionnaire-subQuestionnaire"
+	SDCAnswerOptionToggleExprExt  = SDCBaseURL + "sdc-questionnaire-answerOptionToggleExpression"
+	SDCDefinitionExtractExtension = SDCBaseURL + "sdc-questionnaire-definitionExtract"
+	SDCDefinitionExtractValueExt  = SDCBaseURL + "sdc-questionnaire-definitionExtractValue"
 
-	TargetConstraintExtension      = FHIRBaseURL + "targetConstraint"
+	TargetConstraintExtension           = FHIRBaseURL + "targetConstraint"
 	QuestionnaireLookupQuestionnaireExt = FHIRBaseURL + "questionnaire-lookupQuestionnaire"
-	ItemWeightExtension            = FHIRBaseURL + "itemWeight"
+	ItemWeightExtension                 = FHIRBaseURL + "itemWeight"
 )
 
 // CodeableConcept is a lightweight FHIR CodeableConcept projection.
@@ -107,8 +107,8 @@ type Reference struct {
 
 // Signature is a questionnaire-responseSignature extension value.
 type Signature struct {
-	Type []Coding `json:"type,omitempty"`
-	When string `json:"when,omitempty"`
+	Type []Coding  `json:"type,omitempty"`
+	When string    `json:"when,omitempty"`
 	Who  Reference `json:"who,omitempty"`
 }
 

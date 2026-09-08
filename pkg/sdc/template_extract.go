@@ -9,17 +9,17 @@ import (
 
 const (
 	SDCExtractAllocateIDExt      = SDCBaseURL + "sdc-questionnaire-extractAllocateId"
-	SDCTemplateExtractExt          = SDCBaseURL + "sdc-questionnaire-templateExtract"
-	SDCTemplateExtractValueExt     = SDCBaseURL + "sdc-questionnaire-templateExtractValue"
-	SDCTemplateExtractContextExt   = SDCBaseURL + "sdc-questionnaire-templateExtractContext"
-	SDCTemplateExtractBundleExt    = SDCBaseURL + "sdc-questionnaire-templateExtractBundle"
-	SDCAssembleContextExt          = SDCBaseURL + "sdc-questionnaire-assembleContext"
-	SDCAssembleExpectationExt      = SDCBaseURL + "sdc-questionnaire-assemble-expectation"
-	SDCContextExpressionExt        = SDCBaseURL + "sdc-questionnaire-contextExpression"
-	SDCPerformerTypeExt            = SDCBaseURL + "sdc-questionnaire-performerType"
-	SDCChoiceColumnExt             = SDCBaseURL + "sdc-questionnaire-choiceColumn"
-	SDCItemOptionalDisplayExt      = SDCBaseURL + "sdc-questionnaire-itemOptionalDisplay"
-	SDCCQFLibraryExt               = SDCBaseURL + "sdc-questionnaire-cqf-library"
+	SDCTemplateExtractExt        = SDCBaseURL + "sdc-questionnaire-templateExtract"
+	SDCTemplateExtractValueExt   = SDCBaseURL + "sdc-questionnaire-templateExtractValue"
+	SDCTemplateExtractContextExt = SDCBaseURL + "sdc-questionnaire-templateExtractContext"
+	SDCTemplateExtractBundleExt  = SDCBaseURL + "sdc-questionnaire-templateExtractBundle"
+	SDCAssembleContextExt        = SDCBaseURL + "sdc-questionnaire-assembleContext"
+	SDCAssembleExpectationExt    = SDCBaseURL + "sdc-questionnaire-assemble-expectation"
+	SDCContextExpressionExt      = SDCBaseURL + "sdc-questionnaire-contextExpression"
+	SDCPerformerTypeExt          = SDCBaseURL + "sdc-questionnaire-performerType"
+	SDCChoiceColumnExt           = SDCBaseURL + "sdc-questionnaire-choiceColumn"
+	SDCItemOptionalDisplayExt    = SDCBaseURL + "sdc-questionnaire-itemOptionalDisplay"
+	SDCCQFLibraryExt             = SDCBaseURL + "sdc-questionnaire-cqf-library"
 )
 
 func parseTemplateExtract(ext Extension) (TemplateExtractContext, bool) {

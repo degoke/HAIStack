@@ -170,8 +170,8 @@ func TestConstraintSkippedWhenItemDisabled(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{
 		{LinkID: "trigger", Type: "boolean"},
 		{
-			LinkID: "dependent",
-			Type:   "string",
+			LinkID:     "dependent",
+			Type:       "string",
 			EnableWhen: []EnableWhen{{Question: "trigger", Operator: "=", Answer: true}},
 			Constraints: []ItemConstraint{{
 				Key:          "always-fail",

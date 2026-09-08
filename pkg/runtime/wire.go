@@ -333,8 +333,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
 		Options: sdc.ValidationOptions{
-			Expressions:   sdc.FHIRPathExpressions{Engine: engine},
-			Terminology:   sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
+			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 		},
 	}
 

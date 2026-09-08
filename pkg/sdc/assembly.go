@@ -14,9 +14,9 @@ type QuestionnaireResolver interface {
 	Resolve(context.Context, string) (Questionnaire, error)
 }
 type Assembler struct {
-	Resolver  QuestionnaireResolver
-	Context   map[string]any
-	Elements  DefinitionElementResolver
+	Resolver QuestionnaireResolver
+	Context  map[string]any
+	Elements DefinitionElementResolver
 }
 
 // AssembleResource performs modular assembly for a canonical Questionnaire

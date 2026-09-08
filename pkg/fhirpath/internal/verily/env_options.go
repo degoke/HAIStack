@@ -1,9 +1,9 @@
 package verily
 
 import (
+	"github.com/degoke/health-ai-stack/pkg/proto"
 	verilyfhirpath "github.com/verily-src/fhirpath-go/fhirpath"
 	"github.com/verily-src/fhirpath-go/fhirpath/evalopts"
-	"github.com/degoke/health-ai-stack/pkg/proto"
 )
 
 // EvalOptionsFromEnv builds verily evaluate options for SDC-style % constants.

@@ -101,7 +101,7 @@ func TestVariableContextInValidation(t *testing.T) {
 	q := Questionnaire{
 		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
 		Variables: []QuestionnaireVariable{{
-			Name: "threshold",
+			Name:       "threshold",
 			Expression: Expression{Language: "text/fhirpath", Expression: "5"},
 		}},
 		Item: []Item{{
@@ -414,15 +414,15 @@ func TestSequentialEntryModeValidation(t *testing.T) {
 
 func TestUnitOpenAllowsCustomUnit(t *testing.T) {
 	q := NewDraft("http://example/q", []Item{{
-		LinkID: "weight",
-		Type:   "quantity",
-		UnitOpen: "options-or-string",
+		LinkID:      "weight",
+		Type:        "quantity",
+		UnitOpen:    "options-or-string",
 		UnitOptions: []Coding{{Code: "kg", System: "http://unitsofmeasure.org"}},
 	}})
 	o := ValidateResponse(q, QuestionnaireResponse{
 		ResourceType: "QuestionnaireResponse",
 		Status:       "in-progress",
-		Item: []ResponseItem{{LinkID: "weight", Answer: []Answer{{Value: map[string]any{"value": 70, "code": "lb", "system": "http://unitsofmeasure.org"}}}}},
+		Item:         []ResponseItem{{LinkID: "weight", Answer: []Answer{{Value: map[string]any{"value": 70, "code": "lb", "system": "http://unitsofmeasure.org"}}}}},
 	}, ValidationOptions{})
 	for _, issue := range o.Issue {
 		if issue.Code == "code-invalid" && strings.Contains(issue.Diagnostics, "unit") {
@@ -437,8 +437,8 @@ func TestCandidateExpressionOnRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := NewDraft("http://example/q", []Item{{
-		LinkID: "ref",
-		Type:   "reference",
+		LinkID:              "ref",
+		Type:                "reference",
 		CandidateExpression: &Expression{Language: "text/fhirpath", Expression: "'Patient/1'"},
 	}})
 	model := RenderWithOptions(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"}, ValidationOptions{
@@ -458,8 +458,8 @@ func TestTemplateExtractUsesContainedResource(t *testing.T) {
 			"name":         []map[string]any{{"family": "Template"}},
 		}},
 		Item: []Item{{
-			LinkID: "patient",
-			Type:   "group",
+			LinkID:          "patient",
+			Type:            "group",
 			TemplateExtract: &TemplateExtractContext{TemplateReference: "#template"},
 			Item: []Item{{
 				LinkID:     "family",
@@ -553,7 +553,7 @@ func TestItemTargetConstraintValidation(t *testing.T) {
 func TestObservationLinkPeriodOnExtract(t *testing.T) {
 	q := Questionnaire{
 		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
-		ObservationExtract: true,
+		ObservationExtract:    true,
 		ObservationLinkPeriod: &Period{Start: "2024-01-01", End: "2024-12-31"},
 		Item: []Item{{
 			LinkID:     "obs",
@@ -608,10 +608,10 @@ func TestDefinitionPropagationOnAssemble(t *testing.T) {
 		"snapshot": map[string]any{
 			"element": []any{
 				map[string]any{
-					"id":        "Patient.name.family",
-					"short":     "Family name",
+					"id":         "Patient.name.family",
+					"short":      "Family name",
 					"definition": "Patient family name",
-					"maxLength": float64(40),
+					"maxLength":  float64(40),
 				},
 			},
 		},
