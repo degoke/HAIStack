@@ -112,6 +112,9 @@ type Item struct {
 	InputKeyboard         string           `json:"-"`
 	DisplayCategory       string           `json:"-"`
 	CandidateExpression   *Expression      `json:"-"`
+	Variables             []QuestionnaireVariable `json:"-"`
+	DefinitionExtract     *DefinitionExtractContext `json:"-"`
+	DefinitionExtractValues []DefinitionExtractValue `json:"-"`
 	LookupQuestionnaire   string           `json:"-"`
 	MinQuantity           *BoundValue      `json:"-"`
 	MaxQuantity           *BoundValue      `json:"-"`
@@ -528,9 +531,11 @@ type AnswerOption struct {
 	InitialSelected bool        `json:"initialSelected,omitempty"`
 	Value           any         `json:"-"`
 	ValueType       string      `json:"-"`
-	OptionPrefix    string      `json:"-"`
-	OptionWeight    *float64    `json:"-"`
-	Extension       []Extension `json:"extension,omitempty"`
+	OptionPrefix      string      `json:"-"`
+	OptionWeight      *float64    `json:"-"`
+	ToggleExpression  *Expression `json:"-"`
+	Disabled          bool        `json:"-"`
+	Extension         []Extension `json:"extension,omitempty"`
 	valueType          string
 	initialSelectedSet bool
 }
@@ -615,6 +620,12 @@ func (a AnswerOption) MarshalJSON() ([]byte, error) {
 	ext := append([]Extension(nil), a.Extension...)
 	if a.OptionPrefix != "" {
 		ext = upsertExtension(ext, Extension{URL: QuestionnaireOptionPrefixExtension, Value: a.OptionPrefix, valueType: "String"})
+	}
+	if a.ToggleExpression != nil {
+		ext = upsertExtension(ext, Extension{URL: SDCAnswerOptionToggleExprExt, Value: *a.ToggleExpression, valueType: "Expression"})
+	}
+	if a.OptionWeight != nil {
+		ext = upsertExtension(ext, Extension{URL: ItemWeightExtension, Value: *a.OptionWeight, valueType: "Decimal"})
 	}
 	if len(ext) > 0 {
 		m["extension"] = ext

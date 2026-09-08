@@ -61,6 +61,8 @@ const (
 	SDCUnitOpenExtension           = SDCBaseURL + "sdc-questionnaire-unitOpen"
 	SDCSubQuestionnaireExtension   = SDCBaseURL + "sdc-questionnaire-subQuestionnaire"
 	SDCAnswerOptionToggleExprExt   = SDCBaseURL + "sdc-questionnaire-answerOptionToggleExpression"
+	SDCDefinitionExtractExtension  = SDCBaseURL + "sdc-questionnaire-definitionExtract"
+	SDCDefinitionExtractValueExt   = SDCBaseURL + "sdc-questionnaire-definitionExtractValue"
 
 	TargetConstraintExtension      = FHIRBaseURL + "targetConstraint"
 	QuestionnaireLookupQuestionnaireExt = FHIRBaseURL + "questionnaire-lookupQuestionnaire"
@@ -396,6 +398,21 @@ func absorbItemBehaviorExtensions(it *Item) {
 				it.TargetConstraints = append(it.TargetConstraints, constraint)
 			}
 			continue
+		case SDCVariableExtension:
+			if v, ok := parseQuestionnaireVariable(ext); ok {
+				it.Variables = append(it.Variables, v)
+			}
+			continue
+		case SDCDefinitionExtractExtension:
+			if extract, ok := parseDefinitionExtract(ext); ok {
+				it.DefinitionExtract = &extract
+			}
+			continue
+		case SDCDefinitionExtractValueExt:
+			if value, ok := parseDefinitionExtractValue(ext); ok {
+				it.DefinitionExtractValues = append(it.DefinitionExtractValues, value)
+			}
+			continue
 		case SDCSubQuestionnaireExtension:
 			if v := extensionScalarString(ext); v != "" && it.Definition == "" {
 				it.Definition = v
@@ -422,6 +439,12 @@ func absorbAnswerOptionExtensions(opt *AnswerOption) {
 		if ext.URL == ItemWeightExtension {
 			if v, ok := extensionDecimal(ext); ok {
 				opt.OptionWeight = &v
+			}
+			continue
+		}
+		if ext.URL == SDCAnswerOptionToggleExprExt {
+			if expression, ok := extensionExpression(ext); ok {
+				opt.ToggleExpression = &expression
 			}
 			continue
 		}
@@ -526,6 +549,15 @@ func appendItemBehaviorExtensions(ext []Extension, it Item) []Extension {
 	}
 	if it.UnitOpen != "" {
 		ext = upsertExtension(ext, Extension{URL: SDCUnitOpenExtension, Value: it.UnitOpen, valueType: "Code"})
+	}
+	for _, variable := range it.Variables {
+		ext = append(ext, questionnaireVariableExtension(variable))
+	}
+	if it.DefinitionExtract != nil {
+		ext = upsertExtension(ext, definitionExtractExtension(*it.DefinitionExtract))
+	}
+	for _, value := range it.DefinitionExtractValues {
+		ext = append(ext, definitionExtractValueExtension(value))
 	}
 	for _, constraint := range it.TargetConstraints {
 		ext = append(ext, targetConstraintExtension(constraint))

@@ -2,6 +2,7 @@ package sdc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -12,6 +13,7 @@ import (
 type QuestionnaireExtractor struct {
 	Definition   DefinitionExtractor
 	StructureMap StructureMapExtractor
+	Expressions  ExpressionProvider
 }
 
 func (e QuestionnaireExtractor) Extract(ctx context.Context, q Questionnaire, r QuestionnaireResponse) (ExtractionResult, error) {
@@ -26,18 +28,50 @@ func (e QuestionnaireExtractor) Extract(ctx context.Context, q Questionnaire, r 
 		result.Diagnostics = append(result.Diagnostics, extractionDiagnostics(q)...)
 		return result, nil
 	}
+	provider := e.Expressions
+	if provider != nil {
+		provider = wrapExpressionProvider(ctx, q, r, ValidationOptions{Expressions: provider}, provider)
+	}
+	extractEntries, err := definitionExtractBundleEntries(ctx, q, r, provider)
+	if err != nil {
+		return ExtractionResult{}, err
+	}
 	def := e.Definition
 	mappings := append([]DefinitionMap(nil), def.Mappings...)
 	mappings = append(mappings, definitionMapsFromQuestionnaire(q)...)
-	if len(mappings) == 0 {
+	if len(mappings) == 0 && len(extractEntries) == 0 {
 		return ExtractionResult{}, fmt.Errorf("no extraction mappings available")
 	}
-	def.Mappings = mappings
-	result, err := def.Extract(ctx, q, r)
-	if err != nil {
-		return result, err
+	var entries []map[string]any
+	if len(mappings) > 0 {
+		def.Mappings = mappings
+		result, err := def.Extract(ctx, q, r)
+		if err != nil {
+			return result, err
+		}
+		if result.Bundle != nil {
+			var bundle map[string]any
+			if err := json.Unmarshal(result.Bundle.JSON, &bundle); err == nil {
+				if rawEntries, ok := bundle["entry"].([]any); ok {
+					for _, entry := range rawEntries {
+						if m, ok := entry.(map[string]any); ok {
+							entries = append(entries, m)
+						}
+					}
+				}
+			}
+		}
 	}
+	entries = append(entries, extractEntries...)
+	env, err := transactionEnvelope(entries)
+	if err != nil {
+		return ExtractionResult{}, err
+	}
+	result := ExtractionResult{Bundle: env}
 	result.Diagnostics = append(result.Diagnostics, extractionDiagnostics(q)...)
+	if len(extractEntries) > 0 {
+		result.Diagnostics = append(result.Diagnostics, ExtractionDiagnostic{Severity: "information", Message: "extracted using definitionExtract"})
+	}
 	return result, nil
 }
 

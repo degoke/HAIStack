@@ -142,11 +142,13 @@ func validateAnswerValueConstraints(o *Outcome, item *Item, answer Answer, path 
 	}
 }
 
-func validateItemInvariantConstraints(o *Outcome, item *Item, response QuestionnaireResponse, opts ValidationOptions, path string) {
+func validateItemInvariantConstraints(o *Outcome, item *Item, q Questionnaire, response QuestionnaireResponse, opts ValidationOptions, path string) {
 	if len(item.Constraints) == 0 {
 		return
 	}
-	if opts.Expressions == nil {
+	ancestors := questionnaireAncestors(q, item.LinkID)
+	provider := expressionProviderWithAncestors(context.Background(), opts.Expressions, ancestors, response)
+	if provider == nil {
 		for _, constraint := range item.Constraints {
 			if constraint.Expression != "" {
 				o.add("error", "exception", "questionnaire-constraint expression provider is unavailable", path)
@@ -159,7 +161,7 @@ func validateItemInvariantConstraints(o *Outcome, item *Item, response Questionn
 		if constraint.Expression == "" {
 			continue
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), Expression{
+		values, err := provider.Evaluate(context.Background(), Expression{
 			Language:   "text/fhirpath",
 			Expression: constraint.Expression,
 		}, response)

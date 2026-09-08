@@ -152,7 +152,7 @@ func validateQuantityAnswer(o *Outcome, item *Item, answer Answer, opts Validati
 				break
 			}
 		}
-		if !matched {
+		if !matched && !unitOpenAllows(item, qty) {
 			o.add("error", "code-invalid", "quantity unit is not one of the permitted unit options", path)
 		}
 	}

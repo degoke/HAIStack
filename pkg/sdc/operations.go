@@ -218,7 +218,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 			if _, ok := expected[responseItem.LinkID]; !ok {
 				o.add("error", "structure", "response item is not allowed at this level", p)
 			}
-			validateResponseItem(&o, d, responseItem, r, opts, p)
+			validateResponseItem(&o, q, d, responseItem, r, opts, p)
 			if d.Type == "group" || d.Type == "display" || d.Type == "question" {
 				validateLevel(d.Item, responseItem.Item, p+".")
 			}
@@ -237,7 +237,7 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 					o.add("error", "required", "required answer is missing", path+"item["+item.LinkID+"]")
 				}
 				if enabled {
-					validateItemInvariantConstraints(&o, &item, r, opts, path+"item["+item.LinkID+"]")
+					validateItemInvariantConstraints(&o, &item, q, r, opts, path+"item["+item.LinkID+"]")
 					validateRequiredExpression(&o, &item, r, opts, path+"item["+item.LinkID+"]", false)
 				}
 			} else if !item.Repeats && len(matches) > 1 {
@@ -246,11 +246,12 @@ func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationO
 		}
 	}
 	validateLevel(q.Item, r.Item, "")
+	validateEntryMode(q, r, opts, &o)
 	validateQuestionnaireResponseMetadata(q, r, &o)
 	return o
 }
 
-func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r QuestionnaireResponse, opts ValidationOptions, path string) {
+func validateResponseItem(o *Outcome, q Questionnaire, d *Item, responseItem *ResponseItem, r QuestionnaireResponse, opts ValidationOptions, path string) {
 	enabled, expressionErr := enabledForValidationOutcome(*d, r, opts)
 	if expressionErr != nil {
 		o.add("error", "exception", expressionErr.Error(), path)
@@ -304,7 +305,8 @@ func validateResponseItem(o *Outcome, d *Item, responseItem *ResponseItem, r Que
 	if enabled {
 		validateOptionExclusive(o, d, responseItem, path)
 		validateChildOccurs(o, *d, responseItem, path)
-		validateItemInvariantConstraints(o, d, r, opts, path)
+		validateItemInvariantConstraints(o, d, q, r, opts, path)
+		validateAnswerOptionsEnabled(o, d, q, r, opts, path)
 	}
 }
 
@@ -534,21 +536,22 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 		r.Authored = pc.InitialResponse.Authored
 		r.Item = append([]ResponseItem(nil), pc.InitialResponse.Item...)
 	}
-	var fill func([]Item, []ResponseItem) []ResponseItem
-	fill = func(items []Item, old []ResponseItem) []ResponseItem {
+	var fill func([]Item, []ResponseItem, []Item) []ResponseItem
+	fill = func(items []Item, old []ResponseItem, ancestors []Item) []ResponseItem {
 		for _, it := range items {
 			ri := findResponse(old, it.LinkID)
 			if ri == nil {
 				old = append(old, ResponseItem{LinkID: it.LinkID, Text: it.Text})
 				ri = &old[len(old)-1]
 			}
+			itemProvider := expressionProviderWithAncestors(ctx, pc.Provider, ancestors, populationExpressionInput(pc))
 			if !hasPresentAnswers(ri.Answer) {
 				ri.Answer = append(ri.Answer, it.Initial...)
 				if it.InitialExpression != nil {
-					if pc.Provider == nil {
+					if itemProvider == nil {
 						o.add("error", "exception", "initial expression provider is unavailable", it.LinkID)
 					} else {
-						vs, e := pc.Provider.Evaluate(ctx, *it.InitialExpression, populationExpressionInput(pc))
+						vs, e := itemProvider.Evaluate(ctx, *it.InitialExpression, populationExpressionInput(pc))
 						if e != nil {
 							o.add("error", "exception", e.Error(), it.LinkID)
 						}
@@ -559,9 +562,9 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 				}
 			}
 			if it.AnswerExpression != nil && !hasPresentAnswers(ri.Answer) {
-				if pc.Provider == nil {
+				if itemProvider == nil {
 					o.add("error", "exception", "answer expression provider is unavailable", it.LinkID)
-				} else if vs, e := pc.Provider.Evaluate(ctx, *it.AnswerExpression, populationExpressionInput(pc)); e != nil {
+				} else if vs, e := itemProvider.Evaluate(ctx, *it.AnswerExpression, populationExpressionInput(pc)); e != nil {
 					o.add("error", "exception", e.Error(), it.LinkID)
 				} else {
 					for _, v := range vs {
@@ -569,18 +572,28 @@ func Populate(ctx context.Context, q Questionnaire, pc PopulationContext) (*Ques
 					}
 				}
 			}
+			if it.CandidateExpression != nil && !hasPresentAnswers(ri.Answer) && itemProvider != nil {
+				if vs, e := itemProvider.Evaluate(ctx, *it.CandidateExpression, populationExpressionInput(pc)); e != nil {
+					o.add("error", "exception", e.Error(), it.LinkID)
+				} else if len(vs) > 0 && len(it.AnswerOption) == 0 {
+					for _, v := range vs {
+						ri.Answer = append(ri.Answer, Answer{Value: v})
+					}
+				}
+			}
+			childAncestors := append(append([]Item(nil), ancestors...), it)
 			if it.ItemPopulationContext != nil {
-				if pc.Provider == nil {
+				if itemProvider == nil {
 					o.add("error", "exception", "item population context provider is unavailable", it.LinkID)
-				} else if _, e := pc.Provider.Evaluate(ctx, *it.ItemPopulationContext, populationExpressionInput(pc)); e != nil {
+				} else if _, e := itemProvider.Evaluate(ctx, *it.ItemPopulationContext, populationExpressionInput(pc)); e != nil {
 					o.add("error", "exception", e.Error(), it.LinkID)
 				}
 			}
-			ri.Item = fill(it.Item, ri.Item)
+			ri.Item = fill(it.Item, ri.Item, childAncestors)
 		}
 		return old
 	}
-	r.Item = fill(q.Item, r.Item)
+	r.Item = fill(q.Item, r.Item, nil)
 	return r, o
 }
 func populationRoot(pc PopulationContext) any {
@@ -818,6 +831,7 @@ type FieldState struct {
 	RequiredExpression  *Expression
 	Answers             []Answer
 	Options             []AnswerOption
+	Candidates          []any
 	Issues              []Issue
 	Media               []Attachment
 	ItemControl         string
@@ -892,7 +906,9 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 	if q.EntryMode != "" {
 		m.EntryMode = q.EntryMode
 	}
+	opts = validationOptionsWithContext(context.Background(), q, r, opts)
 	validation := ValidateResponse(q, r, opts)
+	ctx := context.Background()
 	var walk func([]Item)
 	walk = func(items []Item) {
 		for _, it := range items {
@@ -936,7 +952,8 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 				FHIRType:           it.FHIRType,
 				BaseType:           it.BaseType,
 				RequiredExpression: it.RequiredExpression,
-				Options:            it.AnswerOption,
+				Options:            effectiveAnswerOptions(ctx, q, it, r, opts),
+				Candidates:         evaluateCandidates(ctx, q, it, r, opts),
 				Media:              it.Media,
 				ItemControl:        extensionString(it.Extension, QuestionnaireItemControlExtension),
 				EntryFormat:        extensionString(it.Extension, QuestionnaireEntryFormatExtension),

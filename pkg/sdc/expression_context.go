@@ -104,6 +104,14 @@ func (e ExpressionEnvironment) envMap() map[string]any {
 	if e.Context != nil {
 		env["context"] = e.Context
 	}
+	if e.QItem != nil {
+		switch item := e.QItem.(type) {
+		case Item:
+			env["qitem"] = item
+		default:
+			env["qitem"] = e.QItem
+		}
+	}
 	for name, value := range e.Constants {
 		env[name] = value
 	}

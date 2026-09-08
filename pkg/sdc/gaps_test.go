@@ -254,18 +254,6 @@ func TestParametersParsing(t *testing.T) {
 	}
 }
 
-func TestUsageModeRespectsResponseStatus(t *testing.T) {
-	q := NewDraft("http://example/q", []Item{{LinkID: "score", Type: "string", UsageMode: "display"}})
-	capture := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"})
-	if capture.Fields[0].Visible {
-		t.Fatal("display item should be hidden during capture")
-	}
-	display := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "completed"})
-	if !display.Fields[0].Visible {
-		t.Fatal("display item should be visible when completed")
-	}
-}
-
 func TestDefinitionExtractionFromItemDefinition(t *testing.T) {
 	q := Questionnaire{
 		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
@@ -287,5 +275,175 @@ func TestDefinitionExtractionFromItemDefinition(t *testing.T) {
 	}
 	if result.Bundle == nil || !strings.Contains(string(result.Bundle.JSON), "Observation") {
 		t.Fatalf("expected observation extraction bundle: %s", result.Bundle.JSON)
+	}
+}
+
+func TestUsageModeRespectsResponseStatus(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{LinkID: "score", Type: "string", UsageMode: "display"}})
+	capture := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"})
+	if capture.Fields[0].Visible {
+		t.Fatal("display item should be hidden during capture")
+	}
+	display := Render(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "completed"})
+	if !display.Fields[0].Visible {
+		t.Fatal("display item should be visible when completed")
+	}
+}
+
+func TestAnswerOptionToggleExpression(t *testing.T) {
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "color",
+		Type:   "choice",
+		AnswerOption: []AnswerOption{
+			{Value: Coding{Code: "red"}, ValueType: "Coding"},
+			{Value: Coding{Code: "blue"}, ValueType: "Coding", ToggleExpression: &Expression{Language: "text/fhirpath", Expression: "false"}},
+		},
+	}})
+	model := RenderWithOptions(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"}, ValidationOptions{
+		Expressions: FHIRPathExpressions{Engine: engine},
+	})
+	if len(model.Fields[0].Options) != 2 || !model.Fields[0].Options[1].Disabled {
+		t.Fatalf("expected disabled option: %#v", model.Fields[0].Options)
+	}
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item:         []ResponseItem{{LinkID: "color", Answer: []Answer{{Value: Coding{Code: "blue"}, ValueType: "Coding"}}}},
+	}, ValidationOptions{Expressions: FHIRPathExpressions{Engine: engine}})
+	for _, issue := range o.Issue {
+		if issue.Code == "code-invalid" && strings.Contains(issue.Diagnostics, "disabled") {
+			return
+		}
+	}
+	t.Fatalf("expected disabled option validation issue: %#v", o.Issue)
+}
+
+func TestItemPopulationContextScopesDescendants(t *testing.T) {
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		Item: []Item{{
+			LinkID: "group",
+			Type:   "group",
+			ItemPopulationContext: &Expression{
+				Language: "text/fhirpath", Expression: "'ctx'", Name: "ctx",
+			},
+			Item: []Item{{
+				LinkID: "detail",
+				Type:   "string",
+				Constraints: []ItemConstraint{{
+					Key: "ctx-check", Expression: "%ctx = 'ctx'", Severity: "error",
+				}},
+			}},
+		}},
+	}
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item: []ResponseItem{{LinkID: "group", Item: []ResponseItem{{
+			LinkID: "detail", Answer: []Answer{{Value: "ok"}},
+		}}}},
+	}, ValidationOptions{Expressions: FHIRPathExpressions{Engine: engine}})
+	for _, issue := range o.Issue {
+		if issue.Code == "invariant" {
+			t.Fatalf("item population context should satisfy descendant constraint: %#v", o.Issue)
+		}
+	}
+}
+
+func TestDefinitionExtractGroup(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active",
+		Item: []Item{{
+			LinkID: "patient",
+			Type:   "group",
+			DefinitionExtract: &DefinitionExtractContext{
+				Definition: "http://hl7.org/fhir/StructureDefinition/Patient",
+			},
+			Item: []Item{{
+				LinkID:     "given",
+				Type:       "string",
+				Definition: "http://hl7.org/fhir/StructureDefinition/Patient#Patient.name.given",
+			}},
+		}},
+	}
+	r := QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item: []ResponseItem{{LinkID: "patient", Item: []ResponseItem{{
+			LinkID: "given", Answer: []Answer{{Value: "Ada"}},
+		}}}},
+	}
+	result, err := QuestionnaireExtractor{}.Extract(context.Background(), q, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bundle == nil || !strings.Contains(string(result.Bundle.JSON), "Ada") {
+		t.Fatalf("expected definitionExtract bundle: %s", result.Bundle.JSON)
+	}
+}
+
+func TestSequentialEntryModeValidation(t *testing.T) {
+	q := Questionnaire{
+		ResourceType: "Questionnaire", URL: "http://example/q", Status: "active", EntryMode: "sequential",
+		Item: []Item{
+			{LinkID: "first", Type: "string", Required: true},
+			{LinkID: "second", Type: "string", Required: true},
+		},
+	}
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item:         []ResponseItem{{LinkID: "second", Answer: []Answer{{Value: "late"}}}},
+	}, ValidationOptions{})
+	for _, issue := range o.Issue {
+		if issue.Code == "invariant" && strings.Contains(issue.Diagnostics, "sequential") {
+			return
+		}
+	}
+	t.Fatalf("expected sequential entry mode issue: %#v", o.Issue)
+}
+
+func TestUnitOpenAllowsCustomUnit(t *testing.T) {
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "weight",
+		Type:   "quantity",
+		UnitOpen: "options-or-string",
+		UnitOptions: []Coding{{Code: "kg", System: "http://unitsofmeasure.org"}},
+	}})
+	o := ValidateResponse(q, QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+		Item: []ResponseItem{{LinkID: "weight", Answer: []Answer{{Value: map[string]any{"value": 70, "code": "lb", "system": "http://unitsofmeasure.org"}}}}},
+	}, ValidationOptions{})
+	for _, issue := range o.Issue {
+		if issue.Code == "code-invalid" && strings.Contains(issue.Diagnostics, "unit") {
+			t.Fatalf("unitOpen should allow custom unit: %#v", o.Issue)
+		}
+	}
+}
+
+func TestCandidateExpressionOnRender(t *testing.T) {
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewDraft("http://example/q", []Item{{
+		LinkID: "ref",
+		Type:   "reference",
+		CandidateExpression: &Expression{Language: "text/fhirpath", Expression: "'Patient/1'"},
+	}})
+	model := RenderWithOptions(q, QuestionnaireResponse{ResourceType: "QuestionnaireResponse", Status: "in-progress"}, ValidationOptions{
+		Expressions: FHIRPathExpressions{Engine: engine},
+	})
+	if len(model.Fields[0].Candidates) == 0 {
+		t.Fatalf("expected candidates: %#v", model.Fields[0])
 	}
 }
