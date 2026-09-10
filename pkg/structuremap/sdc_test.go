@@ -13,7 +13,7 @@ func TestQuestionnaireExtractorUsesStructureMapEngine(t *testing.T) {
 	mapURL := "http://example.org/sdc/StructureMap/example-extraction"
 	extractor := NewExtractor(Config{
 		Resolver: StaticResolver{mapURL: exampleExtractionMap(mapURL)},
-		Engine:   Engine{},
+		Engine:   testEngine(),
 	})
 	q := sdc.Questionnaire{
 		ResourceType:       "Questionnaire",
@@ -51,7 +51,7 @@ func TestQuestionnaireExtractorUsesStructureMapEngine(t *testing.T) {
 func TestQuestionnaireExtractorReportsMissingMap(t *testing.T) {
 	extractor := NewExtractor(Config{
 		Resolver: StaticResolver{},
-		Engine:   Engine{},
+		Engine:   testEngine(),
 	})
 	q := sdc.Questionnaire{
 		ResourceType:       "Questionnaire",
@@ -119,7 +119,7 @@ func exampleExtractionMap(url string) Map {
 func TestExtractorRunProducesJSONResources(t *testing.T) {
 	run := ExtractorRun(Config{
 		Resolver: StaticResolver{"http://example/map": exampleExtractionMap("http://example/map")},
-		Engine:   Engine{},
+		Engine:   testEngine(),
 	})
 	raw, err := run(context.Background(), sdc.Questionnaire{
 		ResourceType:       "Questionnaire",

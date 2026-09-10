@@ -30,7 +30,7 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 	if err != nil {
 		return nil, err
 	}
-	sourceSystem, sourceCode := codingParts(req.Source)
+	sourceSystem, sourceCode, sourceDisplay := codingParts(req.Source)
 	if sourceCode == "" {
 		return nil, fmt.Errorf("translate source coding is required")
 	}
@@ -42,10 +42,12 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 		if sourceSystem != "" && group.Source != "" && group.Source != sourceSystem {
 			continue
 		}
+		groupMatched := false
 		for _, element := range group.Element {
 			if element.Code != sourceCode {
 				continue
 			}
+			groupMatched = true
 			if element.NoMap {
 				return nil, fmt.Errorf("ConceptMap %s marks source code %q as no-map", req.MapCanonical, sourceCode)
 			}
@@ -53,27 +55,16 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 				if !acceptableEquivalence(target.Equivalence, target.Relationship) {
 					continue
 				}
-				coding := map[string]any{"code": target.Code}
-				if group.Target != "" {
-					coding["system"] = group.Target
-				}
-				if target.Display != "" {
-					coding["display"] = target.Display
-				}
-				matches = append(matches, coding)
+				matches = append(matches, targetCoding(group, target))
 			}
 		}
-		if len(matches) == 0 && group.Unmapped != nil {
-			switch strings.ToLower(group.Unmapped.Mode) {
-			case "fixed":
-				coding := map[string]any{"code": group.Unmapped.Code}
-				if group.Target != "" {
-					coding["system"] = group.Target
-				}
-				if group.Unmapped.Display != "" {
-					coding["display"] = group.Unmapped.Display
-				}
-				matches = append(matches, coding)
+		if !groupMatched {
+			unmapped, err := unmappedCoding(group, req.Source, sourceSystem, sourceCode, sourceDisplay)
+			if err != nil {
+				return nil, err
+			}
+			if unmapped != nil {
+				matches = append(matches, unmapped)
 			}
 		}
 	}
@@ -83,9 +74,61 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 	return matches, nil
 }
 
-func codingParts(coding map[string]any) (system, code string) {
+func targetCoding(group Group, target Target) map[string]any {
+	coding := map[string]any{"code": target.Code}
+	if group.Target != "" {
+		coding["system"] = group.Target
+	}
+	if target.Display != "" {
+		coding["display"] = target.Display
+	}
+	return coding
+}
+
+func unmappedCoding(group Group, source map[string]any, sourceSystem, sourceCode, sourceDisplay string) (map[string]any, error) {
+	if group.Unmapped == nil {
+		return nil, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(group.Unmapped.Mode)) {
+	case "fixed":
+		coding := map[string]any{"code": group.Unmapped.Code}
+		if group.Target != "" {
+			coding["system"] = group.Target
+		}
+		if group.Unmapped.Display != "" {
+			coding["display"] = group.Unmapped.Display
+		}
+		return coding, nil
+	case "provided":
+		coding := map[string]any{"code": sourceCode}
+		if sourceSystem != "" {
+			coding["system"] = sourceSystem
+		} else if group.Source != "" {
+			coding["system"] = group.Source
+		}
+		if sourceDisplay != "" {
+			coding["display"] = sourceDisplay
+		}
+		return coding, nil
+	case "use-source-code":
+		coding := map[string]any{"code": sourceCode}
+		if group.Target != "" {
+			coding["system"] = group.Target
+		}
+		if sourceDisplay != "" {
+			coding["display"] = sourceDisplay
+		}
+		return coding, nil
+	case "disabled":
+		return nil, fmt.Errorf("ConceptMap group has unmapped mode disabled for code %q", sourceCode)
+	default:
+		return nil, nil
+	}
+}
+
+func codingParts(coding map[string]any) (system, code, display string) {
 	if coding == nil {
-		return "", ""
+		return "", "", ""
 	}
 	if v, ok := coding["system"].(string); ok {
 		system = v
@@ -93,7 +136,10 @@ func codingParts(coding map[string]any) (system, code string) {
 	if v, ok := coding["code"].(string); ok {
 		code = v
 	}
-	return system, code
+	if v, ok := coding["display"].(string); ok {
+		display = v
+	}
+	return system, code, display
 }
 
 func acceptableEquivalence(equivalence, relationship string) bool {

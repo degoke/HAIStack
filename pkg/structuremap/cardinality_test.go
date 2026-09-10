@@ -56,11 +56,11 @@ func TestAssignElementValueUsesStructureDefinitionCardinality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cardinality := &StoreCardinalityResolver{Store: memDefinitionStore{
+	cardinality := newMapCardinalityResolver(memDefinitionStore{
 		records: map[string][]byte{
 			"http://hl7.org/fhir/StructureDefinition/Observation": raw,
 		},
-	}}
+	}, Map{})
 	obs := map[string]any{"resourceType": "Observation"}
 	if err := assignElementValue(context.Background(), obs, []string{"code"}, map[string]any{"text": "weight"}, nil, cardinality); err != nil {
 		t.Fatal(err)
@@ -75,6 +75,138 @@ func TestAssignElementValueUsesStructureDefinitionCardinality(t *testing.T) {
 	if !ok || len(components) != 1 {
 		t.Fatalf("expected Observation.component array, got %#v", obs["component"])
 	}
+}
+
+func TestMapCardinalityResolverUsesProfileStructure(t *testing.T) {
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/single-component-observation",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation":                 baseSD,
+		"http://example.org/StructureDefinition/single-component-observation": profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{
+		Structure: []Structure{{
+			URL:  "http://example.org/StructureDefinition/single-component-observation",
+			Mode: "target",
+		}},
+	})
+	obs := map[string]any{"resourceType": "Observation"}
+	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.component")
+	if !ok || repeating {
+		t.Fatalf("expected profile-constrained singular component, got ok=%v repeating=%v", ok, repeating)
+	}
+}
+
+func TestMapCardinalityResolverUsesMetaProfile(t *testing.T) {
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/single-component-observation",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation":                 baseSD,
+		"http://example.org/StructureDefinition/single-component-observation": profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	obs := map[string]any{
+		"resourceType": "Observation",
+		"meta": map[string]any{
+			"profile": []any{"http://example.org/StructureDefinition/single-component-observation"},
+		},
+	}
+	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.component")
+	if !ok || repeating {
+		t.Fatalf("expected meta.profile singular component, got ok=%v repeating=%v", ok, repeating)
+	}
+}
+
+func TestMapCardinalityResolverCacheIsPerExecution(t *testing.T) {
+	store := testDefinitionStore()
+	first := newMapCardinalityResolver(store, Map{})
+	second := newMapCardinalityResolver(store, Map{})
+	if first == second {
+		t.Fatal("expected distinct per-map resolver instances")
+	}
+}
+
+func testDefinitionStore() memDefinitionStore {
+	patientSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Patient",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Patient", "max": "1"},
+				map[string]any{"path": "Patient.name", "max": "*"},
+				map[string]any{"path": "Patient.name.given", "max": "*"},
+				map[string]any{"path": "Patient.identifier", "max": "*"},
+				map[string]any{"path": "Patient.gender", "max": "1"},
+			},
+		},
+	})
+	observationSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation", "max": "1"},
+				map[string]any{"path": "Observation.code", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	bundleSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Bundle",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Bundle", "max": "1"},
+				map[string]any{"path": "Bundle.entry", "max": "*"},
+			},
+		},
+	})
+	return memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Patient":      patientSD,
+		"http://hl7.org/fhir/StructureDefinition/Observation": observationSD,
+		"http://hl7.org/fhir/StructureDefinition/Bundle":      bundleSD,
+	}}
+}
+
+func testEngine() Engine {
+	return Engine{Cardinality: &StoreCardinalityResolver{Store: testDefinitionStore()}}
 }
 
 type memDefinitionStore struct {

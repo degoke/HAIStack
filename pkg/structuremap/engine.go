@@ -43,7 +43,8 @@ func (e Engine) Execute(ctx context.Context, m Map, inputs ExecuteInput) ([]json
 			vars[in.Name] = newTypedInstance(in.Type)
 		}
 	}
-	if err := e.executeRules(ctx, m, group.Rule, vars); err != nil {
+	cardinality := e.cardinalityForMap(m)
+	if err := e.executeRules(ctx, m, group.Rule, vars, cardinality); err != nil {
 		return nil, err
 	}
 	return collectOutputs(group.Input, vars)
@@ -63,12 +64,12 @@ func entryGroup(m Map) (*Group, error) {
 	return &m.Group[0], nil
 }
 
-func (e Engine) executeRules(ctx context.Context, m Map, rules []Rule, vars map[string]any) error {
+func (e Engine) executeRules(ctx context.Context, m Map, rules []Rule, vars map[string]any, cardinality CardinalityResolver) error {
 	for _, rule := range rules {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.executeRule(ctx, m, rule, vars); err != nil {
+		if err := e.executeRule(ctx, m, rule, vars, cardinality); err != nil {
 			if rule.Name != "" {
 				return fmt.Errorf("rule %q: %w", rule.Name, err)
 			}
@@ -78,7 +79,7 @@ func (e Engine) executeRules(ctx context.Context, m Map, rules []Rule, vars map[
 	return nil
 }
 
-func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[string]any) error {
+func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[string]any, cardinality CardinalityResolver) error {
 	sourceBindings, err := e.bindSources(ctx, rule.Source, vars)
 	if err != nil {
 		return err
@@ -107,16 +108,16 @@ func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[stri
 				scope[name] = values
 			}
 		}
-		if err := e.applyTargets(ctx, rule.Target, scope, firstSourceValue(sourceBindings, i)); err != nil {
+		if err := e.applyTargets(ctx, rule.Target, scope, firstSourceValue(sourceBindings, i), cardinality); err != nil {
 			return err
 		}
 		if len(rule.Rule) > 0 {
-			if err := e.executeRules(ctx, m, rule.Rule, scope); err != nil {
+			if err := e.executeRules(ctx, m, rule.Rule, scope, cardinality); err != nil {
 				return err
 			}
 		}
 		for _, dep := range rule.Dependent {
-			if err := e.invokeGroup(ctx, m, dep, scope); err != nil {
+			if err := e.invokeGroup(ctx, m, dep, scope, cardinality); err != nil {
 				return err
 			}
 		}
@@ -262,7 +263,7 @@ func evaluateSimpleCondition(object map[string]any, condition string) bool {
 	return false
 }
 
-func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[string]any, sourceValue any) error {
+func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[string]any, sourceValue any, cardinality CardinalityResolver) error {
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -284,7 +285,7 @@ func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[str
 		if !ok {
 			return fmt.Errorf("target context %q is not an object", target.Context)
 		}
-		if err := assignElementValue(ctx, root, target.Element, value, target.ListMode, e.Cardinality); err != nil {
+		if err := assignElementValue(ctx, root, target.Element, value, target.ListMode, cardinality); err != nil {
 			return err
 		}
 	}
@@ -304,7 +305,7 @@ func (e Engine) resolveTargetValue(ctx context.Context, target Target, vars map[
 	return map[string]any{}, nil
 }
 
-func (e Engine) invokeGroup(ctx context.Context, m Map, dep Dependent, vars map[string]any) error {
+func (e Engine) invokeGroup(ctx context.Context, m Map, dep Dependent, vars map[string]any, cardinality CardinalityResolver) error {
 	group := findGroup(m, dep.Name)
 	if group == nil {
 		return fmt.Errorf("StructureMap group %q not found", dep.Name)
@@ -325,7 +326,7 @@ func (e Engine) invokeGroup(ctx context.Context, m Map, dep Dependent, vars map[
 			}
 		}
 	}
-	if err := e.executeRules(ctx, m, group.Rule, scope); err != nil {
+	if err := e.executeRules(ctx, m, group.Rule, scope, cardinality); err != nil {
 		return err
 	}
 	for key, value := range scope {

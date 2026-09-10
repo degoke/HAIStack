@@ -2,6 +2,7 @@ package structuremap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"strconv"
@@ -64,26 +65,23 @@ func (e Engine) applyTransform(ctx context.Context, transform string, params []P
 		}
 		return map[string]any{"coding": []any{coding}}, nil
 	case "c":
+		if len(params) < 2 {
+			return nil, fmt.Errorf("c transform requires system and code parameters")
+		}
 		coding := map[string]any{}
-		if len(params) > 0 {
-			system, err := parameterLiteral(params[0], vars)
-			if err != nil {
-				return nil, err
-			}
-			if len(params) > 1 {
-				if system != "" {
-					coding["system"] = system
-				}
-				code, err := parameterLiteral(params[1], vars)
-				if err != nil {
-					return nil, err
-				}
-				if code != "" {
-					coding["code"] = code
-				}
-			} else if system != "" {
-				coding["code"] = system
-			}
+		system, err := parameterLiteral(params[0], vars)
+		if err != nil {
+			return nil, err
+		}
+		if system != "" {
+			coding["system"] = system
+		}
+		code, err := parameterLiteral(params[1], vars)
+		if err != nil {
+			return nil, err
+		}
+		if code != "" {
+			coding["code"] = code
 		}
 		if len(params) > 2 {
 			display, err := parameterLiteral(params[2], vars)
@@ -268,34 +266,22 @@ func (e Engine) applyTransform(ctx context.Context, transform string, params []P
 }
 
 func (e Engine) applyTranslateTransform(ctx context.Context, params []Parameter, vars map[string]any, sourceValue any) (any, error) {
+	source, mapCanonical, targetSystem, err := parseTranslateParams(params, vars, sourceValue)
+	if err != nil {
+		return nil, err
+	}
 	if e.Translator.Resolver == nil {
 		return applyTranslateFallback(params, vars, sourceValue)
 	}
-	source := codingFromValue(sourceValue)
-	mapCanonical := ""
-	targetSystem := ""
-	switch len(params) {
-	case 0:
-		return applyTranslateFallback(params, vars, sourceValue)
-	case 1:
-		mapCanonical, _ = parameterLiteral(params[0], vars)
-	default:
-		value, err := resolveParameter(params[0], vars)
-		if err != nil {
-			return nil, err
-		}
-		source = codingFromValue(value)
-		mapCanonical, _ = parameterLiteral(params[1], vars)
-		if len(params) > 2 {
-			targetSystem, _ = parameterLiteral(params[2], vars)
-		}
-	}
 	if mapCanonical == "" {
-		return applyTranslateFallback(params, vars, sourceValue)
+		return nil, fmt.Errorf("translate transform requires a ConceptMap canonical URL parameter")
+	}
+	if codingFromValue(source)["code"] == nil {
+		return nil, fmt.Errorf("translate transform requires a source coding parameter or context value")
 	}
 	codings, err := e.Translator.Translate(ctx, conceptmap.TranslateRequest{
 		MapCanonical: mapCanonical,
-		Source:       source,
+		Source:       codingFromValue(source),
 		TargetSystem: targetSystem,
 	})
 	if err != nil {
@@ -309,6 +295,38 @@ func (e Engine) applyTranslateTransform(ctx context.Context, params []Parameter,
 		out[i] = coding
 	}
 	return map[string]any{"coding": out}, nil
+}
+
+func parseTranslateParams(params []Parameter, vars map[string]any, sourceValue any) (source any, mapCanonical, targetSystem string, err error) {
+	source = sourceValue
+	switch len(params) {
+	case 0:
+		return sourceValue, "", "", fmt.Errorf("translate transform requires parameters")
+	case 1:
+		mapCanonical, err = parameterLiteral(params[0], vars)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if codingFromValue(sourceValue)["code"] == nil {
+			return nil, "", "", fmt.Errorf("translate with one parameter requires source coding from rule context")
+		}
+	default:
+		source, err = resolveParameter(params[0], vars)
+		if err != nil {
+			return nil, "", "", err
+		}
+		mapCanonical, err = parameterLiteral(params[1], vars)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if len(params) > 2 {
+			targetSystem, err = parameterLiteral(params[2], vars)
+			if err != nil {
+				return nil, "", "", err
+			}
+		}
+	}
+	return source, mapCanonical, targetSystem, nil
 }
 
 func applyTranslateFallback(params []Parameter, vars map[string]any, sourceValue any) (any, error) {
@@ -431,6 +449,31 @@ func applyDateOp(params []Parameter, vars map[string]any, sourceValue any) (any,
 			return nil, err
 		}
 		return formatFHIRDateTime(when.AddDate(0, 0, days)), nil
+	case "subtract":
+		if len(params) < 3 {
+			return nil, fmt.Errorf("dateOp subtract requires a duration parameter")
+		}
+		duration, err := parameterLiteral(params[2], vars)
+		if err != nil {
+			return nil, err
+		}
+		days, err := parseDayDuration(duration)
+		if err != nil {
+			return nil, err
+		}
+		return formatFHIRDateTime(when.AddDate(0, 0, -days)), nil
+	case "format":
+		layout := "2006-01-02"
+		if len(params) > 2 {
+			layout, err = parameterLiteral(params[2], vars)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if layout == "" {
+			layout = "2006-01-02"
+		}
+		return when.Format(layout), nil
 	case "today":
 		return formatFHIRDate(time.Now()), nil
 	case "now":
@@ -617,11 +660,11 @@ func unescapeString(source, format string) string {
 	case "xml":
 		return html.UnescapeString(source)
 	case "json":
-		unquoted, err := strconv.Unquote("\"" + source + "\"")
-		if err != nil {
+		var decoded string
+		if err := json.Unmarshal([]byte("\""+source+"\""), &decoded); err != nil {
 			return source
 		}
-		return unquoted
+		return decoded
 	case "java":
 		return strings.NewReplacer(
 			"\\n", "\n", "\\r", "\r", "\\t", "\t", "\\\"", "\"", "\\\\", "\\",
@@ -636,7 +679,11 @@ func escapeToFormat(source, format string) string {
 	case "xml":
 		return html.EscapeString(source)
 	case "json":
-		return strings.Trim(strconv.Quote(source), "\"")
+		encoded, err := json.Marshal(source)
+		if err != nil {
+			return source
+		}
+		return strings.Trim(string(encoded), "\"")
 	case "java":
 		return strings.NewReplacer(
 			"\\", "\\\\", "\"", "\\\"", "\n", "\\n", "\r", "\\r", "\t", "\\t",

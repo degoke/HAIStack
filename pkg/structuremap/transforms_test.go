@@ -121,6 +121,75 @@ func TestDateOpAddDays(t *testing.T) {
 	}
 }
 
+func TestCTransformRequiresSystemAndCode(t *testing.T) {
+	_, err := Engine{}.applyTransform(context.Background(), "c", []Parameter{{ValueString: "http://example.org"}}, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for single-parameter c transform")
+	}
+	value, err := Engine{}.applyTransform(context.Background(), "c", []Parameter{
+		{ValueString: "http://example.org"},
+		{ValueString: "active"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coding := value.(map[string]any)
+	if coding["system"] != "http://example.org" || coding["code"] != "active" {
+		t.Fatalf("unexpected coding: %#v", coding)
+	}
+}
+
+func TestTranslateTransformRequiresExplicitParams(t *testing.T) {
+	engine := Engine{Translator: conceptmap.Translator{Resolver: conceptmap.StaticResolver{}}}
+	_, err := engine.applyTransform(context.Background(), "translate", []Parameter{
+		{ValueString: "http://example.org/maps/gender"},
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "source coding") {
+		t.Fatalf("expected missing source error, got %v", err)
+	}
+}
+
+func TestTranslateTransformTwoParameterForm(t *testing.T) {
+	m := conceptmap.Map{
+		URL: "http://example.org/maps/gender",
+		Group: []conceptmap.Group{{
+			Element: []conceptmap.Element{{
+				Code: "F",
+				Target: []conceptmap.Target{{
+					Code:        "female",
+					Equivalence: "equivalent",
+				}},
+			}},
+		}},
+	}
+	engine := Engine{Translator: conceptmap.Translator{Resolver: conceptmap.StaticResolver{m.URL: m}}}
+	value, err := engine.applyTransform(context.Background(), "translate", []Parameter{
+		{ValueID: "srcCoding"},
+		{ValueString: m.URL},
+	}, map[string]any{"srcCoding": map[string]any{"code": "F"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coding := value.(map[string]any)
+	if coding["code"] != "female" {
+		t.Fatalf("unexpected two-parameter translate result: %#v", value)
+	}
+}
+
+func TestDateOpSubtractDays(t *testing.T) {
+	value, err := Engine{}.applyTransform(context.Background(), "dateOp", []Parameter{
+		{ValueString: "2020-01-05"},
+		{ValueString: "subtract"},
+		{ValueString: "P2D"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "2020-01-03" {
+		t.Fatalf("unexpected dateOp subtract result: %v", value)
+	}
+}
+
 func TestEscapeTransformJsonToPlain(t *testing.T) {
 	value, err := Engine{}.applyTransform(context.Background(), "escape", []Parameter{
 		{ValueString: "line\\nbreak"},

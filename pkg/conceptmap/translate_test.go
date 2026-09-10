@@ -52,6 +52,70 @@ func TestTranslatorRejectsNoMap(t *testing.T) {
 	}
 }
 
+func TestTranslatorUsesUnmappedProvided(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/status",
+		Group: []Group{{
+			Source: "http://example.org/source",
+			Target: "http://example.org/target",
+			Unmapped: &Unmapped{
+				Mode: "provided",
+			},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	codings, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"system": "http://example.org/source", "code": "local", "display": "Local"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codings) != 1 || codings[0]["code"] != "local" || codings[0]["system"] != "http://example.org/source" {
+		t.Fatalf("unexpected provided translation: %#v", codings)
+	}
+}
+
+func TestTranslatorUsesUnmappedUseSourceCode(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/status",
+		Group: []Group{{
+			Target: "http://example.org/target",
+			Unmapped: &Unmapped{
+				Mode: "use-source-code",
+			},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	codings, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "local"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codings) != 1 || codings[0]["code"] != "local" || codings[0]["system"] != "http://example.org/target" {
+		t.Fatalf("unexpected use-source-code translation: %#v", codings)
+	}
+}
+
+func TestTranslatorRejectsUnmappedDisabled(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/status",
+		Group: []Group{{
+			Unmapped: &Unmapped{Mode: "disabled"},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	_, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "missing"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected disabled unmapped error, got %v", err)
+	}
+}
+
 func TestTranslatorUsesUnmappedFixed(t *testing.T) {
 	m := Map{
 		URL: "http://example.org/maps/status",

@@ -11,7 +11,7 @@ import (
 )
 
 func TestEngineExecutesMinimalPatientExtraction(t *testing.T) {
-	resources, err := Engine{}.Execute(context.Background(), exampleExtractionMap("http://example.org/sdc/StructureMap/example-extraction"), ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), exampleExtractionMap("http://example.org/sdc/StructureMap/example-extraction"), ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestNestedRepeatingPathNameGiven(t *testing.T) {
 			}},
 		}},
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestObservationCodeIsNotArray(t *testing.T) {
 }
 
 func TestPatientNameIsArray(t *testing.T) {
-	resources, err := Engine{}.Execute(context.Background(), exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestEntryGroupSelectedByMapName(t *testing.T) {
 			},
 		},
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestDependentGroupInvocation(t *testing.T) {
 			},
 		},
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestBundleTargetOutputExtraction(t *testing.T) {
 			}},
 		}},
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestExampleExtractionTemplateArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestStoreResolverUsesResourceStore(t *testing.T) {
 func TestEngineHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := Engine{}.Execute(ctx, exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
+	_, err := testEngine().Execute(ctx, exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
 	if err == nil {
 		t.Fatal("expected cancellation error")
 	}
@@ -357,7 +357,7 @@ func TestSourceListModeFirst(t *testing.T) {
 			map[string]any{"linkId": "second"},
 		},
 	}
-	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": response})
+	resources, err := testEngine().Execute(context.Background(), m, ExecuteInput{"src": response})
 	if err != nil {
 		t.Fatal(err)
 	}

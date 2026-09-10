@@ -52,40 +52,10 @@ func newTypedInstance(typeName string) map[string]any {
 	return map[string]any{}
 }
 
-// repeatingFields lists FHIR JSON fields that are arrays for a given resource type.
-var repeatingFields = map[string]map[string]bool{
-	"Patient": {
-		"name": true, "identifier": true, "telecom": true, "address": true,
-		"contact": true, "communication": true, "generalPractitioner": true, "link": true,
-	},
-	"Observation": {
-		"identifier": true, "basedOn": true, "partOf": true, "category": true,
-		"note": true, "performer": true, "interpretation": true, "bodySite": true,
-		"method": true, "specimen": true, "device": true, "referenceRange": true,
-		"hasMember": true, "derivedFrom": true, "component": true,
-	},
-	"Bundle": {
-		"entry": true, "link": true, "signature": true,
-	},
-	"RelatedPerson": {
-		"identifier": true, "relationship": true, "name": true, "telecom": true,
-		"address": true, "communication": true,
-	},
-}
-
 var repeatingDatatypeFields = map[string]bool{
 	"given": true, "prefix": true, "suffix": true, "coding": true,
 }
 
-func isRepeatingFieldHeuristic(parent map[string]any, field string) bool {
-	if parent == nil || field == "" {
-		return false
-	}
-	resourceType, _ := parent["resourceType"].(string)
-	if resourceType != "" {
-		if fields, ok := repeatingFields[resourceType]; ok && fields[field] {
-			return true
-		}
-	}
+func isRepeatingDatatypeField(field string) bool {
 	return repeatingDatatypeFields[field]
 }
