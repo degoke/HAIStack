@@ -76,30 +76,42 @@ func (r *mapCardinalityResolver) IsRepeatingFor(ctx context.Context, root map[st
 		return false, false
 	}
 	profileURLs := profileURLsFromResource(root, r.profiles[resourceType])
-	for _, profileURL := range profileURLs {
+	lookups := make([]profileCardinalityLookup, len(profileURLs))
+	for i, profileURL := range profileURLs {
 		repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
-		if err != nil || !resolved {
-			continue
+		lookups[i] = profileCardinalityLookup{
+			authoritative: r.isSnapshotAuthoritative(ctx, profileURL),
+			repeating:     repeating,
+			resolved:      resolved,
+			err:           err,
 		}
-		if !repeating {
+	}
+	for _, lookup := range lookups {
+		if lookup.err != nil {
+			return false, false
+		}
+		if lookup.resolved && !lookup.repeating {
 			return false, true
 		}
 	}
-	for _, profileURL := range profileURLs {
-		repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
-		if err != nil || !resolved {
-			continue
-		}
-		if repeating {
+	for _, lookup := range lookups {
+		if lookup.resolved && lookup.repeating {
 			return true, true
 		}
 	}
-	for _, profileURL := range profileURLs {
-		if r.isSnapshotAuthoritative(ctx, profileURL) {
+	for _, lookup := range lookups {
+		if lookup.authoritative {
 			return false, false
 		}
 	}
 	return r.lookup(ctx, "", fhirPath)
+}
+
+type profileCardinalityLookup struct {
+	authoritative bool
+	repeating     bool
+	resolved      bool
+	err           error
 }
 
 func (r *mapCardinalityResolver) lookup(ctx context.Context, profileURL, fhirPath string) (bool, bool) {
@@ -147,6 +159,9 @@ func (r *mapCardinalityResolver) elementMax(ctx context.Context, canonicalURL, r
 		return "", false, err
 	}
 	max, ok := index[elementPath]
+	if !ok {
+		max, ok = indexSliceAlias(index, elementPath)
+	}
 	if !ok {
 		return "", false, nil
 	}
@@ -262,7 +277,12 @@ func elementIndexFromDefinition(sd map[string]any, resourceType string) map[stri
 			continue
 		}
 		max, _ := element["max"].(string)
-		index[path] = max
+		sliceName, _ := element["sliceName"].(string)
+		if sliceName != "" {
+			index[path+":"+sliceName] = max
+		} else {
+			index[path] = max
+		}
 		if strings.Contains(path, "[x]") {
 			parent, child := splitElementPath(path)
 			if parent != "" && child != "" {
@@ -297,6 +317,15 @@ func splitElementPath(path string) (parent, child string) {
 		return path, ""
 	}
 	return path[:i], path[i+1:]
+}
+
+func indexSliceAlias(index map[string]string, elementPath string) (string, bool) {
+	idx := strings.Index(elementPath, ":")
+	if idx <= 0 {
+		return "", false
+	}
+	max, ok := index[elementPath[:idx]]
+	return max, ok
 }
 
 func choiceJSONKeys(choiceName string, types []string) []string {

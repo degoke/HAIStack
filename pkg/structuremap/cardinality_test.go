@@ -442,6 +442,36 @@ func TestMapCardinalityResolverSnapshotProfileDoesNotMergeBase(t *testing.T) {
 	}
 }
 
+func TestMapCardinalityResolverIndexesSliceNames(t *testing.T) {
+	sd := map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Patient",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Patient.identifier", "max": "*"},
+				map[string]any{"path": "Patient.identifier", "sliceName": "usual", "max": "1"},
+			},
+		},
+	}
+	raw, err := json.Marshal(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := newMapCardinalityResolver(memDefinitionStore{
+		records: map[string][]byte{
+			"http://hl7.org/fhir/StructureDefinition/Patient": raw,
+		},
+	}, Map{})
+	repeating, ok := resolver.IsRepeating(context.Background(), "Patient.identifier")
+	if !ok || !repeating {
+		t.Fatalf("expected Patient.identifier to repeat, got ok=%v repeating=%v", ok, repeating)
+	}
+	singular, ok := resolver.IsRepeating(context.Background(), "Patient.identifier:usual")
+	if !ok || singular {
+		t.Fatalf("expected Patient.identifier:usual to be singular, got ok=%v repeating=%v", ok, singular)
+	}
+}
+
 func TestMapCardinalityResolverIndexesChoiceTypes(t *testing.T) {
 	sd := map[string]any{
 		"resourceType": "StructureDefinition",

@@ -216,7 +216,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if pc.terminology != nil {
 		termSvc := &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
 		if b.remoteTerminologyURL != "" {
-			termSvc.RemoteTranslate = conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+			termSvc.RemoteTranslate = b.remoteTranslateClient()
 		}
 		state.services.TerminologyService = termSvc
 	}
@@ -538,7 +538,7 @@ func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string
 		&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
 	}}}
 	if b.remoteTerminologyURL != "" {
-		translator.Remote = conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+		translator.Remote = b.remoteTranslateClient()
 	}
 	return translator
 }

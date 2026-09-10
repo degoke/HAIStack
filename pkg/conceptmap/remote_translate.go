@@ -15,6 +15,8 @@ import (
 type RemoteHTTPClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	Headers    map[string]string
+	Authorize  func(*http.Request) error
 }
 
 // Translate performs a remote ConceptMap/$translate request.
@@ -58,6 +60,16 @@ func (c RemoteHTTPClient) Translate(ctx context.Context, req TranslateRequest) (
 	}
 	httpReq.Header.Set("Content-Type", "application/fhir+json")
 	httpReq.Header.Set("Accept", "application/fhir+json")
+	for key, value := range c.Headers {
+		if strings.TrimSpace(key) != "" {
+			httpReq.Header.Set(key, value)
+		}
+	}
+	if c.Authorize != nil {
+		if err := c.Authorize(httpReq); err != nil {
+			return nil, fmt.Errorf("remote ConceptMap/$translate authorize: %w", err)
+		}
+	}
 	client := c.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}

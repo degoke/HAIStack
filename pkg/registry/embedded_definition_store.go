@@ -47,6 +47,7 @@ func (s *embeddedDefinitionStore) Get(_ context.Context, canonicalURL, _ string)
 }
 
 func (s *embeddedDefinitionStore) load(canonicalURL string) ([]byte, bool) {
+	canonicalURL = structureDefinitionURLWithoutVersion(canonicalURL)
 	s.mu.Lock()
 	if s.byURL == nil {
 		s.byURL = map[string][]byte{}
@@ -95,7 +96,15 @@ func readEmbeddedStructureDefinition(canonicalURL string) ([]byte, bool) {
 	return raw, true
 }
 
+func structureDefinitionURLWithoutVersion(canonicalURL string) string {
+	if idx := strings.Index(canonicalURL, "|"); idx >= 0 {
+		return canonicalURL[:idx]
+	}
+	return canonicalURL
+}
+
 func embeddedStructureDefinitionPath(canonicalURL string) (string, bool) {
+	canonicalURL = structureDefinitionURLWithoutVersion(canonicalURL)
 	const prefix = "http://hl7.org/fhir/StructureDefinition/"
 	if !strings.HasPrefix(canonicalURL, prefix) {
 		return "", false

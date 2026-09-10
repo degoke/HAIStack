@@ -73,11 +73,10 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 	if m.seeded {
 		return nil
 	}
-	resources, err := loadR4Bundle()
-	if err != nil {
-		return err
+	if bundledDefinitionRecords() == nil && bundledDefinitionsErr != nil {
+		return bundledDefinitionsErr
 	}
-	for _, raw := range resources {
+	if err := forEachEmbeddedBundledDefinition(func(raw []byte) error {
 		parsed, _, err := ParseDefinition(raw)
 		if err != nil {
 			return err
@@ -86,16 +85,16 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 			// Bundled definitions are immutable base catalog content. Never
 			// overwrite a module-owned definition or reset a prior custom JSON
 			// payload merely because another install reseeds the bundle.
-			continue
+			return nil
 		} else if !strings.Contains(strings.ToLower(err.Error()), "not found") {
 			return fmt.Errorf("check bundled definition %s: %w", parsed.CanonicalURL, err)
 		}
-		if err := m.ingestDefinition(ctx, raw, InstallProvenance{
+		return m.ingestDefinition(ctx, raw, InstallProvenance{
 			PackageName:    "hl7.fhir.r4.core",
 			PackageVersion: m.fhirVersion,
-		}, false); err != nil {
-			return err
-		}
+		}, false)
+	}); err != nil {
+		return err
 	}
 	m.seeded = true
 	return nil

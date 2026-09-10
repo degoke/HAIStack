@@ -2,10 +2,42 @@ package conceptmap
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
+
+type failingResolver struct {
+	err error
+}
+
+func (f failingResolver) Resolve(context.Context, string) (Map, error) {
+	return Map{}, f.err
+}
+
+func TestChainResolverReturnsNotFoundWhenAllResolversMiss(t *testing.T) {
+	resolver := ChainResolver{Resolvers: []Resolver{
+		StaticResolver{},
+		StaticResolver{},
+	}}
+	_, err := resolver.Resolve(context.Background(), "http://example.org/maps/missing")
+	if !IsNotFound(err) {
+		t.Fatalf("expected not-found, got %v", err)
+	}
+}
+
+func TestChainResolverReturnsParseErrorOverNotFound(t *testing.T) {
+	parseErr := fmt.Errorf("parse ConceptMap: corrupt")
+	resolver := ChainResolver{Resolvers: []Resolver{
+		StaticResolver{},
+		failingResolver{err: parseErr},
+	}}
+	_, err := resolver.Resolve(context.Background(), "http://example.org/maps/missing")
+	if err != parseErr {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}
 
 func TestChainResolverUsesFallbackResolver(t *testing.T) {
 	primary := StaticResolver{}

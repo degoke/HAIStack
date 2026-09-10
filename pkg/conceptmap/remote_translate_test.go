@@ -13,6 +13,10 @@ func TestRemoteHTTPClientTranslate(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/fhir+json")
 		_, _ = w.Write([]byte(`{
 			"resourceType": "Parameters",
@@ -34,7 +38,10 @@ func TestRemoteHTTPClientTranslate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := RemoteHTTPClient{BaseURL: server.URL}
+	client := RemoteHTTPClient{
+		BaseURL: server.URL,
+		Headers: map[string]string{"Authorization": "Bearer test-token"},
+	}
 	codings, err := client.Translate(context.Background(), TranslateRequest{
 		MapCanonical: "http://example.org/ConceptMap/test",
 		Source:       map[string]any{"system": "http://source.example", "code": "src"},

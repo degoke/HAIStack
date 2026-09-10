@@ -12,15 +12,29 @@ type ChainResolver struct {
 
 func (c ChainResolver) Resolve(ctx context.Context, canonical string) (Map, error) {
 	var lastErr error
+	sawNotFound := false
+	tried := false
 	for _, resolver := range c.Resolvers {
 		if resolver == nil {
 			continue
 		}
+		tried = true
 		m, err := resolver.Resolve(ctx, canonical)
 		if err == nil {
 			return m, nil
 		}
-		lastErr = err
+		if IsNotFound(err) {
+			sawNotFound = true
+			lastErr = err
+			continue
+		}
+		return Map{}, err
+	}
+	if !tried {
+		return Map{}, ErrNotFound(canonical)
+	}
+	if sawNotFound {
+		return Map{}, ErrNotFound(canonical)
 	}
 	if lastErr != nil {
 		return Map{}, lastErr
