@@ -2,6 +2,7 @@ package smart
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -46,8 +47,12 @@ type Scope struct {
 	Actor ActorClass `json:"actor,omitempty"`
 	// Resource is "*" or a FHIR resource type for resource scopes.
 	Resource string `json:"resource,omitempty"`
-	// Verb is read, write, or * for resource scopes.
+	// Verb is read, write, or * for resource scopes (v1 compatibility).
 	Verb AccessVerb `json:"verb,omitempty"`
+	// Letters is the normalized CRUDS suffix (for example "rs", "cud", "cruds").
+	Letters string `json:"letters,omitempty"`
+	// Filters holds optional SMART 2.2 search-parameter filters from the scope suffix.
+	Filters url.Values `json:"filters,omitempty"`
 	// LaunchType is set for launch scopes ("" for bare "launch", "patient" for
 	// "launch/patient", "encounter" for "launch/encounter").
 	LaunchType string `json:"launchType,omitempty"`
@@ -63,6 +68,9 @@ func (s Scope) Matches(resourceType string, verb AccessVerb) bool {
 	}
 	if !resourceMatches(s.Resource, resourceType) {
 		return false
+	}
+	if s.Letters != "" {
+		return lettersMatchVerb(s.Letters, verb)
 	}
 	return verbMatches(s.Verb, verb)
 }
@@ -87,6 +95,21 @@ func verbMatches(granted, requested AccessVerb) bool {
 		return true
 	}
 	return granted == requested
+}
+
+func lettersMatchVerb(letters string, verb AccessVerb) bool {
+	switch verb {
+	case VerbRead:
+		return strings.ContainsRune(letters, 'r')
+	case VerbWrite:
+		return strings.ContainsRune(letters, 'c') ||
+			strings.ContainsRune(letters, 'u') ||
+			strings.ContainsRune(letters, 'd')
+	case VerbAll:
+		return letters == "cruds"
+	default:
+		return false
+	}
 }
 
 // ScopeSet is a normalized, deduplicated collection of SMART scopes.
@@ -237,7 +260,7 @@ func coveredBy(need Scope, allowed ScopeSet) bool {
 		if a.Resource != "*" && !strings.EqualFold(a.Resource, need.Resource) {
 			continue
 		}
-		if verbCovers(a.Verb, need.Verb) {
+		if scopeCovers(a, need) {
 			return true
 		}
 	}
@@ -249,6 +272,45 @@ func verbCovers(granted, need AccessVerb) bool {
 		return true
 	}
 	return granted == need
+}
+
+func scopeCovers(granted, need Scope) bool {
+	if granted.Letters != "" && need.Letters != "" {
+		if !lettersCover(granted.Letters, need.Letters) {
+			return false
+		}
+	} else if !verbCovers(granted.Verb, need.Verb) {
+		return false
+	}
+	if len(need.Filters) == 0 {
+		return true
+	}
+	if len(granted.Filters) == 0 {
+		return true
+	}
+	return filtersSubset(need.Filters, granted.Filters)
+}
+
+func filtersSubset(need, granted url.Values) bool {
+	for key, needVals := range need {
+		grantedVals := granted[key]
+		if len(grantedVals) == 0 {
+			return false
+		}
+		for _, needVal := range needVals {
+			found := false
+			for _, grantedVal := range grantedVals {
+				if strings.EqualFold(needVal, grantedVal) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ScopeParser parses and normalizes SMART scope strings.
@@ -302,7 +364,7 @@ func (p *ScopeParser) Parse(raw string) (ScopeSet, error) {
 func normalizeKey(sc Scope) string {
 	switch sc.Kind {
 	case ScopeKindResource:
-		return fmt.Sprintf("resource:%s:%s", sc.Actor, strings.ToLower(sc.Resource))
+		return fmt.Sprintf("resource:%s:%s:%s:%s", sc.Actor, strings.ToLower(sc.Resource), sc.Letters, filterKey(sc.Filters))
 	case ScopeKindLaunch:
 		return "launch:" + sc.LaunchType
 	case ScopeKindSpecialty:
@@ -313,19 +375,40 @@ func normalizeKey(sc Scope) string {
 }
 
 func mergeResourceScope(a, b Scope) Scope {
-	// Same actor+resource with different verbs → widen to *
-	if a.Actor == b.Actor && strings.EqualFold(a.Resource, b.Resource) {
-		if a.Verb == VerbAll || b.Verb == VerbAll || a.Verb != b.Verb {
-			return Scope{
-				Raw:      fmt.Sprintf("%s/%s.*", a.Actor, a.Resource),
-				Kind:     ScopeKindResource,
-				Actor:    a.Actor,
-				Resource: a.Resource,
-				Verb:     VerbAll,
-			}
-		}
+	if a.Actor != b.Actor || !strings.EqualFold(a.Resource, b.Resource) {
+		return a
 	}
-	return a
+	if !filtersEqual(a.Filters, b.Filters) {
+		return a
+	}
+	letters := mergeLetters(a.Letters, b.Letters)
+	verb := verbFromLetters(letters)
+	return Scope{
+		Raw:      rawFromScope(a.Actor, a.Resource, letters, a.Filters),
+		Kind:     ScopeKindResource,
+		Actor:    a.Actor,
+		Resource: a.Resource,
+		Verb:     verb,
+		Letters:  letters,
+		Filters:  cloneFilters(a.Filters),
+	}
+}
+
+func rawFromScope(actor ActorClass, resource, letters string, filters url.Values) string {
+	suffix := letters
+	switch letters {
+	case "rs":
+		suffix = "read"
+	case "cud":
+		suffix = "write"
+	case "cruds":
+		suffix = "*"
+	}
+	raw := fmt.Sprintf("%s/%s.%s", actor, resource, suffix)
+	if len(filters) > 0 {
+		raw += "?" + filters.Encode()
+	}
+	return raw
 }
 
 func collapseOverlaps(in []Scope) []Scope {
@@ -344,7 +427,7 @@ func collapseOverlaps(in []Scope) []Scope {
 				continue
 			}
 			// other is broader resource and covers verb
-			if other.Resource == "*" && sc.Resource != "*" && verbCovers(other.Verb, sc.Verb) {
+			if other.Resource == "*" && sc.Resource != "*" && scopeCovers(other, sc) {
 				covered = true
 				break
 			}
@@ -383,13 +466,27 @@ func parseOneScope(raw string) (Scope, error) {
 		return Scope{Raw: raw, Kind: ScopeKindLaunch, LaunchType: rest}, nil
 	}
 
-	// Resource scopes: {actor}/{resource}.{verb}
-	slash := strings.IndexByte(raw, '/')
-	if slash <= 0 || slash == len(raw)-1 {
+	// Resource scopes: {actor}/{resource}.{access}[?filters]
+	scopePart := raw
+	var filters url.Values
+	if q := strings.IndexByte(raw, '?'); q >= 0 {
+		scopePart = raw[:q]
+		parsed, err := url.ParseQuery(raw[q+1:])
+		if err != nil {
+			return Scope{}, fmt.Errorf("%w: malformed scope filters in %q", ErrInvalidScope, raw)
+		}
+		if len(parsed) == 0 {
+			return Scope{}, fmt.Errorf("%w: empty scope filters in %q", ErrInvalidScope, raw)
+		}
+		filters = parsed
+	}
+
+	slash := strings.IndexByte(scopePart, '/')
+	if slash <= 0 || slash == len(scopePart)-1 {
 		return Scope{}, fmt.Errorf("%w: unrecognized scope %q", ErrInvalidScope, raw)
 	}
-	actorStr := raw[:slash]
-	rest := raw[slash+1:]
+	actorStr := scopePart[:slash]
+	rest := scopePart[slash+1:]
 	actor := ActorClass(actorStr)
 	switch actor {
 	case ActorPatient, ActorUser, ActorSystem:
@@ -409,12 +506,14 @@ func parseOneScope(raw string) (Scope, error) {
 	if resource != "*" && !isValidResourceName(resource) {
 		return Scope{}, fmt.Errorf("%w: invalid resource name %q in %q", ErrInvalidScope, resource, raw)
 	}
-	verb, err := parseVerb(verbStr)
+	verb, letters, err := parseAccessSuffix(verbStr)
 	if err != nil {
 		return Scope{}, fmt.Errorf("%w: %v in %q", ErrInvalidScope, err, raw)
 	}
-	if actor == ActorPatient && verb != VerbRead {
-		return Scope{}, fmt.Errorf("%w: patient scopes only support read in %q", ErrInvalidScope, raw)
+	if actor == ActorPatient && (strings.ContainsRune(letters, 'c') ||
+		strings.ContainsRune(letters, 'u') ||
+		strings.ContainsRune(letters, 'd')) {
+		return Scope{}, fmt.Errorf("%w: patient scopes only support read/search in %q", ErrInvalidScope, raw)
 	}
 	return Scope{
 		Raw:      raw,
@@ -422,20 +521,24 @@ func parseOneScope(raw string) (Scope, error) {
 		Actor:    actor,
 		Resource: resource,
 		Verb:     verb,
+		Letters:  letters,
+		Filters:  cloneFilters(filters),
 	}, nil
 }
 
-func parseVerb(v string) (AccessVerb, error) {
-	switch v {
-	case "read":
-		return VerbRead, nil
-	case "write":
-		return VerbWrite, nil
-	case "*":
-		return VerbAll, nil
-	default:
-		return "", fmt.Errorf("unknown access verb %q", v)
+func cloneFilters(v url.Values) url.Values {
+	if len(v) == 0 {
+		return nil
 	}
+	out := make(url.Values, len(v))
+	for k, vals := range v {
+		out[k] = append([]string(nil), vals...)
+	}
+	return out
+}
+
+func filtersEqual(a, b url.Values) bool {
+	return filterKey(a) == filterKey(b)
 }
 
 func isValidResourceName(name string) bool {

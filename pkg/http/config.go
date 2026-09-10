@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -22,6 +23,9 @@ type ServerMetadata struct {
 
 // PrincipalResolver extracts the authenticated principal and tenant from a request.
 type PrincipalResolver func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error)
+
+// AuthBundleResolver optionally supplies a validated SMART AuthBundle for scope-filter enforcement.
+type AuthBundleResolver func(ctx context.Context, r *http.Request) (smart.AuthBundle, bool)
 
 // AuthChecker authorizes FHIR read, write, and search actions.
 type AuthChecker interface {
@@ -76,6 +80,14 @@ type Config struct {
 	// AuthChecker authorizes actions when auth is enabled.
 	AuthChecker AuthChecker
 
+	// AuthBundleResolver stores a SMART AuthBundle on the request context for
+	// granular scope filter enforcement. Optional when hosts do not use SMART 2.2 filters.
+	AuthBundleResolver AuthBundleResolver
+
+	// ScopeFilterMatcher evaluates SMART 2.2 scope filters for this handler. When nil,
+	// the package default from smart.SetScopeFilterMatcher is used.
+	ScopeFilterMatcher smart.ScopeFilterMatcher
+
 	// PatientReferenceResolver resolves patient ownership for loaded resources when
 	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.
 	PatientReferenceResolver auth.ResourcePatientResolver
@@ -108,10 +120,13 @@ func NewHandler(cfg Config) (http.Handler, error) {
 
 	h := &handler{cfg: cfg}
 	var handler http.Handler = h
+	if cfg.ScopeFilterMatcher != nil {
+		handler = withScopeFilterMatcher(handler, cfg.ScopeFilterMatcher)
+	}
 	if cfg.AuthMiddleware != nil {
 		handler = cfg.AuthMiddleware(handler)
 	} else if cfg.PrincipalResolver != nil && cfg.AuthChecker != nil {
-		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker)
+		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker, cfg.AuthBundleResolver)
 	}
 	if cfg.RateLimit.Requests > 0 && cfg.RateLimit.Window > 0 {
 		handler = NewRateLimitMiddleware(cfg.RateLimit)(handler)

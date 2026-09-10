@@ -81,8 +81,11 @@ func (h *handler) resolveConditionalMatches(ctx context.Context, resourceType st
 	if h.cfg.SearchService == nil {
 		return nil, 0, unsupportedEndpoint(resourceType)
 	}
+	params, err := h.applyScopeFiltersToSearchParams(ctx, resourceType, params)
+	if err != nil {
+		return nil, 0, scopeFilterError(err)
+	}
 	var bundle *search.SearchBundle
-	var err error
 	if _, tenant, ok := identityFromContext(ctx); ok && tenant.PatientScope != "" {
 		scoped, ok := h.cfg.SearchService.(PatientScopedSearchService)
 		if !ok {
@@ -98,8 +101,8 @@ func (h *handler) resolveConditionalMatches(ctx context.Context, resourceType st
 	if bundle == nil {
 		return nil, 0, nil
 	}
-	if err := h.filterSearchBundlePatientScope(ctx, bundle); err != nil {
-		return nil, 0, err
+	if err := h.filterSearchBundleScopeFilters(ctx, resourceType, bundle); err != nil {
+		return nil, 0, scopeFilterError(err)
 	}
 	matches := make([]*types.ResourceEnvelope, 0, len(bundle.Entries))
 	for _, entry := range bundle.Entries {

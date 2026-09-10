@@ -11,13 +11,18 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 func TestParseScopes_ValidPatterns(t *testing.T) {
@@ -621,4 +626,277 @@ func TestClientRegistration_MinimalType(t *testing.T) {
 	if reg.ClientID == "" || !strings.Contains(reg.RedirectURIs[0], "https") {
 		t.Fatalf("reg = %#v", reg)
 	}
+}
+
+func TestTokenValidator_NbfInFutureRejected(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	token := unsignedJWT(t, map[string]any{
+		"iss":   "https://issuer.example",
+		"aud":   "https://aud.example",
+		"exp":   now.Add(2 * time.Hour).Unix(),
+		"nbf":   now.Add(time.Hour).Unix(),
+		"scope": "patient/*.read",
+	})
+	tv := smart.NewTokenValidator(nil)
+	tv.Now = func() time.Time { return now }
+	_, err := tv.ValidateToken(token, smart.TokenValidateOptions{
+		ExpectedIssuer:   "https://issuer.example",
+		ExpectedAudience: "https://aud.example",
+	})
+	if !errors.Is(err, smart.ErrTokenNotYetValid) {
+		t.Fatalf("nbf err = %v, want ErrTokenNotYetValid", err)
+	}
+}
+
+func TestScopePolicyAuthChecker_PolicyDeniesDespiteScope(t *testing.T) {
+	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
+		DefaultTenantID:  "tenant-a",
+		DefaultUserRoles: []string{"smart-user"},
+	})
+	scopes, _ := smart.ParseScopes("patient/*.read launch/patient")
+	claims := smart.TokenClaims{
+		Subject: "user-1", Patient: "pat-1",
+		Scope: scopes.SpaceSeparated(), Scopes: scopes,
+	}
+	bundle, err := adapter.ToAuthRequests(claims, smart.BuildLaunchContext(smart.LaunchContextInput{
+		Claims: &claims, Scopes: scopes,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := auth.NewEngine(auth.Config{
+		Roles: []auth.Role{{
+			Name:        "smart-user",
+			Permissions: []auth.Permission{"*.read"},
+		}},
+		Principals: []auth.Principal{bundle.Principal},
+		PolicyBytes: []byte(`{
+			"version": "1",
+			"rules": [{
+				"name": "observation-only",
+				"effect": "allow",
+				"match": {
+					"actions": ["read"],
+					"resourceTypes": ["Observation"],
+					"anyPermissions": ["*.read"]
+				}
+			}]
+		}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := smart.ScopePolicyAuthChecker{
+		Engine: eng, Adapter: adapter,
+		BundleFor: func(_ auth.Principal, _ auth.TenantContext) (smart.AuthBundle, bool) {
+			return bundle, true
+		},
+	}
+	allowObs, err := checker.AuthorizeRead(context.Background(), bundle.Principal, bundle.Tenant, "Observation", "obs-1")
+	if err != nil || !allowObs.Allowed {
+		t.Fatalf("observation = %#v err=%v", allowObs, err)
+	}
+	denyAppt, err := checker.AuthorizeRead(context.Background(), bundle.Principal, bundle.Tenant, "Appointment", "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denyAppt.Allowed {
+		t.Fatalf("expected policy deny for appointment despite patient/*.read scope, got %#v", denyAppt)
+	}
+}
+
+func TestDefaultConfiguration(t *testing.T) {
+	cfg := smart.DefaultConfiguration("https://fhir.example")
+	if cfg.Issuer != "https://fhir.example" {
+		t.Fatalf("issuer = %q", cfg.Issuer)
+	}
+	if len(cfg.ScopesSupported) == 0 || len(cfg.Capabilities) == 0 {
+		t.Fatalf("config = %#v", cfg)
+	}
+	foundV2 := false
+	for _, cap := range cfg.Capabilities {
+		if cap == "permission-v2.2" {
+			foundV2 = true
+			break
+		}
+	}
+	if !foundV2 {
+		t.Fatalf("expected permission-v2.2 capability, got %#v", cfg.Capabilities)
+	}
+}
+
+func TestParseScopes_CRUDSAndFilters(t *testing.T) {
+	cases := []struct {
+		raw      string
+		letters  string
+		filter   string
+		allowsOp smart.AccessOp
+	}{
+		{"patient/Observation.rs", "rs", "", smart.OpRead},
+		{"patient/Observation.rs?category=laboratory", "rs", "category=laboratory", smart.OpSearch},
+		{"user/Patient.cruds", "cruds", "", smart.OpCreate},
+		{"system/Observation.r", "r", "", smart.OpRead},
+		{"user/*.cud", "cud", "", smart.OpUpdate},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			set, err := smart.ParseScopes(tc.raw)
+			if err != nil {
+				t.Fatalf("ParseScopes: %v", err)
+			}
+			sc := set.Scopes()[0]
+			if sc.Letters != tc.letters {
+				t.Fatalf("letters = %q, want %q", sc.Letters, tc.letters)
+			}
+			if tc.filter == "" {
+				if len(sc.Filters) != 0 {
+					t.Fatalf("filters = %#v", sc.Filters)
+				}
+			} else if sc.Filters.Encode() != tc.filter {
+				t.Fatalf("filters = %q, want %q", sc.Filters.Encode(), tc.filter)
+			}
+			if !sc.AllowsOp(tc.allowsOp) {
+				t.Fatalf("scope %#v should allow %c", sc, tc.allowsOp)
+			}
+		})
+	}
+}
+
+func TestParseScopes_V1MapsToCRUDS(t *testing.T) {
+	set, err := smart.ParseScopes("patient/*.read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := set.Scopes()[0]
+	if sc.Letters != "rs" {
+		t.Fatalf("letters = %q", sc.Letters)
+	}
+	if !set.AllowsOp(smart.ActorPatient, "Observation", smart.OpSearch) {
+		t.Fatal("expected patient/*.read to allow search")
+	}
+}
+
+func TestParseScopes_CRUDSMalformed(t *testing.T) {
+	bad := []string{
+		"patient/Observation.cud",
+		"patient/Observation.xyz",
+		"patient/Observation.?category=lab",
+		"patient/Observation.rs?",
+	}
+	for _, raw := range bad {
+		_, err := smart.ParseScopes(raw)
+		if !errors.Is(err, smart.ErrInvalidScope) {
+			t.Fatalf("%q: err = %v, want ErrInvalidScope", raw, err)
+		}
+	}
+}
+
+func TestScopeSet_SearchWithoutRead(t *testing.T) {
+	set, err := smart.ParseScopes("user/Observation.s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set.AllowsOp(smart.ActorUser, "Observation", smart.OpSearch) {
+		t.Fatal("expected search")
+	}
+	if set.AllowsOp(smart.ActorUser, "Observation", smart.OpRead) {
+		t.Fatal("search-only scope should not allow read")
+	}
+}
+
+func TestApplyScopeFiltersToParams(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := smart.ApplyScopeFiltersToParams(scopes, smart.ActorPatient, "Observation", url.Values{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Get("category") != "laboratory" {
+		t.Fatalf("category = %q", out.Get("category"))
+	}
+}
+
+func TestCheckEnvelopeScopeFilters_ObservationCategory(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab := observationEnvelope("obs-lab", "laboratory")
+	vital := observationEnvelope("obs-vital", "vital-signs")
+	if err := smart.CheckEnvelopeScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", smart.OpRead, lab); err != nil {
+		t.Fatalf("lab: %v", err)
+	}
+	if err := smart.CheckEnvelopeScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
+		t.Fatal("expected vital-signs observation to be denied")
+	}
+}
+
+func TestAllowsResourceWithFiltersReadOrSearch_ReadOnlyInclude(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.r?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab := observationEnvelope("obs-lab", "laboratory")
+	if !smart.AllowsResourceWithFiltersReadOrSearch(context.Background(), scopes, smart.ActorPatient, "Observation", lab) {
+		t.Fatal("read-only scope should allow included observation")
+	}
+	bundle := search.AssembleBundle(&search.Result{
+		ResourceType: "Observation",
+		Resources:    []*types.ResourceEnvelope{lab},
+	})
+	if err := smart.FilterSearchBundleScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Entries) != 1 {
+		t.Fatalf("entries = %d", len(bundle.Entries))
+	}
+}
+
+func TestResolveBearerTokenCachedOncePerContext(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	cfg := smart.BearerAuthConfig{
+		Validator: smart.NewTokenValidator(nil),
+		Adapter:   smart.NewAuthAdapter(smart.AuthAdapterConfig{DefaultTenantID: "tenant-a", DefaultUserRoles: []string{"user"}}),
+		Options: smart.TokenValidateOptions{
+			ExpectedIssuer: "https://issuer.example", ExpectedAudience: "https://aud.example",
+			Now: func() time.Time { return now },
+		},
+	}
+	cfg.Validator.Now = func() time.Time { return now }
+	token := unsignedJWT(t, map[string]any{
+		"iss": "https://issuer.example", "sub": "user-1", "aud": "https://aud.example",
+		"exp": now.Add(time.Hour).Unix(), "scope": "user/Observation.rs",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	ctx := smart.ContextWithBearerAuthCache(context.Background())
+	first, err := cfg.ResolveBearerTokenCached(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cfg.ResolveBearerTokenCached(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Bundle.Principal.ID != second.Bundle.Principal.ID {
+		t.Fatalf("cached result mismatch: %#v vs %#v", first, second)
+	}
+}
+
+func observationEnvelope(id, category string) *types.ResourceEnvelope {
+	data := []byte(`{
+		"resourceType": "Observation",
+		"id": "` + id + `",
+		"status": "final",
+		"category": [{
+			"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "` + category + `"}]
+		}]
+	}`)
+	env, err := types.NewJSONCodec().ParseJSON("Observation", data)
+	if err != nil {
+		panic(err)
+	}
+	return env
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
 var errUnauthenticated = errors.New("http: unauthenticated")
@@ -18,7 +19,7 @@ type requestIdentity struct {
 	Tenant    auth.TenantContext
 }
 
-func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker) http.Handler {
+func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker, bundleResolver AuthBundleResolver) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		format, err := negotiateResponseFormat(r)
 		if err != nil {
@@ -26,15 +27,22 @@ func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker
 			return
 		}
 		w = withResponseFormat(w, format)
-		principal, tenant, err := resolver(r.Context(), r)
+		ctx := smart.ContextWithBearerAuthCache(r.Context())
+		r = r.WithContext(ctx)
+		principal, tenant, err := resolver(ctx, r)
 		if err != nil {
-			writeError(w, errUnauthenticated)
+			writeError(w, mapAuthResolverError(err))
 			return
 		}
-		ctx := context.WithValue(r.Context(), authContextKey{}, requestIdentity{
+		ctx = context.WithValue(ctx, authContextKey{}, requestIdentity{
 			Principal: principal,
 			Tenant:    tenant,
 		})
+		if bundleResolver != nil {
+			if bundle, ok := bundleResolver(ctx, r); ok {
+				ctx = smart.ContextWithAuthBundle(ctx, bundle)
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

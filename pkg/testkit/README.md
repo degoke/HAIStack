@@ -22,6 +22,7 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **golden** | Canonical `OperationOutcome` JSON comparison (inline goldens) |
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
+| **authztest** | Authorization scenario catalog (≥30 cases) across auth, SMART, view, AI, sync |
 
 It does **not**:
 
@@ -222,6 +223,23 @@ h := aitest.NewHarness(t, aitest.Options{
 ```
 
 Configuration is option-based: enable only the subsystems each test needs.
+
+## authztest
+
+Documented authorization scenario catalog for CI (REST, patient compartment,
+SMART token semantics, view/AI/sync/module paths, scope-vs-policy conflicts):
+
+```go
+import "github.com/degoke/health-ai-stack/pkg/testkit/authztest"
+
+func TestAuthzScenarios(t *testing.T) {
+    eng := authztest.DefaultEngine(t)
+    authztest.RunAll(t, authztest.NewDefaultKit(eng))
+}
+```
+
+`AllScenarios()` returns ≥30 named cases with `Doc` strings suitable for
+conformance matrices. OAuth success is not tested — only authorization outcomes.
 
 ## Migration
 

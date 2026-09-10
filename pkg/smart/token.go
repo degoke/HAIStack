@@ -65,6 +65,8 @@ type TokenValidateOptions struct {
 	Now func() time.Time
 	// SkipTimeChecks disables exp/nbf validation.
 	SkipTimeChecks bool
+	// IsJWTRevoked rejects tokens whose jti is revoked (for example via /oauth/revoke).
+	IsJWTRevoked func(jti string) bool
 }
 
 // TokenValidator parses JWT structure and validates SMART-relevant claims.
@@ -161,6 +163,9 @@ func ValidateClaims(claims TokenClaims, opts TokenValidateOptions) error {
 	}
 	if opts.RequireJWTID && strings.TrimSpace(claims.JWTID) == "" {
 		return fmt.Errorf("%w: jti claim required", ErrInvalidToken)
+	}
+	if opts.IsJWTRevoked != nil && claims.JWTID != "" && opts.IsJWTRevoked(claims.JWTID) {
+		return fmt.Errorf("%w: token revoked", ErrUnauthorized)
 	}
 
 	if opts.RequireScopesClaim && strings.TrimSpace(claims.Scope) == "" && claims.Scopes.Empty() {
