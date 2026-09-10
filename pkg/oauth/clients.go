@@ -16,6 +16,8 @@ type Client struct {
 	Confidential bool `json:"confidential,omitempty"`
 	// ClientSecret is required for confidential clients when exchanging codes.
 	ClientSecret string `json:"clientSecret,omitempty"`
+	// ClientSecretHash holds a bcrypt hash loaded from persistent stores.
+	ClientSecretHash string `json:"-"`
 	// AllowedScopes restricts requested scopes to this allow-list. When empty,
 	// Client.Scopes from ClientRegistration is used.
 	AllowedScopes []string `json:"allowedScopes,omitempty"`
@@ -30,6 +32,7 @@ type Client struct {
 // ClientStore persists registered OAuth clients (static bootstrap or dynamic registration).
 type ClientStore interface {
 	Register(issuer string, client Client) error
+	Upsert(issuer string, client Client) error
 	Lookup(issuer, clientID string) (Client, error)
 }
 
@@ -83,11 +86,40 @@ type registryClientStore struct {
 }
 
 func (s registryClientStore) Register(_ string, client Client) error {
+	if _, err := s.reg.Lookup(client.ClientID); err == nil {
+		return fmt.Errorf("%w: %s", ErrClientExists, client.ClientID)
+	}
+	return s.reg.Register(client)
+}
+
+func (s registryClientStore) Upsert(_ string, client Client) error {
 	return s.reg.Register(client)
 }
 
 func (s registryClientStore) Lookup(_, clientID string) (Client, error) {
 	return s.reg.Lookup(clientID)
+}
+
+type overlayClientStore struct {
+	overlay *ClientRegistry
+	base    ClientStore
+}
+
+func (s overlayClientStore) Register(issuer string, client Client) error {
+	return s.base.Register(issuer, client)
+}
+
+func (s overlayClientStore) Upsert(issuer string, client Client) error {
+	return s.base.Upsert(issuer, client)
+}
+
+func (s overlayClientStore) Lookup(issuer, clientID string) (Client, error) {
+	if s.overlay != nil {
+		if client, err := s.overlay.Lookup(clientID); err == nil {
+			return client, nil
+		}
+	}
+	return s.base.Lookup(issuer, clientID)
 }
 
 // Seed copies all clients from a static registry into a persistent store.
@@ -96,7 +128,7 @@ func SeedClientStore(store ClientStore, issuer string, reg *ClientRegistry) erro
 		return nil
 	}
 	for _, client := range reg.List() {
-		if err := store.Register(issuer, client); err != nil {
+		if err := store.Upsert(issuer, client); err != nil {
 			return err
 		}
 	}
@@ -142,7 +174,20 @@ func verifyClientSecret(client Client, secret string) bool {
 	if !client.Confidential {
 		return secret == ""
 	}
+	if client.ClientSecretHash != "" {
+		return verifyStoredClientSecret(client.ClientSecretHash, secret)
+	}
 	return secretEqual(secret, client.ClientSecret)
+}
+
+// VerifyClientSecret reports whether secret matches a registered client.
+func VerifyClientSecret(client Client, secret string) bool {
+	return verifyClientSecret(client, secret)
+}
+
+// VerifyStoredClientSecret compares a provided secret against a stored hash or legacy plaintext value.
+func VerifyStoredClientSecret(stored, provided string) bool {
+	return verifyStoredClientSecret(stored, provided)
 }
 
 // allowedScopeSet returns the parsed allow-list for a client.

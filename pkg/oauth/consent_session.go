@@ -7,8 +7,11 @@ import (
 	"time"
 )
 
+// DefaultConsentSessionTTL is the lifetime of interactive consent sessions.
+const DefaultConsentSessionTTL = 5 * time.Minute
+
 const (
-	defaultConsentSessionTTL = 5 * time.Minute
+	defaultConsentSessionTTL = DefaultConsentSessionTTL
 	defaultConsentCookieName = "haistack_oauth_consent"
 	defaultConsentCookiePath = "/oauth/authorize"
 )

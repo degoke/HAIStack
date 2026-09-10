@@ -33,6 +33,8 @@ type Config struct {
 	ConsentSessionStore ConsentSessionStore
 	// DynamicClientRegistration enables POST /oauth/register. Defaults to true.
 	DynamicClientRegistration *bool
+	// RegistrationAccessToken requires Authorization: Bearer <token> on POST /oauth/register when set.
+	RegistrationAccessToken string
 	// BackendAuth validates client_credentials assertions when configured.
 	BackendAuth *smart.BackendServiceAuth
 	// LaunchStore stores single-use EHR launch tokens. Defaults to in-memory when nil.
@@ -210,6 +212,14 @@ func (s *Server) RevocationStore() TokenRevocationStore {
 		return nil
 	}
 	return s.revocation
+}
+
+// LookupClient returns a registered client for this issuer.
+func (s *Server) LookupClient(clientID string) (Client, error) {
+	if s == nil {
+		return Client{}, ErrInvalidConfig
+	}
+	return s.clients.Lookup(s.issuer, clientID)
 }
 
 func trimSlash(u string) string {

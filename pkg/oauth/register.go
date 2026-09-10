@@ -2,6 +2,8 @@ package oauth
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -55,6 +57,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, http.MethodPost)
 		return
 	}
+	if token := strings.TrimSpace(s.cfg.RegistrationAccessToken); token != "" {
+		if !registrationAuthorized(r, token) {
+			writeOAuthError(w, http.StatusUnauthorized, "invalid_token", "registration requires authorization")
+			return
+		}
+	}
 	var req clientRegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "malformed registration request")
@@ -66,6 +74,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.clients.Register(s.issuer, client); err != nil {
+		if errors.Is(err, ErrClientExists) {
+			writeOAuthError(w, http.StatusConflict, "invalid_client_metadata", "client_id already registered")
+			return
+		}
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
 		return
 	}
@@ -92,13 +104,12 @@ func (s *Server) buildRegisteredClient(req clientRegistrationRequest) (Client, s
 	if len(req.RedirectURIs) == 0 {
 		return Client{}, "", ErrInvalidConfig
 	}
-	clientID := strings.TrimSpace(req.ClientID)
-	if clientID == "" {
-		var err error
-		clientID, err = NewRandomToken()
-		if err != nil {
-			return Client{}, "", err
-		}
+	if strings.TrimSpace(req.ClientID) != "" {
+		return Client{}, "", fmt.Errorf("%w: client_id must not be supplied", ErrInvalidConfig)
+	}
+	clientID, err := NewRandomToken()
+	if err != nil {
+		return Client{}, "", err
 	}
 	authMethod := strings.ToLower(strings.TrimSpace(req.TokenEndpointAuthMethod))
 	confidential := authMethod == "" || authMethod == "client_secret_basic" || authMethod == "client_secret_post"

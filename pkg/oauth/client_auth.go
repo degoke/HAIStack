@@ -6,10 +6,10 @@ import (
 )
 
 func (s *Server) authenticateClient(r *http.Request) (Client, error) {
-	if err := r.ParseForm(); err != nil {
+	clientID, secret, err := clientCredentialsFromRequest(r)
+	if err != nil {
 		return Client{}, err
 	}
-	clientID := strings.TrimSpace(r.Form.Get("client_id"))
 	if clientID == "" {
 		return Client{}, ErrInvalidClient
 	}
@@ -18,7 +18,6 @@ func (s *Server) authenticateClient(r *http.Request) (Client, error) {
 		return Client{}, err
 	}
 	if client.Confidential {
-		secret := strings.TrimSpace(r.Form.Get("client_secret"))
 		if !verifyClientSecret(client, secret) {
 			return Client{}, ErrInvalidClient
 		}

@@ -54,10 +54,13 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.Form.Get("code"))
-	clientID := strings.TrimSpace(r.Form.Get("client_id"))
 	redirectURI := strings.TrimSpace(r.Form.Get("redirect_uri"))
 	codeVerifier := strings.TrimSpace(r.Form.Get("code_verifier"))
-	clientSecret := strings.TrimSpace(r.Form.Get("client_secret"))
+	clientID, clientSecret, err := clientCredentialsFromRequest(r)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		return
+	}
 
 	if code == "" || clientID == "" || redirectURI == "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "code, client_id, and redirect_uri are required")
@@ -149,8 +152,11 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	refreshToken := strings.TrimSpace(r.Form.Get("refresh_token"))
-	clientID := strings.TrimSpace(r.Form.Get("client_id"))
-	clientSecret := strings.TrimSpace(r.Form.Get("client_secret"))
+	clientID, clientSecret, err := clientCredentialsFromRequest(r)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		return
+	}
 	if refreshToken == "" || clientID == "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
 		return

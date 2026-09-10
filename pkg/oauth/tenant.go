@@ -194,7 +194,11 @@ func (m *MultiTenantServer) ServerForTenant(tenantID string) (*Server, error) {
 	}
 	if tenant.Clients != nil {
 		cfg.Clients = tenant.Clients
-		cfg.ClientStore = registryClientStore{reg: tenant.Clients}
+		if cfg.ClientStore != nil {
+			cfg.ClientStore = overlayClientStore{overlay: tenant.Clients, base: cfg.ClientStore}
+		} else {
+			cfg.ClientStore = registryClientStore{reg: tenant.Clients}
+		}
 	}
 	if len(tenant.ScopesSupported) > 0 {
 		cfg.ScopesSupported = tenant.ScopesSupported

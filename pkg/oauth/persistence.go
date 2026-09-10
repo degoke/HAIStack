@@ -43,5 +43,8 @@ func UsesInMemoryStores(cfg Config) bool {
 	if _, ok := cfg.ClientStore.(registryClientStore); ok {
 		return true
 	}
+	if _, ok := cfg.ClientStore.(overlayClientStore); ok {
+		return false
+	}
 	return false
 }

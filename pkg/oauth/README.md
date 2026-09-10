@@ -91,13 +91,22 @@ When `ConsentLogin` returns a subject, that identity is written into issued toke
 
 ## Dynamic client registration
 
-`POST /oauth/register` accepts a JSON client metadata document and returns a registered `client_id` (and `client_secret` for confidential clients). The endpoint is advertised as `registration_endpoint` in SMART discovery when enabled (default). Clients are persisted when `ApplySQLiteStores` wires `ClientStore`.
+`POST /oauth/register` accepts a JSON client metadata document and returns a server-assigned `client_id` (and `client_secret` for confidential clients). Callers must not supply `client_id`; existing clients cannot be overwritten. The endpoint is advertised as `registration_endpoint` in SMART discovery when enabled (default). Clients are persisted when `ApplySQLiteStores` wires `ClientStore`. Client secrets are stored as bcrypt hashes in SQLite.
+
+Gate open registration in production with a bearer token:
+
+```go
+cfg.RegistrationAccessToken = "change-me-registration-token"
+```
 
 ```bash
 curl -X POST "$BASE/oauth/register" \
+  -H 'Authorization: Bearer change-me-registration-token' \
   -H 'Content-Type: application/json' \
   -d '{"client_name":"My App","redirect_uris":["https://app.example/callback"],"token_endpoint_auth_method":"none"}'
 ```
+
+Confidential clients may authenticate at the token endpoint with `client_secret_basic` (HTTP Basic) or `client_secret_post` (form field).
 
 Disable dynamic registration explicitly when needed:
 
@@ -200,7 +209,8 @@ srv, _ := oauth.NewServer(cfg)
 - Auth codes, launch tokens, and refresh tokens must match the issuing OAuth issuer at exchange/consume/refresh time
 - Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`; in-memory otherwise)
 - Auth codes, launch tokens, refresh tokens, consent sessions, and registered clients use SQLite when `ApplySQLiteStores` is wired
-- Client secrets and launch issuer secrets are compared with constant-time equality checks
+- Client secrets and launch issuer secrets are compared with constant-time equality checks; persisted client secrets are bcrypt-hashed in SQLite
+- Multi-tenant servers overlay static tenant clients on the shared SQLite `ClientStore` so dynamic registration remains issuer-scoped
 - Consent sessions (CSRF state) are single-process in-memory unless SQLite is wired
 - Refresh tokens rotate by default
 - `/oauth/introspect` and `/oauth/revoke` require **confidential** registered client authentication

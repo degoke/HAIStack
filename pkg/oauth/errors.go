@@ -24,6 +24,9 @@ var (
 	// ErrInvalidConfig is returned when server configuration is incomplete.
 	ErrInvalidConfig = errors.New("oauth: invalid config")
 
+	// ErrClientExists is returned when registering a client id that is already taken.
+	ErrClientExists = errors.New("oauth: client already exists")
+
 	// ErrAccessDenied is returned when the resource owner denies authorization.
 	ErrAccessDenied = errors.New("oauth: access denied")
 )

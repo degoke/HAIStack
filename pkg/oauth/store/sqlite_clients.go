@@ -37,7 +37,7 @@ func (s *SQLiteConsentSessionStore) Create(issuer string, params url.Values, sub
 	if err != nil {
 		return "", "", err
 	}
-	expires := s.now().Add(5 * time.Minute)
+	expires := s.now().Add(oauth.DefaultConsentSessionTTL)
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_consent_session (
 			session_id, issuer, params, csrf, subject, expires_at
@@ -65,7 +65,8 @@ func (s *SQLiteConsentSessionStore) Consume(issuer, sessionID, csrf string) (url
 	}
 	expires, _ := parseTime(expiresRaw)
 	if s.now().After(expires) {
-		_, _ = tx.ExecContext(context.Background(), `DELETE FROM hai_oauth_consent_session WHERE session_id = ?`, sessionID)
+		_ = tx.Rollback()
+		_, _ = s.DB.ExecContext(context.Background(), `DELETE FROM hai_oauth_consent_session WHERE session_id = ?`, sessionID)
 		return nil, "", oauth.ErrInvalidRequest
 	}
 	if storedIssuer != issuer || !oauth.TokenEqual(csrf, storedCSRF) {
@@ -101,6 +102,27 @@ func (s *SQLiteClientStore) Register(issuer string, client oauth.Client) error {
 	if err := oauth.ValidateClientRegistration(client); err != nil {
 		return err
 	}
+	var exists int
+	err := s.DB.QueryRowContext(context.Background(), `
+		SELECT 1 FROM hai_oauth_client WHERE client_id = ? AND issuer = ?`,
+		client.ClientID, issuer).Scan(&exists)
+	if err == nil {
+		return fmt.Errorf("%w: %s", oauth.ErrClientExists, client.ClientID)
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+	return s.upsertClient(issuer, client)
+}
+
+func (s *SQLiteClientStore) Upsert(issuer string, client oauth.Client) error {
+	if err := oauth.ValidateClientRegistration(client); err != nil {
+		return err
+	}
+	return s.upsertClient(issuer, client)
+}
+
+func (s *SQLiteClientStore) upsertClient(issuer string, client oauth.Client) error {
 	payload, err := json.Marshal(clientWithoutSecret(client))
 	if err != nil {
 		return err
@@ -108,6 +130,10 @@ func (s *SQLiteClientStore) Register(issuer string, client oauth.Client) error {
 	confidential := 0
 	if client.Confidential {
 		confidential = 1
+	}
+	storedSecret, err := storedClientSecret(client)
+	if err != nil {
+		return err
 	}
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_client (
@@ -117,9 +143,16 @@ func (s *SQLiteClientStore) Register(issuer string, client oauth.Client) error {
 			client_json = excluded.client_json,
 			client_secret = excluded.client_secret,
 			confidential = excluded.confidential`,
-		client.ClientID, issuer, string(payload), client.ClientSecret, confidential, formatTime(s.now()),
+		client.ClientID, issuer, string(payload), storedSecret, confidential, formatTime(s.now()),
 	)
 	return err
+}
+
+func storedClientSecret(client oauth.Client) (string, error) {
+	if !client.Confidential || client.ClientSecret == "" {
+		return "", nil
+	}
+	return hashClientSecret(client.ClientSecret)
 }
 
 func (s *SQLiteClientStore) Lookup(issuer, clientID string) (oauth.Client, error) {
@@ -136,12 +169,17 @@ func (s *SQLiteClientStore) Lookup(issuer, clientID string) (oauth.Client, error
 		return oauth.Client{}, err
 	}
 	client.Confidential = confidential != 0
-	client.ClientSecret = secret
+	client.ClientSecretHash = secret
 	return client, nil
 }
 
 func clientWithoutSecret(client oauth.Client) oauth.Client {
 	copy := client
 	copy.ClientSecret = ""
+	copy.ClientSecretHash = ""
 	return copy
+}
+
+func hashClientSecret(secret string) (string, error) {
+	return oauth.HashClientSecret(secret)
 }
