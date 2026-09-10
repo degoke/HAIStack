@@ -7,6 +7,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -26,7 +27,15 @@ func mapError(err error) (int, *types.OperationOutcome) {
 	if errors.Is(err, auth.ErrNoPatientSearchScope) {
 		return http.StatusForbidden, deniedOutcome(err.Error())
 	}
-	if errors.Is(err, errUnauthenticated) {
+	if errors.Is(err, errUnauthenticated) ||
+		errors.Is(err, smart.ErrUnauthorized) ||
+		errors.Is(err, smart.ErrTokenExpired) ||
+		errors.Is(err, smart.ErrTokenNotYetValid) ||
+		errors.Is(err, smart.ErrReplay) ||
+		errors.Is(err, smart.ErrInvalidToken) ||
+		errors.Is(err, smart.ErrIssuerMismatch) ||
+		errors.Is(err, smart.ErrAudienceMismatch) ||
+		errors.Is(err, smart.ErrMissingScopes) {
 		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
 	}
 	var rateLimited *rateLimitError

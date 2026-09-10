@@ -1,0 +1,35 @@
+name: SMART Authz Smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smart-authz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: HTTP authorization E2E tests
+        run: go test -race -count=1 ./pkg/http -run 'TestHTTPAuthz_' -timeout 10m
+
+      - name: Authorization scenario catalog
+        run: go test -race -count=1 ./pkg/testkit/authztest -timeout 10m
+
+      - name: SMART authz example smoke
+        run: go run ./examples/smart-authz
+
+      - name: SMART client scope helpers
+        run: go test -race -count=1 ./pkg/client -run 'TestParseScopes|TestPatientObservation|TestJoinScopes' -timeout 5m

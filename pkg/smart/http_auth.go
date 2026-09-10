@@ -23,7 +23,7 @@ func (c ScopePolicyAuthChecker) AuthorizeRead(ctx context.Context, principal aut
 	if c.Engine == nil {
 		return auth.Deny("auth engine not configured"), nil
 	}
-	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+	if bundle, ok := c.bundleFor(ctx, principal, tenant); ok && c.Adapter != nil {
 		if !c.scopeAllows(bundle, resourceType, OpRead) {
 			return auth.Deny("scope does not grant read access"), nil
 		}
@@ -39,7 +39,7 @@ func (c ScopePolicyAuthChecker) AuthorizeWrite(ctx context.Context, principal au
 	if c.Engine == nil {
 		return auth.Deny("auth engine not configured"), nil
 	}
-	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+	if bundle, ok := c.bundleFor(ctx, principal, tenant); ok && c.Adapter != nil {
 		if !c.scopeAllowsWrite(bundle, operation, resourceType) {
 			return auth.Deny("scope does not grant write access"), nil
 		}
@@ -56,7 +56,7 @@ func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal a
 	if c.Engine == nil {
 		return auth.Deny("auth engine not configured"), nil
 	}
-	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+	if bundle, ok := c.bundleFor(ctx, principal, tenant); ok && c.Adapter != nil {
 		if !c.scopeAllows(bundle, resourceType, OpSearch) {
 			return auth.Deny("scope does not grant search access"), nil
 		}
@@ -67,11 +67,16 @@ func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal a
 	})
 }
 
-func (c ScopePolicyAuthChecker) bundleFor(principal auth.Principal, tenant auth.TenantContext) (AuthBundle, bool) {
-	if c.BundleFor == nil {
-		return AuthBundle{}, false
+func (c ScopePolicyAuthChecker) bundleFor(ctx context.Context, principal auth.Principal, tenant auth.TenantContext) (AuthBundle, bool) {
+	if c.BundleFor != nil {
+		if bundle, ok := c.BundleFor(principal, tenant); ok {
+			return bundle, true
+		}
 	}
-	return c.BundleFor(principal, tenant)
+	if bundle, ok := AuthBundleFromContext(ctx); ok {
+		return bundle, true
+	}
+	return AuthBundle{}, false
 }
 
 func (c ScopePolicyAuthChecker) scopeAllows(bundle AuthBundle, resourceType string, op AccessOp) bool {

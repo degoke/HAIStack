@@ -181,6 +181,14 @@ func (h *handler) handleCustomOperation(w http.ResponseWriter, r *http.Request, 
 		writeError(w, invalidRequest("custom operation returned no resource", nil))
 		return
 	}
+	if route.operation == "$everything" || result.ResourceType == "Bundle" {
+		filtered, filterErr := h.filterOperationBundleResult(r.Context(), route.resourceType, result)
+		if filterErr != nil {
+			writeError(w, scopeFilterError(filterErr))
+			return
+		}
+		result = filtered
+	}
 	writeEnvelope(w, http.StatusOK, result, nil)
 }
 
@@ -393,6 +401,10 @@ func (h *handler) handleCreate(w http.ResponseWriter, r *http.Request, resourceT
 		writeError(w, err)
 		return
 	}
+	if err := h.enforceWriteScopeFilters(r.Context(), resourceType, smart.OpCreate, envelope); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
 	created, err := h.cfg.ResourceService.Create(r.Context(), envelope)
 	if err != nil {
 		writeError(w, err)
@@ -421,6 +433,10 @@ func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request, resourceT
 		return
 	}
 	envelope.ID = id
+	if err := h.enforceWriteScopeFilters(r.Context(), resourceType, smart.OpUpdate, envelope); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
 
 	if ifMatch := strings.TrimSpace(r.Header.Get("If-Match")); ifMatch != "" {
 		conditional, expected, err := h.atomicIfMatchService(r, resourceType, id)
@@ -455,6 +471,10 @@ func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceTy
 		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json", nil))
 		return
 	}
+	if err := h.enforceDeleteScopeFilters(r.Context(), resourceType, id, smart.OpUpdate); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
 	body, err := readBody(r)
 	if err != nil {
 		writeError(w, err)
@@ -485,6 +505,10 @@ func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceTy
 func (h *handler) handleDelete(w http.ResponseWriter, r *http.Request, resourceType, id string) {
 	if err := h.authorizeWrite(r.Context(), "delete", resourceType, id); err != nil {
 		writeError(w, err)
+		return
+	}
+	if err := h.enforceDeleteScopeFilters(r.Context(), resourceType, id, smart.OpDelete); err != nil {
+		writeError(w, scopeFilterError(err))
 		return
 	}
 	if ifMatch := strings.TrimSpace(r.Header.Get("If-Match")); ifMatch != "" {
@@ -523,11 +547,20 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 				writeError(w, scopeErr)
 				return
 			}
+			if scopeErr := h.enforceScopeFiltersOnEnvelope(r.Context(), resourceType, smart.OpRead, current); scopeErr != nil {
+				writeError(w, scopeFilterError(scopeErr))
+				return
+			}
 		}
 	}
 	versions, err := h.cfg.ResourceService.History(r.Context(), resourceType, id)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	versions, err = h.filterHistoryVersions(r.Context(), resourceType, versions)
+	if err != nil {
+		writeError(w, scopeFilterError(err))
 		return
 	}
 	data, err := marshalHistoryBundle(h.cfg.BasePath, resourceType, id, versions)
@@ -781,7 +814,7 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 			return invalidRequest("unsupported bundle entry method", nil)
 		}
 		if len(entry.Resource) > 0 {
-			if err := h.enforcePatientScopeOnBundleResource(r.Context(), resourceType, id, entry.Resource); err != nil {
+			if err := h.enforceScopeOnBundleResource(r.Context(), resourceType, id, entry.Resource); err != nil {
 				return err
 			}
 		}
@@ -789,12 +822,8 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 	return nil
 }
 
-func (h *handler) enforcePatientScopeOnBundleResource(ctx context.Context, resourceType, id string, raw json.RawMessage) error {
-	if h.cfg.PatientReferenceResolver == nil || h.cfg.Codec == nil {
-		return nil
-	}
-	tenant, ok := h.tenantFromContext(ctx)
-	if !ok || tenant.PatientScope == "" {
+func (h *handler) enforceScopeOnBundleResource(ctx context.Context, resourceType, id string, raw json.RawMessage) error {
+	if h.cfg.Codec == nil {
 		return nil
 	}
 	envelope, err := h.cfg.Codec.ParseJSON(resourceType, raw)
@@ -807,7 +836,14 @@ func (h *handler) enforcePatientScopeOnBundleResource(ctx context.Context, resou
 	if envelope.ID == "" {
 		envelope.ID = id
 	}
-	return h.enforcePatientScopeOnEnvelope(ctx, envelope)
+	if err := h.enforcePatientScopeOnEnvelope(ctx, envelope); err != nil {
+		return err
+	}
+	op := smart.OpCreate
+	if id != "" {
+		op = smart.OpUpdate
+	}
+	return h.enforceScopeFiltersOnEnvelope(ctx, envelope.ResourceType, op, envelope)
 }
 
 func parseSearchFormBody(body []byte, contentType string) (url.Values, error) {

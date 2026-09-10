@@ -662,6 +662,62 @@ func AllScenarios() []Scenario {
 			},
 		},
 		{
+			Name: "smart22_revinclude_bundle_filters_scope_leakage",
+			Doc:  "_revinclude entries outside granted scope filters are removed from search bundles.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+				if err != nil {
+					return err
+				}
+				lab := observationEnvelope("obs-lab", "laboratory")
+				vital := observationEnvelope("obs-vital", "vital-signs")
+				bundle := search.AssembleBundle(&search.Result{
+					ResourceType: "Observation",
+					Resources:    []*types.ResourceEnvelope{lab},
+					Included: []search.IncludedEntry{{
+						ResourceType: "Observation", ID: vital.ID, Resource: vital, Mode: "include",
+					}},
+				})
+				if err := smart.FilterSearchBundleScopeFilters(scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+					return err
+				}
+				if len(bundle.Entries) != 1 {
+					return errors.New("expected revincluded out-of-filter observation removed")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "authz_policy_change_mid_session",
+			Doc:  "Replacing the policy engine changes allow/deny for subsequent requests with the same principal.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				d, err := kit.Engine.CanReadResource(ctx, auth.ReadRequest{
+					Principal: RestrictedClinician(), Tenant: TenantContextA(),
+					ResourceType: "Appointment", ID: "a1",
+				})
+				if err := AssertDecision("before policy change", ExpectAllow, d, err); err != nil {
+					return err
+				}
+				strict := MustEngineFromConfig(auth.Config{
+					Roles:      BaseConfig().Roles,
+					Principals: []auth.Principal{RestrictedClinician()},
+					Policy: &auth.PolicyDocument{
+						Version: "1",
+						Rules: []auth.PolicyRule{{
+							Name: "deny-all", Effect: auth.EffectDeny,
+							Match:  auth.RuleMatch{Actions: []string{auth.ActionRead}},
+							Reason: "session policy revoked",
+						}},
+					},
+				})
+				d, err = strict.CanReadResource(ctx, auth.ReadRequest{
+					Principal: RestrictedClinician(), Tenant: TenantContextA(),
+					ResourceType: "Appointment", ID: "a1",
+				})
+				return AssertDecision("after policy change", ExpectDeny, d, err)
+			},
+		},
+		{
 			Name: "smart22_policy_denies_despite_filtered_scope",
 			Doc:  "Policy deny still overrides SMART 2.2 filtered scope allow.",
 			Run: func(ctx context.Context, kit *Kit) error {

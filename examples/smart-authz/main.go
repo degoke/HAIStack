@@ -74,6 +74,7 @@ func run() error {
 		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: stack.Snapshot},
 		PatientReferenceResolver: patientRefResolver,
 		PrincipalResolver:        principalResolver(bundles),
+		AuthBundleResolver:       authBundleResolver(bundles),
 		AuthChecker: smart.ScopePolicyAuthChecker{
 			Engine:  authEngine,
 			Adapter: adapter,
@@ -232,6 +233,23 @@ func buildAuthStack(scopedPatientID string) (*auth.Engine, *smart.AuthAdapter, m
 		"cl-narrow":       narrowBundle,
 	}
 	return eng, adapter, bundles, nil
+}
+
+func authBundleResolver(bundles map[string]smart.AuthBundle) hahttp.AuthBundleResolver {
+	keys := map[string]string{
+		"unrestricted": "cl-unrestricted",
+		"scoped":       "cl-scoped",
+		"narrow":       "cl-narrow",
+	}
+	return func(_ context.Context, r *http.Request) (smart.AuthBundle, bool) {
+		key := r.Header.Get("X-Demo-Principal")
+		id := keys[key]
+		if id == "" {
+			return smart.AuthBundle{}, false
+		}
+		bundle, ok := bundles[id]
+		return bundle, ok
+	}
 }
 
 func principalResolver(bundles map[string]smart.AuthBundle) hahttp.PrincipalResolver {

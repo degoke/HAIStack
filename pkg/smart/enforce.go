@@ -1,6 +1,7 @@
 package smart
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -179,6 +180,106 @@ func codingCodeFromConcept(value any) string {
 		}
 	}
 	return ""
+}
+
+// FilterBundleEnvelopeScopeFilters removes bundle entries outside granted scope filters.
+func FilterBundleEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, defaultResourceType string, envelope *types.ResourceEnvelope, codec types.ResourceCodec) (*types.ResourceEnvelope, error) {
+	if envelope == nil || scopes.Empty() || envelope.ResourceType != "Bundle" {
+		return envelope, nil
+	}
+	if codec == nil {
+		codec = types.NewJSONCodec()
+	}
+	bundle, err := envelopeBundleToSearchBundle(envelope, codec)
+	if err != nil {
+		return nil, err
+	}
+	if err := FilterSearchBundleScopeFilters(scopes, actor, defaultResourceType, bundle); err != nil {
+		return nil, err
+	}
+	return searchBundleToBundleEnvelope(bundle, envelope, codec)
+}
+
+func envelopeBundleToSearchBundle(envelope *types.ResourceEnvelope, codec types.ResourceCodec) (*search.SearchBundle, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(envelope.JSON, &raw); err != nil {
+		return nil, fmt.Errorf("parse bundle envelope: %w", err)
+	}
+	entriesRaw, _ := raw["entry"].([]any)
+	bundle := &search.SearchBundle{ResourceType: "Bundle"}
+	for _, item := range entriesRaw {
+		entryObj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		mode, _ := entryObj["search"].(map[string]any)
+		modeStr := ""
+		if mode != nil {
+			modeStr, _ = mode["mode"].(string)
+		}
+		if modeStr == "" {
+			modeStr, _ = entryObj["mode"].(string)
+		}
+		resourceObj, ok := entryObj["resource"].(map[string]any)
+		if !ok {
+			continue
+		}
+		resourceType, _ := resourceObj["resourceType"].(string)
+		data, err := json.Marshal(resourceObj)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := codec.ParseJSON(resourceType, data)
+		if err != nil {
+			return nil, err
+		}
+		fullURL, _ := entryObj["fullUrl"].(string)
+		bundle.Entries = append(bundle.Entries, search.BundleEntry{
+			FullURL:  fullURL,
+			Resource: parsed,
+			Mode:     modeStr,
+		})
+	}
+	bundle.Count = len(bundle.Entries)
+	return bundle, nil
+}
+
+func searchBundleToBundleEnvelope(bundle *search.SearchBundle, original *types.ResourceEnvelope, codec types.ResourceCodec) (*types.ResourceEnvelope, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(original.JSON, &raw); err != nil {
+		return nil, err
+	}
+	entries := make([]map[string]any, 0, len(bundle.Entries))
+	for _, entry := range bundle.Entries {
+		if entry.Resource == nil {
+			continue
+		}
+		item := map[string]any{}
+		if entry.FullURL != "" {
+			item["fullUrl"] = entry.FullURL
+		}
+		var resourceObj any
+		if err := json.Unmarshal(entry.Resource.JSON, &resourceObj); err != nil {
+			return nil, err
+		}
+		item["resource"] = resourceObj
+		if entry.Mode != "" {
+			item["search"] = map[string]any{"mode": entry.Mode}
+		}
+		entries = append(entries, item)
+	}
+	raw["entry"] = entries
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	out, err := codec.ParseJSON("Bundle", data)
+	if err != nil {
+		return nil, err
+	}
+	out.VersionID = original.VersionID
+	out.LastUpdated = original.LastUpdated
+	return out, nil
 }
 
 func intersectValues(existing, required []string) []string {
