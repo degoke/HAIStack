@@ -131,13 +131,7 @@ func run() error {
 		ResourceService:   hahttp.CoreResourceService{Svc: stack.ResourceService},
 		SearchService:     hahttp.SearchServiceAdapter{Svc: stack.SearchService},
 		PrincipalResolver: wired.PrincipalResolver,
-		AuthChecker: oauth.ScopePolicyAuthChecker{
-			Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
-				DefaultTenantID:  "tenant-demo",
-				DefaultUserRoles: []string{"clinician"},
-			}),
-			Engine: authEngine,
-		},
+		AuthChecker:       wired.ScopePolicyAuthChecker(authEngine),
 	})
 	if err != nil {
 		return err

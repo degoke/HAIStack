@@ -22,7 +22,8 @@ func TestTokenIntrospection_ActiveAccessToken(t *testing.T) {
 	values := url.Values{}
 	values.Set("token", tokenResp.AccessToken)
 	values.Set("token_type_hint", "access_token")
-	values.Set("client_id", "standalone-app")
+	values.Set("client_id", "introspect-client")
+	values.Set("client_secret", "introspect-secret")
 	resp, err := http.Post(ts.URL+"/oauth/introspect", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
 	if err != nil {
 		t.Fatal(err)

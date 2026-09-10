@@ -27,6 +27,13 @@ type WireResult struct {
 	OAuthHandler http.Handler
 	// PrincipalResolver validates Bearer tokens issued by the server.
 	PrincipalResolver hahttp.PrincipalResolver
+	// Adapter is the resolved SMART auth adapter shared with ScopePolicyAuthChecker.
+	Adapter *smart.AuthAdapter
+}
+
+// ScopePolicyAuthChecker returns an AuthChecker wired to the same SMART adapter as WireHTTP.
+func (r WireResult) ScopePolicyAuthChecker(engine auth.PolicyEngine) ScopePolicyAuthChecker {
+	return ScopePolicyAuthChecker{Adapter: r.Adapter, Engine: engine}
 }
 
 // WireHTTP builds OAuth routes and a PrincipalResolver for pkg/http.
@@ -49,6 +56,7 @@ func WireHTTP(cfg WireConfig) (WireResult, error) {
 	return WireResult{
 		OAuthHandler:      cfg.Server.Handler(),
 		PrincipalResolver: resolver,
+		Adapter:           adapter,
 	}, nil
 }
 
@@ -206,6 +214,7 @@ func WireMultiTenantHTTP(cfg MultiTenantConfig, adapter *smart.AuthAdapter) (Wir
 	return WireResult{
 		OAuthHandler:      mts.Handler(),
 		PrincipalResolver: resolver,
+		Adapter:           adapter,
 	}, nil
 }
 

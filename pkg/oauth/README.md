@@ -19,11 +19,11 @@ External IdPs (Keycloak, Auth0, Epic, Cerner) remain fully supported — omit th
 
 | Path | Description |
 |------|-------------|
-| `GET/POST /oauth/authorize` | Authorization code + PKCE (`S256`); interactive consent when `AutoApprove` is false |
-| `POST /oauth/launch` | Issue single-use EHR launch tokens (client auth required) |
+| `GET/POST /oauth/authorize` | Authorization code + PKCE (`S256`); CSRF-protected consent when `AutoApprove` is false |
+| `POST /oauth/launch` | Issue single-use EHR launch tokens (`launch_issuer_id` + `launch_issuer_secret`) |
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, `client_credentials` |
-| `POST /oauth/revoke` | Revoke access or refresh tokens (client auth required) |
-| `POST /oauth/introspect` | RFC 7662 token introspection (client auth required) |
+| `POST /oauth/revoke` | Revoke access or refresh tokens (confidential client auth required) |
+| `POST /oauth/introspect` | RFC 7662 token introspection (confidential client auth required) |
 | `GET /.well-known/smart-configuration` | SMART discovery (also mirrored at `{fhir_base}/.well-known/...` by `pkg/http`) |
 | `GET /.well-known/openid-configuration` | OIDC subset discovery |
 | `GET /.well-known/jwks.json` | JWKS (RS256 signers) |
@@ -58,29 +58,48 @@ wired, _ := oauth.WireHTTP(oauth.WireConfig{
         DefaultUserRoles: []string{"clinician"},
     }),
 })
-
-// Mount wired.OAuthHandler alongside FHIR; use wired.PrincipalResolver with pkg/http.
-// ScopePolicyAuthChecker should include the same AuthAdapter used by WireHTTP.
+fhirHandler, _ := hahttp.NewHandler(hahttp.Config{
+    PrincipalResolver: wired.PrincipalResolver,
+    AuthChecker:       wired.ScopePolicyAuthChecker(authEngine),
+})
 ```
 
-For demos and tests only, opt into silent authorization:
+## Multi-tenant issuers
+
+Configure separate launch issuer credentials (distinct from SMART app client credentials):
+
+```go
+cfg.LaunchIssuerAuth = &oauth.LaunchIssuerAuth{
+    ClientID:     "ehr-launcher",
+    ClientSecret: "change-me",
+}
+```
+
+An EHR posts launch context with those credentials:
+
+```bash
+curl -X POST "$BASE/oauth/launch" \
+  -d launch_issuer_id=ehr-launcher \
+  -d launch_issuer_secret=change-me \
+  -d patient=patient-123
+# -> {"launch":"<single-use-token>"}
+```
+
+The app then opens `/oauth/authorize?...&launch=<token>`.
+
+## Consent UI
+
+When `AutoApprove` is false (the default), authorize requests render a consent page with:
+
+- configurable title and logo (`ConsentUI`)
+- server-side consent session + CSRF token (HttpOnly cookie)
+
+Demos and tests opt into silent authorization explicitly:
 
 ```go
 autoApprove := true
 cfg.AutoApprove = &autoApprove
 ```
-
-## EHR launch
-
-An EHR (or simulator) creates a launch context, then the app passes the returned token to `/oauth/authorize?launch=...`:
-
-```go
-// POST /oauth/launch (client_id required)
-// patient=...&encounter=...&user=...
-// -> {"launch":"<single-use-token>"}
-```
-
-The authorize endpoint consumes the launch token and binds patient/encounter/user context into the issued tokens.
 
 ## Multi-tenant issuers
 
@@ -122,7 +141,8 @@ srv, _ := oauth.NewServer(cfg)
 - Redirect URIs must match exactly
 - Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`)
 - Refresh tokens rotate by default
-- `/oauth/introspect` and `/oauth/revoke` require registered client authentication
+- `/oauth/introspect` and `/oauth/revoke` require **confidential** registered client authentication
+- `WireHTTP` exposes `ScopePolicyAuthChecker(engine)` wired to the same SMART adapter
 - Revoked access token JTIs are rejected by `WireHTTP`/`BearerPrincipalResolver`
 - `ScopePolicyAuthChecker` enforces SMART scopes before policy evaluation and denies access when no policy engine is configured
 

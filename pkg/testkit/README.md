@@ -210,8 +210,8 @@ Uses `pkg/fhirpath` only — no duplicate engine logic.
 
 ## infernotest
 
-Runs Inferno-aligned SMART discovery checks against a reference host backed by
-`pkg/oauth` and a minimal FHIR API. Discovery is served at
+Runs Inferno-aligned SMART discovery checks and standalone launch (PKCE auth-code flow)
+against a reference host backed by `pkg/oauth` and a minimal FHIR API. Discovery is served at
 `{fhir_base}/.well-known/smart-configuration`, matching Inferno's
 `smart_discovery_stu2` group.
 

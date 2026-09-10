@@ -190,6 +190,13 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 		FHIRBaseURL: meta.FHIRBaseURL,
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "inferno"},
 		Clients:     reg,
+		ConsentUI: oauth.ConsentUIConfig{
+			Title: "HAIStack Inferno Reference",
+		},
+		LaunchIssuerAuth: &oauth.LaunchIssuerAuth{
+			ClientID:     "inferno-ehr",
+			ClientSecret: "inferno-ehr-secret",
+		},
 	}
 	if err := oauthstore.ApplySQLiteStores(&oauthCfg, db.SQL()); err != nil {
 		cleanup()
@@ -218,13 +225,7 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 		ResourceService:   hahttp.CoreResourceService{Svc: resourceService},
 		SearchService:     hahttp.SearchServiceAdapter{Svc: searchService},
 		PrincipalResolver: wired.PrincipalResolver,
-		AuthChecker: oauth.ScopePolicyAuthChecker{
-			Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
-				DefaultTenantID:  "tenant-inferno",
-				DefaultUserRoles: []string{"clinician"},
-			}),
-			Engine: authEngine,
-		},
+		AuthChecker:       wired.ScopePolicyAuthChecker(authEngine),
 	})
 	if err != nil {
 		cleanup()

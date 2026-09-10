@@ -22,7 +22,7 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "token is required")
 		return
 	}
-	if _, ok := s.requireAuthenticatedClient(w, r); !ok {
+	if _, ok := s.requireConfidentialClient(w, r); !ok {
 		return
 	}
 

@@ -6,6 +6,12 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
+// LaunchIssuerAuth identifies the EHR or trusted launcher that may issue SMART launch tokens.
+type LaunchIssuerAuth struct {
+	ClientID     string
+	ClientSecret string
+}
+
 // Config configures the built-in OAuth authorization server.
 type Config struct {
 	// Issuer is the OAuth issuer URL (typically the server root, no trailing slash).
@@ -35,6 +41,10 @@ type Config struct {
 	// AutoApprove skips interactive consent for registered clients (demo/tests only).
 	// When nil, defaults to false; production deployments should keep consent enabled.
 	AutoApprove *bool
+	// ConsentUI customizes the interactive consent page (title, logo, session cookie).
+	ConsentUI ConsentUIConfig
+	// LaunchIssuerAuth holds separate EHR credentials for POST /oauth/launch.
+	LaunchIssuerAuth *LaunchIssuerAuth
 	// ScopesSupported is advertised in SMART configuration.
 	ScopesSupported []string
 	// Now overrides time.Now for tests.
@@ -45,21 +55,22 @@ type Config struct {
 type Server struct {
 	cfg Config
 
-	clients       *ClientRegistry
-	codes         AuthorizationCodeStore
-	launches      LaunchStore
-	refresh       RefreshTokenStore
-	revocation    TokenRevocationStore
-	backendAuth   *smart.BackendServiceAuth
-	signer        TokenSigner
-	issuer        string
-	fhirBase      string
-	tokenTTL      time.Duration
-	refreshTTL    time.Duration
-	rotateRefresh bool
-	autoApprove   bool
-	scopes        []string
-	nowFn         func() time.Time
+	clients         *ClientRegistry
+	codes           AuthorizationCodeStore
+	launches        LaunchStore
+	refresh         RefreshTokenStore
+	revocation      TokenRevocationStore
+	consentSessions *consentSessionStore
+	backendAuth     *smart.BackendServiceAuth
+	signer          TokenSigner
+	issuer          string
+	fhirBase        string
+	tokenTTL        time.Duration
+	refreshTTL      time.Duration
+	rotateRefresh   bool
+	autoApprove     bool
+	scopes          []string
+	nowFn           func() time.Time
 }
 
 // NewServer validates config and returns a Server.
@@ -131,22 +142,23 @@ func NewServer(cfg Config) (*Server, error) {
 		rotateRefresh = *cfg.RotateRefreshTokens
 	}
 	return &Server{
-		cfg:           cfg,
-		clients:       cfg.Clients,
-		codes:         codes,
-		launches:      launches,
-		refresh:       refresh,
-		revocation:    revocation,
-		backendAuth:   cfg.BackendAuth,
-		signer:        cfg.Signer,
-		issuer:        trimSlash(cfg.Issuer),
-		fhirBase:      trimSlash(cfg.FHIRBaseURL),
-		tokenTTL:      ttl,
-		refreshTTL:    refreshTTL,
-		rotateRefresh: rotateRefresh,
-		autoApprove:   autoApprove,
-		scopes:        scopes,
-		nowFn:         nowFn,
+		cfg:             cfg,
+		clients:         cfg.Clients,
+		codes:           codes,
+		launches:        launches,
+		refresh:         refresh,
+		revocation:      revocation,
+		consentSessions: newConsentSessionStore(nowFn),
+		backendAuth:     cfg.BackendAuth,
+		signer:          cfg.Signer,
+		issuer:          trimSlash(cfg.Issuer),
+		fhirBase:        trimSlash(cfg.FHIRBaseURL),
+		tokenTTL:        ttl,
+		refreshTTL:      refreshTTL,
+		rotateRefresh:   rotateRefresh,
+		autoApprove:     autoApprove,
+		scopes:          scopes,
+		nowFn:           nowFn,
 	}, nil
 }
 

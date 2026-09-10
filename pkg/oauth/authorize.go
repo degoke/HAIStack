@@ -20,7 +20,17 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form")
 			return
 		}
-		q = r.Form
+		if csrf := strings.TrimSpace(r.Form.Get("csrf_token")); csrf != "" {
+			sessionParams, err := s.loadConsentSession(r, csrf)
+			if err != nil {
+				writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid or expired consent session")
+				return
+			}
+			sessionParams.Set("approved", strings.TrimSpace(r.Form.Get("approved")))
+			q = sessionParams
+		} else {
+			q = r.Form
+		}
 	}
 
 	clientID := strings.TrimSpace(q.Get("client_id"))
@@ -110,7 +120,12 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if !s.autoApprove {
 		approved := strings.TrimSpace(q.Get("approved"))
 		if approved == "" {
-			s.renderConsent(w, r, q)
+			csrf, err := s.beginConsentSession(w, q)
+			if err != nil {
+				writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to begin consent session")
+				return
+			}
+			s.renderConsent(w, r, q, csrf)
 			return
 		}
 		if approved != "yes" {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -445,6 +446,14 @@ func newTestServer(t *testing.T, opts testServerOpts) (*rsa.PrivateKey, *oauth.S
 	}); err != nil {
 		t.Fatal(err)
 	}
+	_ = reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID: "introspect-client",
+			Scopes:   []string{"patient/Patient.read"},
+		},
+		Confidential: true,
+		ClientSecret: "introspect-secret",
+	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -460,6 +469,10 @@ func newTestServer(t *testing.T, opts testServerOpts) (*rsa.PrivateKey, *oauth.S
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
 		Clients:     reg,
 		AutoApprove: autoApprove,
+		LaunchIssuerAuth: &oauth.LaunchIssuerAuth{
+			ClientID:     "ehr-launcher",
+			ClientSecret: "ehr-secret",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -577,8 +590,50 @@ func TestConsentRequiredWhenAutoApproveDisabled(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "Authorize application") {
+	if !strings.Contains(string(body), "csrf_token") {
 		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestConsentApprovalIssuesCode(t *testing.T) {
+	autoApprove := false
+	_, _, ts := newTestServer(t, testServerOpts{autoApprove: &autoApprove})
+	defer ts.Close()
+	jar, _ := cookiejar.New(nil)
+	httpClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authURL := ts.URL + "/oauth/authorize?response_type=code&client_id=standalone-app&redirect_uri=https://app.example/callback&scope=patient/Patient.read&code_challenge=" + pkce.Challenge + "&code_challenge_method=S256"
+	resp, err := httpClient.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	csrf := extractInputValue(string(body), "csrf_token")
+	if csrf == "" {
+		t.Fatal("missing csrf token")
+	}
+	values := url.Values{}
+	values.Set("csrf_token", csrf)
+	values.Set("approved", "yes")
+	resp, err = httpClient.Post(authURL, "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, readBody(resp.Body))
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "code=") {
+		t.Fatalf("location = %q", resp.Header.Get("Location"))
 	}
 }
 
@@ -587,7 +642,8 @@ func TestEHRLaunchFlow(t *testing.T) {
 	defer ts.Close()
 
 	values := url.Values{}
-	values.Set("client_id", "standalone-app")
+	values.Set("launch_issuer_id", "ehr-launcher")
+	values.Set("launch_issuer_secret", "ehr-secret")
 	values.Set("patient", "launch-patient-42")
 	resp, err := http.Post(ts.URL+"/oauth/launch", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
 	if err != nil {
@@ -629,4 +685,23 @@ func TestEHRLaunchFlow(t *testing.T) {
 	if tokenResp.Patient != "launch-patient-42" {
 		t.Fatalf("patient = %q", tokenResp.Patient)
 	}
+}
+
+func extractInputValue(htmlBody, name string) string {
+	needle := `name="` + name + `" value="`
+	idx := strings.Index(htmlBody, needle)
+	if idx < 0 {
+		return ""
+	}
+	rest := htmlBody[idx+len(needle):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+func readBody(r io.Reader) string {
+	body, _ := io.ReadAll(r)
+	return string(body)
 }

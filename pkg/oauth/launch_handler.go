@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// handleLaunch issues a single-use SMART EHR launch token for an authenticated client.
+// handleLaunch issues a single-use SMART EHR launch token for an authenticated launch issuer.
 func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodPost)
@@ -16,8 +16,7 @@ func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusNotImplemented, "invalid_request", "launch store not configured")
 		return
 	}
-	client, ok := s.requireAuthenticatedClient(w, r)
-	if !ok {
+	if !s.requireLaunchIssuer(w, r) {
 		return
 	}
 	patient := strings.TrimSpace(r.Form.Get("patient"))
@@ -28,13 +27,10 @@ func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "patient, encounter, or user is required")
 		return
 	}
-	if tenant == "" {
-		tenant = client.TenantHint
-	}
 	token, err := s.launches.Issue(LaunchContextRecord{
-		PatientID:   firstNonEmpty(patient, client.DefaultPatient),
+		PatientID:   patient,
 		EncounterID: encounter,
-		UserID:      firstNonEmpty(user, client.DefaultUser),
+		UserID:      user,
 		TenantHint:  tenant,
 	})
 	if err != nil {
