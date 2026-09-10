@@ -83,6 +83,8 @@ oauth:
 
 When OAuth is enabled, FHIR endpoints require SMART Bearer tokens; discovery remains public at `/fhir/.well-known/smart-configuration`.
 
+The RS256 signing key is persisted in SQLite (`hai_oauth_signing_key`) keyed by issuer URL, so JWKS and issued access tokens remain valid across `haistack serve` restarts.
+
 Environment variables (example):
 
 | Variable | Purpose |
@@ -117,7 +119,7 @@ removed, err := cfg.ConsentSessionStore.PurgeExpired(ctx)
 
 ## Checklist before go-live
 
-1. `ApplySQLiteStores` wired; migrations applied
+1. `ApplySQLiteStores` wired; migrations applied (through `0019_oauth_signing_key.sql`)
 2. `ApplyProductionDefaults` passes (registration token or DCR disabled)
 3. `AutoApprove` false unless explicitly demo-only
 4. Consent session cleanup goroutine running

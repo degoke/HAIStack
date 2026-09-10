@@ -7,7 +7,7 @@ import (
 )
 
 // ApplySQLiteStores wires SQLite-backed OAuth persistence into cfg.
-// Apply pkg/sqlite migrations 0012_oauth.sql through 0018_oauth_client.sql before use.
+// Apply pkg/sqlite migrations 0012_oauth.sql through 0019_oauth_signing_key.sql before use.
 // Call this before oauth.NewServer for production-like hosts; without it, auth codes
 // and other OAuth state remain in-memory (see oauth.UsesInMemoryStores).
 func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {

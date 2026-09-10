@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"fmt"
 	"os"
 	"strings"
@@ -47,7 +45,7 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	issuer = strings.TrimRight(issuer, "/")
 	fhirBase := issuer + "/fhir"
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	signer, err := oauthstore.LoadOrCreateRS256Signer(state.sqliteDB.SQL(), issuer, "haistack")
 	if err != nil {
 		return fmt.Errorf("runtime: oauth signing key: %w", err)
 	}
@@ -73,7 +71,7 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	oauthCfg := oauth.Config{
 		Issuer:      issuer,
 		FHIRBaseURL: fhirBase,
-		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "haistack"},
+		Signer:      signer,
 		Clients:     reg,
 	}
 	if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL()); err != nil {

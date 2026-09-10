@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,5 +63,51 @@ func TestBuiltinOAuthProductionRequiresRegistrationToken(t *testing.T) {
 		Build(ctx)
 	if err == nil {
 		t.Fatal("expected production defaults to require registration token")
+	}
+}
+
+func TestBuiltinOAuthPersistsSigningKey(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-persist.db")
+
+	fetchJWKS := func() string {
+		rt, err := runtime.New().
+			WithSQLite(dbPath).
+			WithHTTP("127.0.0.1:0").
+			WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+				IssuerURL: "http://127.0.0.1:8080",
+				TenantID:  "local",
+			}).
+			Build(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rt.Shutdown(ctx) }()
+
+		ts := httptest.NewServer(rt.Handler())
+		defer ts.Close()
+
+		resp, err := http.Get(ts.URL + "/.well-known/jwks.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+
+	first := fetchJWKS()
+	second := fetchJWKS()
+	if first == "" || first != second {
+		t.Fatalf("jwks changed across restarts:\nfirst=%q\nsecond=%q", first, second)
 	}
 }
