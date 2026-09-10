@@ -1,8 +1,20 @@
 package structuremap
 
+import "strings"
+
+var fhirDatatypes = map[string]bool{
+	"Coding": true, "CodeableConcept": true, "HumanName": true, "Quantity": true,
+	"Reference": true, "Identifier": true, "ContactPoint": true, "Period": true,
+	"Address": true, "Annotation": true, "Range": true, "Ratio": true,
+	"SampledData": true, "Timing": true, "Dosage": true, "Attachment": true,
+	"Money": true, "Distance": true, "Duration": true, "Age": true, "Count": true,
+	"BundleEntry": true, "BackboneElement": true,
+}
+
 // isFHIRResourceType reports whether typeName names a FHIR resource (not a datatype).
 func isFHIRResourceType(typeName string) bool {
-	if typeName == "" {
+	typeName = resourceTypeName(typeName)
+	if typeName == "" || isFHIRDatatype(typeName) {
 		return false
 	}
 	switch typeName {
@@ -13,8 +25,20 @@ func isFHIRResourceType(typeName string) bool {
 		"Immunization", "AllergyIntolerance", "CarePlan", "Goal", "Device":
 		return true
 	default:
+		return looksLikeResourceType(typeName)
+	}
+}
+
+func isFHIRDatatype(typeName string) bool {
+	return fhirDatatypes[typeName]
+}
+
+func looksLikeResourceType(typeName string) bool {
+	if typeName == "" || strings.Contains(typeName, ".") {
 		return false
 	}
+	first := typeName[0]
+	return first >= 'A' && first <= 'Z'
 }
 
 func newTypedInstance(typeName string) map[string]any {
@@ -28,7 +52,7 @@ func newTypedInstance(typeName string) map[string]any {
 	return map[string]any{}
 }
 
-// repeatingFields lists FHIR JSON fields that are arrays for a given resource or datatype.
+// repeatingFields lists FHIR JSON fields that are arrays for a given resource type.
 var repeatingFields = map[string]map[string]bool{
 	"Patient": {
 		"name": true, "identifier": true, "telecom": true, "address": true,
@@ -36,10 +60,9 @@ var repeatingFields = map[string]map[string]bool{
 	},
 	"Observation": {
 		"identifier": true, "basedOn": true, "partOf": true, "category": true,
-		"code": true, "note": true, "performer": true, "valueQuantity": true,
-		"interpretation": true, "bodySite": true, "method": true, "specimen": true,
-		"device": true, "referenceRange": true, "hasMember": true, "derivedFrom": true,
-		"component": true,
+		"note": true, "performer": true, "interpretation": true, "bodySite": true,
+		"method": true, "specimen": true, "device": true, "referenceRange": true,
+		"hasMember": true, "derivedFrom": true, "component": true,
 	},
 	"Bundle": {
 		"entry": true, "link": true, "signature": true,
@@ -48,12 +71,10 @@ var repeatingFields = map[string]map[string]bool{
 		"identifier": true, "relationship": true, "name": true, "telecom": true,
 		"address": true, "communication": true,
 	},
-	"HumanName": {
-		"given": true, "prefix": true, "suffix": true,
-	},
-	"CodeableConcept": {
-		"coding": true,
-	},
+}
+
+var repeatingDatatypeFields = map[string]bool{
+	"given": true, "prefix": true, "suffix": true, "coding": true,
 }
 
 func isRepeatingField(parent map[string]any, field string) bool {
@@ -66,13 +87,5 @@ func isRepeatingField(parent map[string]any, field string) bool {
 			return true
 		}
 	}
-	if fields, ok := repeatingFields[field]; ok {
-		// Nested datatype keys like HumanName.given are keyed by parent shape.
-		_ = fields
-	}
-	// HumanName and CodeableConcept do not carry resourceType; infer from context.
-	if field == "given" || field == "prefix" || field == "suffix" || field == "coding" {
-		return true
-	}
-	return false
+	return repeatingDatatypeFields[field]
 }

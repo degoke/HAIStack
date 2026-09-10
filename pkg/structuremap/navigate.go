@@ -63,7 +63,15 @@ func assignElementValue(root map[string]any, elements []string, value any, listM
 			cur[part] = value
 			return nil
 		}
-		next, ok := cur[part].(map[string]any)
+		if isRepeatingField(cur, part) && !hasListMode(listModes, "single") {
+			next, err := ensureRepeatingObjectElement(cur, part)
+			if err != nil {
+				return err
+			}
+			cur = next
+			continue
+		}
+		next, ok := objectElement(cur[part])
 		if !ok {
 			next = map[string]any{}
 			cur[part] = next
@@ -71,6 +79,46 @@ func assignElementValue(root map[string]any, elements []string, value any, listM
 		cur = next
 	}
 	return nil
+}
+
+func objectElement(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case []any:
+		if len(typed) == 0 {
+			return nil, false
+		}
+		if object, ok := typed[0].(map[string]any); ok {
+			return object, true
+		}
+	}
+	return nil, false
+}
+
+func ensureRepeatingObjectElement(cur map[string]any, part string) (map[string]any, error) {
+	existing := cur[part]
+	switch typed := existing.(type) {
+	case nil:
+		child := map[string]any{}
+		cur[part] = []any{child}
+		return child, nil
+	case []any:
+		if len(typed) == 0 {
+			child := map[string]any{}
+			cur[part] = []any{child}
+			return child, nil
+		}
+		if child, ok := typed[len(typed)-1].(map[string]any); ok {
+			return child, nil
+		}
+		return nil, fmt.Errorf("expected object in repeating field %q", part)
+	case map[string]any:
+		cur[part] = []any{typed}
+		return typed, nil
+	default:
+		return nil, fmt.Errorf("unexpected value in repeating field %q", part)
+	}
 }
 
 func assignRepeatingValue(cur map[string]any, part string, value any) error {
@@ -104,8 +152,16 @@ func appendElementPath(root map[string]any, elements []string, value any) error 
 			}
 			return nil
 		}
-		next, ok := cur[part].(map[string]any)
+		next, ok := objectElement(cur[part])
 		if !ok {
+			if isRepeatingField(cur, part) {
+				next, err := ensureRepeatingObjectElement(cur, part)
+				if err != nil {
+					return err
+				}
+				cur = next
+				continue
+			}
 			next = map[string]any{}
 			cur[part] = next
 		}

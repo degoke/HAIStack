@@ -32,6 +32,58 @@ func TestCreateDatatypeOmitsResourceType(t *testing.T) {
 	}
 }
 
+func TestNestedRepeatingPathNameGiven(t *testing.T) {
+	m := Map{
+		URL: "http://example/map",
+		Group: []Group{{
+			Input: []Input{
+				{Name: "src", Type: "QuestionnaireResponse", Mode: "source"},
+				{Name: "tgt", Type: "Patient", Mode: "target"},
+			},
+			Rule: []Rule{{
+				Target: []Target{{Context: "tgt", Transform: "create", Parameter: []Parameter{{ValueString: "Patient"}}}},
+				Rule: []Rule{{
+					Source: []Source{{Context: "src", Element: []string{"item"}, Variable: "nameItem", Condition: "linkId = 'name'"}},
+					Rule: []Rule{{
+						Source: []Source{{Context: "nameItem", Element: []string{"answer"}, Variable: "answer"}},
+						Target: []Target{{
+							Context: "tgt", Element: []string{"name", "given"}, Transform: "copy",
+							Parameter: []Parameter{{ValueID: "answer"}},
+						}},
+					}},
+				}},
+			}},
+		}},
+	}
+	resources, err := Engine{}.Execute(context.Background(), m, ExecuteInput{"src": exampleResponse()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patient := decodePatient(t, resources[0])
+	name, ok := patient["name"].([]any)
+	if !ok || len(name) != 1 {
+		t.Fatalf("expected Patient.name array, got %#v", patient["name"])
+	}
+	humanName, ok := name[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected HumanName object, got %#v", name[0])
+	}
+	given, ok := humanName["given"].([]any)
+	if !ok || len(given) != 1 || given[0] != "Ada" {
+		t.Fatalf("expected given array with Ada, got %#v", humanName["given"])
+	}
+}
+
+func TestObservationCodeIsNotArray(t *testing.T) {
+	obs := map[string]any{"resourceType": "Observation"}
+	if err := assignElementValue(obs, []string{"code"}, map[string]any{"text": "weight"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := obs["code"].([]any); ok {
+		t.Fatalf("Observation.code must not be an array: %#v", obs["code"])
+	}
+}
+
 func TestPatientNameIsArray(t *testing.T) {
 	resources, err := Engine{}.Execute(context.Background(), exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
 	if err != nil {
