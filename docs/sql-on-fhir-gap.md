@@ -32,8 +32,8 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 
 | Capability | SQLite / edge | Postgres + analytics |
 |------------|---------------|----------------------|
-| View registry + `$viewdefinition-run` | Yes (when job store wired) | Yes |
-| `$viewdefinition-export` + file download | Yes (when job store wired) | Yes |
+| `$viewdefinition-run` | Yes (always wired with storage; async export/materialize when job store exists) | Yes |
+| `$viewdefinition-export` + file download | Yes (filesystem-backed when storage is configured) | Yes |
 | `$sqlquery-run` | No reporting tables | Yes |
 | Reporting refresh + CDC watermarks | No | Yes (`WithAnalytics()`) |
 

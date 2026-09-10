@@ -276,6 +276,13 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 
 	var files []ExportFile
 	writer := NewFileExportWriter(s.files, jobID)
+	failJob := func(err error) error {
+		_ = s.files.DeleteJob(ctx, jobID)
+		job.Status = ExportError
+		job.LastError = err.Error()
+		job.CompletedAt = s.now()
+		return s.jobs.Update(ctx, *job)
+	}
 	for i, target := range job.Request.Views {
 		if job.Cancelled {
 			return nil
@@ -287,10 +294,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 			Since:    since,
 		})
 		if execErr != nil {
-			job.Status = ExportError
-			job.LastError = execErr.Error()
-			job.CompletedAt = s.now()
-			return s.jobs.Update(ctx, *job)
+			return failJob(execErr)
 		}
 		outputName := target.OutputName
 		if outputName == "" {
@@ -298,10 +302,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		}
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
-			job.Status = ExportError
-			job.LastError = err.Error()
-			job.CompletedAt = s.now()
-			return s.jobs.Update(ctx, *job)
+			return failJob(err)
 		}
 		files = append(files, ExportFile{
 			ViewName:   target.ViewName,
@@ -318,10 +319,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		now := s.now()
 		for _, target := range job.Request.Views {
 			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, now); err != nil {
-				job.Status = ExportError
-				job.LastError = err.Error()
-				job.CompletedAt = now
-				return s.jobs.Update(ctx, *job)
+				return failJob(err)
 			}
 		}
 	}

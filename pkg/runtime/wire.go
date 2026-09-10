@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -534,6 +535,28 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 		state.services.BulkExportService = exportSvc
 		state.jobRunner = runner
+	} else {
+		packageInstaller := &packages.Installer{
+			Registry: regManager,
+			Refresh: func(ctx context.Context) error {
+				_, err := conformanceRuntime.Refresh(ctx)
+				return err
+			},
+			EnableTypes:  true,
+			ViewRegistry: view.NewRegistry(),
+			FHIRPath:     engine,
+		}
+		state.services.ViewRegistry = packageInstaller.ViewRegistry
+		if err := b.wireViewServices(ctx, state, wireAnalyticsContext{
+			engine:           engine,
+			resources:        pc.resources,
+			cursors:          pc.syncCursors,
+			packageInstaller: packageInstaller,
+			searchExecutor:   searchExecutor,
+			searchRegistry:   searchRegistry,
+		}); err != nil {
+			return fmt.Errorf("runtime: view services: %w", err)
+		}
 	}
 
 	var httpSearchSvc hahttp.SearchService
@@ -669,13 +692,15 @@ func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wir
 		state.services.SQLQueryService = view.NewSQLQueryService(view.NewSQLQueryEngine(reportingStore))
 	}
 
-	if ac.jobStore == nil {
-		return nil
+	exportFiles, err := b.resolveViewExportFileStore(state)
+	if err != nil {
+		return err
 	}
-
-	exportFiles := view.NewInMemoryExportFileStore()
 	exportJobs := view.NewInMemoryViewExportJobStore()
-	watermarks := analytics.NewWatermarkStore(ac.cursors)
+	var watermarks *analytics.WatermarkStore
+	if ac.cursors != nil {
+		watermarks = analytics.NewWatermarkStore(ac.cursors)
+	}
 	exportSvc, err := view.NewExportService(view.ExportServiceConfig{
 		Jobs:      exportJobs,
 		Files:     exportFiles,
@@ -740,7 +765,7 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	watermarks := analytics.NewWatermarkStore(ac.cursors)
 
 	baseTarget := analytics.NewReportingTarget(reportingStore)
-	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, ac.cursors)
+	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, watermarks)
 
 	maxConcurrent := b.analyticsMaxConcurrent
 	if maxConcurrent <= 0 {
@@ -780,4 +805,23 @@ func (b *Builder) resolveReportingStore(state *wireState) store.ReportingTableSt
 		return state.services.TenantDB.ReportingTableStore()
 	}
 	return nil
+}
+
+func (b *Builder) resolveViewExportFileStore(state *wireState) (view.ExportFileStore, error) {
+	if b.viewExportDir != "" {
+		return view.NewLocalExportFileStore(b.viewExportDir)
+	}
+	if b.sqlitePath != "" {
+		root := filepath.Join(filepath.Dir(b.sqlitePath), "view-exports")
+		return view.NewLocalExportFileStore(root)
+	}
+	tenantID := b.tenantID
+	if tenantID == "" && state.services.TenantDB != nil {
+		tenantID = state.services.TenantDB.TenantID()
+	}
+	if tenantID != "" {
+		root := filepath.Join("view-exports", tenantID)
+		return view.NewLocalExportFileStore(root)
+	}
+	return view.NewInMemoryExportFileStore(), nil
 }
