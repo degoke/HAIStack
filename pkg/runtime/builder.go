@@ -45,6 +45,8 @@ type Builder struct {
 	analyticsEnabled       bool
 	analyticsMaxConcurrent int
 	postgresReadReplicaDSN string
+	viewExportDir          string
+	dataDir                string
 }
 
 // New returns a new runtime builder.
@@ -226,6 +228,19 @@ func (b *Builder) WithAnalyticsConcurrency(max int) *Builder {
 // WithPostgresReadReplica configures a read-only Postgres DSN for analytics view scans.
 func (b *Builder) WithPostgresReadReplica(dsn string) *Builder {
 	b.postgresReadReplicaDSN = dsn
+	return b
+}
+
+// WithViewExportDir sets the filesystem directory for ViewDefinition export artifacts.
+// When unset, SQLite runtimes use {db-dir}/view-exports and Postgres runtimes use view-exports/{tenantId}.
+func (b *Builder) WithViewExportDir(dir string) *Builder {
+	b.viewExportDir = dir
+	return b
+}
+
+// WithDataDir sets the absolute runtime data directory for view export artifacts and job metadata.
+func (b *Builder) WithDataDir(dir string) *Builder {
+	b.dataDir = dir
 	return b
 }
 

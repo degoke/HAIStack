@@ -29,30 +29,30 @@ const (
 
 // ViewExportRequest captures one ViewDefinition export operation.
 type ViewExportRequest struct {
-	Views  []ViewExportTarget
-	Since  time.Time
-	Format OutputFormat
-	Actor  string
+	Views  []ViewExportTarget `json:"views"`
+	Since  time.Time          `json:"since"`
+	Format OutputFormat       `json:"format"`
+	Actor  string             `json:"actor,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
 type ViewExportTarget struct {
-	ViewName   string
-	Version    string
-	OutputName string
+	ViewName   string `json:"viewName"`
+	Version    string `json:"version"`
+	OutputName string `json:"outputName,omitempty"`
 }
 
 // ViewExportJob tracks async export progress.
 type ViewExportJob struct {
-	ID          string
-	Status      ExportStatus
-	Request     ViewExportRequest
-	Files       []ExportFile
-	Progress    string
-	LastError   string
-	CreatedAt   time.Time
-	CompletedAt time.Time
-	Cancelled   bool
+	ID          string           `json:"id"`
+	Status      ExportStatus     `json:"status"`
+	Request     ViewExportRequest `json:"request"`
+	Files       []ExportFile     `json:"files,omitempty"`
+	Progress    string           `json:"progress,omitempty"`
+	LastError   string           `json:"lastError,omitempty"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	CompletedAt time.Time        `json:"completedAt,omitempty"`
+	Cancelled   bool             `json:"cancelled,omitempty"`
 }
 
 // ExportFile describes one exported artifact.
@@ -276,6 +276,13 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 
 	var files []ExportFile
 	writer := NewFileExportWriter(s.files, jobID)
+	failJob := func(err error) error {
+		_ = s.files.DeleteJob(ctx, jobID)
+		job.Status = ExportError
+		job.LastError = err.Error()
+		job.CompletedAt = s.now()
+		return s.jobs.Update(ctx, *job)
+	}
 	for i, target := range job.Request.Views {
 		if job.Cancelled {
 			return nil
@@ -287,10 +294,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 			Since:    since,
 		})
 		if execErr != nil {
-			job.Status = ExportError
-			job.LastError = execErr.Error()
-			job.CompletedAt = s.now()
-			return s.jobs.Update(ctx, *job)
+			return failJob(execErr)
 		}
 		outputName := target.OutputName
 		if outputName == "" {
@@ -298,10 +302,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		}
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
-			job.Status = ExportError
-			job.LastError = err.Error()
-			job.CompletedAt = s.now()
-			return s.jobs.Update(ctx, *job)
+			return failJob(err)
 		}
 		files = append(files, ExportFile{
 			ViewName:   target.ViewName,
@@ -318,10 +319,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		now := s.now()
 		for _, target := range job.Request.Views {
 			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, now); err != nil {
-				job.Status = ExportError
-				job.LastError = err.Error()
-				job.CompletedAt = now
-				return s.jobs.Update(ctx, *job)
+				return failJob(err)
 			}
 		}
 	}

@@ -26,6 +26,14 @@ func (f *fakePackageService) EnqueueArchiveInstall(context.Context, string, stri
 	return store.JobRecord{ID: "job-2"}, nil
 }
 
+func TestDirectPackageInstallServiceNotConfigured(t *testing.T) {
+	svc := hahttp.DirectPackageInstallService{}
+	_, err := svc.EnqueueRegistryInstall(context.Background(), "hl7.fhir.us.core", "6.1.0")
+	if err == nil {
+		t.Fatal("expected error when installer is not configured")
+	}
+}
+
 func TestImplementationGuideInstallEnqueuesJob(t *testing.T) {
 	svc := &fakePackageService{}
 	h := newTestHandler(t, hahttp.Config{

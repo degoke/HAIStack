@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -456,8 +457,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		state.syncProcessor = &hasync.JobProcessor{Engine: engine, Jobs: pc.jobStore}
 	}
 
+	var runner *jobs.Runner
 	if pc.jobStore != nil {
-		runner := jobs.NewRunner(pc.jobStore)
+		runner = jobs.NewRunner(pc.jobStore)
 		if pc.reindexJobs && indexer != nil {
 			state.reindexWorker = &search.ReindexWorker{
 				Registry:  searchRegistry,
@@ -469,41 +471,27 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				return fmt.Errorf("runtime: register reindex handler: %w", err)
 			}
 		}
-		packageInstaller := &packages.Installer{
-			Registry: regManager,
-			Refresh: func(ctx context.Context) error {
-				_, err := conformanceRuntime.Refresh(ctx)
-				return err
-			},
-			EnableTypes:  true,
-			ViewRegistry: view.NewRegistry(),
-			FHIRPath:     engine,
-		}
-		state.services.ViewRegistry = packageInstaller.ViewRegistry
-		if err := b.wireViewServices(ctx, state, wireAnalyticsContext{
-			engine:           engine,
-			resources:        pc.resources,
-			jobStore:         pc.jobStore,
-			outboxEvents:     pc.outboxEvents,
-			cursors:          pc.syncCursors,
-			runner:           runner,
-			packageInstaller: packageInstaller,
-			searchExecutor:   searchExecutor,
-			searchRegistry:   searchRegistry,
-		}); err != nil {
-			return fmt.Errorf("runtime: view services: %w", err)
-		}
-		if err := b.wireAnalytics(ctx, state, wireAnalyticsContext{
-			engine:           engine,
-			resources:        pc.resources,
-			jobStore:         pc.jobStore,
-			outboxEvents:     pc.outboxEvents,
-			cursors:          pc.syncCursors,
-			runner:           runner,
-			packageInstaller: packageInstaller,
-			searchExecutor:   searchExecutor,
-			searchRegistry:   searchRegistry,
-		}); err != nil {
+	}
+
+	packageInstaller := b.newPackageInstaller(regManager, conformanceRuntime, engine)
+	state.services.ViewRegistry = packageInstaller.ViewRegistry
+	viewCtx := wireAnalyticsContext{
+		engine:           engine,
+		resources:        pc.resources,
+		jobStore:         pc.jobStore,
+		outboxEvents:     pc.outboxEvents,
+		cursors:          pc.syncCursors,
+		runner:           runner,
+		packageInstaller: packageInstaller,
+		searchExecutor:   searchExecutor,
+		searchRegistry:   searchRegistry,
+	}
+	if err := b.wireViewServices(ctx, state, viewCtx); err != nil {
+		return fmt.Errorf("runtime: view services: %w", err)
+	}
+
+	if pc.jobStore != nil {
+		if err := b.wireAnalytics(ctx, state, viewCtx); err != nil {
 			return fmt.Errorf("runtime: analytics: %w", err)
 		}
 		packageWorker := &packages.InstallWorker{Installer: packageInstaller}
@@ -536,6 +524,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		state.jobRunner = runner
 	}
 
+	var packageInstallSvc hahttp.PackageInstallService
+	if pc.jobStore != nil {
+		packageInstallSvc = hahttp.CorePackageInstallService{JobStore: pc.jobStore}
+	} else {
+		packageInstallSvc = hahttp.DirectPackageInstallService{Installer: packageInstaller}
+	}
+
 	var httpSearchSvc hahttp.SearchService
 	if state.services.SearchService != nil {
 		httpSearchSvc = hahttp.SearchServiceAdapter{
@@ -557,14 +552,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}
-	packageService := hahttp.CorePackageInstallService{
-		JobStore: pc.jobStore,
-	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:         httpSearchSvc,
 		SDCService:            sdcService,
-		PackageInstallService: packageService,
+		PackageInstallService: packageInstallSvc,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
@@ -669,13 +661,18 @@ func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wir
 		state.services.SQLQueryService = view.NewSQLQueryService(view.NewSQLQueryEngine(reportingStore))
 	}
 
-	if ac.jobStore == nil {
-		return nil
+	exportFiles, err := b.resolveViewExportFileStore(state)
+	if err != nil {
+		return err
 	}
-
-	exportFiles := view.NewInMemoryExportFileStore()
-	exportJobs := view.NewInMemoryViewExportJobStore()
-	watermarks := analytics.NewWatermarkStore(ac.cursors)
+	exportJobs, err := b.resolveViewExportJobStore(state)
+	if err != nil {
+		return err
+	}
+	var watermarks *analytics.WatermarkStore
+	if ac.cursors != nil {
+		watermarks = analytics.NewWatermarkStore(ac.cursors)
+	}
 	exportSvc, err := view.NewExportService(view.ExportServiceConfig{
 		Jobs:      exportJobs,
 		Files:     exportFiles,
@@ -695,7 +692,10 @@ func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wir
 	}
 
 	if viewCfg.MaterializedViews != nil {
-		matJobs := view.NewInMemoryMaterializeJobStore()
+		matJobs, err := b.resolveMaterializeJobStore(state)
+		if err != nil {
+			return err
+		}
 		matSvc, err := view.NewMaterializeService(view.MaterializeServiceConfig{
 			Jobs:     matJobs,
 			Executor: viewExec,
@@ -740,7 +740,7 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	watermarks := analytics.NewWatermarkStore(ac.cursors)
 
 	baseTarget := analytics.NewReportingTarget(reportingStore)
-	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, ac.cursors)
+	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, watermarks)
 
 	maxConcurrent := b.analyticsMaxConcurrent
 	if maxConcurrent <= 0 {
@@ -780,4 +780,82 @@ func (b *Builder) resolveReportingStore(state *wireState) store.ReportingTableSt
 		return state.services.TenantDB.ReportingTableStore()
 	}
 	return nil
+}
+
+func (b *Builder) resolveViewExportFileStore(state *wireState) (view.ExportFileStore, error) {
+	root, err := b.resolveViewDataDir(state)
+	if err != nil {
+		return nil, err
+	}
+	if root == "" {
+		return view.NewInMemoryExportFileStore(), nil
+	}
+	return view.NewLocalExportFileStore(root)
+}
+
+func (b *Builder) resolveViewExportJobStore(state *wireState) (view.ViewExportJobStore, error) {
+	root, err := b.resolveViewDataDir(state)
+	if err != nil {
+		return nil, err
+	}
+	if root == "" {
+		return view.NewInMemoryViewExportJobStore(), nil
+	}
+	return view.NewLocalViewExportJobStore(filepath.Join(root, "jobs", "view-export"))
+}
+
+func (b *Builder) resolveMaterializeJobStore(state *wireState) (view.MaterializeJobStore, error) {
+	root, err := b.resolveViewDataDir(state)
+	if err != nil {
+		return nil, err
+	}
+	if root == "" {
+		return view.NewInMemoryMaterializeJobStore(), nil
+	}
+	return view.NewLocalMaterializeJobStore(filepath.Join(root, "jobs", "materialize"))
+}
+
+func (b *Builder) resolveViewDataDir(state *wireState) (string, error) {
+	var root string
+	switch {
+	case b.viewExportDir != "":
+		root = b.viewExportDir
+	case b.dataDir != "":
+		root = b.dataDir
+	case b.sqlitePath != "":
+		root = filepath.Join(filepath.Dir(b.sqlitePath), "view-exports")
+	default:
+		tenantID := b.tenantID
+		if tenantID == "" && state != nil && state.services != nil && state.services.TenantDB != nil {
+			tenantID = state.services.TenantDB.TenantID()
+		}
+		if tenantID != "" {
+			root = filepath.Join("view-exports", tenantID)
+		}
+	}
+	if root == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("runtime: resolve view data dir: %w", err)
+	}
+	return abs, nil
+}
+
+func (b *Builder) newPackageInstaller(
+	regManager *registry.Manager,
+	conformanceRuntime *ConformanceRuntime,
+	engine fhirpath.Engine,
+) *packages.Installer {
+	return &packages.Installer{
+		Registry: regManager,
+		Refresh: func(ctx context.Context) error {
+			_, err := conformanceRuntime.Refresh(ctx)
+			return err
+		},
+		EnableTypes:  true,
+		ViewRegistry: view.NewRegistry(),
+		FHIRPath:     engine,
+	}
 }

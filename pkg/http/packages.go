@@ -10,6 +10,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -24,6 +25,35 @@ type PackageInstallService interface {
 // CorePackageInstallService implements package install using registry and jobs.
 type CorePackageInstallService struct {
 	JobStore store.JobStore
+}
+
+// DirectPackageInstallService runs package installs synchronously when no job store is wired.
+type DirectPackageInstallService struct {
+	Installer *packages.Installer
+}
+
+func (s DirectPackageInstallService) EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error) {
+	if s.Installer == nil {
+		return store.JobRecord{}, notConfigured("package installer")
+	}
+	_, err := s.Installer.InstallFromRegistry(ctx, packageID, version)
+	jobID := fmt.Sprintf("install-%s-%s", packageID, version)
+	if err != nil {
+		return store.JobRecord{ID: jobID, Status: store.JobStatusFailed}, err
+	}
+	return store.JobRecord{ID: jobID, Status: store.JobStatusCompleted}, nil
+}
+
+func (s DirectPackageInstallService) EnqueueArchiveInstall(ctx context.Context, packageID, version string, r io.Reader) (store.JobRecord, error) {
+	if s.Installer == nil {
+		return store.JobRecord{}, notConfigured("package installer")
+	}
+	_, err := s.Installer.InstallFromArchive(ctx, packageID, version, r)
+	jobID := fmt.Sprintf("install-upload-%s", packageID)
+	if err != nil {
+		return store.JobRecord{ID: jobID, Status: store.JobStatusFailed}, err
+	}
+	return store.JobRecord{ID: jobID, Status: store.JobStatusCompleted}, nil
 }
 
 func (s CorePackageInstallService) EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error) {
