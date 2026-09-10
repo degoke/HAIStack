@@ -41,4 +41,10 @@ const (
 	TypeAnalyticsRefresh = TypePrefixAnalytics + "refresh"
 	// TypeExportCSV schedules a CSV export run.
 	TypeExportCSV = TypePrefixExport + "csv"
+	// TypeExportBulk schedules a FHIR Bulk Data NDJSON export run.
+	TypeExportBulk = TypePrefixExport + "bulk"
+	// TypeViewMaterialize schedules a ViewDefinition materialize run.
+	TypeViewMaterialize = TypePrefixView + "materialize"
+	// TypeViewExport schedules a ViewDefinition export run.
+	TypeViewExport = TypePrefixView + "export"
 )

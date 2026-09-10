@@ -82,6 +82,10 @@ func adaptCollectionFromBackend(items system.Collection) Collection {
 }
 
 func mapVerilyError(err error) error {
+	return mapVerilyErrorWithConfig(err, false, false)
+}
+
+func mapVerilyErrorWithConfig(err error, resolveConfigured, terminologyConfigured bool) error {
 	if err == nil {
 		return nil
 	}
@@ -94,10 +98,19 @@ func mapVerilyError(err error) error {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "resolve() function requires"):
+		if resolveConfigured {
+			return err
+		}
 		return fmt.Errorf("%w: resolve()", ErrNotSupported)
 	case strings.Contains(msg, "memberOf() function requires"):
+		if terminologyConfigured {
+			return err
+		}
 		return fmt.Errorf("%w: terminology", ErrNotSupported)
 	case strings.Contains(msg, "function identifier can't be resolved: memberOf"):
+		if terminologyConfigured {
+			return err
+		}
 		return fmt.Errorf("%w: terminology", ErrNotSupported)
 	}
 	if errors.Is(err, verily.ErrNotSupported) {

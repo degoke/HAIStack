@@ -169,11 +169,10 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 
 ## MVP limits
 
-- **Postgres only** for reporting tables; SQLite is not supported.
-- **Full refresh only**; no incremental cursors, manifests, or partitioning.
+- **Postgres only** for reporting tables and `$sqlquery-run`; SQLite runtimes still get view run/export HTTP operations when a job store is wired.
+- **Incremental refresh** uses watermarks and CDC cursors; watermarks advance only after a successful refresh or export completes.
 - **Three views** at the Runner allow-list layer.
-- **CSV only** as a production cloud sink.
-- **No warehouse required**; warehouse/lake/Parquet sinks are deferred.
+- **CSV** is the primary production cloud sink; warehouse/lake/Parquet sinks write haistack-parquet-v1 JSON envelopes and partition header lines (compatibility shims, not Apache Parquet binary or object-store paths).
 
 ## Errors
 

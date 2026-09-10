@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -29,25 +30,39 @@ const (
 	TypeExport  = jobs.TypeExportCSV
 )
 
-// RefreshHandler returns a jobs.Handler that runs full reporting refreshes using
-// the supplied reporting target.
-func RefreshHandler(runner *Runner, target *ReportingTarget) jobs.Handler {
+// RefreshHandler returns a jobs.Handler that runs reporting refreshes using the
+// supplied reporting target. When watermark is configured, it advances only after
+// a successful refresh completes.
+func RefreshHandler(runner *Runner, target reportingWriter, watermark *WatermarkStore) jobs.Handler {
 	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
 		var payload RefreshPayload
 		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 			return err
 		}
+		version := payload.Version
+		if version == "" {
+			version = "1.0.0"
+		}
 		_, err := runner.Run(ctx, RunRequest{
-			ViewName: payload.ViewName,
-			Version:  payload.Version,
-			Mode:     ModeRefresh,
-			Destination: Destination{
-				Reporting: target,
-			},
-			Actor:   payload.Actor,
-			Subject: payload.Subject,
+			ViewName:    payload.ViewName,
+			Version:     version,
+			Mode:        ModeRefresh,
+			Destination: Destination{Reporting: target},
+			Actor:       payload.Actor,
+			Subject:     payload.Subject,
+			Incremental: true,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		if watermark != nil {
+			refreshedAt := time.Now().UTC()
+			if runner != nil && runner.now != nil {
+				refreshedAt = runner.now().UTC()
+			}
+			return watermark.Advance(ctx, payload.ViewName, version, refreshedAt)
+		}
+		return nil
 	})
 }
 

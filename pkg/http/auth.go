@@ -103,3 +103,24 @@ func (h *handler) authorizeSearch(ctx context.Context, resourceType string) erro
 	}
 	return nil
 }
+
+func (h *handler) authorizeExport(ctx context.Context, groupID string) error {
+	if h.cfg.AuthChecker == nil || h.cfg.PrincipalResolver == nil {
+		return nil
+	}
+	principal, tenant, ok := identityFromContext(ctx)
+	if !ok {
+		return errUnauthenticated
+	}
+	decision, err := h.cfg.AuthChecker.AuthorizeExport(ctx, principal, tenant, groupID)
+	if err != nil {
+		if errors.Is(err, auth.ErrDenied) {
+			return err
+		}
+		return err
+	}
+	if !decision.Allowed {
+		return fmt.Errorf("%w: %s", auth.ErrDenied, decision.Reason)
+	}
+	return nil
+}

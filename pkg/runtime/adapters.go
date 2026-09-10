@@ -31,6 +31,44 @@ type WarehouseAdapter interface {
 	ReportingTables() store.ReportingTableStore
 }
 
+// PostgresReportingWarehouse wraps a Postgres reporting table store for edge/cloud wiring.
+type PostgresReportingWarehouse struct {
+	Store store.ReportingTableStore
+	Name_ string
+}
+
+func (w PostgresReportingWarehouse) Name() string {
+	if w.Name_ != "" {
+		return w.Name_
+	}
+	return "postgres-reporting"
+}
+
+func (w PostgresReportingWarehouse) ReportingTables() store.ReportingTableStore {
+	return w.Store
+}
+
+// ParquetWarehouseAdapter routes analytics export rows to object storage as Parquet-compatible
+// columnar JSON. It satisfies WarehouseAdapter for cloud mode seam tests.
+type ParquetWarehouseAdapter struct {
+	Name_ string
+	Sink  func() store.ReportingTableStore
+}
+
+func (w ParquetWarehouseAdapter) Name() string {
+	if w.Name_ != "" {
+		return w.Name_
+	}
+	return "parquet-warehouse"
+}
+
+func (w ParquetWarehouseAdapter) ReportingTables() store.ReportingTableStore {
+	if w.Sink != nil {
+		return w.Sink()
+	}
+	return nil
+}
+
 // noopBlobStore is a minimal in-memory placeholder used only for adapter registration tests.
 type noopBlobStore struct{}
 

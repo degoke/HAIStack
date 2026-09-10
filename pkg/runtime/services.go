@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/view"
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
@@ -30,4 +33,24 @@ type ServiceContainer struct {
 	BlobStore      BlobStoreAdapter
 	ExternalSearch ExternalSearchAdapter
 	Warehouse      WarehouseAdapter
+
+	// BulkExportService handles FHIR Bulk Data export when job infrastructure is wired.
+	BulkExportService *export.Service
+
+	// AnalyticsRunner executes ViewDefinitions when analytics is enabled.
+	AnalyticsRunner *analytics.Runner
+	// ViewRegistry holds registered ViewDefinitions for analytics execution.
+	ViewRegistry *view.Registry
+	// ViewExecutor runs registered ViewDefinitions.
+	ViewExecutor *view.Executor
+	// MaterializeService handles ViewDefinition/$materialize operations.
+	MaterializeService *view.MaterializeService
+	// ViewRunService handles ViewDefinition/$viewdefinition-run operations.
+	ViewRunService *view.RunService
+	// SQLQueryService handles Library/$sqlquery-run operations.
+	SQLQueryService *view.SQLQueryService
+	// ViewExportService handles ViewDefinition/$viewdefinition-export operations.
+	ViewExportService *view.ExportService
+	// AnalyticsCDC consumes outbox events and schedules refresh jobs.
+	AnalyticsCDC *analytics.CDCProcessor
 }

@@ -150,6 +150,13 @@ func (c *recordingAuthChecker) AuthorizeSearch(_ context.Context, _ auth.Princip
 	return auth.Deny("denied"), nil
 }
 
+func (c *recordingAuthChecker) AuthorizeExport(_ context.Context, _ auth.Principal, _ auth.TenantContext, _ string) (auth.Decision, error) {
+	if c.allow {
+		return auth.Allow("ok"), nil
+	}
+	return auth.Deny("denied"), nil
+}
+
 func newTestHandler(t *testing.T, cfg hahttp.Config) http.Handler {
 	t.Helper()
 	h, err := hahttp.NewHandler(cfg)

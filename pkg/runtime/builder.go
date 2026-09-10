@@ -41,6 +41,10 @@ type Builder struct {
 
 	modulePaths []string
 	httpAddr    string
+
+	analyticsEnabled       bool
+	analyticsMaxConcurrent int
+	postgresReadReplicaDSN string
 }
 
 // New returns a new runtime builder.
@@ -202,6 +206,26 @@ func (b *Builder) WithModules(paths ...string) *Builder {
 // WithHTTP sets the listen address for a managed HTTP server started by Runtime.Start.
 func (b *Builder) WithHTTP(addr string) *Builder {
 	b.httpAddr = addr
+	return b
+}
+
+// WithAnalytics enables Postgres reporting-table refresh, CDC-triggered jobs, and
+// view execution wired through pkg/analytics. Requires Postgres storage.
+func (b *Builder) WithAnalytics() *Builder {
+	b.analyticsEnabled = true
+	return b
+}
+
+// WithAnalyticsConcurrency limits concurrent analytics refresh jobs to protect OLTP.
+// Defaults to 1 when analytics is enabled and this is not set.
+func (b *Builder) WithAnalyticsConcurrency(max int) *Builder {
+	b.analyticsMaxConcurrent = max
+	return b
+}
+
+// WithPostgresReadReplica configures a read-only Postgres DSN for analytics view scans.
+func (b *Builder) WithPostgresReadReplica(dsn string) *Builder {
+	b.postgresReadReplicaDSN = dsn
 	return b
 }
 

@@ -8,8 +8,7 @@ var (
 	ErrInvalidViewDefinition = errors.New("view: invalid ViewDefinition")
 
 	// ErrUnsupportedFeature is returned when a ViewDefinition uses a feature
-	// outside the v1 executable subset (joins, nested projections, forEach,
-	// unionAll, multiple source resources, etc.).
+	// outside the executable subset (for example multiple source resource types).
 	ErrUnsupportedFeature = errors.New("view: unsupported ViewDefinition feature")
 
 	// ErrViewNotFound is returned when a named/versioned view is not registered.
@@ -34,4 +33,12 @@ var (
 	// ErrMissingResourceStore is returned when an Executor is configured without
 	// a resource store.
 	ErrMissingResourceStore = errors.New("view: missing resource store")
+
+	// ErrMissingMaterializedViewStore is returned when materialization is requested
+	// without a configured MaterializedViewStore.
+	ErrMissingMaterializedViewStore = errors.New("view: missing materialized view store")
+
+	// ErrMissingReportingTables is returned when SQL query execution is requested
+	// without a configured ReportingTableStore.
+	ErrMissingReportingTables = errors.New("view: missing reporting table store")
 )

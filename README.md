@@ -137,6 +137,30 @@ Package-level detail lives in each `pkg/*/doc.go`.
 
 ---
 
+## Transactional vs analytical data paths
+
+HAIStack separates **interactive REST** workloads from **cohort extraction and reporting**:
+
+| Need | Use | Avoid |
+|------|-----|-------|
+| CRUD, search, history, SDC | `pkg/http` REST (`_search`, instance reads) | Paginating `_search` to export large cohorts |
+| Standard cohort export (NDJSON + manifest) | `GET /fhir/$export` or `GET /fhir/Group/{id}/$export` via `pkg/export` | Custom REST pagination scripts |
+| Structured reporting / AI batch context | `pkg/view` → `pkg/analytics` (reporting tables, CSV, Parquet sink) | Raw bulk export for tabular analytics |
+| Incremental analytics refresh | `analytics.IncrementalTarget` + view `Since` cursor | Full table scan on every schedule tick |
+
+**Decision tree:**
+
+1. **Single resource or small result set** → REST read/search.
+2. **Research/engineering cohort (FHIR resources as NDJSON)** → Bulk Data `$export` (`pkg/client.BulkExport()` against `pkg/http`).
+3. **Dashboards, dbt, or ML features on flat columns** → ViewDefinition refresh/export (`pkg/analytics`).
+4. **AI tool context with policy** → `pkg/view` + `pkg/ai` (row-limited, permissioned) — not unrestricted bulk export.
+
+Edge mode co-locates OLTP and reporting in one Postgres/SQLite instance; schedule heavy analytics refreshes off peak or route read-only analytics queries to a replica when available.
+
+Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-FHIR gap analysis: [docs/sql-on-fhir-gap.md](docs/sql-on-fhir-gap.md) · Bulk Data verification: [docs/bulk-data-verification.md](docs/bulk-data-verification.md)
+
+---
+
 ## Packages
 
 | Library | Package | Status | Role |
@@ -164,8 +188,9 @@ Package-level detail lives in each `pkg/*/doc.go`.
 | haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
 | haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
 | haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
-| haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV export, future sink interfaces |
-| haistack-http | `pkg/http` | Done | FHIR REST API adapter |
+| haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV/Parquet export, incremental cursors |
+| haistack-export | `pkg/export` | Done | FHIR Bulk Data export — async jobs, NDJSON artifacts, manifest polling |
+| haistack-http | `pkg/http` | Done | FHIR REST API adapter (includes Bulk Data `$export`) |
 | haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
 | haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
 | haistack-cli | `cmd/haistack` | Partial | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |

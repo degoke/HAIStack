@@ -73,6 +73,22 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$materialize" && route.resourceType == "ViewDefinition" {
+			h.handleViewMaterialize(w, r, route)
+			return
+		}
+		if route.operation == "$viewdefinition-run" && route.resourceType == "ViewDefinition" {
+			h.handleViewDefinitionRun(w, r, route)
+			return
+		}
+		if route.operation == "$viewdefinition-export" && route.resourceType == "ViewDefinition" {
+			h.handleViewDefinitionExport(w, r, route)
+			return
+		}
+		if route.operation == "$sqlquery-run" && route.resourceType == "Library" {
+			h.handleSQLQueryRun(w, r, route)
+			return
+		}
 		if route.operation == "$validate" && !isSDCResourceOperation(route.operation, route.resourceType) {
 			h.handleValidateOperation(w, r, route)
 			return
@@ -105,11 +121,33 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$viewdefinition-run" {
+			h.handleViewDefinitionRun(w, r, parsedRoute{operation: route.operation})
+			return
+		}
+		if route.operation == "$viewdefinition-export" {
+			h.handleViewDefinitionExport(w, r, parsedRoute{resourceType: "ViewDefinition", operation: route.operation})
+			return
+		}
+		if route.operation == "$sqlquery-run" {
+			h.handleSQLQueryRun(w, r, parsedRoute{resourceType: "Library", operation: route.operation})
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
 			return
 		}
 		h.handleCustomOperation(w, r, route)
+	case routeBulkExportStatus:
+		h.handleBulkExportStatus(w, r, route.jobID)
+	case routeBulkExportFile:
+		h.handleBulkExportFile(w, r, route.jobID, route.filename)
+	case routeMaterializeStatus:
+		h.handleViewMaterializeStatus(w, r, route.jobID)
+	case routeViewExportStatus:
+		h.handleViewDefinitionExportStatus(w, r, route.jobID)
+	case routeViewExportFile:
+		h.handleViewDefinitionExportFile(w, r, route.jobID, route.filename)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}
@@ -273,14 +311,6 @@ func (h *handler) handleInstanceRoute(w http.ResponseWriter, r *http.Request, re
 	default:
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete)
 	}
-}
-
-func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route parsedRoute) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, r.Method, http.MethodGet)
-		return
-	}
-	writeError(w, notImplementedEndpoint(r.URL.Path))
 }
 
 func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {

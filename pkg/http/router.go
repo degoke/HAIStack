@@ -25,6 +25,11 @@ const (
 	routeHistory
 	routeOperation
 	routeSystemOperation
+	routeBulkExportStatus
+	routeBulkExportFile
+	routeMaterializeStatus
+	routeViewExportStatus
+	routeViewExportFile
 )
 
 type parsedRoute struct {
@@ -32,6 +37,8 @@ type parsedRoute struct {
 	resourceType string
 	id           string
 	operation    string
+	jobID        string
+	filename     string
 }
 
 func parseRoute(basePath, requestPath string) (parsedRoute, error) {
@@ -47,6 +54,50 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 	}
 
 	parts := strings.Split(rel, "/")
+	if len(parts) >= 2 && parts[0] == "$export" {
+		switch parts[1] {
+		case "status":
+			if len(parts) != 3 {
+				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+			}
+			if err := validateID(parts[2]); err != nil {
+				return parsedRoute{}, err
+			}
+			return parsedRoute{kind: routeBulkExportStatus, jobID: parts[2]}, nil
+		case "files":
+			if len(parts) != 4 {
+				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+			}
+			if err := validateID(parts[2]); err != nil {
+				return parsedRoute{}, err
+			}
+			if parts[3] == "" {
+				return parsedRoute{}, fmt.Errorf("export filename is required")
+			}
+			return parsedRoute{kind: routeBulkExportFile, jobID: parts[2], filename: parts[3]}, nil
+		}
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$materialize" && parts[2] == "status" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeMaterializeStatus, jobID: parts[3]}, nil
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$viewdefinition-export" && parts[2] == "status" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeViewExportStatus, jobID: parts[3]}, nil
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$viewdefinition-export" && parts[2] == "files" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		if len(parts) != 5 || parts[4] == "" {
+			return parsedRoute{}, fmt.Errorf("export filename is required")
+		}
+		return parsedRoute{kind: routeViewExportFile, jobID: parts[3], filename: parts[4]}, nil
+	}
 	switch len(parts) {
 	case 1:
 		if parts[0] == "metadata" {
