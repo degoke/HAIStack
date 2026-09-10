@@ -68,6 +68,11 @@ func (h *handler) handleBasicModuleInstall(w http.ResponseWriter, r *http.Reques
 		writeError(w, invalidRequest("path is required for $install", nil))
 		return
 	}
+	path, err = validateModulePath(path, h.cfg.ModulePaths)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	job, err := h.cfg.ModuleInstallService.EnqueueInstall(r.Context(), path, upgradeOnly)
 	if err != nil {
 		writeError(w, err)
@@ -85,7 +90,7 @@ func (h *handler) handleBasicJobStatus(w http.ResponseWriter, r *http.Request, r
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
 		return
 	}
-	if err := h.authorizeRead(r.Context(), route.resourceType, route.id); err != nil {
+	if err := h.authorizeWrite(r.Context(), "operation", route.resourceType, route.id); err != nil {
 		writeError(w, err)
 		return
 	}

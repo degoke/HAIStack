@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -99,14 +100,23 @@ type Invalidator interface {
 	InvalidateValueSet(url, version string)
 }
 
+const defaultNegativeLookupTTL = 5 * time.Minute
+
+type lookupCacheEntry struct {
+	result    *LookupResult
+	expiresAt time.Time
+	negative  bool
+}
+
 // LocalService uses compiled projections and deterministic canonical resolution.
 type LocalService struct {
-	Store        store.TerminologyStore
-	ScopeID      string
-	MaxExpansion int
-	mu           sync.RWMutex
-	lookupCache  map[string]*LookupResult
-	expandCache  map[string]*Expansion
+	Store             store.TerminologyStore
+	ScopeID           string
+	MaxExpansion      int
+	NegativeLookupTTL time.Duration
+	mu                sync.RWMutex
+	lookupCache       map[string]lookupCacheEntry
+	expandCache       map[string]*Expansion
 }
 
 // LocalServiceOption configures NewLocalService.
@@ -131,14 +141,24 @@ func NewLocalService(st store.TerminologyStore, scopeID string, opts ...LocalSer
 	return s
 }
 
+func (s *LocalService) negativeLookupTTL() time.Duration {
+	if s.NegativeLookupTTL > 0 {
+		return s.NegativeLookupTTL
+	}
+	return defaultNegativeLookupTTL
+}
+
 func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, ok := s.lookupCache[key]
+	entry, ok := s.lookupCache[key]
 	if !ok {
 		return nil, false
 	}
-	x := *v
+	if entry.negative && time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	x := *entry.result
 	return &x, true
 }
 func (s *LocalService) InvalidateCodeSystem(system, version string) {
@@ -175,18 +195,22 @@ func (s *LocalService) Lookup(ctx context.Context, r LookupRequest) (*LookupResu
 		v := &LookupResult{Found: false}
 		s.mu.Lock()
 		if s.lookupCache == nil {
-			s.lookupCache = map[string]*LookupResult{}
+			s.lookupCache = map[string]lookupCacheEntry{}
 		}
-		s.lookupCache[cacheKey] = v
+		s.lookupCache[cacheKey] = lookupCacheEntry{
+			result:    v,
+			expiresAt: time.Now().Add(s.negativeLookupTTL()),
+			negative:  true,
+		}
 		s.mu.Unlock()
 		return v, nil
 	}
 	v := &LookupResult{Found: true, Concept: Concept{System: c.SystemURL, Version: c.SystemVersion, Code: c.Code, Display: c.Display, Definition: c.Definition, Active: c.Active, Abstract: c.Abstract}}
 	s.mu.Lock()
 	if s.lookupCache == nil {
-		s.lookupCache = map[string]*LookupResult{}
+		s.lookupCache = map[string]lookupCacheEntry{}
 	}
-	s.lookupCache[cacheKey] = v
+	s.lookupCache[cacheKey] = lookupCacheEntry{result: v}
 	s.mu.Unlock()
 	return v, nil
 }
@@ -255,7 +279,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		return nil, err
 	}
 	if v == nil {
-		return nil, fmt.Errorf("unknown ValueSet %q", r.URL)
+		return nil, ErrExpansionNotFound
 	}
 	ms, err := s.Store.ListValueSetMembers(ctx, s.ScopeID, v.CanonicalURL, v.Version)
 	if err != nil {
@@ -272,7 +296,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		max = 10000
 	}
 	if len(ms) > max {
-		return nil, fmt.Errorf("expansion too costly")
+		return nil, ErrExpansionTooCostly
 	}
 	sort.Slice(ms, func(i, j int) bool { return ms[i].SystemURL+"|"+ms[i].Code < ms[j].SystemURL+"|"+ms[j].Code })
 	start := r.Offset

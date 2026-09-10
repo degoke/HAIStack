@@ -59,6 +59,9 @@ type Config struct {
 	// ModuleInstallService handles Basic/$install.
 	ModuleInstallService ModuleInstallService
 
+	// ModulePaths allowlists local directories accepted by Basic/$install.
+	ModulePaths []string
+
 	// JobStatusService handles Basic/{id}/$status job polling.
 	JobStatusService JobStatusService
 

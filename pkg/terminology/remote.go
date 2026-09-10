@@ -28,6 +28,9 @@ type RemoteConfig struct {
 
 	// CircuitOpenDuration keeps the circuit open after the threshold is reached.
 	CircuitOpenDuration time.Duration
+
+	// MaxCacheEntries bounds lookup and expansion cache size. Zero defaults to 1000.
+	MaxCacheEntries int
 }
 
 // RemoteProvider resolves terminology via FHIR R4 $lookup, $expand, and $validate-code.
@@ -39,6 +42,7 @@ type RemoteProvider struct {
 	minInterval         time.Duration
 	failureThreshold    int
 	circuitOpenDuration time.Duration
+	maxCacheEntries     int
 
 	mu            sync.Mutex
 	lastRequest   time.Time
@@ -71,6 +75,10 @@ func NewRemoteProvider(cfg RemoteConfig) (*RemoteProvider, error) {
 	if openFor <= 0 {
 		openFor = 30 * time.Second
 	}
+	maxCache := cfg.MaxCacheEntries
+	if maxCache <= 0 {
+		maxCache = 1000
+	}
 	return &RemoteProvider{
 		baseURL:             base,
 		client:              client,
@@ -78,6 +86,7 @@ func NewRemoteProvider(cfg RemoteConfig) (*RemoteProvider, error) {
 		minInterval:         cfg.MinInterval,
 		failureThreshold:    threshold,
 		circuitOpenDuration: openFor,
+		maxCacheEntries:     maxCache,
 	}, nil
 }
 
@@ -368,14 +377,17 @@ func (p *RemoteProvider) throttle() error {
 		return nil
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	wait := time.Duration(0)
 	if !p.lastRequest.IsZero() {
-		wait := p.minInterval - time.Since(p.lastRequest)
-		if wait > 0 {
-			time.Sleep(wait)
-		}
+		wait = p.minInterval - time.Since(p.lastRequest)
 	}
+	p.mu.Unlock()
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+	p.mu.Lock()
 	p.lastRequest = time.Now()
+	p.mu.Unlock()
 	return nil
 }
 
@@ -435,6 +447,7 @@ func (p *RemoteProvider) storeLookup(key string, value *LookupResult) {
 		p.lookupCache = map[string]cacheEntry[*LookupResult]{}
 	}
 	p.lookupCache[key] = cacheEntry[*LookupResult]{value: value, expiresAt: time.Now().Add(p.cacheTTL)}
+	p.trimCache(len(p.lookupCache) + len(p.expandCache))
 }
 
 func (p *RemoteProvider) cachedExpand(key string) (*Expansion, bool) {
@@ -463,4 +476,23 @@ func (p *RemoteProvider) storeExpand(key string, value *Expansion) {
 		p.expandCache = map[string]cacheEntry[*Expansion]{}
 	}
 	p.expandCache[key] = cacheEntry[*Expansion]{value: value, expiresAt: time.Now().Add(p.cacheTTL)}
+	p.trimCache(len(p.lookupCache) + len(p.expandCache))
+}
+
+func (p *RemoteProvider) trimCache(size int) {
+	if p.maxCacheEntries <= 0 || size <= p.maxCacheEntries {
+		return
+	}
+	for key := range p.lookupCache {
+		delete(p.lookupCache, key)
+		if len(p.lookupCache)+len(p.expandCache) <= p.maxCacheEntries {
+			return
+		}
+	}
+	for key := range p.expandCache {
+		delete(p.expandCache, key)
+		if len(p.lookupCache)+len(p.expandCache) <= p.maxCacheEntries {
+			return
+		}
+	}
 }

@@ -11,15 +11,19 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
+// ProgressFunc reports incremental module install progress.
+type ProgressFunc func(current, total int, message string)
+
 // Installer orchestrates install/upgrade/uninstall planning and execution.
 // It owns the registry applier and module store updates.
 type Installer struct {
-	modules   store.ModuleStore
-	applier   *RegistryApplier
-	installs  store.RegistryInstallStore
-	defs      store.DefinitionStore
-	resources store.ResourceStore
-	now       func() time.Time
+	modules    store.ModuleStore
+	applier    *RegistryApplier
+	installs   store.RegistryInstallStore
+	defs       store.DefinitionStore
+	resources  store.ResourceStore
+	now        func() time.Time
+	OnProgress ProgressFunc
 }
 
 // NewInstaller creates an installer from the same persistence pieces used by
@@ -179,10 +183,20 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 		Deferred: plan.Deferred,
 	}
 
+	totalSteps := len(plan.ResourcesToEnable) + len(mod.Definitions) + 2
+	step := 0
+	report := func(message string) {
+		if i.OnProgress != nil {
+			i.OnProgress(step, totalSteps, message)
+		}
+	}
+
 	for _, resourceType := range plan.ResourcesToEnable {
 		if err := i.applier.EnableResource(ctx, resourceType); err != nil {
 			return nil, err
 		}
+		step++
+		report("enable " + resourceType)
 		result.EnabledResources = append(result.EnabledResources, resourceType)
 	}
 
@@ -200,6 +214,8 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 		if err := i.applier.InstallDefinition(ctx, def, provenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
 		}
+		step++
+		report(parsed.CanonicalURL)
 		result.InstalledDefinitions = append(result.InstalledDefinitions, DefinitionRef{
 			CanonicalURL: parsed.CanonicalURL,
 			Version:      parsed.Version,
@@ -209,11 +225,15 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 	if err := i.registerModule(ctx, mod); err != nil {
 		return nil, err
 	}
+	step++
+	report("register module")
 
 	snapshot, err := i.applier.RebuildSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
+	step++
+	report("rebuild snapshot")
 	result.Snapshot = snapshot
 
 	return result, nil

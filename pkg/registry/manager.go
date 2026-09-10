@@ -165,6 +165,15 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 			}
 		}
 	}
+	if r.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
+		if err := m.terminologyInstalls.Delete(ctx, store.TerminologyInstallFilter{
+			ResourceType: "CodeSystem",
+			CanonicalURL: canonicalURL,
+			Version:      version,
+		}); err != nil {
+			return err
+		}
+	}
 	return m.definitions.Delete(ctx, canonicalURL, version)
 }
 

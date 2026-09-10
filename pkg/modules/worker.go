@@ -27,16 +27,24 @@ func (w *InstallWorker) HandleJob(ctx context.Context, job store.JobRecord) erro
 		return fmt.Errorf("module install path is required")
 	}
 	reporter := jobs.NewReporter(w.Store, job)
+	progress := func(current, total int, message string) {
+		_ = reporter.Update(ctx, jobs.Progress{
+			Phase:   "install",
+			Current: current,
+			Total:   total,
+			Message: message,
+		})
+	}
 	_ = reporter.Update(ctx, jobs.Progress{Phase: "plan", Message: payload.Path})
 
 	if payload.UpgradeOnly {
-		result, err := w.Manager.Upgrade(ctx, payload.Path)
+		result, err := w.Manager.UpgradeWithProgress(ctx, payload.Path, progress)
 		if err != nil {
 			return err
 		}
 		return reporter.Complete(ctx, result)
 	}
-	result, err := w.Manager.Install(ctx, payload.Path)
+	result, err := w.Manager.InstallWithProgress(ctx, payload.Path, progress)
 	if err != nil {
 		return err
 	}

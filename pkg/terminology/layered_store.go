@@ -2,6 +2,7 @@ package terminology
 
 import (
 	"context"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -9,11 +10,12 @@ import (
 // LayeredStore composes a tenant terminology overlay with a global canonical
 // catalog. ValueSets and tenant-local CodeSystems live in the tenant scope;
 // global CodeSystem projections are consulted as a fallback for lookups and
-// composition.
+// composition when the tenant has opted in via TerminologyInstallStore.
 type LayeredStore struct {
 	Store         store.TerminologyStore
 	TenantScopeID string
 	GlobalScopeID string
+	Installs      store.TerminologyInstallStore
 }
 
 // NewLayeredStore constructs a tenant-facing terminology store view.
@@ -26,8 +28,11 @@ func (l *LayeredStore) FindResource(ctx context.Context, scope, typ, url, ver st
 		return l.Store.FindResource(ctx, l.tenantScope(scope), typ, url, ver)
 	}
 	r, err := l.Store.FindResource(ctx, l.tenantScope(scope), typ, url, ver)
-	if err != nil || r != nil || l.GlobalScopeID == "" {
+	if err != nil || r != nil {
 		return r, err
+	}
+	if !l.globalAllowed(ctx, url, ver) {
+		return nil, nil
 	}
 	return l.Store.FindResource(ctx, l.GlobalScopeID, typ, url, ver)
 }
@@ -39,16 +44,8 @@ func (l *LayeredStore) PutResource(ctx context.Context, record store.Terminology
 }
 
 func (l *LayeredStore) DeleteResource(ctx context.Context, scope, typ, url, ver string) error {
-	if typ == "ValueSet" {
-		return l.Store.DeleteResource(ctx, l.tenantScope(scope), typ, url, ver)
-	}
-	if err := l.Store.DeleteResource(ctx, l.tenantScope(scope), typ, url, ver); err != nil {
-		return err
-	}
-	if l.GlobalScopeID == "" {
-		return nil
-	}
-	return l.Store.DeleteResource(ctx, l.GlobalScopeID, typ, url, ver)
+	// Tenant overlay only; global CodeSystem deletes are explicit admin operations.
+	return l.Store.DeleteResource(ctx, l.tenantScope(scope), typ, url, ver)
 }
 
 func (l *LayeredStore) ListResources(ctx context.Context, scope, typ string) ([]store.TerminologyResourceRecord, error) {
@@ -66,7 +63,17 @@ func (l *LayeredStore) ListResources(ctx context.Context, scope, typ string) ([]
 	if err != nil {
 		return nil, err
 	}
-	return mergeResources(tenant, global), nil
+	enabled, err := l.enabledKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]store.TerminologyResourceRecord, 0, len(global))
+	for _, r := range global {
+		if enabled[installKey(r.CanonicalURL, r.Version)] {
+			filtered = append(filtered, r)
+		}
+	}
+	return mergeResources(tenant, filtered), nil
 }
 
 func (l *LayeredStore) ReplaceCodeSystem(ctx context.Context, scope, url, ver string, concepts []store.TerminologyConceptRecord) error {
@@ -79,8 +86,11 @@ func (l *LayeredStore) ReplaceCodeSystem(ctx context.Context, scope, url, ver st
 
 func (l *LayeredStore) LookupConcept(ctx context.Context, scope, url, ver, code string) (*store.TerminologyConceptRecord, error) {
 	c, err := l.Store.LookupConcept(ctx, l.tenantScope(scope), url, ver, code)
-	if err != nil || c != nil || l.GlobalScopeID == "" {
+	if err != nil || c != nil {
 		return c, err
+	}
+	if !l.globalAllowed(ctx, url, ver) {
+		return nil, nil
 	}
 	return l.Store.LookupConcept(ctx, l.GlobalScopeID, url, ver, code)
 }
@@ -102,16 +112,7 @@ func (l *LayeredStore) ListValueSetMembers(ctx context.Context, scope, url, ver 
 }
 
 func (l *LayeredStore) DeleteProjections(ctx context.Context, scope, typ, url, ver string) error {
-	if typ == "ValueSet" {
-		return l.Store.DeleteProjections(ctx, l.tenantScope(scope), typ, url, ver)
-	}
-	if err := l.Store.DeleteProjections(ctx, l.tenantScope(scope), typ, url, ver); err != nil {
-		return err
-	}
-	if l.GlobalScopeID == "" {
-		return nil
-	}
-	return l.Store.DeleteProjections(ctx, l.GlobalScopeID, typ, url, ver)
+	return l.Store.DeleteProjections(ctx, l.tenantScope(scope), typ, url, ver)
 }
 
 func (l *LayeredStore) tenantScope(scope string) string {
@@ -126,6 +127,50 @@ func (l *LayeredStore) writeScope(resourceType, scope string) string {
 		return l.GlobalScopeID
 	}
 	return l.tenantScope(scope)
+}
+
+func (l *LayeredStore) globalAllowed(ctx context.Context, url, ver string) bool {
+	if l.GlobalScopeID == "" {
+		return false
+	}
+	if l.Installs == nil {
+		return true
+	}
+	enabled, err := l.enabledKeys(ctx)
+	if err != nil {
+		return false
+	}
+	if ver != "" {
+		return enabled[installKey(url, ver)]
+	}
+	prefix := url + "|"
+	for key := range enabled {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *LayeredStore) enabledKeys(ctx context.Context) (map[string]bool, error) {
+	if l.Installs == nil {
+		return nil, nil
+	}
+	rows, err := l.Installs.ListEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.ResourceType == "CodeSystem" || row.ResourceType == "" {
+			out[installKey(row.CanonicalURL, row.Version)] = true
+		}
+	}
+	return out, nil
+}
+
+func installKey(url, version string) string {
+	return url + "|" + version
 }
 
 func mergeResources(tenant, global []store.TerminologyResourceRecord) []store.TerminologyResourceRecord {

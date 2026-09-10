@@ -964,7 +964,29 @@ func (f *fakeJobStore) ClaimNext(context.Context, string) (*store.JobRecord, err
 func (f *fakeJobStore) Update(context.Context, store.JobRecord) error               { return nil }
 func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error)       { return &f.job, nil }
 
-func TestCodeSystemLookupHTTP(t *testing.T) {
+type fakeTerminologyInstallStore struct {
+	enabled []store.TerminologyInstallRecord
+}
+
+func (f *fakeTerminologyInstallStore) SetEnabled(_ context.Context, record store.TerminologyInstallRecord) error {
+	f.enabled = append(f.enabled, record)
+	return nil
+}
+func (f *fakeTerminologyInstallStore) UpsertInstall(ctx context.Context, record store.TerminologyInstallRecord) error {
+	return f.SetEnabled(ctx, record)
+}
+func (f *fakeTerminologyInstallStore) ListEnabled(_ context.Context) ([]store.TerminologyInstallRecord, error) {
+	return f.enabled, nil
+}
+func (f *fakeTerminologyInstallStore) ListInstalled(_ context.Context, _ store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
+	return f.enabled, nil
+}
+func (f *fakeTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error {
+	return nil
+}
+
+func terminologyTestService(t *testing.T, tenantScope string) terminology.Service {
+	t.Helper()
 	ctx := context.Background()
 	m := terminology.NewMemoryStore()
 	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
@@ -974,13 +996,24 @@ func TestCodeSystemLookupHTTP(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	global := terminology.NewLocalService(m, terminology.GlobalScopeID)
-	tenant := terminology.NewLocalService(terminology.NewLayeredStore(m, "tenant-a"), "tenant-a")
-	svc := terminology.Chain{Providers: []terminology.Provider{tenant, global}}
+	vs := []byte(`{"resourceType":"ValueSet","url":"urn:vs","version":"2","compose":{"include":[{"system":"urn:test","concept":[{"code":"ok"}]}]}}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: tenantScope, ResourceType: "ValueSet",
+		CanonicalURL: "urn:vs", Version: "2", ResourceJSON: vs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, tenantScope)
+	layered.Installs = &fakeTerminologyInstallStore{enabled: []store.TerminologyInstallRecord{{
+		ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+	}}}
+	return terminology.NewLocalService(layered, tenantScope)
+}
 
+func TestCodeSystemLookupHTTP(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService:    &fakeResourceService{},
-		TerminologyService: svc,
+		TerminologyService: terminologyTestService(t, "tenant-a"),
 		TerminologyScope:   "tenant-a",
 	})
 	rec := doRequest(t, handler, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
@@ -989,5 +1022,72 @@ func TestCodeSystemLookupHTTP(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "true") {
 		t.Fatalf("expected lookup result true, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:vs&version=2", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"ok"`) {
+		t.Fatalf("expected expanded code, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTPNotFound(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:missing", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestValueSetValidateCodeUsesValueSetVersion(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$validate-code?url=urn:vs&valueSetVersion=2&system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("expected valid result, got %s", rec.Body.String())
+	}
+}
+
+func TestCapabilityStatementAdvertisesTerminologyOperations(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources: []registry.ResourceCapability{
+				{ResourceType: "CodeSystem"},
+				{ResourceType: "ValueSet"},
+				{ResourceType: "Basic"},
+				{ResourceType: "CapabilityStatement"},
+			},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"lookup", "expand", "validate-code", `"name":"install"`, `"name":"status"`, `"name":"refresh"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metadata missing %q: %s", want, body)
+		}
 	}
 }

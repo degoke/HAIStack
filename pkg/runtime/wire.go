@@ -223,6 +223,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var invalidators []terminology.Invalidator
 	if tenantTerminology != nil {
 		layered := terminology.NewLayeredStore(tenantTerminology, termScope)
+		layered.Installs = pc.terminologyInstalls
 		tenantLocal = terminology.NewLocalService(layered, termScope)
 		invalidators = append(invalidators, tenantLocal)
 	}
@@ -234,9 +235,6 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var termProviders []terminology.Provider
 	if tenantLocal != nil {
 		termProviders = append(termProviders, tenantLocal)
-	}
-	if globalLocal != nil {
-		termProviders = append(termProviders, globalLocal)
 	}
 	if b.remoteTerminologyURL != "" {
 		remote, err := terminology.NewRemoteProvider(terminology.RemoteConfig{
@@ -488,6 +486,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := runner.Register(jobs.TypeModuleInstall, jobs.HandlerFunc(moduleWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register module install handler: %w", err)
 		}
+		if pc.terminology != nil {
+			termWorker := &jobs.TerminologyInstallWorker{
+				Terminology: pc.terminology,
+				ScopeID:     termScope,
+				JobStore:    pc.jobStore,
+			}
+			if err := runner.Register(jobs.TypeTerminologyInstall, jobs.HandlerFunc(termWorker.HandleJob)); err != nil {
+				return fmt.Errorf("runtime: register terminology install handler: %w", err)
+			}
+		}
 		state.jobRunner = runner
 	}
 
@@ -532,6 +540,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		SDCService:            sdcService,
 		PackageInstallService: packageService,
 		ModuleInstallService:  moduleService,
+		ModulePaths:           append([]string(nil), b.modulePaths...),
 		JobStatusService:      jobStatusService,
 		TerminologyService:    state.services.TerminologyService,
 		TerminologyScope:      termScope,

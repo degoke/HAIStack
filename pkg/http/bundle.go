@@ -123,7 +123,8 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 			"name":       "validate",
 			"definition": "http://hl7.org/fhir/OperationDefinition/Resource-validate",
 		}}
-		if res.ResourceType == "ImplementationGuide" {
+		switch res.ResourceType {
+		case "ImplementationGuide":
 			operations = append(operations,
 				map[string]string{
 					"name":       "install",
@@ -134,6 +135,44 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 					"definition": "http://hl7.org/fhir/OperationDefinition/ImplementationGuide-package",
 				},
 			)
+		case "CodeSystem":
+			operations = append(operations,
+				map[string]string{
+					"name":       "lookup",
+					"definition": "http://hl7.org/fhir/OperationDefinition/CodeSystem-lookup",
+				},
+				map[string]string{
+					"name":       "validate-code",
+					"definition": "http://hl7.org/fhir/OperationDefinition/CodeSystem-validate-code",
+				},
+			)
+		case "ValueSet":
+			operations = append(operations,
+				map[string]string{
+					"name":       "expand",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ValueSet-expand",
+				},
+				map[string]string{
+					"name":       "validate-code",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ValueSet-validate-code",
+				},
+			)
+		case "Basic":
+			operations = append(operations,
+				map[string]string{
+					"name":       "install",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-install",
+				},
+				map[string]string{
+					"name":       "status",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-status",
+				},
+			)
+		case "CapabilityStatement":
+			operations = append(operations, map[string]string{
+				"name":       "refresh",
+				"definition": "http://hl7.org/fhir/OperationDefinition/CapabilityStatement-refresh",
+			})
 		}
 		resourceEntries = append(resourceEntries, map[string]interface{}{
 			"type":         res.ResourceType,

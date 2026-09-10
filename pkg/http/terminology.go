@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -89,7 +91,26 @@ func (h *handler) handleValueSetExpand(w http.ResponseWriter, r *http.Request, r
 		Count:   count,
 	})
 	if err != nil {
+		if errors.Is(err, terminology.ErrExpansionTooCostly) {
+			writeOperationOutcome(w, http.StatusRequestEntityTooLarge, &types.OperationOutcome{
+				ResourceType: "OperationOutcome",
+				Issue: []types.OperationIssue{{
+					Severity:    "error",
+					Code:        "too-costly",
+					Diagnostics: err.Error(),
+				}},
+			})
+			return
+		}
+		if errors.Is(err, terminology.ErrExpansionNotFound) {
+			writeError(w, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: err.Error()})
+			return
+		}
 		writeError(w, err)
+		return
+	}
+	if expansion == nil {
+		writeError(w, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "ValueSet not found"})
 		return
 	}
 	writeEnvelope(w, http.StatusOK, expansionValueSet(url, version, expansion), nil)
@@ -185,6 +206,10 @@ func validateCodeRequest(r *http.Request, resourceType, scope string) (terminolo
 	req := terminology.ValidateCodeRequest{ScopeID: scope}
 	if resourceType == "ValueSet" {
 		req.URL = strings.TrimSpace(q.Get("url"))
+		req.Version = strings.TrimSpace(q.Get("valueSetVersion"))
+		if req.Version == "" {
+			req.Version = strings.TrimSpace(q.Get("version"))
+		}
 	}
 	coding := terminology.Coding{
 		System:  strings.TrimSpace(q.Get("system")),
@@ -215,6 +240,10 @@ func validateCodeRequest(r *http.Request, resourceType, scope string) (terminolo
 		switch name {
 		case "url":
 			req.URL = parameterString(p, "valueUri", "valueUrl", "valueString")
+		case "valueSetVersion":
+			if resourceType == "ValueSet" {
+				req.Version = parameterString(p, "valueString")
+			}
 		case "coding":
 			if part, ok := p["part"].([]any); ok {
 				for _, pv := range part {
@@ -236,7 +265,11 @@ func validateCodeRequest(r *http.Request, resourceType, scope string) (terminolo
 		case "system":
 			req.Coding.System = parameterString(p, "valueUri", "valueUrl", "valueString")
 		case "version":
-			req.Coding.Version = parameterString(p, "valueString")
+			if resourceType == "ValueSet" && req.URL != "" {
+				req.Version = parameterString(p, "valueString")
+			} else {
+				req.Coding.Version = parameterString(p, "valueString")
+			}
 		case "display":
 			req.Coding.Display = parameterString(p, "valueString")
 		}
@@ -260,6 +293,9 @@ func lookupParameters(result *terminology.LookupResult) *types.ResourceEnvelope 
 }
 
 func expansionValueSet(url, version string, expansion *terminology.Expansion) *types.ResourceEnvelope {
+	if expansion == nil {
+		return nil
+	}
 	contains := make([]map[string]any, 0, len(expansion.Contains))
 	for _, c := range expansion.Contains {
 		contains = append(contains, map[string]any{

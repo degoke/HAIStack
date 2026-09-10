@@ -17,6 +17,11 @@ const (
 	TypePackageFetch = TypePrefixRegistry + "package.fetch"
 )
 
+// TerminologyInstallPayload is the job payload for registry.terminology.install.
+type TerminologyInstallPayload struct {
+	ScopeID string `json:"scopeId,omitempty"`
+}
+
 // PackageInstallPayload is the job payload for registry.package_install.
 type PackageInstallPayload struct {
 	Source    string `json:"source"`
