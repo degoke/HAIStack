@@ -6,4 +6,5 @@
 // discovery at {fhir_base}/.well-known/smart-configuration.
 //
 // Use cmd/inferno-reference for manual Inferno test kit runs against a live host.
+// Production OAuth configuration is documented in pkg/oauth/OPERATIONS.md.
 package infernotest

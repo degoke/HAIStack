@@ -25,7 +25,7 @@ func (s *SQLiteConsentSessionStore) now() time.Time {
 }
 
 func (s *SQLiteConsentSessionStore) Create(issuer string, params url.Values, subject string) (sessionID, csrf string, err error) {
-	s.purgeExpired()
+	_, _ = s.PurgeExpired(context.Background())
 	sessionID, err = randomToken()
 	if err != nil {
 		return "", "", err
@@ -49,7 +49,7 @@ func (s *SQLiteConsentSessionStore) Create(issuer string, params url.Values, sub
 }
 
 func (s *SQLiteConsentSessionStore) Consume(issuer, sessionID, csrf string) (url.Values, string, error) {
-	s.purgeExpired()
+	_, _ = s.PurgeExpired(context.Background())
 	tx, err := s.DB.BeginTx(context.Background(), nil)
 	if err != nil {
 		return nil, "", err
@@ -87,9 +87,16 @@ func (s *SQLiteConsentSessionStore) Consume(issuer, sessionID, csrf string) (url
 	return params, subject, nil
 }
 
-func (s *SQLiteConsentSessionStore) purgeExpired() {
-	_, _ = s.DB.ExecContext(context.Background(), `
+func (s *SQLiteConsentSessionStore) PurgeExpired(ctx context.Context) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := s.DB.ExecContext(ctx, `
 		DELETE FROM hai_oauth_consent_session WHERE expires_at < ?`, formatTime(s.now()))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // SQLiteClientStore persists OAuth clients in SQLite.

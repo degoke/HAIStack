@@ -197,10 +197,21 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 			ClientID:     "inferno-ehr",
 			ClientSecret: "inferno-ehr-secret",
 		},
+		// Inferno reference: open DCR, AutoApprove, demo launch creds — not for production.
+		// See pkg/oauth/OPERATIONS.md.
 	}
 	if err := oauthstore.ApplySQLiteStores(&oauthCfg, db.SQL()); err != nil {
 		cleanup()
 		return nil, ReferenceMeta{}, nil, err
+	}
+	closeStack := cleanup
+	consentCleanupCtx, stopConsentCleanup := context.WithCancel(ctx)
+	if oauthCfg.ConsentSessionStore != nil {
+		oauth.StartConsentSessionCleanup(consentCleanupCtx, oauthCfg.ConsentSessionStore, oauth.DefaultConsentSessionCleanupInterval)
+	}
+	cleanup = func() {
+		stopConsentCleanup()
+		closeStack()
 	}
 	autoApprove := true
 	oauthCfg.AutoApprove = &autoApprove

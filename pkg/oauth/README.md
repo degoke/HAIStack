@@ -87,7 +87,7 @@ Optional login hook for hosts that authenticate users before consent:
 cfg.ConsentLogin = myLoginHandler // implements oauth.ConsentLoginHandler
 ```
 
-When `ConsentLogin` returns a subject, that identity is written into issued tokens (unless an EHR launch context already supplied a user). Consent sessions are persisted to SQLite when using `ApplySQLiteStores` (issuer-scoped, single-use, 5-minute TTL).
+When `ConsentLogin` returns a subject, that identity is written into issued tokens (unless an EHR launch context already supplied a user). Consent sessions are persisted to SQLite when using `ApplySQLiteStores` (issuer-scoped, single-use, 5-minute TTL). See [OPERATIONS.md](OPERATIONS.md) for scheduled cleanup and production vs Inferno reference configuration.
 
 ## Dynamic client registration
 
@@ -209,7 +209,15 @@ _ = oauth.ApplyProductionDefaults(&cfg) // recommended for production-like hosts
 srv, _ := oauth.NewServer(cfg)
 ```
 
-Expired consent sessions are purged opportunistically on create/consume in SQLite.
+Expired consent sessions are purged opportunistically on create/consume and via a background sweeper:
+
+```go
+consentCtx, stopConsent := context.WithCancel(ctx)
+defer stopConsent()
+oauth.StartConsentSessionCleanup(consentCtx, cfg.ConsentSessionStore, oauth.DefaultConsentSessionCleanupInterval)
+```
+
+See [OPERATIONS.md](OPERATIONS.md) for the full production vs Inferno reference checklist.
 
 ## Security notes
 

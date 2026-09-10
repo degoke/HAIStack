@@ -101,8 +101,12 @@ func TestSQLiteConsentSessionPurgeExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	consent.Now = func() time.Time { return time.Now() }
-	if _, _, err := stores.Consent.Create("https://example.com", nil, ""); err != nil {
+	removed, err := stores.Consent.PurgeExpired(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d", removed)
 	}
 	var count int
 	if err := db.SQL().QueryRowContext(ctx, `

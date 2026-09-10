@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"net/url"
@@ -20,6 +21,8 @@ type consentSession struct {
 type ConsentSessionStore interface {
 	Create(issuer string, params url.Values, subject string) (sessionID, csrf string, err error)
 	Consume(issuer, sessionID, csrf string) (url.Values, string, error)
+	// PurgeExpired removes expired sessions and returns the number deleted.
+	PurgeExpired(ctx context.Context) (removed int64, err error)
 }
 
 type memoryConsentSessionStore struct {
@@ -89,6 +92,21 @@ func (s *memoryConsentSessionStore) purgeLocked() {
 			delete(s.sessions, id)
 		}
 	}
+}
+
+func (s *memoryConsentSessionStore) PurgeExpired(ctx context.Context) (int64, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.nowFn()
+	var removed int64
+	for id, session := range s.sessions {
+		if now.After(session.ExpiresAt) {
+			delete(s.sessions, id)
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 func randomURLSafeToken(n int) (string, error) {

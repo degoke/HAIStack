@@ -119,6 +119,11 @@ func run() error {
 			return err
 		}
 	}
+	consentCleanupCtx, stopConsentCleanup := context.WithCancel(ctx)
+	defer stopConsentCleanup()
+	if oauthCfg.ConsentSessionStore != nil {
+		oauth.StartConsentSessionCleanup(consentCleanupCtx, oauthCfg.ConsentSessionStore, oauth.DefaultConsentSessionCleanupInterval)
+	}
 	autoApprove := true
 	oauthCfg.AutoApprove = &autoApprove
 	oauthSrv, err := oauth.NewServer(oauthCfg)

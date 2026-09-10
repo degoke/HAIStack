@@ -215,6 +215,10 @@ against a reference host backed by `pkg/oauth` and a minimal FHIR API. Discovery
 `{fhir_base}/.well-known/smart-configuration`, matching Inferno's
 `smart_discovery_stu2` group.
 
+**This reference host is for conformance testing only.** Production deployments must use
+`ApplyProductionDefaults`, gated dynamic client registration, and interactive consent.
+See [`pkg/oauth/OPERATIONS.md`](../oauth/OPERATIONS.md) for the full split.
+
 ```go
 handler, meta, cleanup, err := infernotest.BuildReferenceHandler(ctx, baseURL)
 defer cleanup()
