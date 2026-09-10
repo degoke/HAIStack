@@ -93,6 +93,70 @@ func TestDynamicClientRegistration(t *testing.T) {
 	}
 }
 
+func TestDynamicClientRegistrationDefaultScopes(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:      "http://example.test",
+		FHIRBaseURL: "http://example.test/fhir",
+		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+		Clients:     oauth.NewClientRegistry(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := `{"client_name":"Dynamic App","redirect_uris":["https://app.example/callback"],"token_endpoint_auth_method":"none"}`
+	resp, err := http.Post(ts.URL+"/oauth/register", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var doc map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := doc["scope"].(string)
+	if scope == "" {
+		t.Fatalf("expected default scope allow-list, doc = %#v", doc)
+	}
+}
+
+func TestDynamicClientRegistrationRejectsDisallowedScopes(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:      "http://example.test",
+		FHIRBaseURL: "http://example.test/fhir",
+		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+		Clients:     oauth.NewClientRegistry(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := `{"redirect_uris":["https://app.example/callback"],"scope":"system/*.read"}`
+	resp, err := http.Post(ts.URL+"/oauth/register", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
 func TestSQLiteConsentSessionStore(t *testing.T) {
 	ctx := context.Background()
 	db, err := sqlite.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "oauth.db"))

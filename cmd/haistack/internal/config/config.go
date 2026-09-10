@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -110,6 +111,30 @@ func (c Config) Validate() error {
 	}
 	if c.Sync.HubURL != "" && strings.TrimSpace(c.Sync.NodeID) == "" {
 		return fmt.Errorf("sync.nodeID is required when sync.hubURL is set")
+	}
+	if err := c.validateOAuthProduction(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c Config) validateOAuthProduction() error {
+	if !c.OAuthEnabled() || !c.OAuthProduction() {
+		return nil
+	}
+	token := strings.TrimSpace(c.OAuth.RegistrationAccessToken)
+	if token == "" {
+		return fmt.Errorf("oauth.production requires OAUTH_REGISTRATION_TOKEN or oauth.registrationAccessToken")
+	}
+	issuer := strings.TrimSpace(c.OAuth.IssuerURL)
+	if issuer == "" {
+		return fmt.Errorf("oauth.production requires oauth.issuerURL (https) pinned for signing key continuity")
+	}
+	if err := oauth.ValidateProductionIssuer(issuer); err != nil {
+		return fmt.Errorf("oauth.issuerURL: %w", err)
+	}
+	if c.OAuth.AutoApprove != nil && *c.OAuth.AutoApprove {
+		return fmt.Errorf("oauth.autoApprove must be false when oauth.production is enabled")
 	}
 	return nil
 }

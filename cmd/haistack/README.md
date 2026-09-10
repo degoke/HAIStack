@@ -110,6 +110,7 @@ runtime:
 oauth:
   enabled: true
   production: false
+  issuerURL: "" # required https URL when production: true; pin for signing key continuity
   registrationAccessToken: ""
 sync:
   hubURL: ""
@@ -146,6 +147,8 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` (also `HAISTACK_PRODUCTION=1`) |
 | `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
 | `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+
+When `oauth.production` is enabled, config validation requires an explicit `https` `oauth.issuerURL`, a registration token, and `autoApprove: false`. Pin the issuer URL before go-live so the persisted signing key stays stable across restarts.
 
 See [`pkg/oauth/OPERATIONS.md`](../../pkg/oauth/OPERATIONS.md) for Inferno reference vs production OAuth settings.
 

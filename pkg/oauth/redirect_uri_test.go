@@ -18,17 +18,34 @@ func TestValidateRedirectURI(t *testing.T) {
 }
 
 func TestApplyProductionDefaults(t *testing.T) {
-	cfg := Config{}
+	cfg := Config{Issuer: "http://example.test"}
 	if err := ApplyProductionDefaults(&cfg); err == nil {
-		t.Fatal("expected production defaults to require registration token")
+		t.Fatal("expected production defaults to require https issuer")
 	}
-	cfg.RegistrationAccessToken = "registration-token"
+	cfg = Config{
+		Issuer:                  "https://example.test",
+		RegistrationAccessToken: "registration-token",
+	}
 	if err := ApplyProductionDefaults(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	autoApprove := true
+	cfg.AutoApprove = &autoApprove
+	if err := ApplyProductionDefaults(&cfg); err == nil {
+		t.Fatal("expected AutoApprove true to fail production defaults")
+	}
+	cfg.AutoApprove = boolPtr(false)
+	if err := ApplyProductionDefaults(&cfg); err != nil {
+		t.Fatalf("unexpected error with AutoApprove false: %v", err)
+	}
 	disabled := false
 	cfg.DynamicClientRegistration = &disabled
+	cfg.RegistrationAccessToken = ""
 	if err := ApplyProductionDefaults(&cfg); err != nil {
 		t.Fatalf("unexpected error when DCR disabled: %v", err)
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

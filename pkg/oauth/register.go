@@ -142,6 +142,10 @@ func (s *Server) buildRegisteredClient(req clientRegistrationRequest) (Client, s
 	if len(scopes) == 0 && strings.TrimSpace(req.Scope) != "" {
 		scopes = strings.Fields(req.Scope)
 	}
+	scopes, err = NormalizeRegisteredClientScopes(s.cfg, scopes)
+	if err != nil {
+		return Client{}, "", err
+	}
 	if authMethod == "" {
 		if confidential {
 			authMethod = "client_secret_basic"

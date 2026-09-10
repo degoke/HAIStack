@@ -71,6 +71,7 @@ if err != nil {
 oauth:
   enabled: true
   production: true
+  issuerURL: https://auth.example.com  # required in production; pin for signing key continuity
   registrationAccessToken: "" # prefer OAUTH_REGISTRATION_TOKEN env
 ```
 
@@ -80,10 +81,18 @@ oauth:
 | `HAISTACK_OAUTH_PRODUCTION` | Set `true` to call `ApplyProductionDefaults` |
 | `HAISTACK_PRODUCTION=1` | Same as `oauth.production: true` |
 | `OAUTH_REGISTRATION_TOKEN` | Bearer token for dynamic client registration |
+| `HAISTACK_OAUTH_ISSUER_URL` | Required in production; must be `https` |
 
 When OAuth is enabled, FHIR endpoints require SMART Bearer tokens; discovery remains public at `/fhir/.well-known/smart-configuration`.
 
-The RS256 signing key is persisted in SQLite (`hai_oauth_signing_key`) keyed by issuer URL, so JWKS and issued access tokens remain valid across `haistack serve` restarts.
+The RS256 signing key is persisted in SQLite (`hai_oauth_signing_key`) keyed by issuer URL. **Pin `oauth.issuerURL` to your public HTTPS base** before production deploys; changing the issuer (including deriving it from a different `runtime.httpAddr`) creates a new signing key and invalidates previously issued JWTs.
+
+Production mode (`ApplyProductionDefaults`) requires:
+
+- `https` issuer URL
+- `AutoApprove` disabled
+- registration token when DCR is enabled
+- DCR clients default to `DefaultRegisteredClientScopes()` and cannot request scopes outside that allow-list
 
 Environment variables (example):
 
@@ -120,8 +129,8 @@ removed, err := cfg.ConsentSessionStore.PurgeExpired(ctx)
 ## Checklist before go-live
 
 1. `ApplySQLiteStores` wired; migrations applied (through `0019_oauth_signing_key.sql`)
-2. `ApplyProductionDefaults` passes (registration token or DCR disabled)
-3. `AutoApprove` false unless explicitly demo-only
+2. `ApplyProductionDefaults` passes (`https` issuer pinned, registration token or DCR disabled, `AutoApprove` false)
+3. `oauth.issuerURL` set to the public HTTPS base and kept stable across restarts
 4. Consent session cleanup goroutine running
 5. Launch issuer credentials from secrets, not source code
 6. TLS in front of OAuth and FHIR endpoints

@@ -65,6 +65,9 @@ type Config struct {
 	LaunchIssuerMTLS *LaunchIssuerMTLSConfig
 	// ScopesSupported is advertised in SMART configuration.
 	ScopesSupported []string
+	// RegisteredClientScopes caps dynamically registered client scopes. When empty,
+	// DefaultRegisteredClientScopes is used as both the default and maximum allow-list.
+	RegisteredClientScopes []string
 	// Now overrides time.Now for tests.
 	Now func() time.Time
 }

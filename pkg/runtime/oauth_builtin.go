@@ -82,6 +82,9 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	} else if v := strings.TrimSpace(os.Getenv("OAUTH_REGISTRATION_TOKEN")); v != "" {
 		oauthCfg.RegistrationAccessToken = v
 	}
+	autoApproveVal := autoApprove
+	oauthCfg.AutoApprove = &autoApproveVal
+	oauthCfg.RegisteredClientScopes = oauth.DefaultRegisteredClientScopes()
 	if cfg.Production {
 		if err := oauth.ApplyProductionDefaults(&oauthCfg); err != nil {
 			return fmt.Errorf("runtime: oauth production defaults: %w", err)
@@ -93,8 +96,6 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 	state.cleanup.add(stopConsentCleanup)
 
-	autoApproveVal := autoApprove
-	oauthCfg.AutoApprove = &autoApproveVal
 	srv, err := oauth.NewServer(oauthCfg)
 	if err != nil {
 		return fmt.Errorf("runtime: oauth server: %w", err)
