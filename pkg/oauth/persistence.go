@@ -1,8 +1,8 @@
 package oauth
 
-// UsesInMemoryStores reports whether cfg relies on in-process stores for auth codes,
-// refresh tokens, launch tokens, or revocation. This is the default when
-// store.ApplySQLiteStores has not been called; production hosts should wire SQLite.
+// UsesInMemoryStores reports whether cfg relies on in-process stores for OAuth state.
+// This is the default when store.ApplySQLiteStores has not been called; production
+// hosts should wire SQLite before calling NewServer.
 //
 // The function returns true when any configured store is still in-memory (including
 // partial wiring where only some stores were replaced with SQLite implementations).
@@ -29,6 +29,18 @@ func UsesInMemoryStores(cfg Config) bool {
 		return true
 	}
 	if _, ok := cfg.RevocationStore.(*MemoryRevocationStore); ok {
+		return true
+	}
+	if cfg.ConsentSessionStore == nil {
+		return true
+	}
+	if _, ok := cfg.ConsentSessionStore.(*memoryConsentSessionStore); ok {
+		return true
+	}
+	if cfg.ClientStore == nil {
+		return cfg.Clients != nil
+	}
+	if _, ok := cfg.ClientStore.(registryClientStore); ok {
 		return true
 	}
 	return false

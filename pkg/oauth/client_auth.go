@@ -13,13 +13,13 @@ func (s *Server) authenticateClient(r *http.Request) (Client, error) {
 	if clientID == "" {
 		return Client{}, ErrInvalidClient
 	}
-	client, err := s.clients.Lookup(clientID)
+	client, err := s.clients.Lookup(s.issuer, clientID)
 	if err != nil {
 		return Client{}, err
 	}
 	if client.Confidential {
 		secret := strings.TrimSpace(r.Form.Get("client_secret"))
-		if secret == "" || secret != client.ClientSecret {
+		if !verifyClientSecret(client, secret) {
 			return Client{}, ErrInvalidClient
 		}
 	}
@@ -54,7 +54,7 @@ func (s *Server) authenticateLaunchIssuer(r *http.Request) error {
 		return nil
 	}
 	if auth := s.cfg.LaunchIssuerAuth; auth != nil {
-		if id == auth.ClientID && secret == auth.ClientSecret {
+		if id == auth.ClientID && secretEqual(secret, auth.ClientSecret) {
 			return nil
 		}
 	}

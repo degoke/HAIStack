@@ -27,7 +27,13 @@ type Client struct {
 	DefaultUser string `json:"defaultUser,omitempty"`
 }
 
-// ClientRegistry stores registered OAuth clients.
+// ClientStore persists registered OAuth clients (static bootstrap or dynamic registration).
+type ClientStore interface {
+	Register(issuer string, client Client) error
+	Lookup(issuer, clientID string) (Client, error)
+}
+
+// ClientRegistry stores registered OAuth clients in memory.
 type ClientRegistry struct {
 	mu      sync.RWMutex
 	clients map[string]Client
@@ -46,14 +52,8 @@ func (r *ClientRegistry) Register(c Client) error {
 	if strings.TrimSpace(c.ClientID) == "" {
 		return fmt.Errorf("%w: client id required", ErrInvalidConfig)
 	}
-	allowed := c.AllowedScopes
-	if len(allowed) == 0 {
-		allowed = c.Scopes
-	}
-	if len(allowed) > 0 {
-		if _, err := smart.ParseScopes(strings.Join(allowed, " ")); err != nil {
-			return fmt.Errorf("%w: client %q scopes: %v", ErrInvalidConfig, c.ClientID, err)
-		}
+	if err := validateClientRegistration(c); err != nil {
+		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -76,6 +76,73 @@ func (r *ClientRegistry) Lookup(clientID string) (Client, error) {
 		return Client{}, fmt.Errorf("%w: %s", ErrInvalidClient, clientID)
 	}
 	return c, nil
+}
+
+type registryClientStore struct {
+	reg *ClientRegistry
+}
+
+func (s registryClientStore) Register(_ string, client Client) error {
+	return s.reg.Register(client)
+}
+
+func (s registryClientStore) Lookup(_, clientID string) (Client, error) {
+	return s.reg.Lookup(clientID)
+}
+
+// Seed copies all clients from a static registry into a persistent store.
+func SeedClientStore(store ClientStore, issuer string, reg *ClientRegistry) error {
+	if store == nil || reg == nil {
+		return nil
+	}
+	for _, client := range reg.List() {
+		if err := store.Register(issuer, client); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// List returns all registered clients (for seeding persistent stores).
+func (r *ClientRegistry) List() []Client {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Client, 0, len(r.clients))
+	for _, c := range r.clients {
+		out = append(out, c)
+	}
+	return out
+}
+
+// ValidateClientRegistration checks static or dynamic client metadata.
+func ValidateClientRegistration(c Client) error {
+	return validateClientRegistration(c)
+}
+
+func validateClientRegistration(c Client) error {
+	if strings.TrimSpace(c.ClientID) == "" {
+		return fmt.Errorf("%w: client id required", ErrInvalidConfig)
+	}
+	allowed := c.AllowedScopes
+	if len(allowed) == 0 {
+		allowed = c.Scopes
+	}
+	if len(allowed) > 0 {
+		if _, err := smart.ParseScopes(strings.Join(allowed, " ")); err != nil {
+			return fmt.Errorf("%w: client %q scopes: %v", ErrInvalidConfig, c.ClientID, err)
+		}
+	}
+	return nil
+}
+
+func verifyClientSecret(client Client, secret string) bool {
+	if !client.Confidential {
+		return secret == ""
+	}
+	return secretEqual(secret, client.ClientSecret)
 }
 
 // allowedScopeSet returns the parsed allow-list for a client.

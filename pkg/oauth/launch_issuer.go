@@ -86,7 +86,7 @@ func (r *LaunchIssuerRegistry) Validate(id, secret string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, candidate := range r.credentials[id] {
-		if secret == candidate {
+		if secretEqual(secret, candidate) {
 			return true
 		}
 	}

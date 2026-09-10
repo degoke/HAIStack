@@ -64,13 +64,13 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	client, err := s.clients.Lookup(clientID)
+	client, err := s.clients.Lookup(s.issuer, clientID)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client")
 		return
 	}
 	if client.Confidential {
-		if clientSecret == "" || clientSecret != client.ClientSecret {
+		if !verifyClientSecret(client, clientSecret) {
 			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 			return
 		}
@@ -155,13 +155,13 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
 		return
 	}
-	client, err := s.clients.Lookup(clientID)
+	client, err := s.clients.Lookup(s.issuer, clientID)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client")
 		return
 	}
 	if client.Confidential {
-		if clientSecret == "" || clientSecret != client.ClientSecret {
+		if !verifyClientSecret(client, clientSecret) {
 			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 			return
 		}

@@ -26,6 +26,13 @@ type Config struct {
 	Signer TokenSigner
 	// Clients is the static client registry. Required.
 	Clients *ClientRegistry
+	// ClientStore optionally persists registered clients (SQLite or dynamic registration).
+	// When nil, Clients is used as an in-memory store.
+	ClientStore ClientStore
+	// ConsentSessionStore persists interactive consent sessions. Defaults to in-memory.
+	ConsentSessionStore ConsentSessionStore
+	// DynamicClientRegistration enables POST /oauth/register. Defaults to true.
+	DynamicClientRegistration *bool
 	// BackendAuth validates client_credentials assertions when configured.
 	BackendAuth *smart.BackendServiceAuth
 	// LaunchStore stores single-use EHR launch tokens. Defaults to in-memory when nil.
@@ -63,12 +70,12 @@ type Config struct {
 type Server struct {
 	cfg Config
 
-	clients         *ClientRegistry
+	clients         ClientStore
 	codes           AuthorizationCodeStore
 	launches        LaunchStore
 	refresh         RefreshTokenStore
 	revocation      TokenRevocationStore
-	consentSessions *consentSessionStore
+	consentSessions ConsentSessionStore
 	consentLogin    ConsentLoginHandler
 	backendAuth     *smart.BackendServiceAuth
 	signer          TokenSigner
@@ -87,7 +94,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.Signer == nil {
 		return nil, ErrInvalidConfig
 	}
-	if cfg.Clients == nil {
+	if cfg.Clients == nil && cfg.ClientStore == nil {
 		return nil, ErrInvalidConfig
 	}
 	if cfg.Issuer == "" || cfg.FHIRBaseURL == "" {
@@ -146,18 +153,26 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.AutoApprove != nil {
 		autoApprove = *cfg.AutoApprove
 	}
+	clients := cfg.ClientStore
+	if clients == nil {
+		clients = registryClientStore{reg: cfg.Clients}
+	}
+	consentSessions := cfg.ConsentSessionStore
+	if consentSessions == nil {
+		consentSessions = NewMemoryConsentSessionStore(nowFn)
+	}
 	rotateRefresh := true
 	if cfg.RotateRefreshTokens != nil {
 		rotateRefresh = *cfg.RotateRefreshTokens
 	}
 	return &Server{
 		cfg:             cfg,
-		clients:         cfg.Clients,
+		clients:         clients,
 		codes:           codes,
 		launches:        launches,
 		refresh:         refresh,
 		revocation:      revocation,
-		consentSessions: newConsentSessionStore(nowFn),
+		consentSessions: consentSessions,
 		consentLogin:    cfg.ConsentLogin,
 		backendAuth:     cfg.BackendAuth,
 		signer:          cfg.Signer,

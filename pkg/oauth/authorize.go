@@ -54,7 +54,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := s.clients.Lookup(clientID)
+	client, err := s.clients.Lookup(s.issuer, clientID)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client")
 		return

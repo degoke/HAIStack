@@ -15,6 +15,8 @@ type SQLiteStores struct {
 	Refresh    oauth.RefreshTokenStore
 	Revocation oauth.TokenRevocationStore
 	Launch     oauth.LaunchStore
+	Consent    oauth.ConsentSessionStore
+	Clients    oauth.ClientStore
 }
 
 // NewSQLiteStores returns OAuth stores backed by the given database.
@@ -28,6 +30,8 @@ func NewSQLiteStores(db *sql.DB) (*SQLiteStores, error) {
 		Refresh:    &SQLiteRefreshStore{DB: db},
 		Revocation: &SQLiteRevocationStore{DB: db},
 		Launch:     &SQLiteLaunchStore{DB: db},
+		Consent:    &SQLiteConsentSessionStore{DB: db},
+		Clients:    &SQLiteClientStore{DB: db},
 	}, nil
 }
 

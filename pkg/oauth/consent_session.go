@@ -1,12 +1,9 @@
 package oauth
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -43,79 +40,6 @@ type ConsentUIConfig struct {
 	SessionCookieName string
 }
 
-type consentSession struct {
-	Params    url.Values
-	CSRF      string
-	Subject   string
-	ExpiresAt time.Time
-}
-
-// consentSessionStore holds short-lived OAuth authorize state in memory only.
-// Consent sessions are not persisted to SQLite and do not survive process restarts.
-type consentSessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]consentSession
-	nowFn    func() time.Time
-}
-
-func newConsentSessionStore(nowFn func() time.Time) *consentSessionStore {
-	if nowFn == nil {
-		nowFn = time.Now
-	}
-	return &consentSessionStore{
-		sessions: make(map[string]consentSession),
-		nowFn:    nowFn,
-	}
-}
-
-func (s *consentSessionStore) create(params url.Values, subject string) (sessionID, csrf string, err error) {
-	sessionID, err = randomURLSafeToken(24)
-	if err != nil {
-		return "", "", err
-	}
-	csrf, err = randomURLSafeToken(32)
-	if err != nil {
-		return "", "", err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.purgeLocked()
-	s.sessions[sessionID] = consentSession{
-		Params:    cloneValues(params),
-		CSRF:      csrf,
-		Subject:   subject,
-		ExpiresAt: s.nowFn().Add(defaultConsentSessionTTL),
-	}
-	return sessionID, csrf, nil
-}
-
-func (s *consentSessionStore) consume(sessionID, csrf string) (url.Values, string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.purgeLocked()
-	session, ok := s.sessions[sessionID]
-	if !ok {
-		return nil, "", ErrInvalidRequest
-	}
-	delete(s.sessions, sessionID)
-	if s.nowFn().After(session.ExpiresAt) {
-		return nil, "", ErrInvalidRequest
-	}
-	if csrf == "" || csrf != session.CSRF {
-		return nil, "", ErrInvalidRequest
-	}
-	return cloneValues(session.Params), session.Subject, nil
-}
-
-func (s *consentSessionStore) purgeLocked() {
-	now := s.nowFn()
-	for id, session := range s.sessions {
-		if now.After(session.ExpiresAt) {
-			delete(s.sessions, id)
-		}
-	}
-}
-
 func (s *Server) consentUI() ConsentUIConfig {
 	return s.cfg.ConsentUI
 }
@@ -139,7 +63,7 @@ func (s *Server) beginConsentSession(w http.ResponseWriter, r *http.Request, par
 	if s.consentSessions == nil {
 		return "", ErrInvalidConfig
 	}
-	sessionID, csrf, err := s.consentSessions.create(params, subject)
+	sessionID, csrf, err := s.consentSessions.Create(s.issuer, params, subject)
 	if err != nil {
 		return "", err
 	}
@@ -163,7 +87,7 @@ func (s *Server) loadConsentSession(r *http.Request, csrf string) (url.Values, s
 	if s.consentSessions == nil {
 		return nil, "", ErrInvalidConfig
 	}
-	return s.consentSessions.consume(cookie.Value, csrf)
+	return s.consentSessions.Consume(s.issuer, cookie.Value, csrf)
 }
 
 func cloneValues(in url.Values) url.Values {
@@ -172,12 +96,4 @@ func cloneValues(in url.Values) url.Values {
 		out[key] = append([]string(nil), values...)
 	}
 	return out
-}
-
-func randomURLSafeToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

@@ -9,6 +9,7 @@ type smartConfiguration struct {
 	Issuer                        string   `json:"issuer,omitempty"`
 	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
 	TokenEndpoint                 string   `json:"token_endpoint"`
+	RegistrationEndpoint          string   `json:"registration_endpoint,omitempty"`
 	JWKSURI                       string   `json:"jwks_uri,omitempty"`
 	RevocationEndpoint            string   `json:"revocation_endpoint,omitempty"`
 	IntrospectionEndpoint         string   `json:"introspection_endpoint,omitempty"`
@@ -30,7 +31,7 @@ func (s *Server) handleSmartConfiguration(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) smartConfiguration() smartConfiguration {
-	capabilities := []string{"launch-standalone", "client-public", "sso-openid-connect"}
+	capabilities := []string{"launch-standalone", "client-public", "client-confidential-symmetric", "sso-openid-connect"}
 	cfg := smartConfiguration{
 		Issuer:                        s.issuer,
 		AuthorizationEndpoint:         s.AuthorizationEndpoint(),
@@ -42,6 +43,9 @@ func (s *Server) smartConfiguration() smartConfiguration {
 		GrantTypesSupported:           s.grantTypesSupported(),
 		CodeChallengeMethodsSupported: []string{"S256"},
 		Capabilities:                  capabilities,
+	}
+	if s.dynamicClientRegistrationEnabled() {
+		cfg.RegistrationEndpoint = s.RegistrationEndpoint()
 	}
 	if _, ok := s.signer.(interface{ PublicJWKS() ([]byte, error) }); ok {
 		cfg.JWKSURI = s.issuer + "/.well-known/jwks.json"
