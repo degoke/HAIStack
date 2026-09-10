@@ -6,16 +6,17 @@ import (
 )
 
 type smartConfiguration struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint"`
-	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
-	IntrospectionEndpoint             string   `json:"introspection_endpoint,omitempty"`
-	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
-	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
-	Capabilities                      []string `json:"capabilities,omitempty"`
+	Issuer                        string   `json:"issuer,omitempty"`
+	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
+	TokenEndpoint                 string   `json:"token_endpoint"`
+	JWKSURI                       string   `json:"jwks_uri,omitempty"`
+	RevocationEndpoint            string   `json:"revocation_endpoint,omitempty"`
+	IntrospectionEndpoint         string   `json:"introspection_endpoint,omitempty"`
+	ScopesSupported               []string `json:"scopes_supported,omitempty"`
+	ResponseTypesSupported        []string `json:"response_types_supported,omitempty"`
+	GrantTypesSupported           []string `json:"grant_types_supported,omitempty"`
+	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
+	Capabilities                  []string `json:"capabilities,omitempty"`
 }
 
 func (s *Server) handleSmartConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +30,8 @@ func (s *Server) handleSmartConfiguration(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) smartConfiguration() smartConfiguration {
-	return smartConfiguration{
+	capabilities := []string{"launch-standalone", "client-public", "sso-openid-connect"}
+	cfg := smartConfiguration{
 		Issuer:                        s.issuer,
 		AuthorizationEndpoint:         s.AuthorizationEndpoint(),
 		TokenEndpoint:                 s.TokenEndpoint(),
@@ -39,8 +41,12 @@ func (s *Server) smartConfiguration() smartConfiguration {
 		ResponseTypesSupported:        []string{"code"},
 		GrantTypesSupported:           s.grantTypesSupported(),
 		CodeChallengeMethodsSupported: []string{"S256"},
-		Capabilities:                  []string{"launch-standalone", "client-public"},
+		Capabilities:                  capabilities,
 	}
+	if _, ok := s.signer.(interface{ PublicJWKS() ([]byte, error) }); ok {
+		cfg.JWKSURI = s.issuer + "/.well-known/jwks.json"
+	}
+	return cfg
 }
 
 // SMARTConfiguration returns the discovery document for programmatic use.

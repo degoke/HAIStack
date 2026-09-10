@@ -21,6 +21,7 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **conflicttest** | Conflict detect/merge scenarios on top of sync fakes |
 | **golden** | Canonical `OperationOutcome` JSON comparison (inline goldens) |
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
+| **infernotest** | Inferno SMART App Launch STU2 discovery checks against pkg/oauth reference host |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
 
 It does **not**:
@@ -206,6 +207,32 @@ fhirpathtest.AssertEmpty(t, eng, patient, "Patient.address")
 ```
 
 Uses `pkg/fhirpath` only — no duplicate engine logic.
+
+## infernotest
+
+Runs Inferno-aligned SMART discovery checks against a reference host backed by
+`pkg/oauth` and a minimal FHIR API. Discovery is served at
+`{fhir_base}/.well-known/smart-configuration`, matching Inferno's
+`smart_discovery_stu2` group.
+
+```go
+handler, meta, cleanup, err := infernotest.BuildReferenceHandler(ctx, baseURL)
+defer cleanup()
+
+raw, headers, status, err := infernotest.FetchWellKnownConfiguration(ctx, nil, meta.FHIRBaseURL)
+config := infernotest.AssertWellKnownEndpoint(t, status, headers, raw)
+infernotest.AssertWellKnownCapabilitiesSTU2(t, config)
+```
+
+For manual Inferno runs, start the standalone reference host:
+
+```bash
+go run ./cmd/inferno-reference
+# FHIR base: http://127.0.0.1:8080/fhir
+```
+
+CI runs `go test ./pkg/testkit/infernotest/...` and smoke-tests
+`cmd/inferno-reference` via `.github/workflows/inferno.yml`.
 
 ## aitest
 

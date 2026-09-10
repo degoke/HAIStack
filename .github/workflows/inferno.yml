@@ -1,0 +1,73 @@
+name: Inferno
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "pkg/oauth/**"
+      - "pkg/http/**"
+      - "pkg/testkit/infernotest/**"
+      - "cmd/inferno-reference/**"
+      - ".github/workflows/inferno.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inferno-discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Inferno discovery tests
+        run: go test -count=1 -timeout 10m ./pkg/testkit/infernotest/...
+
+      - name: Build reference host
+        run: go build -o inferno-reference ./cmd/inferno-reference
+
+      - name: Smoke test reference host
+        run: |
+          ./inferno-reference &
+          pid=$!
+          trap 'kill $pid' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS -H 'Accept: application/json' http://127.0.0.1:8080/fhir/.well-known/smart-configuration >/tmp/smart-config.json; then
+              python3 - <<'PY'
+          import json, sys
+          cfg = json.load(open("/tmp/smart-config.json"))
+          required = [
+              "authorization_endpoint",
+              "token_endpoint",
+              "capabilities",
+              "grant_types_supported",
+              "code_challenge_methods_supported",
+          ]
+          missing = [k for k in required if not cfg.get(k)]
+          if missing:
+              print("missing fields:", ", ".join(missing))
+              sys.exit(1)
+          if "authorization_code" not in cfg.get("grant_types_supported", []):
+              sys.exit("grant_types_supported must include authorization_code")
+          if "S256" not in cfg.get("code_challenge_methods_supported", []):
+              sys.exit("code_challenge_methods_supported must include S256")
+          if "plain" in cfg.get("code_challenge_methods_supported", []):
+              sys.exit("code_challenge_methods_supported must not include plain")
+          if "sso-openid-connect" in cfg.get("capabilities", []):
+              for key in ("issuer", "jwks_uri"):
+                  if not cfg.get(key):
+                      sys.exit(f"{key} required when sso-openid-connect is advertised")
+          print("inferno reference host discovery OK")
+          PY
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "reference host did not become ready"
+          exit 1
