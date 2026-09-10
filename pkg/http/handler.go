@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -312,6 +313,10 @@ func (h *handler) handleRead(w http.ResponseWriter, r *http.Request, resourceTyp
 		writeError(w, err)
 		return
 	}
+	if err := h.enforceScopeFiltersOnEnvelope(r.Context(), resourceType, smart.OpRead, envelope); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
 	if envelope == nil {
 		writeError(w, invalidRequest("resource service returned no resource", nil))
 		return
@@ -566,8 +571,12 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		writeError(w, err)
 		return
 	}
+	params, err := h.applyScopeFiltersToSearchParams(r.Context(), resourceType, params)
+	if err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
 	var bundle *search.SearchBundle
-	var err error
 	if _, tenant, ok := identityFromContext(r.Context()); ok && tenant.PatientScope != "" {
 		scoped, ok := h.cfg.SearchService.(PatientScopedSearchService)
 		if !ok {
@@ -582,8 +591,8 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		writeError(w, err)
 		return
 	}
-	if err := h.filterSearchBundlePatientScope(r.Context(), bundle); err != nil {
-		writeError(w, err)
+	if err := h.filterSearchBundleScopeFilters(r.Context(), resourceType, bundle); err != nil {
+		writeError(w, scopeFilterError(err))
 		return
 	}
 	restoreSearchTransportParams(bundle, originalParams)

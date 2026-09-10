@@ -609,7 +609,117 @@ func AllScenarios() []Scenario {
 				return AssertDecision("write observation", ExpectDeny, d, err)
 			},
 		},
+
+		// SMART 2.2 granular scopes
+		{
+			Name: "smart22_scope_filter_search_params_injected",
+			Doc:  "patient/Observation.rs?category=laboratory injects category filter into search params.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+				if err != nil {
+					return err
+				}
+				out, err := smart.ApplyScopeFiltersToParams(scopes, smart.ActorPatient, "Observation", url.Values{})
+				if err != nil {
+					return err
+				}
+				if out.Get("category") != "laboratory" {
+					return errors.New("expected category=laboratory filter")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "smart22_scope_filter_denies_out_of_filter_resource",
+			Doc:  "Filtered scope cannot read Observation outside granted category.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+				if err != nil {
+					return err
+				}
+				vital := observationEnvelope("obs-vital", "vital-signs")
+				if err := smart.CheckEnvelopeScopeFilters(scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
+					return errors.New("expected out-of-filter observation to be denied")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "smart22_search_only_scope_denies_read",
+			Doc:  "Scope with only s letter allows search but not read-by-id.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				scopes, err := smart.ParseScopes("user/Observation.s")
+				if err != nil {
+					return err
+				}
+				if !scopes.AllowsOp(smart.ActorUser, "Observation", smart.OpSearch) {
+					return errors.New("expected search to be allowed")
+				}
+				if scopes.AllowsOp(smart.ActorUser, "Observation", smart.OpRead) {
+					return errors.New("search-only scope should not allow read")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "smart22_policy_denies_despite_filtered_scope",
+			Doc:  "Policy deny still overrides SMART 2.2 filtered scope allow.",
+			Run: func(ctx context.Context, kit *Kit) error {
+				scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory launch/patient")
+				if err != nil {
+					return err
+				}
+				claims := smart.TokenClaims{
+					Subject: "user-1", Patient: "pat-1",
+					Scope: scopes.SpaceSeparated(), Scopes: scopes,
+				}
+				bundle, err := kit.Adapter.ToAuthRequests(claims, smart.BuildLaunchContext(smart.LaunchContextInput{
+					Claims: &claims, Scopes: scopes,
+				}))
+				if err != nil {
+					return err
+				}
+				narrowEng := MustEngineFromConfig(auth.Config{
+					Roles: []auth.Role{{
+						Name:        "clinician",
+						Permissions: []auth.Permission{"*.read", "observation.read"},
+					}},
+					Principals: []auth.Principal{bundle.Principal},
+					Policy:     NarrowObservationPolicy(),
+				})
+				checker := smart.ScopePolicyAuthChecker{
+					Engine: narrowEng, Adapter: kit.Adapter,
+					BundleFor: func(_ auth.Principal, _ auth.TenantContext) (smart.AuthBundle, bool) {
+						return bundle, true
+					},
+				}
+				denyAppt, err := checker.AuthorizeRead(ctx, bundle.Principal, bundle.Tenant, "Appointment", "a1")
+				if err != nil {
+					return err
+				}
+				if denyAppt.Allowed {
+					return errors.New("expected policy deny despite filtered scope")
+				}
+				return nil
+			},
+		},
 	}
+}
+
+func observationEnvelope(id, category string) *types.ResourceEnvelope {
+	data := []byte(`{
+		"resourceType": "Observation",
+		"id": "` + id + `",
+		"status": "final",
+		"category": [{
+			"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "` + category + `"}]
+		}]
+	}`)
+	env, err := types.NewJSONCodec().ParseJSON("Observation", data)
+	if err != nil {
+		panic(err)
+	}
+	return env
 }
 
 // MustEngineFromConfig builds an engine without a testing.T (for inline scenario configs).

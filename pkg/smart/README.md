@@ -71,15 +71,33 @@ bundle, err := adapter.FromBackendService(claims, client, smart.LaunchContext{})
 
 ## Scope support
 
-Normalized resource scopes:
+### SMART 1.x patterns (supported)
 
 | Pattern | Meaning |
 |---------|---------|
-| `patient/*.read` | Patient-compartment read of any resource |
-| `patient/{Resource}.read` | Patient-compartment read of one type |
-| `user/*.read` / `user/*.write` | User-level read/write |
+| `patient/*.read` | Patient-compartment read/search of any resource |
+| `patient/{Resource}.read` | Patient-compartment read/search of one type |
+| `user/*.read` / `user/*.write` | User-level read/search or create/update/delete |
 | `user/{Resource}.read` / `.write` | User-level typed access |
 | `system/*.read` / `system/*.write` | Backend service system access |
+
+v1 `.read` maps to CRUDS `rs`; `.write` maps to `cud`; `.*` maps to `cruds`.
+
+### SMART 2.2 granular scopes
+
+| Pattern | Meaning |
+|---------|---------|
+| `patient/Observation.rs` | Patient read + search for Observations |
+| `user/Patient.cruds` | User full CRUDS on Patient |
+| `patient/Observation.rs?category=laboratory` | Read/search with search-parameter filter |
+
+CRUDS letters: `r` read, `s` search, `c` create, `u` update, `d` delete.
+Patient scopes only allow `r` and `s`.
+
+Hosts advertise `permission-v2` and `permission-v2.2` via `DefaultConfiguration`.
+Scope filters are enforced on search (query intersection), read/history (resource
+check), and bundle post-filtering. Underlying `pkg/auth` policy may still narrow
+apparently valid scopes.
 
 Also parsed as metadata: `launch`, `launch/patient`, `launch/encounter`, and
 specialty tokens such as `openid`, `fhirUser`, `offline_access`.

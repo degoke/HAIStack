@@ -23,9 +23,11 @@ func DefaultConfiguration(issuer string) Configuration {
 		Issuer: issuer,
 		ScopesSupported: []string{
 			"openid", "fhirUser", "launch", "launch/patient",
-			"patient/*.read", "patient/*.write",
-			"user/*.read", "user/*.write",
-			"system/*.read", "system/*.write",
+			"patient/*.rs", "patient/Observation.rs?category=laboratory",
+			"user/*.rs", "user/*.cud", "user/*.cruds",
+			"system/*.rs", "system/*.cud", "system/*.cruds",
+			// v1 compatibility patterns
+			"patient/*.read", "user/*.read", "user/*.write", "system/*.read", "system/*.write",
 		},
 		ResponseTypesSupported: []string{"code"},
 		GrantTypesSupported:    []string{"authorization_code", "client_credentials"},
@@ -34,10 +36,11 @@ func DefaultConfiguration(issuer string) Configuration {
 			"client-confidential-symmetric", "client-confidential-asymmetric",
 			"context-ehr-patient", "context-standalone-patient",
 			"sso-openid-connect", "permission-patient", "permission-user", "permission-offline",
+			"permission-v2", "permission-v2.2",
 		},
 		CodeChallengeMethodsSupported: []string{"S256"},
 	}
 }
 
-// SMARTVersion documents the SMART scope patterns implemented by pkg/smart v1.
-const SMARTVersion = "1.0 patterns (SMART App Launch 2.2 granular scopes deferred)"
+// SMARTVersion documents the SMART scope patterns implemented by pkg/smart.
+const SMARTVersion = "2.2 granular scopes (CRUDS + search-parameter filters); v1 read/write patterns supported"

@@ -2,6 +2,7 @@ package smart
 
 import (
 	"context"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 )
@@ -23,6 +24,9 @@ func (c ScopePolicyAuthChecker) AuthorizeRead(ctx context.Context, principal aut
 		return auth.Deny("auth engine not configured"), nil
 	}
 	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+		if !c.scopeAllows(bundle, resourceType, OpRead) {
+			return auth.Deny("scope does not grant read access"), nil
+		}
 		return c.Engine.CanReadResource(ctx, c.Adapter.ToReadRequest(bundle, resourceType, id))
 	}
 	return c.Engine.CanReadResource(ctx, auth.ReadRequest{
@@ -36,6 +40,9 @@ func (c ScopePolicyAuthChecker) AuthorizeWrite(ctx context.Context, principal au
 		return auth.Deny("auth engine not configured"), nil
 	}
 	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+		if !c.scopeAllowsWrite(bundle, operation, resourceType) {
+			return auth.Deny("scope does not grant write access"), nil
+		}
 		return c.Engine.CanWriteResource(ctx, c.Adapter.ToWriteRequest(bundle, operation, resourceType, id))
 	}
 	return c.Engine.CanWriteResource(ctx, auth.WriteRequest{
@@ -46,7 +53,18 @@ func (c ScopePolicyAuthChecker) AuthorizeWrite(ctx context.Context, principal au
 
 // AuthorizeSearch implements http.AuthChecker.
 func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error) {
-	return c.AuthorizeRead(ctx, principal, tenant, resourceType, "")
+	if c.Engine == nil {
+		return auth.Deny("auth engine not configured"), nil
+	}
+	if bundle, ok := c.bundleFor(principal, tenant); ok && c.Adapter != nil {
+		if !c.scopeAllows(bundle, resourceType, OpSearch) {
+			return auth.Deny("scope does not grant search access"), nil
+		}
+		return c.Engine.CanReadResource(ctx, c.Adapter.ToReadRequest(bundle, resourceType, ""))
+	}
+	return c.Engine.CanReadResource(ctx, auth.ReadRequest{
+		Principal: principal, Tenant: tenant, ResourceType: resourceType,
+	})
 }
 
 func (c ScopePolicyAuthChecker) bundleFor(principal auth.Principal, tenant auth.TenantContext) (AuthBundle, bool) {
@@ -54,6 +72,37 @@ func (c ScopePolicyAuthChecker) bundleFor(principal auth.Principal, tenant auth.
 		return AuthBundle{}, false
 	}
 	return c.BundleFor(principal, tenant)
+}
+
+func (c ScopePolicyAuthChecker) scopeAllows(bundle AuthBundle, resourceType string, op AccessOp) bool {
+	actor := actorForKind(bundle.Principal.Kind, bundle.Scopes)
+	if actor != "" && bundle.Scopes.AllowsOp(actor, resourceType, op) {
+		return true
+	}
+	for _, ac := range []ActorClass{ActorPatient, ActorUser, ActorSystem} {
+		if bundle.Scopes.AllowsOp(ac, resourceType, op) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c ScopePolicyAuthChecker) scopeAllowsWrite(bundle AuthBundle, operation, resourceType string) bool {
+	op := writeOperationToAccessOp(operation)
+	return c.scopeAllows(bundle, resourceType, op)
+}
+
+func writeOperationToAccessOp(operation string) AccessOp {
+	switch strings.ToLower(strings.TrimSpace(operation)) {
+	case "create":
+		return OpCreate
+	case "update", "patch":
+		return OpUpdate
+	case "delete":
+		return OpDelete
+	default:
+		return OpUpdate
+	}
 }
 
 type authBundleContextKey struct{}
