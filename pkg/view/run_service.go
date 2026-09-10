@@ -42,47 +42,26 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		format = FormatJSON
 	}
 
+	execReq := ExecuteRequest{
+		ViewName:   req.ViewName,
+		Version:    req.Version,
+		Actor:      req.Actor,
+		Subject:    req.Subject,
+		Limit:      req.Limit,
+		Offset:     req.Offset,
+		Parameters: req.Parameters,
+		Since:      req.Since,
+	}
+
 	var result *Result
 	var err error
 	if len(req.InlineDef) > 0 {
-		spec, parseErr := ParseDefinition(req.InlineDef, s.executor.cfg.Engine)
-		if parseErr != nil {
-			return nil, "", parseErr
-		}
-		if err := spec.compile(s.executor.cfg.Engine); err != nil {
-			return nil, "", err
-		}
-		rows, scanned, filtered, execErr := s.executor.executeScan(ctx, spec, req.Limit, req.Offset, req.Since)
-		if execErr != nil {
-			return nil, "", execErr
-		}
-		result = &Result{
-			ViewName: spec.Name,
-			Version:  spec.Version,
-			Columns:  spec.ColumnInfos(),
-			Rows:     rows,
-			Total:    filtered,
-			Metadata: ResultMetadata{
-				ExecutedAt:         s.executor.cfg.Now(),
-				SourceResourceType: spec.ResourceType,
-				Scanned:            scanned,
-				Filtered:           filtered,
-			},
-		}
+		result, err = s.executor.ExecuteInline(ctx, execReq, req.InlineDef)
 	} else {
-		result, err = s.executor.Execute(ctx, ExecuteRequest{
-			ViewName:   req.ViewName,
-			Version:    req.Version,
-			Actor:      req.Actor,
-			Subject:    req.Subject,
-			Limit:      req.Limit,
-			Offset:     req.Offset,
-			Parameters: req.Parameters,
-			Since:      req.Since,
-		})
-		if err != nil {
-			return nil, "", err
-		}
+		result, err = s.executor.Execute(ctx, execReq)
+	}
+	if err != nil {
+		return nil, "", err
 	}
 
 	body, contentType, err := encodeRunResult(result, format, req.Header)

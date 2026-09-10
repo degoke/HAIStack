@@ -188,6 +188,7 @@ func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledE
 	}
 	evalCtx, cancel := e.evalContext(ctx)
 	defer cancel()
+	evalCtx = WithEvaluationResource(evalCtx, resource)
 
 	type evalResult struct {
 		items []any
@@ -211,7 +212,7 @@ func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledE
 				return fn(ctx, ref)
 			}
 		}
-		evalOpts, err := verily.EvalOptions(ctx, env, e.codec, resolve, term)
+		evalOpts, err := verily.EvalOptions(evalCtx, env, e.codec, resolve, term)
 		if err != nil {
 			done <- evalResult{err: err}
 			return

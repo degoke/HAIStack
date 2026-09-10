@@ -27,6 +27,8 @@ type ViewExportService interface {
 	GetJob(ctx context.Context, jobID string) (*view.ViewExportJob, error)
 	Cancel(ctx context.Context, jobID string) error
 	StatusURL(jobID string) string
+	FileURL(jobID, filename string) string
+	GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error)
 }
 
 func (h *handler) handleViewDefinitionRun(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -66,7 +68,7 @@ func (h *handler) handleSQLQueryRun(w http.ResponseWriter, r *http.Request, rout
 		writeError(w, notImplementedEndpoint(r.URL.Path))
 		return
 	}
-	if route.resourceType != "Library" {
+	if route.resourceType != "" && route.resourceType != "Library" {
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 		return
 	}
@@ -149,7 +151,7 @@ func (h *handler) handleViewDefinitionExportStatus(w http.ResponseWriter, r *htt
 		case view.ExportComplete:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(job)
+			_ = json.NewEncoder(w).Encode(enrichViewExportJob(h.cfg.ViewExportService, job))
 		case view.ExportInProgress:
 			if job.Progress != "" {
 				w.Header().Set("X-Progress", job.Progress)
@@ -169,6 +171,54 @@ func (h *handler) handleViewDefinitionExportStatus(w http.ResponseWriter, r *htt
 	default:
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodDelete)
 	}
+}
+
+func (h *handler) handleViewDefinitionExportFile(w http.ResponseWriter, r *http.Request, jobID, filename string) {
+	if h.cfg.ViewExportService == nil {
+		writeError(w, notImplementedEndpoint(r.URL.Path))
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, r.Method, http.MethodGet)
+		return
+	}
+	if err := h.authorizeWrite(r.Context(), "operation", "ViewDefinition", ""); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, contentType, err := h.cfg.ViewExportService.GetFile(r.Context(), jobID, filename)
+	if err != nil {
+		writeError(w, notFound("view export file not found"))
+		return
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+type viewExportJobResponse struct {
+	view.ViewExportJob
+	Files []viewExportFileResponse `json:"files"`
+}
+
+type viewExportFileResponse struct {
+	view.ExportFile
+	URL string `json:"url"`
+}
+
+func enrichViewExportJob(svc ViewExportService, job *view.ViewExportJob) viewExportJobResponse {
+	resp := viewExportJobResponse{ViewExportJob: *job}
+	resp.Files = make([]viewExportFileResponse, len(job.Files))
+	for i, file := range job.Files {
+		resp.Files[i] = viewExportFileResponse{
+			ExportFile: file,
+			URL:        svc.FileURL(job.ID, file.Filename),
+		}
+	}
+	return resp
 }
 
 func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunRequest, error) {

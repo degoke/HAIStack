@@ -110,8 +110,8 @@ type ExportWriter interface {
 // ExportServiceConfig configures ExportService.
 type ExportServiceConfig struct {
 	Jobs      ViewExportJobStore
+	Files     ExportFileStore
 	Executor  *Executor
-	Writer    ExportWriter
 	Watermark WatermarkAdvancer
 	JobQueue  store.JobStore
 	BasePath  string
@@ -122,8 +122,8 @@ type ExportServiceConfig struct {
 // ExportService orchestrates ViewDefinition/$viewdefinition-export operations.
 type ExportService struct {
 	jobs      ViewExportJobStore
+	files     ExportFileStore
 	executor  *Executor
-	writer    ExportWriter
 	watermark WatermarkAdvancer
 	jobQueue  store.JobStore
 	basePath  string
@@ -139,8 +139,8 @@ func NewExportService(cfg ExportServiceConfig) (*ExportService, error) {
 	if cfg.Executor == nil {
 		return nil, fmt.Errorf("view: executor is required")
 	}
-	if cfg.Writer == nil {
-		return nil, fmt.Errorf("view: export writer is required")
+	if cfg.Files == nil {
+		return nil, fmt.Errorf("view: export file store is required")
 	}
 	if cfg.BasePath == "" {
 		cfg.BasePath = "/fhir"
@@ -153,8 +153,8 @@ func NewExportService(cfg ExportServiceConfig) (*ExportService, error) {
 	}
 	return &ExportService{
 		jobs:      cfg.Jobs,
+		files:     cfg.Files,
 		executor:  cfg.Executor,
-		writer:    cfg.Writer,
 		watermark: cfg.Watermark,
 		jobQueue:  cfg.JobQueue,
 		basePath:  strings.TrimSuffix(cfg.BasePath, "/"),
@@ -222,6 +222,19 @@ func (s *ExportService) Cancel(ctx context.Context, jobID string) error {
 	return s.jobs.Update(ctx, *job)
 }
 
+// FileURL returns the download URL for one exported artifact.
+func (s *ExportService) FileURL(jobID, filename string) string {
+	return fmt.Sprintf("%s/ViewDefinition/$viewdefinition-export/files/%s/%s", s.basePath, jobID, filename)
+}
+
+// GetFile returns one exported artifact.
+func (s *ExportService) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	if s == nil || s.files == nil {
+		return nil, "", fmt.Errorf("view: export file store is required")
+	}
+	return s.files.Get(ctx, jobID, filename)
+}
+
 // StatusURL returns the polling URL for a job.
 func (s *ExportService) StatusURL(jobID string) string {
 	return fmt.Sprintf("%s/ViewDefinition/$viewdefinition-export/status/%s", s.basePath, jobID)
@@ -262,6 +275,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 	}
 
 	var files []ExportFile
+	writer := NewFileExportWriter(s.files, jobID)
 	for i, target := range job.Request.Views {
 		if job.Cancelled {
 			return nil
@@ -283,7 +297,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 			outputName = target.ViewName
 		}
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
-		if err := s.writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
+		if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
 			job.Status = ExportError
 			job.LastError = err.Error()
 			job.CompletedAt = s.now()
@@ -297,15 +311,19 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 			RowCount:   len(result.Rows),
 			Format:     string(job.Request.Format),
 		})
-		if s.watermark != nil {
-			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, s.now()); err != nil {
+		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
+	}
+
+	if s.watermark != nil {
+		now := s.now()
+		for _, target := range job.Request.Views {
+			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, now); err != nil {
 				job.Status = ExportError
 				job.LastError = err.Error()
-				job.CompletedAt = s.now()
+				job.CompletedAt = now
 				return s.jobs.Update(ctx, *job)
 			}
 		}
-		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
 	}
 
 	job.Status = ExportComplete

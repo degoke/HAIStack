@@ -46,3 +46,23 @@ func TestEnhancedResourceStoreResolver_AbsoluteURL(t *testing.T) {
 		t.Fatalf("resolved = %v", got)
 	}
 }
+
+func TestEnhancedResourceStoreResolver_ContainedFragment(t *testing.T) {
+	parent := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"contained": []any{
+			map[string]any{"resourceType": "Observation", "id": "obs-inline", "status": "final"},
+		},
+	}
+	ctx := fhirpath.WithEvaluationResource(context.Background(), parent)
+	resolver := fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{})
+	got, err := resolver(ctx, "#obs-inline")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	obs, ok := got.(map[string]any)
+	if !ok || obs["id"] != "obs-inline" {
+		t.Fatalf("resolved = %#v", got)
+	}
+}

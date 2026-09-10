@@ -121,6 +121,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$viewdefinition-run" {
+			h.handleViewDefinitionRun(w, r, parsedRoute{operation: route.operation})
+			return
+		}
+		if route.operation == "$viewdefinition-export" {
+			h.handleViewDefinitionExport(w, r, parsedRoute{resourceType: "ViewDefinition", operation: route.operation})
+			return
+		}
+		if route.operation == "$sqlquery-run" {
+			h.handleSQLQueryRun(w, r, parsedRoute{resourceType: "Library", operation: route.operation})
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
 			return
@@ -134,6 +146,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleViewMaterializeStatus(w, r, route.jobID)
 	case routeViewExportStatus:
 		h.handleViewDefinitionExportStatus(w, r, route.jobID)
+	case routeViewExportFile:
+		h.handleViewDefinitionExportFile(w, r, route.jobID, route.filename)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}

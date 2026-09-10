@@ -106,7 +106,22 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, er
 		_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": err.Error()})
 		return nil, err
 	}
+	return e.executeSpec(ctx, req, spec, start)
+}
 
+// ExecuteInline runs an inline ViewDefinition payload with the same authorization,
+// audit, and scan behavior as Execute.
+func (e *Executor) ExecuteInline(ctx context.Context, req ExecuteRequest, def []byte) (*Result, error) {
+	start := e.cfg.Now()
+	spec, err := ParseDefinition(def, e.cfg.Engine)
+	if err != nil {
+		_ = e.logAudit(ctx, req, nil, "error", map[string]string{"error": err.Error()})
+		return nil, err
+	}
+	return e.executeSpec(ctx, req, spec, start)
+}
+
+func (e *Executor) executeSpec(ctx context.Context, req ExecuteRequest, spec *ViewSpec, start time.Time) (*Result, error) {
 	if e.cfg.Authorizer != nil && len(spec.Permissions) > 0 {
 		if err := e.cfg.Authorizer.AuthorizeView(ctx, AuthRequest{
 			ViewName:     spec.Name,

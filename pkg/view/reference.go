@@ -2,7 +2,6 @@ package view
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,7 +54,7 @@ func (e *Executor) resolveReferenceString(ctx context.Context, refStr string, pa
 		return nil, nil
 	}
 	if strings.HasPrefix(refStr, "#") {
-		if resolved, ok := resolveContainedReference(parent, refStr); ok {
+		if resolved, ok := fhirpath.ResolveContainedReference(parent, refStr); ok {
 			return resolved, nil
 		}
 		return nil, nil
@@ -80,48 +79,4 @@ func (e *Executor) resolveReferenceString(ctx context.Context, refStr string, pa
 		return nil, fmt.Errorf("resolve reference %q: %w", refStr, err)
 	}
 	return env, nil
-}
-
-func resolveContainedReference(parent any, fragment string) (any, bool) {
-	if parent == nil {
-		return nil, false
-	}
-	targetID := strings.TrimPrefix(strings.TrimSpace(fragment), "#")
-	if targetID == "" {
-		return nil, false
-	}
-	switch env := parent.(type) {
-	case map[string]any:
-		return findContainedInMap(env, targetID)
-	default:
-		data, err := json.Marshal(parent)
-		if err != nil {
-			return nil, false
-		}
-		var asMap map[string]any
-		if err := json.Unmarshal(data, &asMap); err != nil {
-			return nil, false
-		}
-		return findContainedInMap(asMap, targetID)
-	}
-}
-
-func findContainedInMap(resource map[string]any, targetID string) (any, bool) {
-	if id, _ := resource["id"].(string); id == targetID {
-		return resource, true
-	}
-	contained, ok := resource["contained"].([]any)
-	if !ok {
-		return nil, false
-	}
-	for _, item := range contained {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id, _ := entry["id"].(string); id == targetID {
-			return entry, true
-		}
-	}
-	return nil, false
 }

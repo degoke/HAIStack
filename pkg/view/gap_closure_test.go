@@ -127,18 +127,5 @@ func TestResolveContainedReference(t *testing.T) {
 }
 
 func resolveContainedReferenceForTest(parent any, fragment string) (any, bool) {
-	// exercise the same helper through a minimal executor-less copy for unit testing
-	if parent == nil {
-		return nil, false
-	}
-	if m, ok := parent.(map[string]any); ok {
-		targetID := fragment[1:]
-		for _, item := range m["contained"].([]any) {
-			entry := item.(map[string]any)
-			if entry["id"] == targetID {
-				return entry, true
-			}
-		}
-	}
-	return nil, false
+	return fhirpath.ResolveContainedReference(parent, fragment)
 }

@@ -130,10 +130,10 @@ res, err := exec.Execute(ctx, view.ExecuteRequest{
 
 | Operation | Endpoint | Notes |
 |-----------|----------|-------|
-| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Parquet output |
-| `$viewdefinition-export` | `POST /fhir/ViewDefinition/$viewdefinition-export` | Async export with watermark-aware `_since` |
+| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` or `POST /fhir/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Parquet-compatible JSON output |
+| `$viewdefinition-export` | `POST /fhir/ViewDefinition/$viewdefinition-export` or `POST /fhir/$viewdefinition-export` | Async export with watermark-aware `_since`; download at `$viewdefinition-export/files/{jobId}/{filename}` |
 | `$materialize` | `POST /fhir/ViewDefinition/$materialize` | Async materialized view refresh |
-| `$sqlquery-run` | `POST /fhir/Library/$sqlquery-run` | Read-only SQL over reporting tables |
+| `$sqlquery-run` | `POST /fhir/Library/$sqlquery-run` or `POST /fhir/$sqlquery-run` | Read-only SQL over reporting tables (Postgres analytics mode) |
 
 ## Search-driven execution
 
@@ -176,9 +176,11 @@ Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring d
 
 ## Limits
 
-- Scan-based execution through `ListIDs` / `Read`; no search-driven filtering.
-- Reference resolution supports typed `ResourceType/id` references only.
-- In-memory registry only; persistent view registries are future work.
+- Reference resolution supports typed, absolute URL, URN, and contained `#` references (including FHIRPath `resolve()` when the evaluation resource is in context).
+- `$sqlquery-run` executes read-only SQL against refreshed reporting tables (requires Postgres analytics wiring).
+- `$viewdefinition-run` and `$viewdefinition-export` are available on SQLite/edge runtimes when the job store and view executor are wired; inline ViewDefinitions use the same auth/audit path as registered views.
+- Parquet export format is a haistack-parquet-v1 JSON envelope, not Apache Parquet binary.
+- Search-driven execution requires search wiring; `searchMode=index` fails without index.
 - `ExecuteRequest.Parameters` is passed to auth and audit only (no FHIRPath substitution yet).
 
 See [doc.go](./doc.go) for the full API, package boundaries, and integration

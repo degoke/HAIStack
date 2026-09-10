@@ -23,7 +23,7 @@ func ResourceStoreResolver(read func(ctx context.Context, resourceType, id strin
 
 // EnhancedResourceStoreResolver resolves references using ResourceResolverConfig.
 func EnhancedResourceStoreResolver(cfg ResourceResolverConfig) ResolveFunc {
-	return func(ctx context.Context, ref string) (any, error) {
+	inner := func(ctx context.Context, ref string) (any, error) {
 		if cfg.Read == nil {
 			return nil, nil
 		}
@@ -44,6 +44,7 @@ func EnhancedResourceStoreResolver(cfg ResourceResolverConfig) ResolveFunc {
 		}
 		return cfg.Read(ctx, resourceType, id)
 	}
+	return WrapResolveWithEvaluationResource(inner)
 }
 
 // TerminologyServiceAdapter adapts a validate-code callback to TerminologyValidator.

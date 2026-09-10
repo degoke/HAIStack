@@ -278,8 +278,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	engine := b.fhirPathEngine
 	if engine == nil {
 		fpCfg := fhirpath.Config{}
-		fpCfg.Resolve = fhirpath.ResourceStoreResolver(func(ctx context.Context, resourceType, id string) (any, error) {
+		readFn := func(ctx context.Context, resourceType, id string) (any, error) {
 			return pc.resources.Read(ctx, resourceType, id)
+		}
+		fpCfg.Resolve = fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{
+			BaseURL: "/fhir",
+			Read:    readFn,
+			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
 		})
 		if state.services.TerminologyService != nil {
 			termSvc := state.services.TerminologyService
@@ -475,6 +480,19 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			FHIRPath:     engine,
 		}
 		state.services.ViewRegistry = packageInstaller.ViewRegistry
+		if err := b.wireViewServices(ctx, state, wireAnalyticsContext{
+			engine:           engine,
+			resources:        pc.resources,
+			jobStore:         pc.jobStore,
+			outboxEvents:     pc.outboxEvents,
+			cursors:          pc.syncCursors,
+			runner:           runner,
+			packageInstaller: packageInstaller,
+			searchExecutor:   searchExecutor,
+			searchRegistry:   searchRegistry,
+		}); err != nil {
+			return fmt.Errorf("runtime: view services: %w", err)
+		}
 		if err := b.wireAnalytics(ctx, state, wireAnalyticsContext{
 			engine:           engine,
 			resources:        pc.resources,
@@ -603,7 +621,7 @@ type wireAnalyticsContext struct {
 	searchRegistry   search.Registry
 }
 
-func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
+func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
 	viewReg := ac.packageInstaller.ViewRegistry
 	if viewReg == nil {
 		viewReg = view.NewRegistry()
@@ -612,12 +630,6 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	}
 	state.services.ViewRegistry = viewReg
 
-	if !b.analyticsEnabled {
-		return nil
-	}
-	if state.services.TenantDB == nil {
-		return fmt.Errorf("analytics requires Postgres storage")
-	}
 	if err := analytics.RegisterBuiltInViews(viewReg, ac.engine); err != nil {
 		return err
 	}
@@ -626,11 +638,18 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	if state.services.TenantDB != nil {
 		readResources = state.services.TenantDB.ReadOnlyResourceStore()
 	}
+	resolveLogicalID := fhirpath.LookupLogicalIDAcrossTypes(
+		func(ctx context.Context, resourceType, id string) (any, error) {
+			return readResources.Read(ctx, resourceType, id)
+		},
+		fhirpath.DefaultLogicalIDResourceTypes,
+	)
 	viewCfg := view.Config{
-		Resources: readResources,
-		Engine:    ac.engine,
-		Registry:  viewReg,
-		BaseURL:   "/fhir",
+		Resources:        readResources,
+		Engine:           ac.engine,
+		Registry:         viewReg,
+		BaseURL:          "/fhir",
+		ResolveLogicalID: resolveLogicalID,
 	}
 	if state.services.TenantDB != nil {
 		viewCfg.MaterializedViews = state.services.TenantDB.MaterializedViewStore()
@@ -643,23 +662,39 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	if err != nil {
 		return err
 	}
-	analyticsRunner, err := analytics.NewRunner(analytics.Config{Executor: viewExec})
+	state.services.ViewExecutor = viewExec
+	state.services.ViewRunService = view.NewRunService(viewExec)
+
+	if reportingStore := b.resolveReportingStore(state); reportingStore != nil {
+		state.services.SQLQueryService = view.NewSQLQueryService(view.NewSQLQueryEngine(reportingStore))
+	}
+
+	if ac.jobStore == nil {
+		return nil
+	}
+
+	exportFiles := view.NewInMemoryExportFileStore()
+	exportJobs := view.NewInMemoryViewExportJobStore()
+	watermarks := analytics.NewWatermarkStore(ac.cursors)
+	exportSvc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:      exportJobs,
+		Files:     exportFiles,
+		Executor:  viewExec,
+		Watermark: watermarks,
+		JobQueue:  ac.jobStore,
+		BasePath:  "/fhir",
+	})
 	if err != nil {
 		return err
 	}
-	state.services.ViewRegistry = viewReg
-	state.services.ViewExecutor = viewExec
-	state.services.AnalyticsRunner = analyticsRunner
-	state.services.ViewRunService = view.NewRunService(viewExec)
-
-	reportingStore := b.resolveReportingStore(state)
-	if reportingStore == nil {
-		return fmt.Errorf("reporting table store is required for analytics")
+	state.services.ViewExportService = exportSvc
+	if ac.runner != nil {
+		if err := ac.runner.Register(jobs.TypeViewExport, exportSvc.JobHandler()); err != nil {
+			return err
+		}
 	}
-	state.services.SQLQueryService = view.NewSQLQueryService(view.NewSQLQueryEngine(reportingStore))
-	watermarks := analytics.NewWatermarkStore(ac.cursors)
 
-	if ac.jobStore != nil {
+	if viewCfg.MaterializedViews != nil {
 		matJobs := view.NewInMemoryMaterializeJobStore()
 		matSvc, err := view.NewMaterializeService(view.MaterializeServiceConfig{
 			Jobs:     matJobs,
@@ -676,27 +711,33 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 				return err
 			}
 		}
-
-		exportJobs := view.NewInMemoryViewExportJobStore()
-		exportWriter := view.NewMemoryExportWriter()
-		exportSvc, err := view.NewExportService(view.ExportServiceConfig{
-			Jobs:      exportJobs,
-			Executor:  viewExec,
-			Writer:    exportWriter,
-			Watermark: watermarks,
-			JobQueue:  ac.jobStore,
-			BasePath:  "/fhir",
-		})
-		if err != nil {
-			return err
-		}
-		state.services.ViewExportService = exportSvc
-		if ac.runner != nil {
-			if err := ac.runner.Register(jobs.TypeViewExport, exportSvc.JobHandler()); err != nil {
-				return err
-			}
-		}
 	}
+	return nil
+}
+
+func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
+	if !b.analyticsEnabled {
+		return nil
+	}
+	if state.services.TenantDB == nil {
+		return fmt.Errorf("analytics requires Postgres storage")
+	}
+	if state.services.ViewExecutor == nil {
+		return fmt.Errorf("analytics requires wired view executor")
+	}
+
+	viewExec := state.services.ViewExecutor
+	analyticsRunner, err := analytics.NewRunner(analytics.Config{Executor: viewExec})
+	if err != nil {
+		return err
+	}
+	state.services.AnalyticsRunner = analyticsRunner
+
+	reportingStore := b.resolveReportingStore(state)
+	if reportingStore == nil {
+		return fmt.Errorf("reporting table store is required for analytics")
+	}
+	watermarks := analytics.NewWatermarkStore(ac.cursors)
 
 	baseTarget := analytics.NewReportingTarget(reportingStore)
 	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, ac.cursors)
@@ -707,7 +748,7 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	}
 	limiter := analytics.NewConcurrencyLimiter(maxConcurrent)
 	refreshHandler := analytics.LimitedRefreshHandler(
-		analytics.RefreshHandler(analyticsRunner, incrementalTarget),
+		analytics.RefreshHandler(analyticsRunner, incrementalTarget, watermarks),
 		limiter,
 	)
 	if err := ac.runner.Register(analytics.TypeRefresh, refreshHandler); err != nil {
@@ -722,7 +763,6 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 			Views:     analytics.SupportedViews,
 			Scope:     state.services.TenantDB.TenantID(),
 			BatchSize: 100,
-			Watermark: watermarks,
 		}
 		state.analyticsCDC = cdc
 		state.services.AnalyticsCDC = cdc

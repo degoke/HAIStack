@@ -20,7 +20,6 @@ type CDCProcessor struct {
 	Views     []string
 	Scope     string
 	BatchSize int
-	Watermark *WatermarkStore
 	Now       func() time.Time
 }
 
@@ -59,11 +58,6 @@ func (p *CDCProcessor) RunOnce(ctx context.Context) (processed int, err error) {
 			Actor:    "analytics-cdc",
 		}); err != nil {
 			return processed, err
-		}
-		if p.Watermark != nil {
-			if err := p.Watermark.Advance(ctx, viewName, "1.0.0", p.now()); err != nil {
-				return processed, err
-			}
 		}
 	}
 	return processed, p.Cursors.UpsertCursor(ctx, store.Cursor{

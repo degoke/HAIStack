@@ -406,6 +406,33 @@ func TestExecutor_AuthorizerAllows(t *testing.T) {
 	}
 }
 
+func TestExecuteInline_AuditsSuccessfulRun(t *testing.T) {
+	ctx := context.Background()
+	store := newMemResourceStore()
+	store.Seed(t, patientJane(t))
+	audit := &fakeAuditLogger{}
+	exec, err := view.NewExecutor(view.Config{
+		Resources: store,
+		Engine:    defaultEngine(t),
+		Audit:     audit,
+	})
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+
+	_, err = exec.ExecuteInline(ctx, view.ExecuteRequest{Actor: "nurse-1"}, view.PatientSummaryView())
+	if err != nil {
+		t.Fatalf("ExecuteInline: %v", err)
+	}
+	records := audit.Records()
+	if len(records) != 1 {
+		t.Fatalf("Audit records = %d, want 1", len(records))
+	}
+	if records[0].Outcome != "success" {
+		t.Errorf("Outcome = %q, want success", records[0].Outcome)
+	}
+}
+
 func TestExecutor_AuditOnMissingView(t *testing.T) {
 	ctx := context.Background()
 	store := newMemResourceStore()
