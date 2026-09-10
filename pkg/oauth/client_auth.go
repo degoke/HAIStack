@@ -36,22 +36,26 @@ func (s *Server) requireConfidentialClient(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) authenticateLaunchIssuer(r *http.Request) error {
-	if err := r.ParseForm(); err != nil {
+	if err := s.validateLaunchIssuerMTLS(r); err != nil {
 		return err
 	}
-	if s.cfg.LaunchIssuerAuth == nil {
-		return ErrInvalidClient
+	if err := r.ParseForm(); err != nil {
+		return err
 	}
 	id := strings.TrimSpace(r.Form.Get("launch_issuer_id"))
 	secret := strings.TrimSpace(r.Form.Get("launch_issuer_secret"))
 	if id == "" || secret == "" {
 		return ErrInvalidClient
 	}
-	auth := s.cfg.LaunchIssuerAuth
-	if id != auth.ClientID || secret != auth.ClientSecret {
-		return ErrInvalidClient
+	if s.cfg.LaunchIssuers != nil && s.cfg.LaunchIssuers.Validate(id, secret) {
+		return nil
 	}
-	return nil
+	if auth := s.cfg.LaunchIssuerAuth; auth != nil {
+		if id == auth.ClientID && secret == auth.ClientSecret {
+			return nil
+		}
+	}
+	return ErrInvalidClient
 }
 
 func (s *Server) requireLaunchIssuer(w http.ResponseWriter, r *http.Request) bool {

@@ -64,14 +64,50 @@ fhirHandler, _ := hahttp.NewHandler(hahttp.Config{
 })
 ```
 
-## Multi-tenant issuers
+## Consent UI
+
+When `AutoApprove` is false (the default), authorize requests render a consent page with:
+
+- configurable title, logo, colors, and footer text (`ConsentUI`)
+- registered client display name when `ClientName` is set
+- server-side consent session + CSRF token (HttpOnly cookie scoped to the authorize path)
+- optional resource-owner login via `ConsentLogin` before consent is shown
+
+Demos and tests opt into silent authorization explicitly:
+
+```go
+autoApprove := true
+cfg.AutoApprove = &autoApprove
+```
+
+Optional login hook for hosts that authenticate users before consent:
+
+```go
+cfg.ConsentLogin = myLoginHandler // implements oauth.ConsentLoginHandler
+```
+
+The built-in consent page is intentionally minimal (HTML + CSRF cookie). Edge and demo IdPs can rely on title/logo theming without a full login portal; production hosts typically integrate an external IdP or custom `ConsentLogin` implementation.
+
+## EHR launch issuer credentials
 
 Configure separate launch issuer credentials (distinct from SMART app client credentials):
 
 ```go
+// Single static credential (simple deployments)
 cfg.LaunchIssuerAuth = &oauth.LaunchIssuerAuth{
     ClientID:     "ehr-launcher",
     ClientSecret: "change-me",
+}
+
+// Rotating credentials (old + new secrets both valid during rotation)
+issuers := oauth.NewLaunchIssuerRegistry()
+_ = issuers.RegisterRotating("ehr-launcher", "old-secret", "new-secret")
+cfg.LaunchIssuers = issuers
+
+// Optional mTLS for POST /oauth/launch (requires TLS termination with client certs)
+cfg.LaunchIssuerMTLS = &oauth.LaunchIssuerMTLSConfig{
+    RequireMTLS:        true,
+    AllowedCommonNames: []string{"ehr-launcher.example.com"},
 }
 ```
 
@@ -87,20 +123,6 @@ curl -X POST "$BASE/oauth/launch" \
 
 The app then opens `/oauth/authorize?...&launch=<token>`.
 
-## Consent UI
-
-When `AutoApprove` is false (the default), authorize requests render a consent page with:
-
-- configurable title and logo (`ConsentUI`)
-- server-side consent session + CSRF token (HttpOnly cookie)
-
-Demos and tests opt into silent authorization explicitly:
-
-```go
-autoApprove := true
-cfg.AutoApprove = &autoApprove
-```
-
 ## Multi-tenant issuers
 
 Register per-tenant issuer settings and mount tenant-scoped routes under `/t/{tenantId}/`:
@@ -111,6 +133,11 @@ _ = tenants.Register(oauth.TenantIssuerConfig{
     TenantID:    "tenant-a",
     Issuer:      "https://fhir.example.com/t/tenant-a",
     FHIRBaseURL: "https://fhir.example.com/t/tenant-a/fhir",
+    ConsentUI: &oauth.ConsentUIConfig{
+        Title:        "Tenant A Authorization",
+        PrimaryColor: "#0f766e",
+    },
+    LaunchIssuers: tenantAIssuers, // optional per-tenant launch credentials
 })
 
 mts, _ := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
@@ -126,6 +153,14 @@ wired, _ := oauth.WireMultiTenantHTTP(oauth.MultiTenantConfig{Base: base, Tenant
 
 ## SQLite persistence
 
+**Auth codes, refresh tokens, launch tokens, and revocation default to in-memory stores** when `store.ApplySQLiteStores` is not used. This is fine for unit tests and zero-config demos, but **production-like hosts should wire SQLite** (or another shared store) before calling `NewServer`:
+
+```go
+if oauth.UsesInMemoryStores(cfg) {
+    log.Println("warning: OAuth persistence is in-memory only")
+}
+```
+
 Run `pkg/sqlite` migrations `0012_oauth.sql` and `0013_oauth_launch.sql`, then:
 
 ```go
@@ -139,7 +174,7 @@ srv, _ := oauth.NewServer(cfg)
 - `AutoApprove` defaults to **false**; production hosts should keep interactive consent enabled
 - PKCE required for public clients; `plain` is rejected
 - Redirect URIs must match exactly
-- Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`)
+- Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`; in-memory otherwise)
 - Refresh tokens rotate by default
 - `/oauth/introspect` and `/oauth/revoke` require **confidential** registered client authentication
 - `WireHTTP` exposes `ScopePolicyAuthChecker(engine)` wired to the same SMART adapter

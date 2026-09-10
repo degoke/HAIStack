@@ -30,7 +30,8 @@ type Config struct {
 	BackendAuth *smart.BackendServiceAuth
 	// LaunchStore stores single-use EHR launch tokens. Defaults to in-memory when nil.
 	LaunchStore LaunchStore
-	// CodeStore stores authorization codes. Defaults to in-memory.
+	// CodeStore stores authorization codes. Defaults to in-memory for zero-config demos;
+	// call store.ApplySQLiteStores before NewServer for production-like hosts.
 	CodeStore AuthorizationCodeStore
 	// RefreshStore stores refresh tokens. Defaults to in-memory when nil.
 	RefreshStore RefreshTokenStore
@@ -41,10 +42,17 @@ type Config struct {
 	// AutoApprove skips interactive consent for registered clients (demo/tests only).
 	// When nil, defaults to false; production deployments should keep consent enabled.
 	AutoApprove *bool
-	// ConsentUI customizes the interactive consent page (title, logo, session cookie).
+	// ConsentUI customizes the interactive consent page (title, logo, theming, session cookie).
 	ConsentUI ConsentUIConfig
-	// LaunchIssuerAuth holds separate EHR credentials for POST /oauth/launch.
+	// ConsentLogin optionally authenticates the resource owner before consent is shown.
+	ConsentLogin ConsentLoginHandler
+	// LaunchIssuerAuth holds a single EHR credential pair for POST /oauth/launch.
+	// Prefer LaunchIssuers when rotating credentials.
 	LaunchIssuerAuth *LaunchIssuerAuth
+	// LaunchIssuers registers one or more launch issuer credentials (supports rotation).
+	LaunchIssuers *LaunchIssuerRegistry
+	// LaunchIssuerMTLS optionally requires verified client certificates for /oauth/launch.
+	LaunchIssuerMTLS *LaunchIssuerMTLSConfig
 	// ScopesSupported is advertised in SMART configuration.
 	ScopesSupported []string
 	// Now overrides time.Now for tests.
@@ -61,6 +69,7 @@ type Server struct {
 	refresh         RefreshTokenStore
 	revocation      TokenRevocationStore
 	consentSessions *consentSessionStore
+	consentLogin    ConsentLoginHandler
 	backendAuth     *smart.BackendServiceAuth
 	signer          TokenSigner
 	issuer          string
@@ -149,6 +158,7 @@ func NewServer(cfg Config) (*Server, error) {
 		refresh:         refresh,
 		revocation:      revocation,
 		consentSessions: newConsentSessionStore(nowFn),
+		consentLogin:    cfg.ConsentLogin,
 		backendAuth:     cfg.BackendAuth,
 		signer:          cfg.Signer,
 		issuer:          trimSlash(cfg.Issuer),

@@ -22,6 +22,18 @@ type TenantIssuerConfig struct {
 	Clients *ClientRegistry
 	// ScopesSupported optionally overrides advertised scopes for this tenant.
 	ScopesSupported []string
+	// ConsentUI optionally overrides base consent branding for this tenant.
+	ConsentUI *ConsentUIConfig
+	// ConsentLogin optionally overrides base login handler for this tenant.
+	ConsentLogin ConsentLoginHandler
+	// AutoApprove optionally overrides base auto-approve for this tenant.
+	AutoApprove *bool
+	// LaunchIssuerAuth optionally overrides base launch issuer credentials for this tenant.
+	LaunchIssuerAuth *LaunchIssuerAuth
+	// LaunchIssuers optionally overrides base launch issuer registry for this tenant.
+	LaunchIssuers *LaunchIssuerRegistry
+	// LaunchIssuerMTLS optionally overrides base launch mTLS settings for this tenant.
+	LaunchIssuerMTLS *LaunchIssuerMTLSConfig
 }
 
 // TenantRegistry stores per-tenant issuer configuration.
@@ -183,6 +195,24 @@ func (m *MultiTenantServer) ServerForTenant(tenantID string) (*Server, error) {
 	}
 	if len(tenant.ScopesSupported) > 0 {
 		cfg.ScopesSupported = tenant.ScopesSupported
+	}
+	if tenant.ConsentUI != nil {
+		cfg.ConsentUI = *tenant.ConsentUI
+	}
+	if tenant.ConsentLogin != nil {
+		cfg.ConsentLogin = tenant.ConsentLogin
+	}
+	if tenant.AutoApprove != nil {
+		cfg.AutoApprove = tenant.AutoApprove
+	}
+	if tenant.LaunchIssuerAuth != nil {
+		cfg.LaunchIssuerAuth = tenant.LaunchIssuerAuth
+	}
+	if tenant.LaunchIssuers != nil {
+		cfg.LaunchIssuers = tenant.LaunchIssuers
+	}
+	if tenant.LaunchIssuerMTLS != nil {
+		cfg.LaunchIssuerMTLS = tenant.LaunchIssuerMTLS
 	}
 	srv, err := NewServer(cfg)
 	if err != nil {

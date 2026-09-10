@@ -120,12 +120,16 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if !s.autoApprove {
 		approved := strings.TrimSpace(q.Get("approved"))
 		if approved == "" {
-			csrf, err := s.beginConsentSession(w, q)
+			subject, loggedIn := s.ensureConsentLogin(w, r)
+			if !loggedIn {
+				return
+			}
+			csrf, err := s.beginConsentSession(w, r, q, subject)
 			if err != nil {
 				writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to begin consent session")
 				return
 			}
-			s.renderConsent(w, r, q, csrf)
+			s.renderConsent(w, r, q, csrf, client)
 			return
 		}
 		if approved != "yes" {
