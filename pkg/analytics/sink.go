@@ -11,7 +11,7 @@ type RowSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
 }
 
-// ParquetSink writes view rows as Parquet files. Not implemented in v1.
+// ParquetSink writes view rows as columnar JSON documents.
 type ParquetSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
 }
@@ -39,11 +39,6 @@ type deferredSink struct {
 
 func (d *deferredSink) WriteRows(context.Context, *view.Result) error {
 	return ErrSinkNotImplemented
-}
-
-// NewParquetSink returns a stub Parquet sink for interface wiring tests.
-func NewParquetSink() ParquetSink {
-	return &deferredSink{name: "parquet"}
 }
 
 // NewWarehouseSink returns a stub warehouse sink for interface wiring tests.

@@ -21,8 +21,12 @@ const (
 
 // Destination configures where structured rows are written.
 type Destination struct {
-	Reporting *ReportingTarget
+	Reporting reportingWriter
 	Sink      RowSink
+}
+
+type reportingWriter interface {
+	writeAt(ctx context.Context, result *view.Result, refreshedAt time.Time) error
 }
 
 // RunRequest carries parameters for one synchronous analytics run.
@@ -34,6 +38,11 @@ type RunRequest struct {
 	Actor       string
 	Subject     string
 	Parameters  map[string]any
+	// Since limits view execution to resources updated after this timestamp.
+	Since time.Time
+	// Incremental enables cursor-based delta refresh when a cursor store is
+	// configured on the destination reporting target.
+	Incremental bool
 }
 
 // RunResult summarizes a completed analytics run.
@@ -88,12 +97,24 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	}
 	runAt := r.now().UTC()
 
+	since := req.Since
+	if req.Mode == ModeRefresh && req.Incremental {
+		if inc, ok := req.Destination.Reporting.(*IncrementalTarget); ok && since.IsZero() {
+			cursorSince, sinceErr := inc.Since(ctx, req.ViewName, req.Version)
+			if sinceErr != nil {
+				return nil, sinceErr
+			}
+			since = cursorSince
+		}
+	}
+
 	result, err := r.executor.Execute(ctx, view.ExecuteRequest{
 		ViewName:   req.ViewName,
 		Version:    req.Version,
 		Actor:      req.Actor,
 		Subject:    req.Subject,
 		Parameters: req.Parameters,
+		Since:      since,
 	})
 	if err != nil {
 		return nil, err
@@ -105,7 +126,11 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 
 	switch req.Mode {
 	case ModeRefresh:
-		if err := req.Destination.Reporting.writeAt(ctx, result, runAt); err != nil {
+		if inc, ok := req.Destination.Reporting.(*IncrementalTarget); ok {
+			if err := inc.writeAt(ctx, result, runAt); err != nil {
+				return nil, err
+			}
+		} else if err := req.Destination.Reporting.writeAt(ctx, result, runAt); err != nil {
 			return nil, err
 		}
 	case ModeExport:

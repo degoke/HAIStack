@@ -110,6 +110,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleCustomOperation(w, r, route)
+	case routeBulkExportStatus:
+		h.handleBulkExportStatus(w, r, route.jobID)
+	case routeBulkExportFile:
+		h.handleBulkExportFile(w, r, route.jobID, route.filename)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}
@@ -273,14 +277,6 @@ func (h *handler) handleInstanceRoute(w http.ResponseWriter, r *http.Request, re
 	default:
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPut, http.MethodPatch, http.MethodDelete)
 	}
-}
-
-func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route parsedRoute) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, r.Method, http.MethodGet)
-		return
-	}
-	writeError(w, notImplementedEndpoint(r.URL.Path))
 }
 
 func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {

@@ -591,3 +591,21 @@ func TestOrderedDenyWinsBeforeAllow(t *testing.T) {
 		t.Fatalf("decision = %#v", d)
 	}
 }
+
+func TestBulkExportAuthorization(t *testing.T) {
+	eng := mustEngine(t, baseConfig())
+	allowed, err := eng.CanBulkExport(context.Background(), auth.BulkExportRequest{
+		Principal: admin(),
+		Tenant:    tenantA(),
+	})
+	if err != nil || !allowed.Allowed {
+		t.Fatalf("admin export = %#v err=%v", allowed, err)
+	}
+	denied, err := eng.CanBulkExport(context.Background(), auth.BulkExportRequest{
+		Principal: clinician(),
+		Tenant:    tenantA(),
+	})
+	if err != nil || denied.Allowed {
+		t.Fatalf("clinician export = %#v err=%v", denied, err)
+	}
+}

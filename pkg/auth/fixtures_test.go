@@ -50,6 +50,7 @@ func baseConfig() auth.Config {
 					"read-appointment",
 					"appointment.read",
 					"read-patient-summary",
+					"bulk-export",
 				},
 			},
 		},
@@ -118,6 +119,15 @@ func baseConfig() auth.Config {
 						Roles:       []string{"tenant-admin"},
 					},
 					Reason: "admin may install scheduling",
+				},
+				{
+					Name:   "bulk-export",
+					Effect: auth.EffectAllow,
+					Match: auth.RuleMatch{
+						Actions:        []string{auth.ActionBulkExport},
+						AnyPermissions: []string{"bulk-export"},
+					},
+					Reason: "backend service may export",
 				},
 			},
 		},

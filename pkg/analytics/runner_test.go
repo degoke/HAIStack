@@ -234,7 +234,6 @@ func TestDeferredSinksNotImplemented(t *testing.T) {
 	ctx := context.Background()
 	result := &view.Result{ViewName: analytics.ViewPatientSummary, Version: "1.0.0"}
 	sinks := []analytics.RowSink{
-		analytics.NewParquetSink(),
 		analytics.NewWarehouseSink(),
 		analytics.NewLakehouseSink(),
 		analytics.NewManifestExportSink(),
@@ -243,5 +242,22 @@ func TestDeferredSinksNotImplemented(t *testing.T) {
 		if err := sink.WriteRows(ctx, result); !errors.Is(err, analytics.ErrSinkNotImplemented) {
 			t.Fatalf("WriteRows err = %v, want ErrSinkNotImplemented", err)
 		}
+	}
+}
+
+func TestParquetSinkWritesColumnarDocument(t *testing.T) {
+	var buf bytes.Buffer
+	sink := analytics.NewParquetSink(&buf)
+	result := &view.Result{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Columns:  []view.ColumnInfo{{Name: "patient_id", Type: "string"}},
+		Rows:     []map[string]any{{"patient_id": "p1"}},
+	}
+	if err := sink.WriteRows(context.Background(), result); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	if !strings.Contains(buf.String(), "haistack-parquet-v1") {
+		t.Fatalf("output = %s", buf.String())
 	}
 }

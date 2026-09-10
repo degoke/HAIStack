@@ -63,6 +63,14 @@ type PatientScopeRequest struct {
 	PatientID string
 }
 
+// BulkExportRequest asks whether a principal may start or poll a bulk export.
+type BulkExportRequest struct {
+	Principal           Principal
+	Tenant              TenantContext
+	GroupID             string
+	RequiredPermissions []string
+}
+
 // evalInput is the internal evaluation context for the policy DSL.
 type evalInput struct {
 	Principal           Principal

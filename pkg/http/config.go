@@ -23,11 +23,12 @@ type ServerMetadata struct {
 // PrincipalResolver extracts the authenticated principal and tenant from a request.
 type PrincipalResolver func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error)
 
-// AuthChecker authorizes FHIR read, write, and search actions.
+// AuthChecker authorizes FHIR read, write, search, and bulk export actions.
 type AuthChecker interface {
 	AuthorizeRead(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType, id string) (auth.Decision, error)
 	AuthorizeWrite(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, operation, resourceType, id string) (auth.Decision, error)
 	AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error)
+	AuthorizeExport(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, groupID string) (auth.Decision, error)
 }
 
 // Config configures the FHIR HTTP handler.
@@ -75,6 +76,9 @@ type Config struct {
 
 	// AuthChecker authorizes actions when auth is enabled.
 	AuthChecker AuthChecker
+
+	// BulkExportService handles FHIR Bulk Data export when configured.
+	BulkExportService BulkExportService
 
 	// PatientReferenceResolver resolves patient ownership for loaded resources when
 	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.

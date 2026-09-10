@@ -45,6 +45,7 @@ type ExecuteRequest struct {
 	Limit      int
 	Offset     int
 	Parameters map[string]any
+	Since      time.Time
 }
 
 // Result is the structured output of a view execution.
@@ -116,7 +117,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, er
 		return nil, err
 	}
 
-	rows, scanned, filtered, err := e.executeScan(ctx, spec, req.Limit, req.Offset)
+	rows, scanned, filtered, err := e.executeScan(ctx, spec, req.Limit, req.Offset, req.Since)
 	if err != nil {
 		_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": err.Error()})
 		return nil, err
@@ -154,7 +155,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, er
 	return res, nil
 }
 
-func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offset int) ([]map[string]any, int, int, error) {
+func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offset int, since time.Time) ([]map[string]any, int, int, error) {
 	var allIDs []string
 	pageSize := 100
 	if limit > 0 && limit > pageSize {
@@ -182,6 +183,9 @@ func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offse
 		env, err := e.cfg.Resources.Read(ctx, spec.ResourceType, id)
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("read %s/%s: %w", spec.ResourceType, id, err)
+		}
+		if !since.IsZero() && !env.LastUpdated.IsZero() && env.LastUpdated.Before(since) {
+			continue
 		}
 		match, err := e.evalFilters(ctx, spec, env)
 		if err != nil {

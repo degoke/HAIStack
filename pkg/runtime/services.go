@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
@@ -30,4 +31,7 @@ type ServiceContainer struct {
 	BlobStore      BlobStoreAdapter
 	ExternalSearch ExternalSearchAdapter
 	Warehouse      WarehouseAdapter
+
+	// BulkExportService handles FHIR Bulk Data export when job infrastructure is wired.
+	BulkExportService *export.Service
 }

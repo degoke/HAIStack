@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
@@ -444,6 +445,29 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
+		exportFiles := export.NewInMemoryFileStore()
+		exportJobs := export.NewInMemoryJobStore()
+		exportExecutor := &export.Executor{
+			Resources: pc.resources,
+			Files:     exportFiles,
+		}
+		if state.services.RegistrySnapshot != nil {
+			exportExecutor.Types = state.services.RegistrySnapshot
+		}
+		exportSvc, err := export.NewService(export.Config{
+			Jobs:     exportJobs,
+			Files:    exportFiles,
+			Executor: exportExecutor,
+			JobQueue: pc.jobStore,
+			BasePath: "/fhir",
+		})
+		if err != nil {
+			return fmt.Errorf("runtime: bulk export service: %w", err)
+		}
+		if err := runner.Register(jobs.TypeExportBulk, exportSvc.JobHandler()); err != nil {
+			return fmt.Errorf("runtime: register bulk export handler: %w", err)
+		}
+		state.services.BulkExportService = exportSvc
 		state.jobRunner = runner
 	}
 
@@ -492,6 +516,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		AuthMiddleware:           b.httpMiddleware,
 		PrincipalResolver:        b.httpPrincipalResolver,
 		AuthChecker:              b.httpAuthChecker,
+		BulkExportService:        state.services.BulkExportService,
 		RateLimit:                b.httpRateLimit,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",

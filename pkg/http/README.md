@@ -55,8 +55,11 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch update | 200 + resource |
 | `DELETE` | `/fhir/{ResourceType}/{id}` | Delete resource | 204 No Content |
 | `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history | 200 + history Bundle |
-| `GET` | `/fhir/$export` | System bulk export kickoff | 501 Not Implemented |
-| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 501 Not Implemented |
+| `GET` | `/fhir/$export` | System bulk export kickoff (`Prefer: respond-async`) | 202 + `Content-Location` when `BulkExportService` configured |
+| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 202 + `Content-Location` when configured |
+| `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
+| `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
+| `GET` | `/fhir/$export/files/{jobId}/{file}` | Download NDJSON artifact | 200 |
 | `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
 | `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
 | `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
@@ -79,7 +82,7 @@ SDC operations (`$populate`, `$assemble`, `$validate`, `$extract`, adaptive ques
 
 ### Deferred
 
-- Bulk export implementation (routes return 501)
+- Configure `BulkExportService` (typically `pkg/export.Service` wired by `pkg/runtime`) to enable Bulk Data export
 - Full CapabilityStatement conformance coverage
 - SMART metadata and built-in token runtime
 
