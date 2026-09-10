@@ -30,7 +30,7 @@ func (s CorePackageInstallService) EnqueueRegistryInstall(ctx context.Context, p
 	if s.JobStore == nil {
 		return store.JobRecord{}, notConfigured("job store")
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
 		Source:    "registry",
 		PackageID: packageID,
 		Version:   version,
@@ -45,7 +45,7 @@ func (s CorePackageInstallService) EnqueueArchiveInstall(ctx context.Context, pa
 	if err != nil {
 		return store.JobRecord{}, err
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
 		Source:    "upload",
 		PackageID: packageID,
 		Version:   version,

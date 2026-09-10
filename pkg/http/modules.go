@@ -28,7 +28,7 @@ func (s CoreModuleInstallService) EnqueueInstall(ctx context.Context, path strin
 	if path == "" {
 		return store.JobRecord{}, invalidRequest("path is required for module install", nil)
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeModuleInstall, jobs.ModuleInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeModuleInstall, jobs.ModuleInstallPayload{
 		Path:        path,
 		UpgradeOnly: upgradeOnly,
 	}, jobs.EnqueueOptions{})

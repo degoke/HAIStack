@@ -30,7 +30,7 @@ func (s CoreTerminologyInstallService) EnqueueRebuild(ctx context.Context, scope
 	if scopeID == "" {
 		return store.JobRecord{}, invalidRequest("scopeId is required for terminology install", nil)
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeTerminologyInstall, jobs.TerminologyInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeTerminologyInstall, jobs.TerminologyInstallPayload{
 		ScopeID: scopeID,
 	}, jobs.EnqueueOptions{})
 }

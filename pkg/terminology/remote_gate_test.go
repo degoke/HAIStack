@@ -71,6 +71,16 @@ func TestOptInRemoteGateBlocksExpandForGlobalValueSetWithoutOptIn(t *testing.T) 
 	}
 }
 
+func TestOptInRemoteGateAllowsRemoteOnlyValueSetExpand(t *testing.T) {
+	ctx := context.Background()
+	remote := &stubRemote{}
+	gate := NewOptInRemoteGate(remote, NewMemoryStore(), &memTerminologyInstallStore{})
+	ex, err := gate.Expand(ctx, ExpandRequest{URL: "http://example.org/remote-vs"})
+	if err != nil || ex == nil || remote.expandCalls != 1 {
+		t.Fatalf("expand=%+v err=%v remoteCalls=%d", ex, err, remote.expandCalls)
+	}
+}
+
 func TestOptInRemoteGateAllowsNonGlobalSystems(t *testing.T) {
 	ctx := context.Background()
 	remote := &stubRemote{}

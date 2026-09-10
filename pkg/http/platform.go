@@ -2,8 +2,12 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/core"
 )
 
 // ConformanceRefresher rebuilds live conformance state after installs.
@@ -96,7 +100,7 @@ func (h *handler) handleBasicJobStatus(w http.ResponseWriter, r *http.Request, r
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
 		return
 	}
-	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, ""); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -110,6 +114,14 @@ func (h *handler) handleBasicJobStatus(w http.ResponseWriter, r *http.Request, r
 	}
 	job, err := h.cfg.JobStatusService.GetJob(r.Context(), jobID)
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.authorizeJobOwner(r.Context(), job); err != nil {
+		if errors.Is(err, auth.ErrDenied) {
+			writeError(w, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "job not found"})
+			return
+		}
 		writeError(w, err)
 		return
 	}

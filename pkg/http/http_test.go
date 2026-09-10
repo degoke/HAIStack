@@ -18,6 +18,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -1089,26 +1090,71 @@ func TestCapabilityStatementAdvertisesPlatformOperationsWithoutEnabledTypes(t *t
 			t.Fatalf("metadata missing %q: %s", want, body)
 		}
 	}
+	var cap map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &cap); err != nil {
+		t.Fatal(err)
+	}
+	rest := cap["rest"].([]any)[0].(map[string]any)
+	for _, item := range rest["resource"].([]any) {
+		res := item.(map[string]any)
+		if res["type"] != "Basic" {
+			continue
+		}
+		if interactions, ok := res["interaction"].([]any); ok && len(interactions) > 0 {
+			t.Fatalf("injected Basic should not advertise CRUD interactions: %v", interactions)
+		}
+		if ops, ok := res["operation"].([]any); !ok || len(ops) == 0 {
+			t.Fatalf("injected Basic should advertise operations: %v", res["operation"])
+		}
+	}
 }
 
-func TestBasicJobStatusUsesReadAuthByDefault(t *testing.T) {
-	checker := &recordingAuthChecker{allow: true}
+func jobPayloadWithOwner(t *testing.T, body string, owner jobs.JobOwner) []byte {
+	t.Helper()
+	payload, err := jobs.StampOwner([]byte(body), owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func TestBasicJobStatusRequiresMatchingOwner(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		PrincipalResolver: func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
-			return auth.Principal{ID: "user"}, auth.TenantContext{TenantID: "t1"}, nil
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{TenantID: "tenant-a"}, nil
 		},
-		AuthChecker: checker,
+		AuthChecker: &recordingAuthChecker{allow: true},
 		JobStatusService: hahttp.CoreJobStatusService{
-			JobStore: &fakeJobStore{job: store.JobRecord{ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted}},
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted,
+				Payload: jobPayloadWithOwner(t, `{}`, jobs.JobOwner{PrincipalID: "user-1", TenantID: "tenant-a"}),
+			}},
 		},
 	})
 	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(checker.readCalls) != 1 || checker.readCalls[0] != "Basic/job-1" {
-		t.Fatalf("readCalls=%v writeCalls=%v", checker.readCalls, checker.writeCalls)
+}
+
+func TestBasicJobStatusRejectsOtherOwner(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		PrincipalResolver: func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-2"}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted,
+				Payload: jobPayloadWithOwner(t, `{}`, jobs.JobOwner{PrincipalID: "user-1", TenantID: "tenant-a"}),
+			}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

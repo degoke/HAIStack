@@ -111,8 +111,9 @@ var platformCapabilityResourceTypes = []string{
 	"CapabilityStatement",
 }
 
-func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) registry.CapabilitySnapshot {
+func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) (registry.CapabilitySnapshot, map[string]bool) {
 	seen := make(map[string]bool, len(snapshot.Resources))
+	injected := make(map[string]bool, len(platformCapabilityResourceTypes))
 	for _, res := range snapshot.Resources {
 		seen[res.ResourceType] = true
 	}
@@ -122,25 +123,29 @@ func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) registry.Ca
 		}
 		snapshot.Resources = append(snapshot.Resources, registry.ResourceCapability{ResourceType: typ})
 		seen[typ] = true
+		injected[typ] = true
 	}
-	return snapshot
+	return snapshot, injected
 }
 
 func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta ServerMetadata, searchEnabled bool) ([]byte, error) {
-	snapshot = augmentCapabilitySnapshot(snapshot)
+	snapshot, platformOnly := augmentCapabilitySnapshot(snapshot)
 	rest := make([]map[string]interface{}, 0, 1)
 	resourceEntries := make([]map[string]interface{}, 0, len(snapshot.Resources))
 	for _, res := range snapshot.Resources {
-		interactions := []map[string]string{
-			{"code": "read"},
-			{"code": "create"},
-			{"code": "update"},
-			{"code": "patch"},
-			{"code": "delete"},
-			{"code": "history-instance"},
-		}
-		if searchEnabled {
-			interactions = append(interactions, map[string]string{"code": "search-type"})
+		var interactions []map[string]string
+		if !platformOnly[res.ResourceType] {
+			interactions = []map[string]string{
+				{"code": "read"},
+				{"code": "create"},
+				{"code": "update"},
+				{"code": "patch"},
+				{"code": "delete"},
+				{"code": "history-instance"},
+			}
+			if searchEnabled {
+				interactions = append(interactions, map[string]string{"code": "search-type"})
+			}
 		}
 		operations := []map[string]string{{
 			"name":       "validate",
@@ -201,15 +206,20 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 				"definition": "http://hl7.org/fhir/OperationDefinition/CapabilityStatement-refresh",
 			})
 		}
-		resourceEntries = append(resourceEntries, map[string]interface{}{
+		entry := map[string]interface{}{
 			"type":         res.ResourceType,
 			"interaction":  interactions,
 			"operation":    operations,
-			"searchParam":  searchParamsForCapability(res.SearchParameters),
-			"versioning":   "versioned",
-			"readHistory":  true,
 			"updateCreate": false,
-		})
+		}
+		if platformOnly[res.ResourceType] {
+			entry["readHistory"] = false
+		} else {
+			entry["searchParam"] = searchParamsForCapability(res.SearchParameters)
+			entry["versioning"] = "versioned"
+			entry["readHistory"] = true
+		}
+		resourceEntries = append(resourceEntries, entry)
 	}
 	rest = append(rest, map[string]interface{}{
 		"mode":     "server",

@@ -7,8 +7,10 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-// OptInRemoteGate wraps a remote terminology provider and blocks lookups for
-// global CodeSystems the tenant has not opted into via TerminologyInstallStore.
+// OptInRemoteGate wraps a remote terminology provider and blocks access to
+// global catalog CodeSystems and ValueSets the tenant has not opted into via
+// TerminologyInstallStore. ValueSets that exist only on the remote server and
+// are not present in the global catalog continue to use the remote provider.
 type OptInRemoteGate struct {
 	Inner    Provider
 	Global   store.TerminologyStore
@@ -27,6 +29,8 @@ func (g *OptInRemoteGate) Lookup(ctx context.Context, r LookupRequest) (*LookupR
 	return g.Inner.Lookup(ctx, r)
 }
 
+// Expand delegates to the remote provider unless the URL is a global catalog
+// ValueSet whose compose references a non-opted-in global CodeSystem.
 func (g *OptInRemoteGate) Expand(ctx context.Context, r ExpandRequest) (*Expansion, error) {
 	if r.URL != "" && g.expandBlocked(ctx, r.URL, r.Version) {
 		return nil, ErrExpansionNotFound
