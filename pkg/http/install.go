@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"strings"
+
+	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
 func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -56,7 +58,7 @@ func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *htt
 		writeError(w, err)
 		return
 	}
-	writeEnvelope(w, http.StatusAccepted, installJobParameters(job.ID, packageID, version), nil)
+	writeInstallResponse(w, job, packageID, version)
 }
 
 func (h *handler) handleImplementationGuideInstallArchive(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -69,5 +71,15 @@ func (h *handler) handleImplementationGuideInstallArchive(w http.ResponseWriter,
 		writeError(w, err)
 		return
 	}
-	writeEnvelope(w, http.StatusAccepted, installJobParameters(job.ID, packageID, version), nil)
+	writeInstallResponse(w, job, packageID, version)
+}
+
+func writeInstallResponse(w http.ResponseWriter, job store.JobRecord, packageID, version string) {
+	status := "accepted"
+	code := http.StatusAccepted
+	if job.Status == store.JobStatusCompleted {
+		status = "completed"
+		code = http.StatusOK
+	}
+	writeEnvelope(w, code, installJobParameters(job.ID, packageID, version, status), nil)
 }

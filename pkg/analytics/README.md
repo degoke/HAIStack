@@ -169,7 +169,7 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 
 ## MVP limits
 
-- **Postgres only** for reporting tables and `$sqlquery-run`; SQLite runtimes still get view run/export HTTP operations when a job store is wired.
+- **Postgres only** for reporting tables and `$sqlquery-run`; SQLite runtimes get view run/export HTTP operations whenever storage is wired (async export/materialize when a job runner is present).
 - **Incremental refresh** uses a single `WatermarkStore` for `_since` cursors and export chaining; watermarks advance only after a successful refresh or export completes. Legacy `analytics.view.*` cursor names are migrated to `analytics.watermark.*` on first read.
 - **View export artifacts** persist on the local filesystem (`{sqlite-dir}/view-exports` or `view-exports/{tenantId}`) and roll back on multi-view failure.
 - **Three views** at the Runner allow-list layer.

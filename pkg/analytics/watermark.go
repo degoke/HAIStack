@@ -59,6 +59,7 @@ func (w *WatermarkStore) migrateLegacyCursor(ctx context.Context, viewName, vers
 	if err := w.Advance(ctx, viewName, version, legacy); err != nil {
 		return time.Time{}, err
 	}
+	_ = w.cursor.DeleteCursor(ctx, legacyCursorName(viewName, version))
 	return legacy, nil
 }
 

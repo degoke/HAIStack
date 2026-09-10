@@ -26,8 +26,16 @@ func NewLocalViewExportJobStore(dir string) (*LocalViewExportJobStore, error) {
 	return &LocalViewExportJobStore{dir: dir}, nil
 }
 
-func (s *LocalViewExportJobStore) path(id string) string {
-	return filepath.Join(s.dir, filepath.Clean(id)+".json")
+func (s *LocalViewExportJobStore) path(id string) (string, error) {
+	seg, err := safeLocalPathSegment(id)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid export job id: %w", err)
+	}
+	full := filepath.Join(s.dir, seg+".json")
+	if err := ensurePathWithinRoot(s.dir, full); err != nil {
+		return "", err
+	}
+	return full, nil
 }
 
 func (s *LocalViewExportJobStore) Create(_ context.Context, job ViewExportJob) error {
@@ -36,16 +44,24 @@ func (s *LocalViewExportJobStore) Create(_ context.Context, job ViewExportJob) e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(s.path(job.ID)); err == nil {
+	path, err := s.path(job.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("view export job already exists: %s", job.ID)
 	}
-	return writeJSONFile(s.path(job.ID), job)
+	return writeJSONFile(path, job)
 }
 
 func (s *LocalViewExportJobStore) Get(_ context.Context, id string) (*ViewExportJob, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.path(id))
+	path, err := s.path(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("view export job not found: %s", id)
 	}
@@ -62,10 +78,14 @@ func (s *LocalViewExportJobStore) Update(_ context.Context, job ViewExportJob) e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(s.path(job.ID)); err != nil {
+	path, err := s.path(job.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("view export job not found: %s", job.ID)
 	}
-	return writeJSONFile(s.path(job.ID), job)
+	return writeJSONFile(path, job)
 }
 
 // LocalMaterializeJobStore persists MaterializeJob records as JSON files.
@@ -85,8 +105,16 @@ func NewLocalMaterializeJobStore(dir string) (*LocalMaterializeJobStore, error) 
 	return &LocalMaterializeJobStore{dir: dir}, nil
 }
 
-func (s *LocalMaterializeJobStore) path(id string) string {
-	return filepath.Join(s.dir, filepath.Clean(id)+".json")
+func (s *LocalMaterializeJobStore) path(id string) (string, error) {
+	seg, err := safeLocalPathSegment(id)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid materialize job id: %w", err)
+	}
+	full := filepath.Join(s.dir, seg+".json")
+	if err := ensurePathWithinRoot(s.dir, full); err != nil {
+		return "", err
+	}
+	return full, nil
 }
 
 func (s *LocalMaterializeJobStore) Create(_ context.Context, job MaterializeJob) error {
@@ -95,16 +123,24 @@ func (s *LocalMaterializeJobStore) Create(_ context.Context, job MaterializeJob)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(s.path(job.ID)); err == nil {
+	path, err := s.path(job.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("materialize job already exists: %s", job.ID)
 	}
-	return writeJSONFile(s.path(job.ID), job)
+	return writeJSONFile(path, job)
 }
 
 func (s *LocalMaterializeJobStore) Get(_ context.Context, id string) (*MaterializeJob, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.path(id))
+	path, err := s.path(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("materialize job not found: %s", id)
 	}
@@ -121,10 +157,14 @@ func (s *LocalMaterializeJobStore) Update(_ context.Context, job MaterializeJob)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(s.path(job.ID)); err != nil {
+	path, err := s.path(job.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("materialize job not found: %s", job.ID)
 	}
-	return writeJSONFile(s.path(job.ID), job)
+	return writeJSONFile(path, job)
 }
 
 func writeJSONFile(path string, v any) error {
