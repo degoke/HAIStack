@@ -84,35 +84,66 @@ func NewLocalExportFileStore(root string) (*LocalExportFileStore, error) {
 	return &LocalExportFileStore{root: root}, nil
 }
 
-func (s *LocalExportFileStore) filePath(jobID, filename string) string {
-	return filepath.Join(s.root, filepath.FromSlash(jobID), filepath.FromSlash(filename))
+func (s *LocalExportFileStore) filePath(jobID, filename string) (string, error) {
+	jobSeg, err := safeLocalPathSegment(jobID)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid export job id: %w", err)
+	}
+	fileSeg, err := safeLocalPathSegment(filename)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid export filename: %w", err)
+	}
+	full := filepath.Join(s.root, jobSeg, fileSeg)
+	if err := ensurePathWithinRoot(s.root, full); err != nil {
+		return "", err
+	}
+	return full, nil
 }
 
-func (s *LocalExportFileStore) metaPath(jobID, filename string) string {
-	return s.filePath(jobID, filename) + ".meta"
+func (s *LocalExportFileStore) metaPath(jobID, filename string) (string, error) {
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return "", err
+	}
+	return full + ".meta", nil
 }
 
 func (s *LocalExportFileStore) Put(_ context.Context, jobID, filename string, data []byte, contentType string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	full := s.filePath(jobID, filename)
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
 	}
 	if err := os.WriteFile(full, data, 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(s.metaPath(jobID, filename), []byte(contentType), 0o644)
+	meta, err := s.metaPath(jobID, filename)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(meta, []byte(contentType), 0o644)
 }
 
 func (s *LocalExportFileStore) Get(_ context.Context, jobID, filename string) ([]byte, string, error) {
-	data, err := os.ReadFile(s.filePath(jobID, filename))
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := os.ReadFile(full)
 	if err != nil {
 		return nil, "", fmt.Errorf("view export file not found: %s/%s", jobID, filename)
 	}
 	contentType := "application/octet-stream"
-	if meta, err := os.ReadFile(s.metaPath(jobID, filename)); err == nil {
-		contentType = strings.TrimSpace(string(meta))
+	meta, err := s.metaPath(jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	if metaBytes, err := os.ReadFile(meta); err == nil {
+		contentType = strings.TrimSpace(string(metaBytes))
 	}
 	return data, contentType, nil
 }
@@ -120,7 +151,15 @@ func (s *LocalExportFileStore) Get(_ context.Context, jobID, filename string) ([
 func (s *LocalExportFileStore) DeleteJob(_ context.Context, jobID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return os.RemoveAll(filepath.Join(s.root, filepath.FromSlash(jobID)))
+	jobSeg, err := safeLocalPathSegment(jobID)
+	if err != nil {
+		return fmt.Errorf("view: invalid export job id: %w", err)
+	}
+	dir := filepath.Join(s.root, jobSeg)
+	if err := ensurePathWithinRoot(s.root, dir); err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }
 
 // FileExportWriter stores export artifacts in an ExportFileStore scoped to one job.
