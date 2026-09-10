@@ -21,29 +21,33 @@ const defaultFHIRVersion = DefaultFHIRVersion
 
 // Config configures a registry Manager.
 type Config struct {
-	Definitions      store.DefinitionStore
-	Installs         store.RegistryInstallStore
-	FHIRVersion      string
-	Now              func() time.Time
-	SearchReindex    SearchReindexNotifier
-	Terminology      store.TerminologyStore
-	TerminologyScope string
-	TerminologyCache terminology.Invalidator
+	Definitions         store.DefinitionStore
+	Installs            store.RegistryInstallStore
+	FHIRVersion         string
+	Now                 func() time.Time
+	SearchReindex       SearchReindexNotifier
+	Terminology         store.TerminologyStore
+	TerminologyScope    string
+	GlobalTerminology   store.TerminologyStore
+	TerminologyInstalls store.TerminologyInstallStore
+	TerminologyCache    terminology.Invalidator
 }
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
 type Manager struct {
-	definitions      store.DefinitionStore
-	installs         store.RegistryInstallStore
-	fhirVersion      string
-	now              func() time.Time
-	searchReindex    SearchReindexNotifier
-	terminology      store.TerminologyStore
-	terminologyScope string
-	terminologyCache terminology.Invalidator
-	snapshot         *Snapshot
-	seedMu           sync.Mutex
-	seeded           bool
+	definitions           store.DefinitionStore
+	installs              store.RegistryInstallStore
+	fhirVersion           string
+	now                   func() time.Time
+	searchReindex         SearchReindexNotifier
+	terminology           store.TerminologyStore
+	terminologyScope      string
+	globalTerminology     store.TerminologyStore
+	terminologyInstalls   store.TerminologyInstallStore
+	terminologyCache      terminology.Invalidator
+	snapshot              *Snapshot
+	seedMu                sync.Mutex
+	seeded                bool
 }
 
 // NewManager constructs a registry manager from persistence stores.
@@ -57,13 +61,24 @@ func NewManager(cfg Config) *Manager {
 		now = time.Now
 	}
 	return &Manager{
-		definitions:   cfg.Definitions,
-		installs:      cfg.Installs,
-		fhirVersion:   fhirVersion,
-		now:           now,
-		searchReindex: cfg.SearchReindex,
-		terminology:   cfg.Terminology, terminologyScope: cfg.TerminologyScope, terminologyCache: cfg.TerminologyCache,
+		definitions:         cfg.Definitions,
+		installs:            cfg.Installs,
+		fhirVersion:         fhirVersion,
+		now:                 now,
+		searchReindex:       cfg.SearchReindex,
+		terminology:         cfg.Terminology,
+		terminologyScope:    cfg.TerminologyScope,
+		globalTerminology:   cfg.GlobalTerminology,
+		terminologyInstalls: cfg.TerminologyInstalls,
+		terminologyCache:    cfg.TerminologyCache,
 	}
+}
+
+func (m *Manager) terminologyTarget(resourceType string) (store.TerminologyStore, string) {
+	if resourceType == "CodeSystem" && m.globalTerminology != nil {
+		return m.globalTerminology, terminology.GlobalScopeID
+	}
+	return m.terminology, m.terminologyScope
 }
 
 // SeedBundled loads embedded R4 base definitions into the catalog idempotently.
@@ -135,10 +150,11 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 		return err
 	}
 	if m.terminology != nil && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
-		if err := m.terminology.DeleteProjections(ctx, m.terminologyScope, r.FHIRResourceType, canonicalURL, version); err != nil {
+		termStore, termScope := m.terminologyTarget(r.FHIRResourceType)
+		if err := termStore.DeleteProjections(ctx, termScope, r.FHIRResourceType, canonicalURL, version); err != nil {
 			return err
 		}
-		if err := m.terminology.DeleteResource(ctx, m.terminologyScope, r.FHIRResourceType, canonicalURL, version); err != nil {
+		if err := termStore.DeleteResource(ctx, termScope, r.FHIRResourceType, canonicalURL, version); err != nil {
 			return err
 		}
 		if m.terminologyCache != nil {
@@ -188,9 +204,24 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		if err := json.Unmarshal(jsonData, &meta); err != nil {
 			return err
 		}
-		tr := store.TerminologyResourceRecord{ScopeID: m.terminologyScope, ResourceType: parsed.FHIRResourceType, ResourceID: meta.ID, CanonicalURL: parsed.CanonicalURL, Version: parsed.Version, Status: parsed.Status, ResourceJSON: append([]byte(nil), jsonData...), SourceModule: provenance.SourceModule}
-		if err := terminology.Install(ctx, m.terminology, tr); err != nil {
+		termStore, termScope := m.terminologyTarget(parsed.FHIRResourceType)
+		tr := store.TerminologyResourceRecord{ScopeID: termScope, ResourceType: parsed.FHIRResourceType, ResourceID: meta.ID, CanonicalURL: parsed.CanonicalURL, Version: parsed.Version, Status: parsed.Status, ResourceJSON: append([]byte(nil), jsonData...), SourceModule: provenance.SourceModule}
+		if err := terminology.Install(ctx, termStore, tr); err != nil {
 			return fmt.Errorf("compile terminology: %w", err)
+		}
+		if parsed.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
+			if err := m.terminologyInstalls.UpsertInstall(ctx, store.TerminologyInstallRecord{
+				PackName:     provenance.PackageName,
+				PackVersion:  provenance.PackageVersion,
+				ResourceType: parsed.FHIRResourceType,
+				CanonicalURL: parsed.CanonicalURL,
+				Version:      parsed.Version,
+				Enabled:      true,
+				SourceModule: provenance.SourceModule,
+				InstalledAt:  m.now().UTC(),
+			}); err != nil {
+				return err
+			}
 		}
 		if m.terminologyCache != nil {
 			if parsed.FHIRResourceType == "CodeSystem" {

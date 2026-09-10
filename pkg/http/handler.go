@@ -77,6 +77,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleValidateOperation(w, r, route)
 			return
 		}
+		if h.handleTerminologyOperation(w, r, route) {
+			return
+		}
 		if route.resourceType == "ImplementationGuide" {
 			switch route.operation {
 			case "$install":

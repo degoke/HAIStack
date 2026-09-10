@@ -19,6 +19,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -932,5 +933,33 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if got := strings.TrimSpace(rec.Body.String()); got != `{"status":"ok"}` {
 		t.Fatalf("body = %s, want health response", got)
+	}
+}
+
+func TestCodeSystemLookupHTTP(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	global := terminology.NewLocalService(m, terminology.GlobalScopeID)
+	tenant := terminology.NewLocalService(terminology.NewLayeredStore(m, "tenant-a"), "tenant-a")
+	svc := terminology.Chain{Providers: []terminology.Provider{tenant, global}}
+
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: svc,
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("expected lookup result true, got %s", rec.Body.String())
 	}
 }

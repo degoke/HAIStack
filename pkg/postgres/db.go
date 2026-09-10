@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -86,6 +87,11 @@ func (db *DB) DefinitionStore() *DefinitionStore {
 // TerminologyStore returns a terminology store scoped to the supplied tenant.
 func (db *DB) TerminologyStore(scopeID string) *TerminologyStore {
 	return newTerminologyStore(db.pool, scopeID)
+}
+
+// GlobalTerminologyStore returns the platform-wide terminology catalog store.
+func (db *DB) GlobalTerminologyStore() *TerminologyStore {
+	return newTerminologyStore(db.pool, terminology.GlobalScopeID)
 }
 
 // EnsureTenant registers a tenant row if it does not already exist.

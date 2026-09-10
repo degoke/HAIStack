@@ -1,7 +1,8 @@
 # `haistack-terminology` (`pkg/terminology`)
 
 Tenant-scoped terminology lookup, validation, and finite ValueSet expansion
-for FHIR R4.
+for FHIR R4 with a platform-wide global CodeSystem catalog and per-tenant
+ValueSet overlays.
 
 ## Design
 
@@ -91,6 +92,20 @@ result, err := engine.Validate(ctx, resource, validate.ValidateOptions{
 Unknown terminology is distinct from an invalid code. Unavailable providers
 are warnings rather than invalid codes, and display mismatches are warnings.
 
+## Global vs tenant scoping
+
+CodeSystems installed from IG packages or admin workflows are stored under
+`terminology.GlobalScopeID` (`__global__`) and shared across tenants.
+Tenant ValueSets compose against global CodeSystem projections via
+`LayeredStore` and `Chain` precedence:
+
+```text
+tenant LocalService → global LocalService → (optional remote provider)
+```
+
+Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
+`RegistryInstallStore`).
+
 ## Scope and lifecycle
 
 The canonical identity is:
@@ -99,10 +114,18 @@ The canonical identity is:
 scope_id + canonical_url + version
 ```
 
-SQLite uses the configured local scope; Postgres uses the tenant ID. Historical
-or retired versions remain readable when explicitly requested, but retired
-versions are excluded from current-version resolution.
+SQLite uses the configured local scope; Postgres uses the tenant ID for
+ValueSets and `__global__` for shared CodeSystems. Historical or retired
+versions remain readable when explicitly requested, but retired versions are
+excluded from current-version resolution.
 
-There are intentionally no HTTP `$lookup`, `$expand`, or `$validate-code`
-routes yet. The internal service and storage contracts are the stable first
-release boundary.
+HTTP terminology operations are exposed when `TerminologyService` is wired:
+
+- `CodeSystem/$lookup`
+- `ValueSet/$expand`
+- `CodeSystem/$validate-code` and `ValueSet/$validate-code`
+
+Admin routes (when mounted on the root handler):
+
+- `POST /admin/packages/install`
+- `POST /admin/conformance/refresh`

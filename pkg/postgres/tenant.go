@@ -139,6 +139,11 @@ func (tdb *TenantDB) TerminologyStore() *TerminologyStore {
 	return newTerminologyStore(tdb.pool, tdb.tenantID)
 }
 
+// TerminologyInstallStore returns a tenant-scoped terminology pack opt-in store.
+func (tdb *TenantDB) TerminologyInstallStore() *TerminologyInstallStore {
+	return newTerminologyInstallStore(tdb.pool, tdb.tenantID)
+}
+
 // AuthStore returns a tenant-scoped auth persistence adapter.
 func (tdb *TenantDB) AuthStore() *AuthStore {
 	return newAuthStore(tdb.pool, tdb.tenantID)

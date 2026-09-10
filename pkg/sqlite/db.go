@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	_ "modernc.org/sqlite"
 )
@@ -138,6 +139,16 @@ func (db *DB) DefinitionStore() *DefinitionStore {
 	return newDefinitionStore(db.sql)
 }
 func (db *DB) TerminologyStore() *TerminologyStore { return newTerminologyStore(db.sql, "default") }
+
+// GlobalTerminologyStore returns the platform-wide terminology catalog store.
+func (db *DB) GlobalTerminologyStore() *TerminologyStore {
+	return newTerminologyStore(db.sql, terminology.GlobalScopeID)
+}
+
+// TerminologyInstallStore returns a tenant-scoped terminology pack opt-in store.
+func (db *DB) TerminologyInstallStore(tenantID string) *TerminologyInstallStore {
+	return newTerminologyInstallStore(db.sql, tenantID)
+}
 
 // RegistryInstallStore returns a connection-scoped registry install overlay store.
 func (db *DB) RegistryInstallStore() *RegistryInstallStore {

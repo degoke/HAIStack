@@ -49,6 +49,16 @@ type Config struct {
 	// When nil, POST /fhir/ImplementationGuide/$install returns not-supported.
 	PackageInstallService PackageInstallService
 
+	// TerminologyService handles CodeSystem/$lookup, ValueSet/$expand, and
+	// $validate-code when configured.
+	TerminologyService TerminologyService
+
+	// TerminologyScope is the tenant scope passed to terminology operations.
+	TerminologyScope string
+
+	// ConformanceRefresher rebuilds live conformance state; used by admin routes.
+	ConformanceRefresher ConformanceRefresher
+
 	// OperationService handles non-SDC custom operations such as
 	// $everything or implementation-specific operations.
 	OperationService OperationService

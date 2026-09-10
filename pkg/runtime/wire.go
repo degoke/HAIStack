@@ -136,8 +136,10 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		syncInbox:        db.InboxStore(),
 		syncConflicts:    db.ConflictStore(),
 		syncAudit:        db.AuditStore(),
-		terminology:      db.TerminologyStore(),
-		reindexJobs:      false,
+		terminology:         db.TerminologyStore(),
+		globalTerminology:   db.GlobalTerminologyStore(),
+		terminologyInstalls: db.TerminologyInstallStore(syncTenantID),
+		reindexJobs:         false,
 	})
 }
 
@@ -179,8 +181,10 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		syncInbox:        tdb.InboxStore(),
 		syncConflicts:    tdb.ConflictStore(),
 		syncAudit:        tdb.AuditStore(),
-		terminology:      tdb.TerminologyStore(),
-		reindexJobs:      b.searchEnabled,
+		terminology:         tdb.TerminologyStore(),
+		globalTerminology:   db.GlobalTerminologyStore(),
+		terminologyInstalls: tdb.TerminologyInstallStore(),
+		reindexJobs:         b.searchEnabled,
 	})
 }
 
@@ -200,9 +204,11 @@ type persistenceContext struct {
 	syncInbox        store.InboxStore
 	syncConflicts    store.ConflictStore
 	syncAudit        store.AuditStore
-	reindexJobs      bool
-	terminology      store.TerminologyStore
-	terminologyScope string
+	reindexJobs         bool
+	terminology         store.TerminologyStore
+	globalTerminology   store.TerminologyStore
+	terminologyInstalls store.TerminologyInstallStore
+	terminologyScope    string
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
@@ -211,8 +217,29 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if termScope == "" {
 		termScope = pc.syncTenantID
 	}
-	if pc.terminology != nil {
-		state.services.TerminologyService = &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+	tenantTerminology := pc.terminology
+	var tenantLocal *terminology.LocalService
+	var globalLocal *terminology.LocalService
+	var invalidators []terminology.Invalidator
+	if tenantTerminology != nil {
+		layered := terminology.NewLayeredStore(tenantTerminology, termScope)
+		tenantLocal = terminology.NewLocalService(layered, termScope)
+		invalidators = append(invalidators, tenantLocal)
+	}
+	if pc.globalTerminology != nil {
+		globalLocal = terminology.NewLocalService(pc.globalTerminology, terminology.GlobalScopeID)
+		invalidators = append(invalidators, globalLocal)
+	}
+	terminologyCache := terminology.ChainInvalidator{Providers: invalidators}
+	var termProviders []terminology.Provider
+	if tenantLocal != nil {
+		termProviders = append(termProviders, tenantLocal)
+	}
+	if globalLocal != nil {
+		termProviders = append(termProviders, globalLocal)
+	}
+	if len(termProviders) > 0 {
+		state.services.TerminologyService = terminology.Chain{Providers: termProviders}
 	}
 
 	var reindexNotifier registry.SearchReindexNotifier
@@ -221,13 +248,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	regManager := registry.NewManager(registry.Config{
-		Definitions:      pc.definitions,
-		Installs:         pc.installs,
-		Now:              now,
-		SearchReindex:    reindexNotifier,
-		Terminology:      pc.terminology,
-		TerminologyScope: termScope,
-		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
+		Definitions:         pc.definitions,
+		Installs:            pc.installs,
+		Now:                 now,
+		SearchReindex:       reindexNotifier,
+		Terminology:         pc.terminology,
+		TerminologyScope:    termScope,
+		GlobalTerminology:   pc.globalTerminology,
+		TerminologyInstalls: pc.terminologyInstalls,
+		TerminologyCache:    terminologyCache,
 	})
 	if err := regManager.SeedBundled(ctx); err != nil {
 		return fmt.Errorf("runtime: seed registry: %w", err)
@@ -346,10 +375,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		Validator:          validator,
 		Indexer:            indexer,
 		Outbox:             &hasync.EventStoreOutbox{Events: pc.outboxEvents},
-		Terminology:        pc.terminology,
-		TerminologyScope:   termScope,
-		TerminologyCache:   state.services.TerminologyService.(terminology.Invalidator),
-		DefinitionIngestor: regManager,
+		Terminology:            pc.terminology,
+		TerminologyScope:       termScope,
+		GlobalTerminologyScope: terminology.GlobalScopeID,
+		TerminologyCache:       terminologyCache,
+		DefinitionIngestor:     regManager,
 		ConformanceRefresh: func(ctx context.Context) error {
 			snap, err := conformanceRuntime.Refresh(ctx)
 			if err != nil {
@@ -471,11 +501,19 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	packageService := hahttp.CorePackageInstallService{
 		JobStore: pc.jobStore,
 	}
+	conformanceRefresher := NewConformanceRefresher(conformanceRuntime, func() {
+		if snap := conformanceRuntime.Snapshot(); snap != nil {
+			state.services.RegistrySnapshot = snap
+		}
+	})
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:         httpSearchSvc,
 		SDCService:            sdcService,
 		PackageInstallService: packageService,
+		TerminologyService:    state.services.TerminologyService,
+		TerminologyScope:      termScope,
+		ConformanceRefresher:  conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
@@ -502,7 +540,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
 	rootCfg := hahttp.RootConfig{
-		FHIR: handler,
+		FHIR:  handler,
+		Admin: hahttp.NewAdminHandler(hahttp.AdminConfig{
+			PackageInstallService: packageService,
+			ConformanceRefresher:  conformanceRefresher,
+		}),
 	}
 	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
 		rootCfg.Sync = hubServer

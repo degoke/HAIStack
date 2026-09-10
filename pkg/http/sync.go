@@ -167,6 +167,10 @@ func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 		mux.Handle("/fhir/", cfg.FHIR)
 		mux.Handle("/fhir", cfg.FHIR)
 	}
+	if cfg.Admin != nil {
+		mux.Handle("/admin/", cfg.Admin)
+		mux.Handle("/admin", cfg.Admin)
+	}
 	if cfg.Sync != nil {
 		syncHandler := NewSyncHandler(cfg.Sync)
 		if cfg.SyncMiddleware != nil {
@@ -174,7 +178,7 @@ func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 		}
 		mux.Handle("/sync/", syncHandler)
 	}
-	if cfg.FHIR == nil && cfg.Sync == nil {
+	if cfg.FHIR == nil && cfg.Admin == nil && cfg.Sync == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, unsupportedEndpoint(r.URL.Path))
 		})
@@ -187,8 +191,9 @@ type SyncHubServer = hasync.HubServer
 
 // RootConfig configures a combined FHIR + sync HTTP handler tree.
 type RootConfig struct {
-	FHIR http.Handler
-	Sync SyncHubServer
+	FHIR  http.Handler
+	Admin http.Handler
+	Sync  SyncHubServer
 	// SyncMiddleware must enforce the caller's node/tenant authentication and
 	// authorization when sync routes are exposed.
 	SyncMiddleware func(http.Handler) http.Handler
