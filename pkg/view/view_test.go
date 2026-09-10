@@ -64,17 +64,10 @@ func TestParseDefinition_RequiresResourceAndNameAndVersion(t *testing.T) {
 	}
 }
 
-func TestParseDefinition_UnsupportedNestedSelect(t *testing.T) {
-	_, err := view.ParseDefinition(viewWithNestedSelect(), defaultEngine(t))
-	if !errors.Is(err, view.ErrUnsupportedFeature) {
-		t.Fatalf("err = %v, want ErrUnsupportedFeature", err)
-	}
-}
-
-func TestParseDefinition_UnsupportedForEach(t *testing.T) {
+func TestParseDefinition_ForEachRootSelects(t *testing.T) {
 	_, err := view.ParseDefinition(viewWithUnsupportedJoin(), defaultEngine(t))
-	if !errors.Is(err, view.ErrUnsupportedFeature) {
-		t.Fatalf("err = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("ParseDefinition forEach root selects: %v", err)
 	}
 }
 

@@ -2,7 +2,9 @@ package view
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -13,12 +15,13 @@ import (
 // required; authorizer, audit logger, and registry are optional but required for
 // their respective features. If Now is nil, time.Now is used.
 type Config struct {
-	Resources  store.ResourceStore
-	Engine     fhirpath.Engine
-	Authorizer Authorizer
-	Audit      AuditLogger
-	Registry   *Registry
-	Now        func() time.Time
+	Resources         store.ResourceStore
+	Engine            fhirpath.Engine
+	Authorizer        Authorizer
+	Audit             AuditLogger
+	Registry          *Registry
+	MaterializedViews store.MaterializedViewStore
+	Now               func() time.Time
 }
 
 // Executor runs a parsed ViewDefinition against a store.ResourceStore.
@@ -38,14 +41,15 @@ func (e *Executor) ResolveView(name, version string) (*ViewSpec, error) {
 
 // ExecuteRequest carries runtime parameters for one view execution.
 type ExecuteRequest struct {
-	ViewName   string
-	Version    string
-	Actor      string
-	Subject    string
-	Limit      int
-	Offset     int
-	Parameters map[string]any
-	Since      time.Time
+	ViewName    string
+	Version     string
+	Actor       string
+	Subject     string
+	Limit       int
+	Offset      int
+	Parameters  map[string]any
+	Since       time.Time
+	Materialize bool
 }
 
 // Result is the structured output of a view execution.
@@ -123,6 +127,23 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, er
 		return nil, err
 	}
 
+	materialize := req.Materialize || spec.Materialize
+	if materialize {
+		if e.cfg.MaterializedViews == nil {
+			_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": ErrMissingMaterializedViewStore.Error()})
+			return nil, ErrMissingMaterializedViewStore
+		}
+		allRows, _, _, scanErr := e.executeScan(ctx, spec, 0, 0, req.Since)
+		if scanErr != nil {
+			_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": scanErr.Error()})
+			return nil, scanErr
+		}
+		if err := e.persistMaterializedRows(ctx, spec, allRows); err != nil {
+			_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": err.Error()})
+			return nil, err
+		}
+	}
+
 	metadata := ResultMetadata{
 		ExecutedAt:         e.cfg.Now(),
 		Duration:           e.cfg.Now().Sub(start),
@@ -176,7 +197,7 @@ func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offse
 	}
 
 	scanned := 0
-	filtered := 0
+	totalRows := 0
 	rows := make([]map[string]any, 0)
 	for _, id := range allIDs {
 		scanned++
@@ -194,17 +215,21 @@ func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offse
 		if !match {
 			continue
 		}
-		filtered++
-		if filtered <= offset || (limit > 0 && len(rows) >= limit) {
+		expanded, err := e.expandView(ctx, spec, env)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("expand %s/%s: %w", spec.ResourceType, id, err)
+		}
+		if len(expanded) == 0 {
 			continue
 		}
-		row, err := e.evalColumns(ctx, spec, env)
-		if err != nil {
-			return nil, 0, 0, fmt.Errorf("extract %s/%s: %w", spec.ResourceType, id, err)
+		for _, row := range expanded {
+			if totalRows >= offset && (limit <= 0 || len(rows) < limit) {
+				rows = append(rows, row)
+			}
+			totalRows++
 		}
-		rows = append(rows, row)
 	}
-	return rows, scanned, filtered, nil
+	return rows, scanned, totalRows, nil
 }
 
 func (e *Executor) evalFilters(ctx context.Context, spec *ViewSpec, resource any) (bool, error) {
@@ -220,20 +245,58 @@ func (e *Executor) evalFilters(ctx context.Context, spec *ViewSpec, resource any
 	return true, nil
 }
 
-func (e *Executor) evalColumns(ctx context.Context, spec *ViewSpec, resource any) (map[string]any, error) {
-	row := make(map[string]any, len(spec.Columns))
-	for _, col := range spec.Columns {
-		values, err := col.compiled.Eval(ctx, resource)
-		if err != nil {
-			return nil, fmt.Errorf("column %q: %w", col.Name, err)
-		}
-		encoded, err := e.enc.EncodeColumn(values, col.Collection)
-		if err != nil {
-			return nil, fmt.Errorf("column %q: %w", col.Name, err)
-		}
-		row[col.Name] = encoded
+func (e *Executor) persistMaterializedRows(ctx context.Context, spec *ViewSpec, rows []map[string]any) error {
+	if e.cfg.MaterializedViews == nil {
+		return fmt.Errorf("%w: materialized view store is not configured", ErrMissingMaterializedViewStore)
 	}
-	return row, nil
+	keyColumn := spec.MaterializeKey
+	if keyColumn == "" {
+		keyColumn = "id"
+	}
+	viewKey := registryKey(spec.Name, spec.Version)
+	now := e.cfg.Now()
+	for i, row := range rows {
+		key, err := materializedRowKey(row, keyColumn, i)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(row)
+		if err != nil {
+			return fmt.Errorf("marshal materialized row: %w", err)
+		}
+		if err := e.cfg.MaterializedViews.Upsert(ctx, store.MaterializedViewRecord{
+			ViewName:  viewKey,
+			Key:       key,
+			Payload:   payload,
+			Version:   1,
+			UpdatedAt: now,
+		}); err != nil {
+			return fmt.Errorf("upsert materialized row %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func materializedRowKey(row map[string]any, keyColumn string, index int) (string, error) {
+	if val, ok := row[keyColumn]; ok && val != nil {
+		switch v := val.(type) {
+		case string:
+			if v != "" {
+				return v, nil
+			}
+		case fmt.Stringer:
+			s := v.String()
+			if s != "" {
+				return s, nil
+			}
+		default:
+			s := fmt.Sprint(v)
+			if s != "" {
+				return s, nil
+			}
+		}
+	}
+	return strconv.Itoa(index), nil
 }
 
 func (e *Executor) logAudit(ctx context.Context, req ExecuteRequest, spec *ViewSpec, outcome string, details map[string]string) error {

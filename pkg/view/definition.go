@@ -3,6 +3,7 @@ package view
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -57,18 +58,14 @@ func ParseDefinition(def []byte, engine fhirpath.Engine) (*ViewSpec, error) {
 	if len(raw.Select) == 0 {
 		return nil, fmt.Errorf("%w: at least one select is required", ErrInvalidViewDefinition)
 	}
-	if len(raw.Select) > 1 {
-		return nil, fmt.Errorf("%w: multiple root selects are not supported in v1", ErrUnsupportedFeature)
-	}
-	rootSelect := raw.Select[0]
-	if err := validateNoNestedSelect(rootSelect); err != nil {
-		return nil, err
-	}
-
-	columns, err := parseColumns(rootSelect.Column)
+	rootSelect, err := parseRootSelect(raw.Select)
 	if err != nil {
 		return nil, err
 	}
+	if err := validateUniqueColumnNames(rootSelect); err != nil {
+		return nil, err
+	}
+	columns := rootSelect.FlattenColumns()
 	if len(columns) == 0 {
 		return nil, fmt.Errorf("%w: at least one column is required", ErrInvalidViewDefinition)
 	}
@@ -82,39 +79,40 @@ func ParseDefinition(def []byte, engine fhirpath.Engine) (*ViewSpec, error) {
 		raw.Metadata = map[string]string{}
 	}
 
+	materialize, materializeKey := parseMaterializeMetadata(raw.Metadata)
+
 	spec := &ViewSpec{
-		Name:         raw.Name,
-		Version:      raw.Version,
-		URL:          raw.URL,
-		ResourceType: raw.Resource,
-		Description:  raw.Description,
-		Status:       raw.Status,
-		Columns:      columns,
-		Filters:      filters,
-		Permissions:  raw.Permissions,
-		Metadata:     raw.Metadata,
-		Raw:          def,
+		Name:           raw.Name,
+		Version:        raw.Version,
+		URL:            raw.URL,
+		ResourceType:   raw.Resource,
+		Description:    raw.Description,
+		Status:         raw.Status,
+		RootSelect:     rootSelect,
+		Columns:        columns,
+		Filters:        filters,
+		Permissions:    raw.Permissions,
+		Metadata:       raw.Metadata,
+		Materialize:    materialize,
+		MaterializeKey: materializeKey,
+		Raw:            def,
 	}
-	if err := spec.compile(engine); err != nil {
+	if err := spec.compileSelectTree(engine); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidViewDefinition, err)
 	}
 	return spec, nil
 }
 
-func validateNoNestedSelect(s rawSelect) error {
-	if len(s.Select) > 0 {
-		return fmt.Errorf("%w: nested select blocks are not supported in v1", ErrUnsupportedFeature)
+func parseMaterializeMetadata(metadata map[string]string) (enabled bool, keyColumn string) {
+	if metadata == nil {
+		return false, ""
 	}
-	if s.ForEach != "" {
-		return fmt.Errorf("%w: forEach is not supported in v1", ErrUnsupportedFeature)
+	switch strings.ToLower(strings.TrimSpace(metadata["materialize"])) {
+	case "1", "true", "yes":
+		enabled = true
 	}
-	if s.ForEachOrNull != "" {
-		return fmt.Errorf("%w: forEachOrNull is not supported in v1", ErrUnsupportedFeature)
-	}
-	if len(s.UnionAll) > 0 {
-		return fmt.Errorf("%w: unionAll is not supported in v1", ErrUnsupportedFeature)
-	}
-	return nil
+	keyColumn = strings.TrimSpace(metadata["materializeKey"])
+	return enabled, keyColumn
 }
 
 func parseColumns(rawCols []rawColumn) ([]ColumnSpec, error) {
@@ -166,11 +164,16 @@ type ViewSpec struct {
 	ResourceType string
 	Description  string
 	Status       string
+	RootSelect   SelectSpec
 	Columns      []ColumnSpec
 	Filters      []FilterSpec
 	Permissions  []string
 	Metadata     map[string]string
-	Raw          []byte
+	// Materialize enables writing rows to MaterializedViewStore when configured
+	// on the Executor. MaterializeKey names the output column used as the row key.
+	Materialize    bool
+	MaterializeKey string
+	Raw            []byte
 
 	mu         sync.RWMutex
 	compiled   bool
@@ -200,46 +203,17 @@ type FilterSpec struct {
 // engine. It is safe for concurrent use and caches the result. The returned
 // error is the same on every call for a given spec.
 func (s *ViewSpec) compile(engine fhirpath.Engine) error {
-	s.mu.RLock()
-	if s.compiled {
-		err := s.compileErr
-		s.mu.RUnlock()
-		return err
-	}
-	s.mu.RUnlock()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.compiled {
-		return s.compileErr
-	}
-
-	for i := range s.Filters {
-		compiled, err := engine.Compile(s.Filters[i].Path)
-		if err != nil {
-			s.compileErr = fmt.Errorf("compile filter %q: %w", s.Filters[i].Path, err)
-			s.compiled = true
-			return s.compileErr
-		}
-		s.Filters[i].compiled = compiled
-	}
-	for i := range s.Columns {
-		compiled, err := engine.Compile(s.Columns[i].Path)
-		if err != nil {
-			s.compileErr = fmt.Errorf("compile column %q: %w", s.Columns[i].Name, err)
-			s.compiled = true
-			return s.compileErr
-		}
-		s.Columns[i].compiled = compiled
-	}
-	s.compiled = true
-	return nil
+	return s.compileSelectOnce(engine)
 }
 
 // ColumnNames returns the declared output column names in order.
 func (s *ViewSpec) ColumnNames() []string {
-	names := make([]string, len(s.Columns))
-	for i, col := range s.Columns {
+	cols := s.Columns
+	if len(cols) == 0 {
+		cols = s.RootSelect.FlattenColumns()
+	}
+	names := make([]string, len(cols))
+	for i, col := range cols {
 		names[i] = col.Name
 	}
 	return names
@@ -253,8 +227,12 @@ type ColumnInfo struct {
 
 // ColumnInfos returns column metadata for the view.
 func (s *ViewSpec) ColumnInfos() []ColumnInfo {
-	cols := make([]ColumnInfo, len(s.Columns))
-	for i, col := range s.Columns {
+	flat := s.Columns
+	if len(flat) == 0 {
+		flat = s.RootSelect.FlattenColumns()
+	}
+	cols := make([]ColumnInfo, len(flat))
+	for i, col := range flat {
 		cols[i] = ColumnInfo{Name: col.Name, Type: col.Type}
 	}
 	return cols
