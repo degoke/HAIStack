@@ -28,8 +28,10 @@ type AuthCode struct {
 	Encounter           string
 	User                string
 	TenantHint          string
-	ExpiresAt           time.Time
-	Used                bool
+	// Issuer is the OAuth issuer URL that issued this code (multi-tenant isolation).
+	Issuer    string
+	ExpiresAt time.Time
+	Used      bool
 }
 
 // CodeStore persists authorization codes in memory for v1.

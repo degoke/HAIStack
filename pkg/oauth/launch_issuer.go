@@ -7,12 +7,6 @@ import (
 	"sync"
 )
 
-// LaunchIssuerCredential identifies one EHR or trusted launcher allowed to POST /oauth/launch.
-type LaunchIssuerCredential struct {
-	ClientID     string
-	ClientSecret string
-}
-
 // LaunchIssuerRegistry holds launch issuer credentials with optional rotation support.
 // Multiple secrets may be registered for the same ClientID during credential rotation.
 type LaunchIssuerRegistry struct {
@@ -102,27 +96,44 @@ func (r *LaunchIssuerRegistry) Validate(id, secret string) bool {
 // LaunchIssuerMTLSConfig optionally requires verified client certificates for /oauth/launch.
 type LaunchIssuerMTLSConfig struct {
 	// RequireMTLS rejects launch requests without a verified client certificate.
+	// When true, a valid client certificate alone satisfies launch authentication.
 	RequireMTLS bool
 	// AllowedCommonNames lists acceptable TLS client certificate subject common names.
+	// When non-empty, any presented client certificate must match one of these names.
 	AllowedCommonNames []string
 }
 
 func (s *Server) validateLaunchIssuerMTLS(r *http.Request) error {
+	return s.peerLaunchCertAllowed(r)
+}
+
+func (s *Server) launchAuthenticatedByMTLS(r *http.Request) bool {
+	cfg := s.cfg.LaunchIssuerMTLS
+	if cfg == nil || !cfg.RequireMTLS {
+		return false
+	}
+	if err := s.peerLaunchCertAllowed(r); err != nil {
+		return false
+	}
+	return r.TLS != nil && len(r.TLS.PeerCertificates) > 0
+}
+
+func (s *Server) peerLaunchCertAllowed(r *http.Request) error {
 	cfg := s.cfg.LaunchIssuerMTLS
 	if cfg == nil {
 		return nil
 	}
-	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-		if cfg.RequireMTLS {
-			return ErrInvalidClient
-		}
+	hasCert := r.TLS != nil && len(r.TLS.PeerCertificates) > 0
+	if cfg.RequireMTLS && !hasCert {
+		return ErrInvalidClient
+	}
+	if !hasCert {
 		return nil
 	}
 	if len(cfg.AllowedCommonNames) == 0 {
 		return nil
 	}
-	cert := r.TLS.PeerCertificates[0]
-	cn := peerCertificateCommonName(cert)
+	cn := peerCertificateCommonName(r.TLS.PeerCertificates[0])
 	for _, allowed := range cfg.AllowedCommonNames {
 		if strings.EqualFold(strings.TrimSpace(allowed), cn) {
 			return nil

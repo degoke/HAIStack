@@ -39,6 +39,9 @@ func (s *Server) authenticateLaunchIssuer(r *http.Request) error {
 	if err := s.validateLaunchIssuerMTLS(r); err != nil {
 		return err
 	}
+	if s.launchAuthenticatedByMTLS(r) {
+		return nil
+	}
 	if err := r.ParseForm(); err != nil {
 		return err
 	}

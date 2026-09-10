@@ -205,15 +205,11 @@ func (m *MultiTenantServer) ServerForTenant(tenantID string) (*Server, error) {
 	if tenant.AutoApprove != nil {
 		cfg.AutoApprove = tenant.AutoApprove
 	}
-	if tenant.LaunchIssuerAuth != nil {
-		cfg.LaunchIssuerAuth = tenant.LaunchIssuerAuth
-	}
-	if tenant.LaunchIssuers != nil {
-		cfg.LaunchIssuers = tenant.LaunchIssuers
-	}
-	if tenant.LaunchIssuerMTLS != nil {
-		cfg.LaunchIssuerMTLS = tenant.LaunchIssuerMTLS
-	}
+	// Multi-tenant servers do not inherit base launch credentials; each tenant must
+	// register its own launch issuer settings explicitly.
+	cfg.LaunchIssuerAuth = tenant.LaunchIssuerAuth
+	cfg.LaunchIssuers = tenant.LaunchIssuers
+	cfg.LaunchIssuerMTLS = tenant.LaunchIssuerMTLS
 	srv, err := NewServer(cfg)
 	if err != nil {
 		return nil, err

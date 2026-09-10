@@ -69,11 +69,11 @@ func (s *SQLiteCodeStore) Issue(entry oauth.AuthCode) (string, error) {
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_auth_code (
 			code, client_id, redirect_uri, scope, code_challenge, code_challenge_method,
-			state, patient, encounter, user_id, tenant_hint, expires_at, used
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+			state, patient, encounter, user_id, tenant_hint, issuer, expires_at, used
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		code, entry.ClientID, entry.RedirectURI, entry.Scope, entry.CodeChallenge,
 		entry.CodeChallengeMethod, entry.State, entry.Patient, entry.Encounter, entry.User, entry.TenantHint,
-		formatTime(entry.ExpiresAt),
+		entry.Issuer, formatTime(entry.ExpiresAt),
 	)
 	return code, err
 }
@@ -87,7 +87,7 @@ func (s *SQLiteCodeStore) Exchange(code, clientID, redirectURI, codeVerifier str
 
 	row := tx.QueryRowContext(context.Background(), `
 		SELECT client_id, redirect_uri, scope, code_challenge, code_challenge_method,
-		       state, patient, encounter, user_id, tenant_hint, expires_at, used
+		       state, patient, encounter, user_id, tenant_hint, issuer, expires_at, used
 		FROM hai_oauth_auth_code WHERE code = ?`, code)
 	var entry oauth.AuthCode
 	var expiresRaw string
@@ -95,7 +95,7 @@ func (s *SQLiteCodeStore) Exchange(code, clientID, redirectURI, codeVerifier str
 	entry.Code = code
 	if err := row.Scan(&entry.ClientID, &entry.RedirectURI, &entry.Scope, &entry.CodeChallenge,
 		&entry.CodeChallengeMethod, &entry.State, &entry.Patient, &entry.Encounter, &entry.User, &entry.TenantHint,
-		&expiresRaw, &used); err != nil {
+		&entry.Issuer, &expiresRaw, &used); err != nil {
 		return nil, fmt.Errorf("%w: unknown or used code", oauth.ErrInvalidGrant)
 	}
 	entry.ExpiresAt, _ = parseTime(expiresRaw)

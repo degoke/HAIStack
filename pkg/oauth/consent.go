@@ -43,7 +43,7 @@ func (s *Server) renderConsent(w http.ResponseWriter, r *http.Request, q url.Val
 	action := html.EscapeString(r.URL.Path)
 	titleHTML := html.EscapeString(title)
 	logo := ""
-	if logoURL := strings.TrimSpace(ui.LogoURL); logoURL != "" {
+	if logoURL := allowedConsentLogoURL(ui.LogoURL); logoURL != "" {
 		logo = fmt.Sprintf(`<p class="logo"><img src=%q alt=""></p>`, html.EscapeString(logoURL))
 	}
 	footer := ""
@@ -97,4 +97,17 @@ func (s *Server) ensureConsentLogin(w http.ResponseWriter, r *http.Request) (sub
 		return "", true
 	}
 	return s.consentLogin.EnsureLoggedIn(w, r, r.URL.String())
+}
+
+func allowedConsentLogoURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return u.String()
+	default:
+		return ""
+	}
 }

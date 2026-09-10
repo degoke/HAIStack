@@ -8,24 +8,26 @@ import (
 )
 
 // handleAuthorize implements the OAuth 2.0 authorization endpoint with PKCE.
-// v1 uses auto-approval for registered clients (demo/edge deployments).
+// Interactive consent is shown when AutoApprove is false (the default).
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		return
 	}
 	q := r.URL.Query()
+	consentSubject := ""
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form")
 			return
 		}
 		if csrf := strings.TrimSpace(r.Form.Get("csrf_token")); csrf != "" {
-			sessionParams, err := s.loadConsentSession(r, csrf)
+			sessionParams, subject, err := s.loadConsentSession(r, csrf)
 			if err != nil {
 				writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid or expired consent session")
 				return
 			}
+			consentSubject = subject
 			sessionParams.Set("approved", strings.TrimSpace(r.Form.Get("approved")))
 			q = sessionParams
 		} else {
@@ -89,6 +91,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	encounter := ""
 	user := client.DefaultUser
 	tenant := client.TenantHint
+	launchSetUser := false
 	if launch != "" {
 		if s.launches == nil {
 			s.redirectError(w, r, redirectURI, "invalid_request", "launch not supported", state)
@@ -107,10 +110,14 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 		if launchCtx.UserID != "" {
 			user = launchCtx.UserID
+			launchSetUser = true
 		}
 		if launchCtx.TenantHint != "" {
 			tenant = launchCtx.TenantHint
 		}
+	}
+	if !launchSetUser && consentSubject != "" {
+		user = consentSubject
 	}
 	if aud != "" && aud != s.fhirBase {
 		s.redirectError(w, r, redirectURI, "invalid_request", "aud must match FHIR base URL", state)
@@ -149,6 +156,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		Encounter:           encounter,
 		User:                user,
 		TenantHint:          tenant,
+		Issuer:              s.issuer,
 	})
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue authorization code")

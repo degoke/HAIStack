@@ -55,6 +55,7 @@ func TestSQLiteStores_AuthCodeAndRefresh(t *testing.T) {
 		ClientID:    "app",
 		RedirectURI: "https://app/cb",
 		Scope:       "patient/Patient.read offline_access openid",
+		Issuer:      "https://example.com",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -86,7 +86,9 @@ Optional login hook for hosts that authenticate users before consent:
 cfg.ConsentLogin = myLoginHandler // implements oauth.ConsentLoginHandler
 ```
 
-The built-in consent page is intentionally minimal (HTML + CSRF cookie). Edge and demo IdPs can rely on title/logo theming without a full login portal; production hosts typically integrate an external IdP or custom `ConsentLogin` implementation.
+When `ConsentLogin` returns a subject, that identity is written into issued tokens (unless an EHR launch context already supplied a user). Consent sessions remain **in-memory only** (not persisted to SQLite).
+
+The built-in consent page is intentionally minimal (HTML + CSRF cookie). `ConsentUI.LogoURL` accepts **http/https** URLs only. Edge and demo IdPs can rely on title/logo theming without a full login portal; production hosts typically integrate an external IdP or custom `ConsentLogin` implementation.
 
 ## EHR launch issuer credentials
 
@@ -109,9 +111,11 @@ cfg.LaunchIssuerMTLS = &oauth.LaunchIssuerMTLSConfig{
     RequireMTLS:        true,
     AllowedCommonNames: []string{"ehr-launcher.example.com"},
 }
+// When RequireMTLS is true, a verified client certificate alone satisfies launch auth.
+// When AllowedCommonNames is non-empty, any presented client certificate must match.
 ```
 
-An EHR posts launch context with those credentials:
+An EHR posts launch context with those credentials (unless using mTLS-only auth):
 
 ```bash
 curl -X POST "$BASE/oauth/launch" \
@@ -137,7 +141,7 @@ _ = tenants.Register(oauth.TenantIssuerConfig{
         Title:        "Tenant A Authorization",
         PrimaryColor: "#0f766e",
     },
-    LaunchIssuers: tenantAIssuers, // optional per-tenant launch credentials
+    LaunchIssuers: tenantAIssuers, // required for /oauth/launch in multi-tenant mode
 })
 
 mts, _ := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
@@ -151,6 +155,8 @@ wired, _ := oauth.WireMultiTenantHTTP(oauth.MultiTenantConfig{Base: base, Tenant
 // wired.OAuthHandler serves /t/tenant-a/oauth/* and discovery documents per tenant
 ```
 
+Multi-tenant servers **do not inherit** base `LaunchIssuerAuth` / `LaunchIssuers`; register launch credentials on each `TenantIssuerConfig` that needs EHR launch. Authorization codes are bound to the issuing tenant's OAuth issuer URL and cannot be exchanged at another tenant's token endpoint.
+
 ## SQLite persistence
 
 **Auth codes, refresh tokens, launch tokens, and revocation default to in-memory stores** when `store.ApplySQLiteStores` is not used. This is fine for unit tests and zero-config demos, but **production-like hosts should wire SQLite** (or another shared store) before calling `NewServer`:
@@ -161,7 +167,7 @@ if oauth.UsesInMemoryStores(cfg) {
 }
 ```
 
-Run `pkg/sqlite` migrations `0012_oauth.sql` and `0013_oauth_launch.sql`, then:
+Run `pkg/sqlite` migrations `0012_oauth.sql`, `0013_oauth_launch.sql`, and `0014_oauth_auth_code_issuer.sql`, then:
 
 ```go
 cfg := oauth.Config{ /* issuer, signer, clients, ... */ }

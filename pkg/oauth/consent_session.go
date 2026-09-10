@@ -87,22 +87,22 @@ func (s *consentSessionStore) create(params url.Values, subject string) (session
 	return sessionID, csrf, nil
 }
 
-func (s *consentSessionStore) consume(sessionID, csrf string) (url.Values, error) {
+func (s *consentSessionStore) consume(sessionID, csrf string) (url.Values, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.purgeLocked()
 	session, ok := s.sessions[sessionID]
 	if !ok {
-		return nil, ErrInvalidRequest
+		return nil, "", ErrInvalidRequest
 	}
 	delete(s.sessions, sessionID)
 	if s.nowFn().After(session.ExpiresAt) {
-		return nil, ErrInvalidRequest
+		return nil, "", ErrInvalidRequest
 	}
 	if csrf == "" || csrf != session.CSRF {
-		return nil, ErrInvalidRequest
+		return nil, "", ErrInvalidRequest
 	}
-	return cloneValues(session.Params), nil
+	return cloneValues(session.Params), session.Subject, nil
 }
 
 func (s *consentSessionStore) purgeLocked() {
@@ -153,13 +153,13 @@ func (s *Server) beginConsentSession(w http.ResponseWriter, r *http.Request, par
 	return csrf, nil
 }
 
-func (s *Server) loadConsentSession(r *http.Request, csrf string) (url.Values, error) {
+func (s *Server) loadConsentSession(r *http.Request, csrf string) (url.Values, string, error) {
 	cookie, err := r.Cookie(s.consentCookieName())
 	if err != nil || cookie.Value == "" {
-		return nil, ErrInvalidRequest
+		return nil, "", ErrInvalidRequest
 	}
 	if s.consentSessions == nil {
-		return nil, ErrInvalidConfig
+		return nil, "", ErrInvalidConfig
 	}
 	return s.consentSessions.consume(cookie.Value, csrf)
 }
