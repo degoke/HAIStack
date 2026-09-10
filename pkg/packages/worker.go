@@ -12,6 +12,7 @@ import (
 // InstallWorker handles registry.package_install jobs.
 type InstallWorker struct {
 	Installer *Installer
+	Store     store.JobStore
 }
 
 // HandleJob installs a package from the job payload.
@@ -23,22 +24,41 @@ func (w *InstallWorker) HandleJob(ctx context.Context, job store.JobRecord) erro
 	if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 		return err
 	}
+	reporter := jobs.NewReporter(w.Store, job)
+	installer := *w.Installer
+	installer.OnProgress = func(current, total int, message string) {
+		_ = reporter.Update(ctx, jobs.Progress{
+			Phase:   "install",
+			Current: current,
+			Total:   total,
+			Message: message,
+		})
+	}
 	switch payload.Source {
 	case "registry":
-		_, err := w.Installer.InstallFromRegistry(ctx, payload.PackageID, payload.Version)
-		return err
+		result, err := installer.InstallFromRegistry(ctx, payload.PackageID, payload.Version)
+		if err != nil {
+			return err
+		}
+		return reporter.Complete(ctx, result)
 	case "upload":
 		f, err := os.Open(payload.Path)
 		if err != nil {
 			return fmt.Errorf("open uploaded package: %w", err)
 		}
-		_, installErr := w.Installer.InstallFromArchive(ctx, payload.PackageID, payload.Version, f)
+		result, installErr := installer.InstallFromArchive(ctx, payload.PackageID, payload.Version, f)
 		_ = f.Close()
 		_ = os.Remove(payload.Path)
-		return installErr
+		if installErr != nil {
+			return installErr
+		}
+		return reporter.Complete(ctx, result)
 	case "path":
-		_, err := w.Installer.InstallFromDirectory(ctx, payload.Path)
-		return err
+		result, err := installer.InstallFromDirectory(ctx, payload.Path)
+		if err != nil {
+			return err
+		}
+		return reporter.Complete(ctx, result)
 	default:
 		return fmt.Errorf("unsupported package install source %q", payload.Source)
 	}

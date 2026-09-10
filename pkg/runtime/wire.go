@@ -238,6 +238,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if globalLocal != nil {
 		termProviders = append(termProviders, globalLocal)
 	}
+	if b.remoteTerminologyURL != "" {
+		remote, err := terminology.NewRemoteProvider(terminology.RemoteConfig{
+			BaseURL:  b.remoteTerminologyURL,
+			CacheTTL: 5 * time.Minute,
+		})
+		if err != nil {
+			return fmt.Errorf("runtime: remote terminology: %w", err)
+		}
+		termProviders = append(termProviders, remote)
+	}
 	if len(termProviders) > 0 {
 		state.services.TerminologyService = terminology.Chain{Providers: termProviders}
 	}
@@ -470,9 +480,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			},
 			EnableTypes: true,
 		}
-		packageWorker := &packages.InstallWorker{Installer: packageInstaller}
+		packageWorker := &packages.InstallWorker{Installer: packageInstaller, Store: pc.jobStore}
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
+		}
+		moduleWorker := &modules.InstallWorker{Manager: modManager, Store: pc.jobStore}
+		if err := runner.Register(jobs.TypeModuleInstall, jobs.HandlerFunc(moduleWorker.HandleJob)); err != nil {
+			return fmt.Errorf("runtime: register module install handler: %w", err)
 		}
 		state.jobRunner = runner
 	}
@@ -499,6 +513,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 	packageService := hahttp.CorePackageInstallService{
+		JobStore: pc.jobStore,
+	}
+	moduleService := hahttp.CoreModuleInstallService{
+		JobStore: pc.jobStore,
+	}
+	jobStatusService := hahttp.CoreJobStatusService{
 		JobStore: pc.jobStore,
 	}
 	conformanceRefresher := NewConformanceRefresher(conformanceRuntime, func() {
@@ -543,6 +563,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		FHIR:  handler,
 		Admin: hahttp.NewAdminHandler(hahttp.AdminConfig{
 			PackageInstallService: packageService,
+			ModuleInstallService:  moduleService,
+			JobStatusService:      jobStatusService,
 			ConformanceRefresher:  conformanceRefresher,
 		}),
 	}

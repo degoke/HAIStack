@@ -100,8 +100,13 @@ Tenant ValueSets compose against global CodeSystem projections via
 `LayeredStore` and `Chain` precedence:
 
 ```text
-tenant LocalService → global LocalService → (optional remote provider)
+tenant LocalService → global LocalService → RemoteProvider (optional)
 ```
+
+Configure a remote terminology server at runtime with
+`runtime.Builder.WithRemoteTerminology("https://tx.fhir.org/r4")`. The remote
+provider supports FHIR R4 `$lookup`, `$expand`, and `$validate-code` with
+in-memory caching, request throttling, and a simple circuit breaker.
 
 Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
 `RegistryInstallStore`).
@@ -128,4 +133,6 @@ HTTP terminology operations are exposed when `TerminologyService` is wired:
 Admin routes (when mounted on the root handler):
 
 - `POST /admin/packages/install`
+- `POST /admin/modules/install`
+- `GET /admin/jobs/{id}`
 - `POST /admin/conformance/refresh`

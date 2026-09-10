@@ -936,6 +936,33 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestAdminJobStatusHTTP(t *testing.T) {
+	handler := hahttp.NewAdminHandler(hahttp.AdminConfig{
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "registry.package_install", Status: store.JobStatusCompleted,
+				Payload: []byte(`{"source":"registry","progress":{"current":3,"total":3,"phase":"install"}}`),
+			}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/admin/jobs/job-1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "completed") {
+		t.Fatalf("expected completed status, got %s", rec.Body.String())
+	}
+}
+
+type fakeJobStore struct {
+	job store.JobRecord
+}
+
+func (f *fakeJobStore) Enqueue(context.Context, store.JobRecord) error { return nil }
+func (f *fakeJobStore) ClaimNext(context.Context, string) (*store.JobRecord, error) { return nil, nil }
+func (f *fakeJobStore) Update(context.Context, store.JobRecord) error { return nil }
+func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error) { return &f.job, nil }
+
 func TestCodeSystemLookupHTTP(t *testing.T) {
 	ctx := context.Background()
 	m := terminology.NewMemoryStore()

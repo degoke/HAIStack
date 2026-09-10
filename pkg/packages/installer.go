@@ -18,6 +18,9 @@ import (
 
 const defaultRegistryBase = "https://packages.fhir.org"
 
+// ProgressFunc reports install progress for long-running package installs.
+type ProgressFunc func(current, total int, message string)
+
 // Installer ingests FHIR NPM packages into the registry catalog.
 type Installer struct {
 	Registry     *registry.Manager
@@ -26,6 +29,7 @@ type Installer struct {
 	HTTPClient   *http.Client
 	TempDir      string
 	EnableTypes  bool
+	OnProgress   ProgressFunc
 }
 
 // InstallResult summarizes a package install.
@@ -125,10 +129,14 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 		ExtractedTo: sourceDir,
 	}
 	enabled := make(map[string]struct{})
-	for _, raw := range definitions {
+	total := len(definitions)
+	for idx, raw := range definitions {
 		parsed, _, err := registry.ParseDefinition(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse definition: %w", err)
+		}
+		if i.OnProgress != nil {
+			i.OnProgress(idx+1, total, parsed.CanonicalURL)
 		}
 		if err := i.Registry.InstallDefinition(ctx, raw, provenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)

@@ -3,6 +3,7 @@ package runtime
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
@@ -41,6 +42,8 @@ type Builder struct {
 
 	modulePaths []string
 	httpAddr    string
+
+	remoteTerminologyURL string
 }
 
 // New returns a new runtime builder.
@@ -65,6 +68,13 @@ func (b *Builder) WithSQLiteTenant(tenantID string) *Builder {
 // It defaults to "default".
 func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
 	b.sqliteTerminologyScope = scope
+	return b
+}
+
+// WithRemoteTerminology configures an optional remote FHIR terminology server
+// (for example https://tx.fhir.org/r4) as the final provider in the chain.
+func (b *Builder) WithRemoteTerminology(baseURL string) *Builder {
+	b.remoteTerminologyURL = strings.TrimSpace(baseURL)
 	return b
 }
 
