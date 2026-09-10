@@ -825,10 +825,10 @@ func TestCheckEnvelopeScopeFilters_ObservationCategory(t *testing.T) {
 	}
 	lab := observationEnvelope("obs-lab", "laboratory")
 	vital := observationEnvelope("obs-vital", "vital-signs")
-	if err := smart.CheckEnvelopeScopeFilters(scopes, smart.ActorPatient, "Observation", smart.OpRead, lab); err != nil {
+	if err := smart.CheckEnvelopeScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", smart.OpRead, lab); err != nil {
 		t.Fatalf("lab: %v", err)
 	}
-	if err := smart.CheckEnvelopeScopeFilters(scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
+	if err := smart.CheckEnvelopeScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
 		t.Fatal("expected vital-signs observation to be denied")
 	}
 }
@@ -839,14 +839,14 @@ func TestAllowsResourceWithFiltersReadOrSearch_ReadOnlyInclude(t *testing.T) {
 		t.Fatal(err)
 	}
 	lab := observationEnvelope("obs-lab", "laboratory")
-	if !smart.AllowsResourceWithFiltersReadOrSearch(scopes, smart.ActorPatient, "Observation", lab) {
+	if !smart.AllowsResourceWithFiltersReadOrSearch(context.Background(), scopes, smart.ActorPatient, "Observation", lab) {
 		t.Fatal("read-only scope should allow included observation")
 	}
 	bundle := search.AssembleBundle(&search.Result{
 		ResourceType: "Observation",
 		Resources:    []*types.ResourceEnvelope{lab},
 	})
-	if err := smart.FilterSearchBundleScopeFilters(scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+	if err := smart.FilterSearchBundleScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", bundle); err != nil {
 		t.Fatal(err)
 	}
 	if len(bundle.Entries) != 1 {

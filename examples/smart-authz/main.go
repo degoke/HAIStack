@@ -57,7 +57,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	smart.InstallRegistryScopeFilterMatcher(stack.SearchRegistry, stack.FHIRPath)
+	scopeMatcher := smart.RegistryScopeFilterMatcherChain(stack.SearchRegistry, stack.FHIRPath)
 
 	searchAdapter := hahttp.SearchServiceAdapter{
 		Svc:                        stack.SearchService,
@@ -74,6 +74,7 @@ func run() error {
 		SearchService:            searchAdapter,
 		CapabilitySource:         hahttp.RegistryCapabilitySource{Snapshot: stack.Snapshot},
 		PatientReferenceResolver: patientRefResolver,
+		ScopeFilterMatcher:       scopeMatcher,
 		PrincipalResolver:        principalResolver(bundles),
 		AuthBundleResolver:       authBundleResolver(bundles),
 		AuthChecker: smart.ScopePolicyAuthChecker{

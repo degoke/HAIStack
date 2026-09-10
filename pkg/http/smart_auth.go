@@ -87,8 +87,10 @@ func mapAuthResolverError(err error) error {
 	if err == nil {
 		return errUnauthenticated
 	}
-	if errors.Is(err, smart.ErrUnauthorized) ||
-		errors.Is(err, smart.ErrTokenExpired) ||
+	if errors.Is(err, smart.ErrUnauthorized) {
+		return errUnauthenticated
+	}
+	if errors.Is(err, smart.ErrTokenExpired) ||
 		errors.Is(err, smart.ErrTokenNotYetValid) ||
 		errors.Is(err, smart.ErrReplay) ||
 		errors.Is(err, smart.ErrInvalidToken) ||

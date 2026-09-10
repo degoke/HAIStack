@@ -37,13 +37,13 @@ func (h *handler) enforceScopeFiltersOnEnvelope(ctx context.Context, resourceTyp
 	if !ok {
 		return nil
 	}
-	return smart.CheckEnvelopeScopeFilters(scopes, actor, resourceType, op, envelope)
+	return smart.CheckEnvelopeScopeFilters(ctx, scopes, actor, resourceType, op, envelope)
 }
 
 func (h *handler) filterSearchBundleScopeFilters(ctx context.Context, resourceType string, bundle *search.SearchBundle) error {
 	scopes, actor, ok := h.scopeBundleFromContext(ctx)
 	if ok {
-		if err := smart.FilterSearchBundleScopeFilters(scopes, actor, resourceType, bundle); err != nil {
+		if err := smart.FilterSearchBundleScopeFilters(ctx, scopes, actor, resourceType, bundle); err != nil {
 			return err
 		}
 	}
@@ -110,7 +110,7 @@ func (h *handler) filterHistoryVersions(ctx context.Context, resourceType string
 			}
 			return nil, err
 		}
-		if err := smart.CheckEnvelopeScopeFilters(scopes, actor, resourceType, smart.OpRead, version.Resource); err != nil {
+		if err := smart.CheckEnvelopeScopeFilters(ctx, scopes, actor, resourceType, smart.OpRead, version.Resource); err != nil {
 			if errors.Is(err, smart.ErrScopeFilterDenied) {
 				continue
 			}

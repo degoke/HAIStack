@@ -51,8 +51,8 @@ handler, _ := hahttp.NewHandler(hahttp.Config{
     PrincipalResolver:  hahttp.SMARTBearerPrincipalResolver(bearer),
     AuthBundleResolver: hahttp.SMARTBearerBundleResolver(bearer),
     AuthChecker: smart.ScopePolicyAuthChecker{Engine: eng, Adapter: adapter, BundleFor: ...},
+    ScopeFilterMatcher: smart.RegistryScopeFilterMatcherChain(searchRegistry, fhirpathEngine),
 })
-smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)
 ```
 
 Serve SMART metadata from the OAuth server or separately:
@@ -79,9 +79,7 @@ authz tests via `smart.StableAuthDiagnostics`. Scenario catalog: `pkg/testkit/au
 Registry-backed evaluators use compiled SearchParameter FHIRPath expressions (same
 pipeline as `pkg/search` indexing):
 
-```go
-smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)
-```
+Per-handler matchers are preferred over `smart.InstallRegistryScopeFilterMatcher` (global).
 
 Unregistered parameters fall back to the built-in MVP matcher (`Observation.category`
 coding walk; other params use top-level string fields).
@@ -104,3 +102,4 @@ and `pkg/oauth` authorization-server tests.
 - `pkg/smart/README.md` — scope formats and v1→v2 mapping
 - `pkg/auth/README.md` — policy DSL
 - `examples/smart-authz` — runnable restricted vs unrestricted principals
+- `examples/smart-oauth` — built-in OAuth server + FHIR read with consent and file-backed tokens

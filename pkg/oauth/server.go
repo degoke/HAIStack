@@ -17,16 +17,24 @@ type Config struct {
 	FHIRAudience    string
 	SigningKey      *KeySet
 	Clients         *ClientStore
+	AuthorizationStore AuthorizationStore
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	AuthCodeTTL     time.Duration
 	Now             func() time.Time
+	// ConsentHandler approves authorization requests. When nil and AutoApprove is false,
+	// the authorize endpoint rejects requests.
+	ConsentHandler ConsentHandler
+	// AutoApprove issues authorization codes without consent review. Use only in tests.
+	AutoApprove bool
+	// RequireConsentForm redirects to a built-in HTML consent page before issuing codes.
+	RequireConsentForm bool
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.
 type Server struct {
 	cfg         Config
-	tokens      *TokenStore
+	authStore   AuthorizationStore
 	replayStore smart.ReplayStore
 	backendAuth *smart.BackendServiceAuth
 }
@@ -62,6 +70,11 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.FHIRAudience == "" {
 		cfg.FHIRAudience = cfg.Issuer
 	}
+	if cfg.AuthorizationStore == nil {
+		store := NewMemoryAuthorizationStore()
+		store.Now = cfg.Now
+		cfg.AuthorizationStore = store
+	}
 	backendAuth, err := smart.NewBackendServiceAuthWithStores(
 		cfg.Issuer+"/oauth/token",
 		clientStoreBridge{store: cfg.Clients},
@@ -72,7 +85,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	return &Server{
 		cfg:         cfg,
-		tokens:      NewTokenStore(),
+		authStore:   cfg.AuthorizationStore,
 		replayStore: backendAuth.Replay,
 		backendAuth: backendAuth,
 	}, nil
@@ -152,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/oauth/token", s.handleToken)
 	mux.HandleFunc("/oauth/jwks", s.handleJWKS)
 	mux.HandleFunc("/oauth/register", s.handleRegister)
+	mux.HandleFunc("/oauth/consent", s.handleConsent)
 	return mux
 }
 

@@ -21,6 +21,9 @@ func mapError(err error) (int, *types.OperationOutcome) {
 		return http.StatusInternalServerError, core.OperationOutcomeFromError(errors.New("unknown error"))
 	}
 
+	if errors.Is(err, smart.ErrScopeFilterDenied) {
+		return http.StatusForbidden, deniedOutcome("resource outside granted scope filters")
+	}
 	if errors.Is(err, auth.ErrDenied) {
 		return http.StatusForbidden, deniedOutcome(err.Error())
 	}

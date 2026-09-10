@@ -29,7 +29,7 @@ func TestOAuthServer_DiscoveryAndPKCEFlow(t *testing.T) {
 	defer httpServer.Close()
 
 	base := strings.TrimSuffix(httpServer.URL, "/")
-	server, err := oauth.NewServer(oauth.Config{Issuer: base, FHIRAudience: base})
+	server, err := oauth.NewServer(oauth.Config{Issuer: base, FHIRAudience: base, AutoApprove: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,7 @@ func TestOAuthServer_ClientCredentialsAssertion(t *testing.T) {
 		Issuer:       base,
 		FHIRAudience: base,
 		Now:          func() time.Time { return now },
+		AutoApprove:  true,
 	})
 	if err != nil {
 		t.Fatal(err)

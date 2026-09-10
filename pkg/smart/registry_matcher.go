@@ -27,10 +27,15 @@ func (m *RegistryScopeFilterMatcher) Match(ctx context.Context, resourceType str
 	return search.MatchResourceParameter(ctx, m.registry, m.engine, resourceType, resource, param, want)
 }
 
-// InstallRegistryScopeFilterMatcher registers a registry-backed matcher ahead of the MVP matcher.
-func InstallRegistryScopeFilterMatcher(registry search.Registry, engine fhirpath.Engine) {
-	SetScopeFilterMatcher(ChainedScopeFilterMatcher{
+// RegistryScopeFilterMatcherChain returns a registry-backed matcher ahead of the MVP matcher.
+func RegistryScopeFilterMatcherChain(registry search.Registry, engine fhirpath.Engine) ScopeFilterMatcher {
+	return ChainedScopeFilterMatcher{
 		NewRegistryScopeFilterMatcher(registry, engine),
 		MVPScopeFilterMatcher(),
-	})
+	}
+}
+
+// InstallRegistryScopeFilterMatcher registers a registry-backed matcher ahead of the MVP matcher.
+func InstallRegistryScopeFilterMatcher(registry search.Registry, engine fhirpath.Engine) {
+	SetScopeFilterMatcher(RegistryScopeFilterMatcherChain(registry, engine))
 }

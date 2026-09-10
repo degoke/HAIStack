@@ -63,7 +63,7 @@ func TestHTTPAuthz_ScopeFilterReadDenied(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	outcome := decodeOutcome(t, rec.Body.Bytes())
-	golden.AssertOutcomeCode(t, outcome, "forbidden")
+	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["forbidden_scope_filter"])
 }
 
 func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
@@ -244,7 +244,36 @@ func TestHTTPAuthz_BackendAssertionReplayRejected(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	outcome := decodeOutcome(t, rec.Body.Bytes())
-	golden.AssertOutcomeCode(t, outcome, "security")
+	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["security_replay"])
+}
+
+func TestHTTPAuthz_BearerTokenNotYetValid(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	bearer := smartBearerConfig(now)
+	token := unsignedJWT(map[string]any{
+		"iss": "https://issuer.example", "sub": "user-1", "aud": "https://aud.example",
+		"nbf": now.Add(time.Hour).Unix(), "exp": now.Add(2 * time.Hour).Unix(),
+		"scope": "patient/Observation.rs",
+	})
+	handler := newBearerAuthHandler(t, bearer, &fakeResourceService{}, nil, nil)
+	rec := doRequestWithHeaders(t, handler, http.MethodGet, "/fhir/Observation/obs-1", nil, map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	outcome := decodeOutcome(t, rec.Body.Bytes())
+	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["security_token_not_yet_valid"])
+}
+
+func TestHTTPAuthz_UnauthenticatedGolden(t *testing.T) {
+	handler := newBearerAuthHandler(t, smartBearerConfig(time.Now()), &fakeResourceService{}, nil, nil)
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	outcome := decodeOutcome(t, rec.Body.Bytes())
+	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["security_unauthenticated"])
 }
 
 func TestHTTPAuthz_WriteDeniedForOutOfFilterObservation(t *testing.T) {

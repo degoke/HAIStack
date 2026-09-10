@@ -99,11 +99,15 @@ Scope filters are enforced on search (query intersection), read/history (resourc
 check), and bundle post-filtering. Underlying `pkg/auth` policy may still narrow
 apparently valid scopes.
 
-**Filter matching:** Install registry-backed evaluators with
-`smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)`.
+**Filter matching:** Prefer per-handler wiring via `hahttp.Config.ScopeFilterMatcher`:
+
+```go
+ScopeFilterMatcher: smart.RegistryScopeFilterMatcherChain(searchRegistry, fhirpathEngine),
+```
+
+`smart.InstallRegistryScopeFilterMatcher` remains available for process-wide defaults.
 Registered SearchParameters use FHIRPath extraction and search index normalization.
-Unregistered parameters fall back to the MVP matcher (`Observation.category` codings;
-other params use top-level string fields).
+Unregistered parameters fall back to the MVP matcher.
 
 Also parsed as metadata: `launch`, `launch/patient`, `launch/encounter`, and
 specialty tokens such as `openid`, `fhirUser`, `offline_access`.

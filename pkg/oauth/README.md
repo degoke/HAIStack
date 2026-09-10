@@ -33,3 +33,13 @@ bearer := server.BearerAuthConfig(adapter)
 
 Wire `hahttp.SMARTBearerPrincipalResolver(bearer)` on the FHIR handler to validate
 access tokens issued by this server.
+
+## Production notes
+
+- Register explicit `RedirectURIs` for every client (empty lists are rejected).
+- Set `ConsentHandler` or `RequireConsentForm`; use `AutoApprove` only in tests.
+- Use `AuthorizationStore: oauth.NewFileAuthorizationStore(path)` for durable codes/tokens.
+- Confidential clients must send `client_secret` on token exchange (basic auth or form field).
+- Public clients must use PKCE (`code_challenge` / `code_verifier`).
+
+See `examples/smart-oauth` for a combined OAuth + FHIR demo with consent and file-backed tokens.

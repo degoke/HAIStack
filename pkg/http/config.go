@@ -84,6 +84,10 @@ type Config struct {
 	// granular scope filter enforcement. Optional when hosts do not use SMART 2.2 filters.
 	AuthBundleResolver AuthBundleResolver
 
+	// ScopeFilterMatcher evaluates SMART 2.2 scope filters for this handler. When nil,
+	// the package default from smart.SetScopeFilterMatcher is used.
+	ScopeFilterMatcher smart.ScopeFilterMatcher
+
 	// PatientReferenceResolver resolves patient ownership for loaded resources when
 	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.
 	PatientReferenceResolver auth.ResourcePatientResolver
@@ -116,6 +120,9 @@ func NewHandler(cfg Config) (http.Handler, error) {
 
 	h := &handler{cfg: cfg}
 	var handler http.Handler = h
+	if cfg.ScopeFilterMatcher != nil {
+		handler = withScopeFilterMatcher(handler, cfg.ScopeFilterMatcher)
+	}
 	if cfg.AuthMiddleware != nil {
 		handler = cfg.AuthMiddleware(handler)
 	} else if cfg.PrincipalResolver != nil && cfg.AuthChecker != nil {

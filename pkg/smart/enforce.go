@@ -46,11 +46,11 @@ func ApplyScopeFiltersToParams(scopes ScopeSet, actor ActorClass, resourceType s
 }
 
 // CheckEnvelopeScopeFilters enforces SMART 2.2 scope filters for a loaded resource.
-func CheckEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, resourceType string, op AccessOp, resource *types.ResourceEnvelope) error {
+func CheckEnvelopeScopeFilters(ctx context.Context, scopes ScopeSet, actor ActorClass, resourceType string, op AccessOp, resource *types.ResourceEnvelope) error {
 	if scopes.Empty() || resource == nil {
 		return nil
 	}
-	if scopes.AllowsResourceWithFilters(actor, resourceType, op, resource) {
+	if scopes.AllowsResourceWithFilters(ctx, actor, resourceType, op, resource) {
 		return nil
 	}
 	return ErrScopeFilterDenied
@@ -58,7 +58,7 @@ func CheckEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, resourceType s
 
 // FilterSearchBundleScopeFilters removes bundle entries outside granted scope filters.
 // Included and revincluded entries accept either read (r) or search (s) scope letters.
-func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceType string, bundle *search.SearchBundle) error {
+func FilterSearchBundleScopeFilters(ctx context.Context, scopes ScopeSet, actor ActorClass, resourceType string, bundle *search.SearchBundle) error {
 	if bundle == nil || scopes.Empty() {
 		return nil
 	}
@@ -71,7 +71,7 @@ func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceT
 		if resType == "" {
 			resType = resourceType
 		}
-		if !AllowsResourceWithFiltersReadOrSearch(scopes, actor, resType, entry.Resource) {
+		if !AllowsResourceWithFiltersReadOrSearch(ctx, scopes, actor, resType, entry.Resource) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -86,14 +86,14 @@ func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceT
 }
 
 // AllowsResourceWithFiltersReadOrSearch reports whether read or search scope authorizes a bundle entry.
-func AllowsResourceWithFiltersReadOrSearch(scopes ScopeSet, actor ActorClass, resourceType string, resource *types.ResourceEnvelope) bool {
-	return scopes.AllowsResourceWithFilters(actor, resourceType, OpRead, resource) ||
-		scopes.AllowsResourceWithFilters(actor, resourceType, OpSearch, resource)
+func AllowsResourceWithFiltersReadOrSearch(ctx context.Context, scopes ScopeSet, actor ActorClass, resourceType string, resource *types.ResourceEnvelope) bool {
+	return scopes.AllowsResourceWithFilters(ctx, actor, resourceType, OpRead, resource) ||
+		scopes.AllowsResourceWithFilters(ctx, actor, resourceType, OpSearch, resource)
 }
 
 // AllowsResourceWithFilters reports whether any granted scope authorizes the resource
 // and, when present, scope filters match the resource payload.
-func (s ScopeSet) AllowsResourceWithFilters(actor ActorClass, resourceType string, op AccessOp, resource *types.ResourceEnvelope) bool {
+func (s ScopeSet) AllowsResourceWithFilters(ctx context.Context, actor ActorClass, resourceType string, op AccessOp, resource *types.ResourceEnvelope) bool {
 	scopes := s.ScopesAllowingOp(actor, resourceType, op)
 	if len(scopes) == 0 {
 		return false
@@ -102,7 +102,7 @@ func (s ScopeSet) AllowsResourceWithFilters(actor ActorClass, resourceType strin
 		if len(sc.Filters) == 0 {
 			return true
 		}
-		if resourceMatchesScopeFilters(resourceType, resource, sc.Filters) {
+		if resourceMatchesScopeFilters(ctx, resourceType, resource, sc.Filters) {
 			return true
 		}
 	}
@@ -114,12 +114,12 @@ func ActorForPrincipal(kind auth.PrincipalKind, scopes ScopeSet) ActorClass {
 	return actorForKind(kind, scopes)
 }
 
-func resourceMatchesScopeFilters(resourceType string, resource *types.ResourceEnvelope, filters url.Values) bool {
+func resourceMatchesScopeFilters(ctx context.Context, resourceType string, resource *types.ResourceEnvelope, filters url.Values) bool {
 	if len(filters) == 0 {
 		return true
 	}
 	for param, wantVals := range filters {
-		if !resourceMatchesSearchParam(resourceType, resource, param, wantVals) {
+		if !resourceMatchesSearchParam(ctx, resourceType, resource, param, wantVals) {
 			return false
 		}
 	}
@@ -127,12 +127,12 @@ func resourceMatchesScopeFilters(resourceType string, resource *types.ResourceEn
 }
 
 // resourceMatchesSearchParam delegates to the configured ScopeFilterMatcher chain.
-func resourceMatchesSearchParam(resourceType string, resource *types.ResourceEnvelope, param string, want []string) bool {
-	matcher := scopeFilterMatcher
+func resourceMatchesSearchParam(ctx context.Context, resourceType string, resource *types.ResourceEnvelope, param string, want []string) bool {
+	matcher := ScopeFilterMatcherFromContext(ctx)
 	if matcher == nil {
 		matcher = mvpScopeFilterMatcher{}
 	}
-	matched, known := matcher.Match(context.Background(), resourceType, resource, param, want)
+	matched, known := matcher.Match(ctx, resourceType, resource, param, want)
 	if known {
 		return matched
 	}
@@ -213,7 +213,7 @@ func FilterBundleEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, default
 	if err != nil {
 		return nil, err
 	}
-	if err := FilterSearchBundleScopeFilters(scopes, actor, defaultResourceType, bundle); err != nil {
+	if err := FilterSearchBundleScopeFilters(context.Background(), scopes, actor, defaultResourceType, bundle); err != nil {
 		return nil, err
 	}
 	return searchBundleToBundleEnvelope(bundle, envelope, codec)

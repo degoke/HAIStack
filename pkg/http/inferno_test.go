@@ -6,29 +6,30 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/client"
+	"github.com/degoke/health-ai-stack/pkg/core"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
-// Inferno-style SMART on FHIR smoke: discovery, PKCE auth-code flow, and FHIR read with issued token.
-func TestInfernoStyleSMARTConformance(t *testing.T) {
-	ctx := context.Background()
-	_, svc := openIntegrationStack(t)
-	patient := patientEnvelope("inferno-pat", "Patient")
-	created, err := svc.Create(ctx, patient)
-	if err != nil {
-		t.Fatal(err)
-	}
+type infernoEnv struct {
+	issuer  string
+	fhirURL string
+	svc     *core.ResourceService
+}
 
+func setupInfernoEnv(t *testing.T) *infernoEnv {
+	t.Helper()
+	_, svc := openIntegrationStack(t)
 	mux := http.NewServeMux()
 	as := httptest.NewServer(mux)
-	defer as.Close()
+	t.Cleanup(as.Close)
 	issuer := strings.TrimSuffix(as.URL, "/")
 
-	oauthServer, err := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: issuer})
+	oauthServer, err := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: issuer, AutoApprove: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +65,17 @@ func TestInfernoStyleSMARTConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	fhirServer := httptest.NewServer(secured)
-	defer fhirServer.Close()
+	t.Cleanup(fhirServer.Close)
+	return &infernoEnv{issuer: issuer, fhirURL: fhirServer.URL, svc: svc}
+}
 
-	httpClient, err := client.New(client.Config{BaseURL: issuer})
+func (e *infernoEnv) authorizePKCE(t *testing.T, ctx context.Context, scope string) *client.TokenResponse {
+	t.Helper()
+	httpClient, err := client.New(client.Config{BaseURL: e.issuer})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := httpClient.SMART().Discover(ctx, issuer)
+	cfg, err := httpClient.SMART().Discover(ctx, e.issuer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +84,8 @@ func TestInfernoStyleSMARTConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	authURL, err := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
-		Config:      cfg,
-		ClientID:    "inferno-client",
-		RedirectURI: "https://localhost/callback",
-		Scope:       "patient/Patient.rs",
-		State:       "inferno",
-		PKCE:        pkce,
+		Config: cfg, ClientID: "inferno-client", RedirectURI: "https://localhost/callback",
+		Scope: scope, State: "inferno", PKCE: pkce,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,10 +107,20 @@ func TestInfernoStyleSMARTConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return tokenResp
+}
 
+func TestInfernoStyleSMARTConformance(t *testing.T) {
+	env := setupInfernoEnv(t)
+	ctx := context.Background()
+	patient := patientEnvelope("inferno-pat", "Patient")
+	created, err := env.svc.Create(ctx, patient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenResp := env.authorizePKCE(t, ctx, "patient/Patient.rs")
 	fhirClient, err := client.New(client.Config{
-		BaseURL:       fhirServer.URL,
-		TokenProvider: client.TokenProviderFromResponse(tokenResp),
+		BaseURL: env.fhirURL, TokenProvider: client.TokenProviderFromResponse(tokenResp),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +129,107 @@ func TestInfernoStyleSMARTConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if envelope == nil || envelope.ID != created.ID {
+	if envelope.ID != created.ID {
 		t.Fatalf("patient = %+v", envelope)
+	}
+}
+
+func TestInfernoStyleTokenRefresh(t *testing.T) {
+	env := setupInfernoEnv(t)
+	ctx := context.Background()
+	tokenResp := env.authorizePKCE(t, ctx, "patient/Patient.rs")
+	if tokenResp.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+	httpClient, err := client.New(client.Config{BaseURL: env.issuer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := httpClient.SMART().RefreshToken(ctx, env.issuer+"/oauth/token", "inferno-client", tokenResp.RefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.AccessToken == "" {
+		t.Fatal("missing refreshed access token")
+	}
+}
+
+func TestInfernoStyleInvalidTokenRejected(t *testing.T) {
+	env := setupInfernoEnv(t)
+	ctx := context.Background()
+	fhirClient, err := client.New(client.Config{
+		BaseURL: env.fhirURL, TokenProvider: client.StaticTokenProvider{Token: "not-a-valid-token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fhirClient.Read(ctx, "Patient", "missing")
+	if err == nil {
+		t.Fatal("expected unauthorized read")
+	}
+}
+
+func TestInfernoStyleRedirectURIRejected(t *testing.T) {
+	env := setupInfernoEnv(t)
+	ctx := context.Background()
+	httpClient, err := client.New(client.Config{BaseURL: env.issuer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := httpClient.SMART().Discover(ctx, env.issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkce, _ := client.NewPKCEChallenge()
+	authURL, err := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
+		Config: cfg, ClientID: "inferno-client", RedirectURI: "https://evil.example/callback",
+		Scope: "patient/Patient.rs", PKCE: pkce,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authResp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = authResp.Body.Close()
+	if authResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("authorize status = %d", authResp.StatusCode)
+	}
+}
+
+func TestInfernoStyleConsentRequiredWithoutAutoApprove(t *testing.T) {
+	mux := http.NewServeMux()
+	as := httptest.NewServer(mux)
+	defer as.Close()
+	issuer := strings.TrimSuffix(as.URL, "/")
+	server, err := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: issuer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.RegisterClient(oauth.Client{
+		ClientID: "inferno-client", RedirectURIs: []string{"https://localhost/callback"},
+		Scopes: []string{"patient/Patient.rs"},
+	})
+	mux.Handle("/", server.Handler())
+	httpClient, _ := client.New(client.Config{BaseURL: issuer})
+	cfg, _ := httpClient.SMART().Discover(context.Background(), issuer)
+	pkce, _ := client.NewPKCEChallenge()
+	authURL, _ := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
+		Config: cfg, ClientID: "inferno-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", PKCE: pkce,
+	})
+	resp, err := (&http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}).Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected consent required, status=%d", resp.StatusCode)
 	}
 }

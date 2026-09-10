@@ -638,7 +638,7 @@ func AllScenarios() []Scenario {
 					return err
 				}
 				vital := observationEnvelope("obs-vital", "vital-signs")
-				if err := smart.CheckEnvelopeScopeFilters(scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
+				if err := smart.CheckEnvelopeScopeFilters(ctx, scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
 					return errors.New("expected out-of-filter observation to be denied")
 				}
 				return nil
@@ -678,7 +678,7 @@ func AllScenarios() []Scenario {
 						ResourceType: "Observation", ID: vital.ID, Resource: vital, Mode: "include",
 					}},
 				})
-				if err := smart.FilterSearchBundleScopeFilters(scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+				if err := smart.FilterSearchBundleScopeFilters(ctx, scopes, smart.ActorPatient, "Observation", bundle); err != nil {
 					return err
 				}
 				if len(bundle.Entries) != 1 {
