@@ -473,7 +473,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 					Engine: structuremap.Engine{
 						FHIRPath:    engine,
 						Strict:      true,
-						Translator:  conceptmap.Translator{Resolver: &conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions}},
+						Translator: conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
+							&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+							&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
+						}}},
 						Cardinality: &structuremap.StoreCardinalityResolver{Store: pc.definitions},
 					},
 				}),

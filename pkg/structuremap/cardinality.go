@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -51,10 +52,14 @@ func newMapCardinalityResolver(store store.DefinitionStore, m Map) *mapCardinali
 }
 
 func (e Engine) cardinalityForMap(m Map) CardinalityResolver {
-	if base, ok := e.Cardinality.(*StoreCardinalityResolver); ok && base != nil && base.Store != nil {
-		return newMapCardinalityResolver(base.Store, m)
+	base := e.Cardinality
+	if base == nil {
+		base = &StoreCardinalityResolver{Store: registry.EmbeddedDefinitionStore()}
 	}
-	return e.Cardinality
+	if storeResolver, ok := base.(*StoreCardinalityResolver); ok && storeResolver != nil && storeResolver.Store != nil {
+		return newMapCardinalityResolver(storeResolver.Store, m)
+	}
+	return base
 }
 
 func (r *mapCardinalityResolver) IsRepeating(ctx context.Context, fhirPath string) (bool, bool) {
@@ -66,28 +71,58 @@ func (r *mapCardinalityResolver) IsRepeatingFor(ctx context.Context, root map[st
 	if !ok {
 		return false, false
 	}
-	profileURL := profileURLFromResource(root, r.profiles[resourceType])
-	return r.lookup(ctx, profileURL, fhirPath)
+	profileURLs := profileURLsFromResource(root, r.profiles[resourceType])
+	foundRepeating := false
+	for _, profileURL := range profileURLs {
+		repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
+		if err != nil || !resolved {
+			continue
+		}
+		if !repeating {
+			return false, true
+		}
+		foundRepeating = true
+	}
+	if foundRepeating {
+		return true, true
+	}
+	return r.lookup(ctx, "", fhirPath)
 }
 
 func (r *mapCardinalityResolver) lookup(ctx context.Context, profileURL, fhirPath string) (bool, bool) {
+	repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
+	if err != nil || !resolved {
+		return false, false
+	}
+	return repeating, true
+}
+
+func (r *mapCardinalityResolver) lookupResolved(ctx context.Context, profileURL, fhirPath string) (bool, bool, error) {
 	resourceType, elementPath, ok := splitFHIRElementPath(fhirPath)
 	if !ok {
-		return false, false
+		return false, false, nil
 	}
 	if profileURL == "" {
 		profileURL = r.profiles[resourceType]
 	}
 	if profileURL != "" {
-		if max, found, err := r.elementMax(ctx, profileURL, resourceType, elementPath); err == nil && found {
-			return isRepeatingMax(max), true
+		max, found, err := r.elementMax(ctx, profileURL, resourceType, elementPath)
+		if err != nil {
+			return false, false, err
+		}
+		if found {
+			return isRepeatingMax(max), true, nil
 		}
 	}
 	baseCanonical := baseStructureDefinitionURL(resourceType)
-	if max, found, err := r.elementMax(ctx, baseCanonical, resourceType, elementPath); err == nil && found {
-		return isRepeatingMax(max), true
+	max, found, err := r.elementMax(ctx, baseCanonical, resourceType, elementPath)
+	if err != nil {
+		return false, false, err
 	}
-	return false, false
+	if found {
+		return isRepeatingMax(max), true, nil
+	}
+	return false, false, nil
 }
 
 func (r *mapCardinalityResolver) elementMax(ctx context.Context, canonicalURL, resourceType, elementPath string) (string, bool, error) {
@@ -107,10 +142,28 @@ func (r *mapCardinalityResolver) elementMax(ctx context.Context, canonicalURL, r
 
 func (r *mapCardinalityResolver) loadIndex(ctx context.Context, canonicalURL, resourceType string) (map[string]string, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if cached, ok := r.indexes[canonicalURL]; ok {
+		r.mu.Unlock()
 		return cached, nil
 	}
+	r.mu.Unlock()
+
+	index, err := r.buildIndex(ctx, canonicalURL, resourceType)
+	if err != nil {
+		return nil, err
+	}
+
+	r.mu.Lock()
+	if cached, ok := r.indexes[canonicalURL]; ok {
+		r.mu.Unlock()
+		return cached, nil
+	}
+	r.indexes[canonicalURL] = index
+	r.mu.Unlock()
+	return index, nil
+}
+
+func (r *mapCardinalityResolver) buildIndex(ctx context.Context, canonicalURL, resourceType string) (map[string]string, error) {
 	record, err := r.store.Get(ctx, canonicalURL, "")
 	if err != nil || record == nil || len(record.JSONData) == 0 {
 		return nil, fmt.Errorf("StructureDefinition %s not found", canonicalURL)
@@ -119,6 +172,22 @@ func (r *mapCardinalityResolver) loadIndex(ctx context.Context, canonicalURL, re
 	if err := json.Unmarshal(record.JSONData, &sd); err != nil {
 		return nil, fmt.Errorf("parse StructureDefinition %s: %w", canonicalURL, err)
 	}
+	index := elementIndexFromDefinition(sd, resourceType)
+	sdType, _ := sd["type"].(string)
+	if sdType == "" {
+		sdType = resourceType
+	}
+	baseCanonical := baseStructureDefinitionURL(sdType)
+	if canonicalURL != baseCanonical {
+		baseIndex, err := r.loadIndex(ctx, baseCanonical, sdType)
+		if err == nil {
+			index = mergeElementIndexes(baseIndex, index)
+		}
+	}
+	return index, nil
+}
+
+func elementIndexFromDefinition(sd map[string]any, resourceType string) map[string]string {
 	elements := structureDefinitionElements(sd)
 	index := map[string]string{}
 	for _, raw := range elements {
@@ -136,8 +205,21 @@ func (r *mapCardinalityResolver) loadIndex(ctx context.Context, canonicalURL, re
 		max, _ := element["max"].(string)
 		index[path] = max
 	}
-	r.indexes[canonicalURL] = index
-	return index, nil
+	return index
+}
+
+func mergeElementIndexes(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 {
+		return overlay
+	}
+	merged := map[string]string{}
+	for path, max := range base {
+		merged[path] = max
+	}
+	for path, max := range overlay {
+		merged[path] = max
+	}
+	return merged
 }
 
 func targetProfilesFromMap(ctx context.Context, store store.DefinitionStore, m Map) map[string]string {
@@ -181,16 +263,32 @@ func resourceTypeForStructureURL(ctx context.Context, store store.DefinitionStor
 	return parts[len(parts)-1]
 }
 
-func profileURLFromResource(root map[string]any, mapProfileURL string) string {
+func profileURLsFromResource(root map[string]any, mapProfileURL string) []string {
+	var urls []string
 	if meta, ok := root["meta"].(map[string]any); ok {
 		profiles, _ := meta["profile"].([]any)
 		for _, item := range profiles {
-			if url, ok := item.(string); ok && strings.TrimSpace(url) != "" {
-				return strings.TrimSpace(url)
+			if url, ok := item.(string); ok {
+				url = strings.TrimSpace(url)
+				if url != "" {
+					urls = append(urls, url)
+				}
 			}
 		}
 	}
-	return mapProfileURL
+	if mapProfileURL != "" && !containsString(urls, mapProfileURL) {
+		urls = append(urls, mapProfileURL)
+	}
+	return urls
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func baseStructureDefinitionURL(resourceType string) string {

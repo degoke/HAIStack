@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -206,7 +207,110 @@ func testDefinitionStore() memDefinitionStore {
 }
 
 func testEngine() Engine {
-	return Engine{Cardinality: &StoreCardinalityResolver{Store: testDefinitionStore()}}
+	return Engine{Cardinality: &StoreCardinalityResolver{Store: registry.EmbeddedDefinitionStore()}}
+}
+
+func TestCardinalityUsesHL7PatientStructureDefinition(t *testing.T) {
+	resolver := newMapCardinalityResolver(registry.EmbeddedDefinitionStore(), Map{})
+	repeating, ok := resolver.IsRepeating(context.Background(), "Patient.name")
+	if !ok || !repeating {
+		t.Fatalf("expected HL7 Patient.name to repeat, got ok=%v repeating=%v", ok, repeating)
+	}
+	singular, ok := resolver.IsRepeating(context.Background(), "Patient.gender")
+	if !ok || singular {
+		t.Fatalf("expected HL7 Patient.gender to be singular, got ok=%v repeating=%v", ok, singular)
+	}
+}
+
+func TestEngineWithoutCardinalityStoreUsesEmbeddedR4(t *testing.T) {
+	resources, err := Engine{}.Execute(context.Background(), exampleExtractionMap("http://example/map"), ExecuteInput{"src": exampleResponse()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertValidPatientExtraction(t, resources)
+}
+
+func TestMapCardinalityResolverMergesProfileWithBase(t *testing.T) {
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"type":         "Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.code", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/obs-profile",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation": baseSD,
+		"http://example.org/StructureDefinition/obs-profile":  profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	index, err := resolver.loadIndex(context.Background(), "http://example.org/StructureDefinition/obs-profile", "Observation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index["Observation.component"] != "1" {
+		t.Fatalf("expected profile override for component, got %#v", index["Observation.component"])
+	}
+	if index["Observation.code"] != "1" {
+		t.Fatalf("expected merged base path Observation.code, got %#v", index["Observation.code"])
+	}
+}
+
+func TestMapCardinalityResolverPrefersSingularProfile(t *testing.T) {
+	repeatingProfile, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/repeating-profile",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	singularProfile, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/singular-profile",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://example.org/StructureDefinition/repeating-profile": repeatingProfile,
+		"http://example.org/StructureDefinition/singular-profile":  singularProfile,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	obs := map[string]any{
+		"resourceType": "Observation",
+		"meta": map[string]any{
+			"profile": []any{
+				"http://example.org/StructureDefinition/repeating-profile",
+				"http://example.org/StructureDefinition/singular-profile",
+			},
+		},
+	}
+	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.component")
+	if !ok || repeating {
+		t.Fatalf("expected singular profile to win across meta.profile, got ok=%v repeating=%v", ok, repeating)
+	}
 }
 
 type memDefinitionStore struct {

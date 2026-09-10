@@ -116,6 +116,33 @@ func TestTranslatorRejectsUnmappedDisabled(t *testing.T) {
 	}
 }
 
+func TestTranslatorAppliesUnmappedOnlyOnceAcrossGroups(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/status",
+		Group: []Group{
+			{
+				Target: "http://example.org/target-a",
+				Unmapped: &Unmapped{Mode: "provided"},
+			},
+			{
+				Target: "http://example.org/target-b",
+				Unmapped: &Unmapped{Mode: "provided"},
+			},
+		},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	codings, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "missing", "system": "http://example.org/source"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codings) != 1 {
+		t.Fatalf("expected one unmapped coding, got %#v", codings)
+	}
+}
+
 func TestTranslatorUsesUnmappedFixed(t *testing.T) {
 	m := Map{
 		URL: "http://example.org/maps/status",

@@ -35,6 +35,7 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 		return nil, fmt.Errorf("translate source coding is required")
 	}
 	var matches []map[string]any
+	unmappedApplied := false
 	for _, group := range m.Group {
 		if req.TargetSystem != "" && group.Target != "" && group.Target != req.TargetSystem {
 			continue
@@ -58,20 +59,42 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 				matches = append(matches, targetCoding(group, target))
 			}
 		}
-		if !groupMatched {
-			unmapped, err := unmappedCoding(group, req.Source, sourceSystem, sourceCode, sourceDisplay)
+		if !groupMatched && !unmappedApplied {
+			unmapped, err := unmappedCoding(group, sourceSystem, sourceCode, sourceDisplay)
 			if err != nil {
 				return nil, err
 			}
 			if unmapped != nil {
 				matches = append(matches, unmapped)
+				unmappedApplied = true
 			}
 		}
 	}
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("ConceptMap %s has no translation for code %q", req.MapCanonical, sourceCode)
 	}
-	return matches, nil
+	return dedupeCodings(matches), nil
+}
+
+func dedupeCodings(matches []map[string]any) []map[string]any {
+	seen := map[string]struct{}{}
+	out := make([]map[string]any, 0, len(matches))
+	for _, coding := range matches {
+		key := codingKey(coding)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, coding)
+	}
+	return out
+}
+
+func codingKey(coding map[string]any) string {
+	system, _ := coding["system"].(string)
+	code, _ := coding["code"].(string)
+	display, _ := coding["display"].(string)
+	return system + "\x00" + code + "\x00" + display
 }
 
 func targetCoding(group Group, target Target) map[string]any {
@@ -85,7 +108,7 @@ func targetCoding(group Group, target Target) map[string]any {
 	return coding
 }
 
-func unmappedCoding(group Group, source map[string]any, sourceSystem, sourceCode, sourceDisplay string) (map[string]any, error) {
+func unmappedCoding(group Group, sourceSystem, sourceCode, sourceDisplay string) (map[string]any, error) {
 	if group.Unmapped == nil {
 		return nil, nil
 	}
