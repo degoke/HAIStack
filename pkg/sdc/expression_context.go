@@ -35,6 +35,7 @@ func buildExpressionEnvironment(ctx context.Context, q Questionnaire, r Question
 	}
 	if opts.Subject != nil {
 		env.Constants["subject"] = opts.Subject
+		env.Constants["patient"] = opts.Subject
 	}
 	for name, value := range launch {
 		if name != "" && value != nil {
@@ -59,6 +60,7 @@ func buildPopulationExpressionEnvironment(ctx context.Context, q Questionnaire, 
 	env := ExpressionEnvironment{Questionnaire: q, Constants: map[string]any{}}
 	if pc.Subject != nil {
 		env.Constants["subject"] = pc.Subject
+		env.Constants["patient"] = pc.Subject
 		env.Context = pc.Subject
 	}
 	for name, value := range launch {
@@ -88,7 +90,7 @@ func wrapExpressionProvider(ctx context.Context, q Questionnaire, r Questionnair
 		return nil
 	}
 	engine := extractFHIRPathEngine(provider)
-	if engine == nil {
+	if engine == nil && extractFHIRQueryProvider(provider) == nil {
 		return provider
 	}
 	return contextualExpressionProvider{
@@ -103,7 +105,7 @@ func wrapPopulationExpressionProvider(ctx context.Context, q Questionnaire, pc P
 		return nil
 	}
 	engine := extractFHIRPathEngine(provider)
-	if engine == nil {
+	if engine == nil && extractFHIRQueryProvider(provider) == nil {
 		return provider
 	}
 	return contextualExpressionProvider{
@@ -117,14 +119,25 @@ func extractFHIRPathEngine(provider ExpressionProvider) fhirpath.Engine {
 	switch p := provider.(type) {
 	case FHIRPathExpressions:
 		return p.Engine
+	case MultiExpressionProvider:
+		if p.FHIRPath != nil {
+			return extractFHIRPathEngine(p.FHIRPath)
+		}
 	case contextualExpressionProvider:
 		return p.inner
 	default:
 		return nil
 	}
+	return nil
 }
 
 func (p contextualExpressionProvider) Evaluate(ctx context.Context, e Expression, input any) ([]any, error) {
+	if isFHIRQueryExpression(e) {
+		if provider := extractFHIRQueryProvider(p.base); provider != nil {
+			return executeFHIRQueryWithConstants(ctx, provider, e.Expression, p.env.Constants, input)
+		}
+		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, input)
+	}
 	if !strings.EqualFold(e.Language, "text/fhirpath") {
 		return p.base.Evaluate(ctx, e, input)
 	}

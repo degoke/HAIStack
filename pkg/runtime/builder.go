@@ -3,6 +3,7 @@ package runtime
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 
@@ -143,6 +144,14 @@ func (b *Builder) WithRemoteTerminologyTranslateHeader(key, value string) *Build
 func (b *Builder) WithRemoteTerminologyTranslateAuthorize(fn func(*http.Request) error) *Builder {
 	b.remoteTerminologyAuthorize = fn
 	return b
+}
+
+// WithRemoteTerminologyBearerToken sets a Bearer token for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyBearerToken(token string) *Builder {
+	if strings.TrimSpace(token) == "" {
+		return b
+	}
+	return b.WithRemoteTerminologyTranslateHeader("Authorization", "Bearer "+strings.TrimSpace(token))
 }
 
 func (b *Builder) remoteTranslateClient() conceptmap.RemoteHTTPClient {

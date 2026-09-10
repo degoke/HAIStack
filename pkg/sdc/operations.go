@@ -834,6 +834,7 @@ type FieldState struct {
 	Answers             []Answer
 	Options             []AnswerOption
 	Candidates          []any
+	ContextResources    []ContextResourceResult
 	Issues              []Issue
 	Media               []Attachment
 	ItemControl         string
@@ -977,6 +978,11 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 					f.Issues = append(f.Issues, issue)
 				}
 			}
+			contextResults, contextIssues := evaluateContextExpressions(ctx, q, it, r, opts)
+			if len(contextResults) > 0 {
+				f.ContextResources = contextResults
+			}
+			f.Issues = append(f.Issues, contextIssues...)
 			m.Fields = append(m.Fields, f)
 			walk(it.Item)
 		}

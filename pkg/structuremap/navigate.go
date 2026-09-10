@@ -33,8 +33,15 @@ func navigateElement(value any, element string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	next, ok := object[element]
+	next, ok := object[jsonElementName(element)]
 	return next, ok
+}
+
+func jsonElementName(element string) string {
+	if idx := strings.Index(element, ":"); idx >= 0 {
+		return element[:idx]
+	}
+	return element
 }
 
 func flattenValue(value any) []any {
@@ -54,28 +61,29 @@ func assignElementValue(ctx context.Context, root map[string]any, elements []str
 	}
 	cur := root
 	for i, part := range elements {
+		jsonKey := jsonElementName(part)
 		if i == len(elements)-1 {
 			if hasListMode(listModes, "share") || hasListMode(listModes, "collate") {
 				return appendElementPath(ctx, root, cur, elements, value, cardinality)
 			}
 			if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) && !hasListMode(listModes, "single") {
-				return assignRepeatingValue(cur, part, value)
+				return assignRepeatingValue(cur, jsonKey, value)
 			}
-			cur[part] = value
+			cur[jsonKey] = value
 			return nil
 		}
 		if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) && !hasListMode(listModes, "single") {
-			next, err := ensureRepeatingObjectElement(cur, part)
+			next, err := ensureRepeatingObjectElement(cur, jsonKey)
 			if err != nil {
 				return err
 			}
 			cur = next
 			continue
 		}
-		next, ok := objectElement(cur[part])
+		next, ok := objectElement(cur[jsonKey])
 		if !ok {
 			next = map[string]any{}
-			cur[part] = next
+			cur[jsonKey] = next
 		}
 		cur = next
 	}
@@ -140,22 +148,23 @@ func appendElementPath(ctx context.Context, root map[string]any, cur map[string]
 		return fmt.Errorf("target element path is empty")
 	}
 	for i, part := range elements {
+		jsonKey := jsonElementName(part)
 		if i == len(elements)-1 {
-			existing := cur[part]
+			existing := cur[jsonKey]
 			switch typed := existing.(type) {
 			case nil:
-				cur[part] = value
+				cur[jsonKey] = value
 			case []any:
-				cur[part] = append(typed, value)
+				cur[jsonKey] = append(typed, value)
 			default:
-				cur[part] = []any{typed, value}
+				cur[jsonKey] = []any{typed, value}
 			}
 			return nil
 		}
-		next, ok := objectElement(cur[part])
+		next, ok := objectElement(cur[jsonKey])
 		if !ok {
 			if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) {
-				next, err := ensureRepeatingObjectElement(cur, part)
+				next, err := ensureRepeatingObjectElement(cur, jsonKey)
 				if err != nil {
 					return err
 				}
@@ -163,7 +172,7 @@ func appendElementPath(ctx context.Context, root map[string]any, cur map[string]
 				continue
 			}
 			next = map[string]any{}
-			cur[part] = next
+			cur[jsonKey] = next
 		}
 		cur = next
 	}

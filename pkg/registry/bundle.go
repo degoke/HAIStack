@@ -50,7 +50,7 @@ var (
 func bundledDefinitionRecords() [][]byte {
 	bundledDefinitionsOnce.Do(func() {
 		err := forEachEmbeddedDefinitionJSON(embeddedStructureDefinitionsRoot, func(raw []byte) error {
-			bundledDefinitionsRaw = append(bundledDefinitionsRaw, raw)
+			bundledDefinitionsRaw = append(bundledDefinitionsRaw, append([]byte(nil), raw...))
 			return nil
 		})
 		if err != nil {
@@ -58,7 +58,7 @@ func bundledDefinitionRecords() [][]byte {
 			return
 		}
 		bundledDefinitionsErr = forEachEmbeddedDefinitionJSON(embeddedSearchParametersRoot, func(raw []byte) error {
-			bundledDefinitionsRaw = append(bundledDefinitionsRaw, raw)
+			bundledDefinitionsRaw = append(bundledDefinitionsRaw, append([]byte(nil), raw...))
 			return nil
 		})
 	})
@@ -66,4 +66,12 @@ func bundledDefinitionRecords() [][]byte {
 		return nil
 	}
 	return bundledDefinitionsRaw
+}
+
+// WarmBundledDefinitionCache preloads embedded HL7 definition bytes used by SeedBundled.
+func WarmBundledDefinitionCache() error {
+	if bundledDefinitionRecords() == nil {
+		return bundledDefinitionsErr
+	}
+	return nil
 }

@@ -465,24 +465,33 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
+		fhirPath := sdc.FHIRPathExpressions{Engine: engine}
+		exprProvider := sdc.ExpressionProvider(fhirPath)
+		if state.services.SearchService != nil {
+			exprProvider = sdc.ComposeExpressions(
+				fhirPath,
+				sdc.NewSearchFHIRQueryProvider(state.services.SearchService),
+				nil,
+			)
+		}
 		sdcService = hahttp.CoreSDCService{
 			Resources:   state.services.ResourceService,
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
-			Provider:    sdc.FHIRPathExpressions{Engine: engine},
+			Provider:    exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 			Extractor: sdc.QuestionnaireExtractor{
-				Expressions:  sdc.FHIRPathExpressions{Engine: engine},
+				Expressions: exprProvider,
 				StructureMap: structuremap.NewExtractor(structuremap.Config{
 					Resolver: &structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
 					Engine: structuremap.Engine{
 						FHIRPath:    engine,
 						Strict:      true,
-						Translator: b.structureMapTranslator(pc, termScope),
-						Cardinality: &structuremap.StoreCardinalityResolver{Store: pc.definitions},
+						Translator:  b.structureMapTranslator(pc, termScope),
+						Cardinality: &structuremap.StoreCardinalityResolver{Store: registry.DefinitionStoreWithEmbeddedBase(pc.definitions)},
 					},
 				}),
 			},
-			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
+			Elements: sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}
 	packageService := hahttp.CorePackageInstallService{

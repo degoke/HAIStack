@@ -58,7 +58,7 @@ func newMapCardinalityResolver(store store.DefinitionStore, m Map) *mapCardinali
 func (e Engine) cardinalityForMap(m Map) CardinalityResolver {
 	base := e.Cardinality
 	if base == nil {
-		base = &StoreCardinalityResolver{Store: registry.EmbeddedDefinitionStore()}
+		base = &StoreCardinalityResolver{Store: registry.DefinitionStoreWithEmbeddedBase(nil)}
 	}
 	if storeResolver, ok := base.(*StoreCardinalityResolver); ok && storeResolver != nil && storeResolver.Store != nil {
 		return newMapCardinalityResolver(storeResolver.Store, m)
@@ -338,11 +338,39 @@ func choiceJSONKeys(choiceName string, types []string) []string {
 		if typ == "" {
 			continue
 		}
-		runes := []rune(typ)
-		runes[0] = unicode.ToUpper(runes[0])
-		out = append(out, base+string(runes))
+		out = append(out, base+choiceTypeJSONSuffix(typ))
 	}
 	return out
+}
+
+func choiceTypeJSONSuffix(typ string) string {
+	if suffix, ok := choiceTypeJSONSuffixes[typ]; ok {
+		return suffix
+	}
+	runes := []rune(typ)
+	if len(runes) == 0 {
+		return ""
+	}
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+var choiceTypeJSONSuffixes = map[string]string{
+	"uri":            "Uri",
+	"url":            "Url",
+	"uuid":           "Uuid",
+	"oid":            "Oid",
+	"id":             "Id",
+	"dateTime":       "DateTime",
+	"instant":        "Instant",
+	"time":           "Time",
+	"date":           "Date",
+	"positiveInt":    "PositiveInt",
+	"unsignedInt":    "UnsignedInt",
+	"base64Binary":   "Base64Binary",
+	"xhtml":          "Xhtml",
+	"markdown":       "Markdown",
+	"canonical":      "Canonical",
 }
 
 func mergeElementIndexes(base, overlay map[string]string) map[string]string {

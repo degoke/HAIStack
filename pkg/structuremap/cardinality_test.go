@@ -472,6 +472,59 @@ func TestMapCardinalityResolverIndexesSliceNames(t *testing.T) {
 	}
 }
 
+func TestMapCardinalityResolverIndexesURIChoiceType(t *testing.T) {
+	const extensionURL = "http://hl7.org/fhir/StructureDefinition/Extension"
+	sd := map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          extensionURL,
+		"type":         "Extension",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{
+					"path": "Extension.value[x]",
+					"max":  "1",
+					"type": []any{
+						map[string]any{"code": "uri"},
+					},
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(sd)
+	resolver := newMapCardinalityResolver(memDefinitionStore{
+		records: map[string][]byte{extensionURL: raw},
+	}, Map{})
+	singular, ok := resolver.IsRepeating(context.Background(), "Extension.valueUri")
+	if !ok || singular {
+		t.Fatalf("expected Extension.valueUri to be singular, got ok=%v repeating=%v", ok, singular)
+	}
+}
+
+func TestAssignElementValueUsesSliceNameInTargetPath(t *testing.T) {
+	sd := map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Patient",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Patient.identifier", "max": "*"},
+				map[string]any{"path": "Patient.identifier", "sliceName": "usual", "max": "1"},
+			},
+		},
+	}
+	raw, _ := json.Marshal(sd)
+	cardinality := newMapCardinalityResolver(memDefinitionStore{
+		records: map[string][]byte{"http://hl7.org/fhir/StructureDefinition/Patient": raw},
+	}, Map{})
+	patient := map[string]any{"resourceType": "Patient"}
+	if err := assignElementValue(context.Background(), patient, []string{"identifier:usual"}, map[string]any{"system": "urn:oid:1.2.3", "value": "abc"}, nil, cardinality); err != nil {
+		t.Fatal(err)
+	}
+	identifier, ok := patient["identifier"].(map[string]any)
+	if !ok || identifier["value"] != "abc" {
+		t.Fatalf("expected singular identifier assignment, got %#v", patient["identifier"])
+	}
+}
+
 func TestMapCardinalityResolverIndexesChoiceTypes(t *testing.T) {
 	sd := map[string]any{
 		"resourceType": "StructureDefinition",

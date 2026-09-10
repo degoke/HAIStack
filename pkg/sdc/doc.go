@@ -24,9 +24,11 @@
 // modular assembly,
 // renderer-neutral form state, validation diagnostics, and transaction Bundle
 // extraction. FHIRPath is supported through the existing pkg/fhirpath.Engine.
-// CQL, FHIR Query, terminology, and adaptive behavior are explicit adapter
-// contracts; unavailable adapters fail with diagnostics. StructureMap
-// extraction is provided by pkg/structuremap and wired into the default runtime.
+// CQL, FHIR Query, StructureMap, terminology, and adaptive behavior are
+// explicit adapter contracts; unavailable adapters fail with diagnostics.
+// StructureMap extraction is provided by pkg/structuremap and wired into the
+// default runtime. FHIR Query context expressions are evaluated during Render
+// when a SearchFHIRQueryProvider is configured.
 //
 // Extraction returns a transaction Bundle as a *types.ResourceEnvelope. It does
 // not persist or apply that Bundle. Callers may explicitly pass it to
