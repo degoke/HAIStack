@@ -14,6 +14,8 @@ type Config struct {
 	FHIRBaseURL string
 	// TokenTTL sets access token lifetime. Defaults to one hour.
 	TokenTTL time.Duration
+	// RefreshTokenTTL sets refresh token lifetime. Defaults to 30 days.
+	RefreshTokenTTL time.Duration
 	// Signer signs issued JWT access tokens (RS256 or HS256).
 	Signer TokenSigner
 	// Clients is the static client registry. Required.
@@ -21,7 +23,13 @@ type Config struct {
 	// BackendAuth validates client_credentials assertions when configured.
 	BackendAuth *smart.BackendServiceAuth
 	// CodeStore stores authorization codes. Defaults to in-memory.
-	CodeStore *CodeStore
+	CodeStore AuthorizationCodeStore
+	// RefreshStore stores refresh tokens. Defaults to in-memory when nil.
+	RefreshStore RefreshTokenStore
+	// RevocationStore tracks revoked access token JTIs. Defaults to in-memory when nil.
+	RevocationStore TokenRevocationStore
+	// RotateRefreshTokens rotates refresh tokens on each use. Defaults to true.
+	RotateRefreshTokens *bool
 	// AutoApprove enables silent authorization for registered clients (v1 demo default).
 	// When nil, defaults to true.
 	AutoApprove *bool
@@ -35,16 +43,20 @@ type Config struct {
 type Server struct {
 	cfg Config
 
-	clients     *ClientRegistry
-	codes       *CodeStore
-	backendAuth *smart.BackendServiceAuth
-	signer      TokenSigner
-	issuer      string
-	fhirBase    string
-	tokenTTL    time.Duration
-	autoApprove bool
-	scopes      []string
-	now         func() time.Time
+	clients       *ClientRegistry
+	codes         AuthorizationCodeStore
+	refresh       RefreshTokenStore
+	revocation    TokenRevocationStore
+	backendAuth   *smart.BackendServiceAuth
+	signer        TokenSigner
+	issuer        string
+	fhirBase      string
+	tokenTTL      time.Duration
+	refreshTTL    time.Duration
+	rotateRefresh bool
+	autoApprove   bool
+	scopes        []string
+	nowFn         func() time.Time
 }
 
 // NewServer validates config and returns a Server.
@@ -62,21 +74,39 @@ func NewServer(cfg Config) (*Server, error) {
 	if codes == nil {
 		codes = NewCodeStore()
 	}
+	refresh := cfg.RefreshStore
+	if refresh == nil {
+		refresh = NewMemoryRefreshStore()
+	}
+	revocation := cfg.RevocationStore
+	if revocation == nil {
+		revocation = NewMemoryRevocationStore()
+	}
 	nowFn := cfg.Now
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	if codes.Now == nil {
-		codes.Now = nowFn
+	if mem, ok := codes.(*CodeStore); ok && mem.Now == nil {
+		mem.Now = nowFn
+	}
+	if mem, ok := refresh.(*MemoryRefreshStore); ok && mem.Now == nil {
+		mem.Now = nowFn
+	}
+	if mem, ok := revocation.(*MemoryRevocationStore); ok && mem.Now == nil {
+		mem.Now = nowFn
 	}
 	ttl := cfg.TokenTTL
 	if ttl <= 0 {
 		ttl = defaultAccessTokenTTL
 	}
+	refreshTTL := cfg.RefreshTokenTTL
+	if refreshTTL <= 0 {
+		refreshTTL = defaultRefreshTokenTTL
+	}
 	scopes := cfg.ScopesSupported
 	if len(scopes) == 0 {
 		scopes = []string{
-			"openid", "fhirUser", "launch", "launch/patient",
+			"openid", "fhirUser", "offline_access", "launch", "launch/patient",
 			"patient/*.read", "patient/*.write",
 			"user/*.read", "user/*.write",
 			"system/*.read", "system/*.write",
@@ -86,23 +116,31 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.AutoApprove != nil {
 		autoApprove = *cfg.AutoApprove
 	}
+	rotateRefresh := true
+	if cfg.RotateRefreshTokens != nil {
+		rotateRefresh = *cfg.RotateRefreshTokens
+	}
 	return &Server{
-		cfg:         cfg,
-		clients:     cfg.Clients,
-		codes:       codes,
-		backendAuth: cfg.BackendAuth,
-		signer:      cfg.Signer,
-		issuer:      trimSlash(cfg.Issuer),
-		fhirBase:    trimSlash(cfg.FHIRBaseURL),
-		tokenTTL:    ttl,
-		autoApprove: autoApprove,
-		scopes:      scopes,
-		now:         nowFn,
+		cfg:           cfg,
+		clients:       cfg.Clients,
+		codes:         codes,
+		refresh:       refresh,
+		revocation:    revocation,
+		backendAuth:   cfg.BackendAuth,
+		signer:        cfg.Signer,
+		issuer:        trimSlash(cfg.Issuer),
+		fhirBase:      trimSlash(cfg.FHIRBaseURL),
+		tokenTTL:      ttl,
+		refreshTTL:    refreshTTL,
+		rotateRefresh: rotateRefresh,
+		autoApprove:   autoApprove,
+		scopes:        scopes,
+		nowFn:         nowFn,
 	}, nil
 }
 
-func (s *Server) Issuer() string       { return s.issuer }
-func (s *Server) FHIRBaseURL() string  { return s.fhirBase }
+func (s *Server) Issuer() string      { return s.issuer }
+func (s *Server) FHIRBaseURL() string { return s.fhirBase }
 func (s *Server) TokenEndpoint() string {
 	return s.issuer + "/oauth/token"
 }
@@ -116,6 +154,14 @@ func (s *Server) Verifier() smart.SignatureVerifier {
 		return nil
 	}
 	return s.signer.Verifier()
+}
+
+// RevocationStore returns the configured token revocation store.
+func (s *Server) RevocationStore() TokenRevocationStore {
+	if s == nil {
+		return nil
+	}
+	return s.revocation
 }
 
 func trimSlash(u string) string {

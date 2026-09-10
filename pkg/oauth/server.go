@@ -13,20 +13,22 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("/oauth/token", s.handleToken)
+	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
 	mux.HandleFunc("/.well-known/smart-configuration", s.handleSmartConfiguration)
+	mux.HandleFunc("/.well-known/openid-configuration", s.handleOpenIDConfiguration)
 	if jwks := s.jwksHandler(); jwks != nil {
 		mux.HandleFunc("/oauth/jwks", jwks)
 		mux.HandleFunc("/.well-known/jwks.json", jwks)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path == "/oauth/authorize" || path == "/oauth/token" ||
-			path == "/.well-known/smart-configuration" ||
-			path == "/oauth/jwks" || path == "/.well-known/jwks.json" {
+		switch r.URL.Path {
+		case "/oauth/authorize", "/oauth/token", "/oauth/revoke",
+			"/.well-known/smart-configuration", "/.well-known/openid-configuration",
+			"/oauth/jwks", "/.well-known/jwks.json":
 			mux.ServeHTTP(w, r)
-			return
+		default:
+			writeOAuthError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		}
-		writeOAuthError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	})
 }
 

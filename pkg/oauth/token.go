@@ -15,8 +15,19 @@ type tokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 	Scope        string `json:"scope,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
 	Patient      string `json:"patient,omitempty"`
 	Encounter    string `json:"encounter,omitempty"`
+}
+
+type sessionGrant struct {
+	ClientID   string
+	Scope      string
+	Subject    string
+	Patient    string
+	Encounter  string
+	FHIRUser   string
+	TenantHint string
 }
 
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +45,8 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthorizationCodeGrant(w, r)
 	case "client_credentials":
 		s.handleClientCredentialsGrant(w, r)
+	case "refresh_token":
+		s.handleRefreshTokenGrant(w, r)
 	default:
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type not supported")
 	}
@@ -73,30 +86,18 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 	if subject == "" {
 		subject = clientID
 	}
-	fhirUser := ""
-	if subject != "" && !strings.HasPrefix(subject, "http") {
-		fhirUser = subject
+	fhirUser := authCode.User
+	if fhirUser != "" && !strings.HasPrefix(fhirUser, "http") && !strings.Contains(fhirUser, "/") {
+		fhirUser = "Practitioner/" + fhirUser
 	}
-	token, exp, err := IssueAccessToken(s.signer, s.issuer, AccessTokenClaims{
-		Subject:    subject,
+	s.writeSessionTokens(w, sessionGrant{
 		ClientID:   clientID,
 		Scope:      authCode.Scope,
-		Audience:   s.fhirBase,
+		Subject:    subject,
 		Patient:    authCode.Patient,
-		TenantHint: firstNonEmpty(authCode.TenantHint, client.TenantHint),
+		Encounter:  "",
 		FHIRUser:   fhirUser,
-		TTL:        s.tokenTTL,
-	})
-	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
-		return
-	}
-	writeTokenResponse(w, tokenResponse{
-		AccessToken: token,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(time.Until(exp).Seconds()),
-		Scope:       authCode.Scope,
-		Patient:     authCode.Patient,
+		TenantHint: firstNonEmpty(authCode.TenantHint, client.TenantHint),
 	})
 }
 
@@ -130,24 +131,135 @@ func (s *Server) handleClientCredentialsGrant(w http.ResponseWriter, r *http.Req
 		}
 		grantedScope = requested.SpaceSeparated()
 	}
-	token, exp, err := IssueAccessToken(s.signer, s.issuer, AccessTokenClaims{
-		Subject:    backendClient.ClientID,
+	s.writeSessionTokens(w, sessionGrant{
 		ClientID:   backendClient.ClientID,
 		Scope:      grantedScope,
-		Audience:   s.fhirBase,
+		Subject:    backendClient.ClientID,
 		TenantHint: firstNonEmpty(claims.TenantHint, backendClient.TenantHint),
-		TTL:        s.tokenTTL,
 	})
+}
+
+func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request) {
+	if s.refresh == nil {
+		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "refresh_token not configured")
+		return
+	}
+	refreshToken := strings.TrimSpace(r.Form.Get("refresh_token"))
+	clientID := strings.TrimSpace(r.Form.Get("client_id"))
+	clientSecret := strings.TrimSpace(r.Form.Get("client_secret"))
+	if refreshToken == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
+		return
+	}
+	client, err := s.clients.Lookup(clientID)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client")
+		return
+	}
+	if client.Confidential {
+		if clientSecret == "" || clientSecret != client.ClientSecret {
+			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+			return
+		}
+	}
+	var record *RefreshRecord
+	var newRefresh string
+	if s.rotateRefresh {
+		record, newRefresh, err = s.refresh.Rotate(refreshToken, clientID)
+	} else {
+		record, err = s.refresh.Lookup(refreshToken)
+		newRefresh = refreshToken
+	}
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+		return
+	}
+	if record.ClientID != clientID {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client mismatch")
+		return
+	}
+	resp, err := s.buildSessionResponse(*record, newRefresh)
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
 		return
 	}
-	writeTokenResponse(w, tokenResponse{
-		AccessToken: token,
+	writeTokenResponse(w, resp)
+}
+
+func (s *Server) writeSessionTokens(w http.ResponseWriter, grant sessionGrant) {
+	resp, err := s.buildSessionResponse(RefreshRecord{
+		ClientID:   grant.ClientID,
+		Scope:      grant.Scope,
+		Subject:    grant.Subject,
+		Patient:    grant.Patient,
+		Encounter:  grant.Encounter,
+		FHIRUser:   grant.FHIRUser,
+		TenantHint: grant.TenantHint,
+	}, "")
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
+		return
+	}
+	writeTokenResponse(w, resp)
+}
+
+func (s *Server) buildSessionResponse(record RefreshRecord, existingRefresh string) (tokenResponse, error) {
+	access, exp, err := IssueAccessToken(s.signer, s.issuer, AccessTokenClaims{
+		Subject:    record.Subject,
+		ClientID:   record.ClientID,
+		Scope:      record.Scope,
+		Audience:   s.fhirBase,
+		Patient:    record.Patient,
+		Encounter:  record.Encounter,
+		FHIRUser:   record.FHIRUser,
+		TenantHint: record.TenantHint,
+		TTL:        s.tokenTTL,
+	})
+	if err != nil {
+		return tokenResponse{}, err
+	}
+	resp := tokenResponse{
+		AccessToken: access,
 		TokenType:   "Bearer",
 		ExpiresIn:   int(time.Until(exp).Seconds()),
-		Scope:       grantedScope,
-	})
+		Scope:       record.Scope,
+		Patient:     record.Patient,
+		Encounter:   record.Encounter,
+	}
+	if scopeAllowsOpenID(record.Scope) {
+		idToken, err := IssueIDToken(s.signer, s.issuer, record.ClientID, AccessTokenClaims{
+			Subject:    record.Subject,
+			Audience:   record.ClientID,
+			FHIRUser:   record.FHIRUser,
+			Patient:    record.Patient,
+			TenantHint: record.TenantHint,
+			TTL:        s.tokenTTL,
+		})
+		if err != nil {
+			return tokenResponse{}, err
+		}
+		resp.IDToken = idToken
+	}
+	if scopeAllowsOffline(record.Scope) && s.refresh != nil {
+		refreshToken := existingRefresh
+		if refreshToken == "" {
+			refreshToken, err = s.refresh.Issue(RefreshRecord{
+				ClientID:   record.ClientID,
+				Scope:      record.Scope,
+				Subject:    record.Subject,
+				Patient:    record.Patient,
+				Encounter:  record.Encounter,
+				FHIRUser:   record.FHIRUser,
+				TenantHint: record.TenantHint,
+				ExpiresAt:  s.now().Add(s.refreshTTL),
+			})
+			if err != nil {
+				return tokenResponse{}, err
+			}
+		}
+		resp.RefreshToken = refreshToken
+	}
+	return resp, nil
 }
 
 func writeTokenResponse(w http.ResponseWriter, resp tokenResponse) {

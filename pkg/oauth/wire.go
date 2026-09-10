@@ -17,6 +17,8 @@ type WireConfig struct {
 	Adapter *smart.AuthAdapter
 	// TokenValidateOptions configures inbound access token validation.
 	TokenValidateOptions smart.TokenValidateOptions
+	// RevocationStore overrides server revocation checks when set.
+	RevocationStore TokenRevocationStore
 }
 
 // WireResult holds handlers and resolvers produced by WireHTTP.
@@ -43,7 +45,7 @@ func WireHTTP(cfg WireConfig) (WireResult, error) {
 	if opts.ExpectedAudience == "" {
 		opts.ExpectedAudience = cfg.Server.FHIRBaseURL()
 	}
-	resolver := BearerPrincipalResolver(cfg.Server, adapter, opts)
+	resolver := BearerPrincipalResolver(cfg.Server, adapter, opts, firstNonEmptyRevocation(cfg))
 	return WireResult{
 		OAuthHandler:      cfg.Server.Handler(),
 		PrincipalResolver: resolver,
@@ -52,13 +54,28 @@ func WireHTTP(cfg WireConfig) (WireResult, error) {
 
 // BearerPrincipalResolver returns a PrincipalResolver that validates Bearer
 // tokens issued by the given OAuth server.
-func BearerPrincipalResolver(server *Server, adapter *smart.AuthAdapter, opts smart.TokenValidateOptions) hahttp.PrincipalResolver {
+func BearerPrincipalResolver(server *Server, adapter *smart.AuthAdapter, opts smart.TokenValidateOptions, revocation TokenRevocationStore) hahttp.PrincipalResolver {
 	verifier := server.Verifier()
 	validator := smart.NewTokenValidator(verifier)
+	if revocation == nil {
+		revocation = server.RevocationStore()
+	}
 	return func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
 		token, err := bearerToken(r)
 		if err != nil {
 			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		if revocation != nil {
+			jti, _, err := ParseAccessTokenJTI(token)
+			if err == nil && jti != "" {
+				revoked, err := revocation.IsRevoked(jti)
+				if err != nil {
+					return auth.Principal{}, auth.TenantContext{}, err
+				}
+				if revoked {
+					return auth.Principal{}, auth.TenantContext{}, smart.ErrInvalidToken
+				}
+			}
 		}
 		claims, err := validator.ValidateToken(token, opts)
 		if err != nil {
@@ -137,6 +154,16 @@ func bearerToken(r *http.Request) (string, error) {
 		return "", fmt.Errorf("empty bearer token")
 	}
 	return token, nil
+}
+
+func firstNonEmptyRevocation(cfg WireConfig) TokenRevocationStore {
+	if cfg.RevocationStore != nil {
+		return cfg.RevocationStore
+	}
+	if cfg.Server != nil {
+		return cfg.Server.RevocationStore()
+	}
+	return nil
 }
 
 // MountRootHandler combines FHIR, optional sync, and OAuth routes on one mux.

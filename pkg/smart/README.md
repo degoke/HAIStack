@@ -1,8 +1,11 @@
 # haistack-smart (`pkg/smart`)
 
 Optional SMART on FHIR library for Health AI Stack. It parses scopes, validates
-tokens/assertions, and adapts SMART launch context into `pkg/auth` — without
-owning OAuth servers, EHR launch runtimes, or offline MVP paths.
+tokens/assertions, and adapts SMART launch context into `pkg/auth`.
+
+For self-contained deployments, `pkg/oauth` can issue tokens; this package
+continues to validate inbound JWTs and interpret SMART scopes regardless of
+whether tokens come from `pkg/oauth` or an external IdP.
 
 ## What it does
 
@@ -20,8 +23,9 @@ Hosts may use `NewFileBackendClientStore` and `NewFileReplayStore` for persisted
 single-instance deployments, or inject shared transactional implementations via
 `BackendClientStore` and `ReplayStore` for multi-instance deployments.
 
-Explicitly out of v1: EHR/standalone launch orchestration, refresh-token
-lifecycle, SMART UI/session management, and HTTP middleware as the package center.
+Explicitly out of scope here: EHR/standalone launch orchestration and SMART UI/session
+management. Token **issuance** lives in optional `pkg/oauth` or an external IdP;
+this package handles validation and auth adaptation for both.
 
 ## Usage
 
@@ -99,6 +103,7 @@ Malformed scopes return `ErrInvalidScope`. Duplicates and overlaps collapse
 
 | Layer | Role |
 |-------|------|
+| **oauth** (optional) | Built-in authorization server for edge/demo deployments |
 | **smart** | SMART scope/token interpreter + auth adapter (this package) |
 | **auth** | Decision engine; receives adapted principals and tenant/patient scope |
 | **ai / view / sync / core** | Unchanged; SMART is optional and omitable |

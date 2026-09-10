@@ -146,3 +146,13 @@ func randomURLSafe(n int) (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
+
+// NewRandomToken generates a URL-safe opaque token.
+func NewRandomToken() (string, error) {
+	return randomURLSafe(authCodeBytes)
+}
+
+// VerifyPKCE validates a PKCE code_verifier against the stored challenge.
+func VerifyPKCE(challenge, method, verifier string) error {
+	return verifyPKCE(challenge, method, verifier)
+}

@@ -332,3 +332,178 @@ func TestHS256TokenRoundTrip(t *testing.T) {
 		t.Fatalf("scope = %q", claims.Scope)
 	}
 }
+
+func TestRefreshTokenGrant_Rotation(t *testing.T) {
+	key, srv, ts := newTestServer(t, testServerOpts{
+		scopes: []string{"patient/Patient.read", "offline_access", "openid"},
+	})
+	defer ts.Close()
+	_ = key
+
+	tokenResp := exchangeAuthCode(t, ts.URL, srv, "offline_access openid patient/Patient.read")
+	if tokenResp.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+	if tokenResp.IDToken == "" {
+		t.Fatal("expected id_token")
+	}
+
+	smartClient, err := client.New(client.Config{BaseURL: ts.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := smartClient.SMART().RefreshToken(context.Background(), srv.TokenEndpoint(), "standalone-app", tokenResp.RefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
+		t.Fatalf("refreshed = %#v", refreshed)
+	}
+	if refreshed.RefreshToken == tokenResp.RefreshToken {
+		t.Fatal("expected refresh token rotation")
+	}
+}
+
+func TestRevokeAccessToken_BlocksResolver(t *testing.T) {
+	key, srv, ts := newTestServer(t, testServerOpts{})
+	defer ts.Close()
+	_ = key
+
+	tokenResp := exchangeAuthCode(t, ts.URL, srv, "patient/Patient.read")
+	jti, exp, err := oauth.ParseAccessTokenJTI(tokenResp.AccessToken)
+	if err != nil || jti == "" {
+		t.Fatalf("jti = %q err = %v", jti, err)
+	}
+	if err := srv.RevocationStore().Revoke(jti, "access_token", exp); err != nil {
+		t.Fatal(err)
+	}
+	wired, err := oauth.WireHTTP(oauth.WireConfig{Server: srv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/fhir/Patient/x", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+	_, _, err = wired.PrincipalResolver(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected revoked token to fail")
+	}
+}
+
+func TestOpenIDConfiguration(t *testing.T) {
+	_, _, ts := newTestServer(t, testServerOpts{})
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/.well-known/openid-configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var doc map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["issuer"] == "" || doc["revocation_endpoint"] == "" {
+		t.Fatalf("doc = %#v", doc)
+	}
+	algs, _ := doc["id_token_signing_alg_values_supported"].([]any)
+	if len(algs) == 0 {
+		t.Fatalf("algs = %#v", algs)
+	}
+}
+
+type testServerOpts struct {
+	scopes []string
+}
+
+func newTestServer(t *testing.T, opts testServerOpts) (*rsa.PrivateKey, *oauth.Server, *httptest.Server) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := oauth.NewClientRegistry()
+	scopes := opts.scopes
+	if len(scopes) == 0 {
+		scopes = []string{"patient/Patient.read", "launch/patient"}
+	}
+	if err := reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID:     "standalone-app",
+			RedirectURIs: []string{"https://app.example/callback"},
+			Scopes:       scopes,
+		},
+		DefaultPatient: "patient-123",
+		DefaultUser:    "Practitioner/demo",
+		TenantHint:     "tenant-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer := "http://" + listener.Addr().String()
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:      issuer,
+		FHIRBaseURL: issuer + "/fhir",
+		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+		Clients:     reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(srv.Handler())
+	ts.Listener = listener
+	ts.Start()
+	return key, srv, ts
+}
+
+func exchangeAuthCode(t *testing.T, baseURL string, srv *oauth.Server, scope string) *client.TokenResponse {
+	t.Helper()
+	smartClient, err := client.New(client.Config{BaseURL: baseURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := smartClient.SMART().Discover(context.Background(), baseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authURL, err := smartClient.SMART().BuildAuthURL(client.AuthCodeRequest{
+		Config:      cfg,
+		ClientID:    "standalone-app",
+		RedirectURI: "https://app.example/callback",
+		Scope:       scope,
+		State:       "state-1",
+		PKCE:        pkce,
+		Aud:         srv.FHIRBaseURL(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	loc := resp.Header.Get("Location")
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustExchange(t, smartClient, cfg.TokenEndpoint, u.Query().Get("code"), pkce)
+}
+
+func mustExchange(t *testing.T, smartClient *client.Client, tokenEndpoint, code string, pkce *client.PKCEChallenge) *client.TokenResponse {
+	t.Helper()
+	tokenResp, err := smartClient.SMART().ExchangeAuthCode(context.Background(), tokenEndpoint, "standalone-app", "https://app.example/callback", code, pkce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tokenResp
+}

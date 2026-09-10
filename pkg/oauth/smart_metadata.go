@@ -6,15 +6,15 @@ import (
 )
 
 type smartConfiguration struct {
-	Issuer                 string   `json:"issuer"`
-	AuthorizationEndpoint  string   `json:"authorization_endpoint"`
-	TokenEndpoint          string   `json:"token_endpoint"`
-	RevocationEndpoint     string   `json:"revocation_endpoint,omitempty"`
-	ScopesSupported        []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported []string `json:"response_types_supported,omitempty"`
-	GrantTypesSupported    []string `json:"grant_types_supported,omitempty"`
-	CodeChallengeMethods   []string `json:"code_challenge_methods_supported,omitempty"`
-	Capabilities           []string `json:"capabilities,omitempty"`
+	Issuer                            string   `json:"issuer"`
+	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
+	TokenEndpoint                     string   `json:"token_endpoint"`
+	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
+	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
+	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
+	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
+	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
+	Capabilities                      []string `json:"capabilities,omitempty"`
 }
 
 func (s *Server) handleSmartConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -22,38 +22,26 @@ func (s *Server) handleSmartConfiguration(w http.ResponseWriter, r *http.Request
 		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
-	grants := []string{"authorization_code"}
-	if s.backendAuth != nil {
-		grants = append(grants, "client_credentials")
-	}
-	cfg := smartConfiguration{
-		Issuer:                 s.issuer,
-		AuthorizationEndpoint:  s.AuthorizationEndpoint(),
-		TokenEndpoint:          s.TokenEndpoint(),
-		ScopesSupported:        append([]string(nil), s.scopes...),
-		ResponseTypesSupported: []string{"code"},
-		GrantTypesSupported:    grants,
-		CodeChallengeMethods:   []string{"S256"},
-		Capabilities:           []string{"launch-standalone", "client-public"},
-	}
+	cfg := s.smartConfiguration()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cfg)
 }
 
+func (s *Server) smartConfiguration() smartConfiguration {
+	return smartConfiguration{
+		Issuer:                        s.issuer,
+		AuthorizationEndpoint:         s.AuthorizationEndpoint(),
+		TokenEndpoint:                 s.TokenEndpoint(),
+		RevocationEndpoint:            s.RevocationEndpoint(),
+		ScopesSupported:               append([]string(nil), s.scopes...),
+		ResponseTypesSupported:        []string{"code"},
+		GrantTypesSupported:           s.grantTypesSupported(),
+		CodeChallengeMethodsSupported: []string{"S256"},
+		Capabilities:                  []string{"launch-standalone", "client-public"},
+	}
+}
+
 // SMARTConfiguration returns the discovery document for programmatic use.
 func (s *Server) SMARTConfiguration() smartConfiguration {
-	grants := []string{"authorization_code"}
-	if s.backendAuth != nil {
-		grants = append(grants, "client_credentials")
-	}
-	return smartConfiguration{
-		Issuer:                 s.issuer,
-		AuthorizationEndpoint:  s.AuthorizationEndpoint(),
-		TokenEndpoint:          s.TokenEndpoint(),
-		ScopesSupported:        append([]string(nil), s.scopes...),
-		ResponseTypesSupported: []string{"code"},
-		GrantTypesSupported:    grants,
-		CodeChallengeMethods:   []string{"S256"},
-		Capabilities:           []string{"launch-standalone", "client-public"},
-	}
+	return s.smartConfiguration()
 }

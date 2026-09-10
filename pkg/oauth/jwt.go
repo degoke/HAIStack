@@ -102,16 +102,38 @@ type AccessTokenClaims struct {
 	FHIRUser   string
 	TenantHint string
 	TTL        time.Duration
+	JTI        string
 }
 
 // IssueAccessToken builds and signs a JWT access token.
 func IssueAccessToken(signer TokenSigner, issuer string, claims AccessTokenClaims) (string, time.Time, error) {
-	if signer == nil {
-		return "", time.Time{}, fmt.Errorf("%w: token signer required", ErrInvalidConfig)
+	payload, exp, err := buildTokenPayload(issuer, claims, true)
+	if err != nil {
+		return "", time.Time{}, err
 	}
-	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+	token, err := signJWTPayload(signer, payload)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return token, exp, nil
+}
+
+// IssueIDToken builds a signed OIDC id_token.
+func IssueIDToken(signer TokenSigner, issuer string, clientID string, claims AccessTokenClaims) (string, error) {
+	claims.Audience = firstNonEmpty(claims.Audience, clientID)
+	payload, _, err := buildTokenPayload(issuer, claims, false)
+	if err != nil {
+		return "", err
+	}
+	delete(payload, "scope")
+	delete(payload, "client_id")
+	return signJWTPayload(signer, payload)
+}
+
+func buildTokenPayload(issuer string, claims AccessTokenClaims, includeAccessFields bool) (map[string]any, time.Time, error) {
+	issuer = trimSlash(issuer)
 	if issuer == "" {
-		return "", time.Time{}, fmt.Errorf("%w: issuer required", ErrInvalidConfig)
+		return nil, time.Time{}, fmt.Errorf("%w: issuer required", ErrInvalidConfig)
 	}
 	ttl := claims.TTL
 	if ttl <= 0 {
@@ -119,16 +141,13 @@ func IssueAccessToken(signer TokenSigner, issuer string, claims AccessTokenClaim
 	}
 	now := time.Now().UTC()
 	exp := now.Add(ttl)
-	subject := strings.TrimSpace(claims.Subject)
+	subject := firstNonEmpty(claims.Subject, claims.ClientID)
 	if subject == "" {
-		subject = strings.TrimSpace(claims.ClientID)
-	}
-	if subject == "" {
-		return "", time.Time{}, fmt.Errorf("%w: subject or client id required", ErrInvalidConfig)
+		return nil, time.Time{}, fmt.Errorf("%w: subject or client id required", ErrInvalidConfig)
 	}
 	aud := strings.TrimSpace(claims.Audience)
 	if aud == "" {
-		return "", time.Time{}, fmt.Errorf("%w: audience required", ErrInvalidConfig)
+		return nil, time.Time{}, fmt.Errorf("%w: audience required", ErrInvalidConfig)
 	}
 	payload := map[string]any{
 		"iss": issuer,
@@ -136,13 +155,19 @@ func IssueAccessToken(signer TokenSigner, issuer string, claims AccessTokenClaim
 		"aud": aud,
 		"iat": now.Unix(),
 		"exp": exp.Unix(),
-		"jti": fmt.Sprintf("%d", now.UnixNano()),
 	}
-	if claims.ClientID != "" {
-		payload["client_id"] = claims.ClientID
-	}
-	if claims.Scope != "" {
-		payload["scope"] = claims.Scope
+	if includeAccessFields {
+		jti := strings.TrimSpace(claims.JTI)
+		if jti == "" {
+			jti = formatJTI(now)
+		}
+		payload["jti"] = jti
+		if claims.ClientID != "" {
+			payload["client_id"] = claims.ClientID
+		}
+		if claims.Scope != "" {
+			payload["scope"] = claims.Scope
+		}
 	}
 	if claims.Patient != "" {
 		payload["patient"] = claims.Patient
@@ -156,6 +181,13 @@ func IssueAccessToken(signer TokenSigner, issuer string, claims AccessTokenClaim
 	if claims.TenantHint != "" {
 		payload["tenant"] = claims.TenantHint
 	}
+	return payload, exp, nil
+}
+
+func signJWTPayload(signer TokenSigner, payload map[string]any) (string, error) {
+	if signer == nil {
+		return "", fmt.Errorf("%w: token signer required", ErrInvalidConfig)
+	}
 	header := map[string]string{
 		"alg": signer.Algorithm(),
 		"typ": "JWT",
@@ -165,20 +197,23 @@ func IssueAccessToken(signer TokenSigner, issuer string, claims AccessTokenClaim
 	}
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
 	headerSeg := base64.RawURLEncoding.EncodeToString(headerJSON)
 	payloadSeg := base64.RawURLEncoding.EncodeToString(payloadJSON)
 	sig, err := signer.Sign(headerSeg, payloadSeg)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
-	token := headerSeg + "." + payloadSeg + "." + base64.RawURLEncoding.EncodeToString(sig)
-	return token, exp, nil
+	return headerSeg + "." + payloadSeg + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+func formatJTI(now time.Time) string {
+	return fmt.Sprintf("%d", now.UnixNano())
 }
 
 func marshalPublicKeyPEM(key *rsa.PublicKey) (string, error) {
@@ -190,4 +225,13 @@ func marshalPublicKeyPEM(key *rsa.PublicKey) (string, error) {
 		return "", err
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
+}
+
+// ParseAccessTokenJTI returns the jti claim from an access token without verification.
+func ParseAccessTokenJTI(token string) (string, time.Time, error) {
+	claims, err := smart.ParseTokenUnverified(token)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return claims.JWTID, claims.ExpiresAt, nil
 }
