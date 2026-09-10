@@ -59,8 +59,8 @@ func (s RS256Signer) PublicJWKS() ([]byte, error) {
 	if s.PrivateKey == nil {
 		return nil, ErrInvalidConfig
 	}
-	n := s.PrivateKey.PublicKey.N
-	e := s.PrivateKey.PublicKey.E
+	n := s.PrivateKey.N
+	e := s.PrivateKey.E
 	kid := s.Kid
 	key := map[string]any{
 		"kty": "RSA",

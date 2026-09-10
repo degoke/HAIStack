@@ -13,7 +13,7 @@ func (s *Server) renderConsent(w http.ResponseWriter, r *http.Request, q url.Val
 	clientID := html.EscapeString(q.Get("client_id"))
 	scope := html.EscapeString(q.Get("scope"))
 	action := html.EscapeString(r.URL.Path)
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Authorize application</title></head>
 <body>
