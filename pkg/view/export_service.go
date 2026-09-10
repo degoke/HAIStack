@@ -29,30 +29,30 @@ const (
 
 // ViewExportRequest captures one ViewDefinition export operation.
 type ViewExportRequest struct {
-	Views  []ViewExportTarget
-	Since  time.Time
-	Format OutputFormat
-	Actor  string
+	Views  []ViewExportTarget `json:"views"`
+	Since  time.Time          `json:"since"`
+	Format OutputFormat       `json:"format"`
+	Actor  string             `json:"actor,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
 type ViewExportTarget struct {
-	ViewName   string
-	Version    string
-	OutputName string
+	ViewName   string `json:"viewName"`
+	Version    string `json:"version"`
+	OutputName string `json:"outputName,omitempty"`
 }
 
 // ViewExportJob tracks async export progress.
 type ViewExportJob struct {
-	ID          string
-	Status      ExportStatus
-	Request     ViewExportRequest
-	Files       []ExportFile
-	Progress    string
-	LastError   string
-	CreatedAt   time.Time
-	CompletedAt time.Time
-	Cancelled   bool
+	ID          string           `json:"id"`
+	Status      ExportStatus     `json:"status"`
+	Request     ViewExportRequest `json:"request"`
+	Files       []ExportFile     `json:"files,omitempty"`
+	Progress    string           `json:"progress,omitempty"`
+	LastError   string           `json:"lastError,omitempty"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	CompletedAt time.Time        `json:"completedAt,omitempty"`
+	Cancelled   bool             `json:"cancelled,omitempty"`
 }
 
 // ExportFile describes one exported artifact.

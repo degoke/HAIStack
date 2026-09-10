@@ -23,17 +23,17 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | FHIRPath `resolve()` | Supported | Typed, absolute URL, URN, and contained `#` references when engine `Resolve` is configured |
 | FHIRPath `memberOf()` | Supported | When engine configured with terminology validator |
 | Incremental refresh (`_since`) | Supported | Search `_lastUpdated=gt...`, envelope `LastUpdated`, export watermarks advanced only after successful refresh/export |
-| IG ViewDefinition install | Supported | `packages.Installer` registers views whenever job infrastructure is wired |
+| IG ViewDefinition install | Supported | `packages.Installer` registers views; async via job queue when present, otherwise `DirectPackageInstallService` runs synchronously |
 | Arbitrary SQL backend | Supported | `$sqlquery-run` over reporting tables; in-process SQLite for ad hoc SELECT; requires a reporting store (Postgres analytics mode) |
 | Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; Parquet export uses haistack-parquet-v1 JSON envelope (not Apache Parquet binary); lakehouse partitioning writes a partition header line to the same writer |
-| SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
+| SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; legacy `analytics.view.*` cursors migrate to watermarks on first read; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
 
 ## Runtime availability
 
 | Capability | SQLite / edge | Postgres + analytics |
 |------------|---------------|----------------------|
 | `$viewdefinition-run` | Yes (always wired with storage; async export/materialize when job store exists) | Yes |
-| `$viewdefinition-export` + file download | Yes (filesystem-backed when storage is configured) | Yes |
+| `$viewdefinition-export` + file download | Yes (filesystem-backed export artifacts and job metadata when storage is configured) | Yes |
 | `$sqlquery-run` | No reporting tables | Yes |
 | Reporting refresh + CDC watermarks | No | Yes (`WithAnalytics()`) |
 
@@ -44,6 +44,10 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 3. Enable materialization with `metadata.materialize=true` or `POST ViewDefinition/$materialize`.
 4. Use `forEach` + nested selects or FHIRPath `resolve()` for cross-resource joins.
 5. Refresh reporting tables and query them with `$sqlquery-run` or export with `$viewdefinition-export`.
+
+## Runtime data directory
+
+Configure durable view export artifacts and async job metadata with `runtime.Builder.WithDataDir()` or `WithViewExportDir()`. SQLite runtimes default to `{sqlite-dir}/view-exports`; Postgres runtimes default to `view-exports/{tenantId}`. Paths are resolved to absolute filesystem locations at wire time. Job records are stored under `{dataDir}/jobs/view-export` and `{dataDir}/jobs/materialize`.
 
 ## References
 

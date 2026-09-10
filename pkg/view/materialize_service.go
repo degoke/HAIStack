@@ -23,24 +23,24 @@ const (
 
 // MaterializeRequest captures parameters for one materialize operation.
 type MaterializeRequest struct {
-	ViewName   string
-	Version    string
-	TargetName string
-	Since      time.Time
-	Actor      string
+	ViewName   string    `json:"viewName"`
+	Version    string    `json:"version"`
+	TargetName string    `json:"targetName,omitempty"`
+	Since      time.Time `json:"since,omitempty"`
+	Actor      string    `json:"actor,omitempty"`
 }
 
 // MaterializeJob is a durable materialize job record.
 type MaterializeJob struct {
-	ID          string
-	Status      MaterializeStatus
-	Request     MaterializeRequest
-	RowCount    int
-	Progress    string
-	LastError   string
-	CreatedAt   time.Time
-	CompletedAt time.Time
-	Cancelled   bool
+	ID          string              `json:"id"`
+	Status      MaterializeStatus   `json:"status"`
+	Request     MaterializeRequest  `json:"request"`
+	RowCount    int                 `json:"rowCount,omitempty"`
+	Progress    string              `json:"progress,omitempty"`
+	LastError   string              `json:"lastError,omitempty"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	CompletedAt time.Time           `json:"completedAt,omitempty"`
+	Cancelled   bool                `json:"cancelled,omitempty"`
 }
 
 // MaterializeResult is returned when a materialize job completes.
