@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -1107,6 +1109,61 @@ func TestBasicJobStatusUsesReadAuthByDefault(t *testing.T) {
 	}
 	if len(checker.readCalls) != 1 || checker.readCalls[0] != "Basic/job-1" {
 		t.Fatalf("readCalls=%v writeCalls=%v", checker.readCalls, checker.writeCalls)
+	}
+}
+
+func TestBasicModuleInstallHTTPRejectsPathOutsideAllowlist(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "mods")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:      &fakeResourceService{},
+		ModuleInstallService: hahttp.CoreModuleInstallService{JobStore: &fakeJobStore{}},
+		ModulePaths:          []string{allowed},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$install?path="+url.QueryEscape(outside), nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "allowed root") {
+		t.Fatalf("expected allowlist error, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTPTooCostly(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:big","version":"1","concept":[{"code":"a"},{"code":"b"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "CodeSystem",
+		CanonicalURL: "urn:big", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	vs := []byte(`{"resourceType":"ValueSet","url":"urn:big-vs","version":"1","compose":{"include":[{"system":"urn:big","concept":[{"code":"a"},{"code":"b"}]}]}}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "ValueSet",
+		CanonicalURL: "urn:big-vs", Version: "1", ResourceJSON: vs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := terminology.NewLocalService(m, "tenant-a", terminology.WithMaxExpansion(1))
+
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: svc,
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:big-vs", nil)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "too-costly") {
+		t.Fatalf("expected too-costly outcome, got %s", rec.Body.String())
 	}
 }
 

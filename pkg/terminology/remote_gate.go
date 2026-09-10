@@ -2,6 +2,7 @@ package terminology
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -27,6 +28,9 @@ func (g *OptInRemoteGate) Lookup(ctx context.Context, r LookupRequest) (*LookupR
 }
 
 func (g *OptInRemoteGate) Expand(ctx context.Context, r ExpandRequest) (*Expansion, error) {
+	if r.URL != "" && g.expandBlocked(ctx, r.URL, r.Version) {
+		return nil, ErrExpansionNotFound
+	}
 	return g.Inner.Expand(ctx, r)
 }
 
@@ -50,6 +54,32 @@ func (g *OptInRemoteGate) blocked(ctx context.Context, url, ver string) bool {
 	}
 	layered := &LayeredStore{Store: g.Global, Installs: g.Installs, GlobalScopeID: GlobalScopeID}
 	return !layered.globalAllowed(ctx, url, ver)
+}
+
+func (g *OptInRemoteGate) expandBlocked(ctx context.Context, url, ver string) bool {
+	if g.blocked(ctx, url, ver) {
+		return true
+	}
+	if g.Inner == nil || g.Global == nil || g.Installs == nil {
+		return false
+	}
+	vs, err := g.Global.GetValueSet(ctx, GlobalScopeID, url, ver)
+	if err != nil || vs == nil || vs.ComposeJSON == "" {
+		return false
+	}
+	var compose map[string]any
+	if err := json.Unmarshal([]byte(vs.ComposeJSON), &compose); err != nil {
+		return false
+	}
+	includes, _ := compose["include"].([]any)
+	for _, inc := range includes {
+		m, _ := inc.(map[string]any)
+		sys, _ := m["system"].(string)
+		if sys != "" && g.blocked(ctx, sys, "") {
+			return true
+		}
+	}
+	return false
 }
 
 func globalCodeSystemExists(ctx context.Context, st store.TerminologyStore, url, ver string) bool {
