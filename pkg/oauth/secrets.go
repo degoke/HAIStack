@@ -92,6 +92,11 @@ func authenticateConfidentialClient(client Client, creds clientCredentials) bool
 	return false
 }
 
+// PrepareClientSecret hashes plaintext client secrets before persistence.
+func PrepareClientSecret(client *Client) error {
+	return prepareClientSecret(client)
+}
+
 func prepareClientSecret(client *Client) error {
 	if client == nil {
 		return nil

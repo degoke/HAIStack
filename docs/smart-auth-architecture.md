@@ -94,7 +94,7 @@ and `pkg/oauth` authorization-server tests.
 
 ## Built-in OAuth server (`pkg/oauth`)
 
-Production deployment uses `oauth.NewProductionServer` with file-backed client, token, and replay stores. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and persist `oauth-signing.pem` across restarts. See `pkg/oauth/README.md`.
+Production deployment uses `oauthpostgres.NewServer` (`pkg/oauth/postgres`) with Postgres-backed client, token, replay, and revocation stores. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and persist `oauth-signing.pem` across restarts. File-backed `oauth.NewProductionServer` remains for single-node dev. See `pkg/oauth/README.md`.
 
 ## Non-goals
 

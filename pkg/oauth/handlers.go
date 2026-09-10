@@ -239,18 +239,9 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
 	code := r.Form.Get("code")
 	redirectURI := r.Form.Get("redirect_uri")
-	creds := clientCredentialsFromRequest(r, r.Form.Get("client_id"))
-	clientID := creds.ClientID
-	if clientID == "" {
-		clientID = r.Form.Get("client_id")
-	}
-	client, ok := s.cfg.Clients.Get(clientID)
-	if !ok {
-		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
-		return
-	}
-	if !authenticateConfidentialClient(client, creds) {
-		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+	client, clientID, err := s.lookupAuthenticatedClient(r, r.Form.Get("client_id"))
+	if err != nil {
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", err.Error())
 		return
 	}
 	entry, ok := s.authStore.ConsumeAuthorizationCode(code)
@@ -321,18 +312,9 @@ func clientStoreClient(c smart.BackendClient) Client {
 
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Form.Get("refresh_token")
-	creds := clientCredentialsFromRequest(r, r.Form.Get("client_id"))
-	clientID := creds.ClientID
-	if clientID == "" {
-		clientID = r.Form.Get("client_id")
-	}
-	client, ok := s.cfg.Clients.Get(clientID)
-	if !ok {
-		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
-		return
-	}
-	if !authenticateConfidentialClient(client, creds) {
-		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
+	_, clientID, err := s.lookupAuthenticatedClient(r, r.Form.Get("client_id"))
+	if err != nil {
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", err.Error())
 		return
 	}
 	entry, ok := s.authStore.ConsumeRefreshToken(token)

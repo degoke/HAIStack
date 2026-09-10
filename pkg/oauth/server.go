@@ -19,6 +19,7 @@ type Config struct {
 	Clients            ClientRegistry
 	AuthorizationStore AuthorizationStore
 	ReplayStore        smart.ReplayStore
+	RevocationStore    TokenRevocationStore
 	AccessTokenTTL     time.Duration
 	RefreshTokenTTL    time.Duration
 	AuthCodeTTL        time.Duration
@@ -42,8 +43,9 @@ type Config struct {
 type Server struct {
 	cfg         Config
 	authStore   AuthorizationStore
-	replayStore smart.ReplayStore
-	backendAuth *smart.BackendServiceAuth
+	replayStore      smart.ReplayStore
+	revocationStore  TokenRevocationStore
+	backendAuth      *smart.BackendServiceAuth
 }
 
 // NewServer constructs an authorization server.
@@ -82,6 +84,9 @@ func NewServer(cfg Config) (*Server, error) {
 		store.Now = cfg.Now
 		cfg.AuthorizationStore = store
 	}
+	if cfg.RevocationStore == nil {
+		cfg.RevocationStore = NewMemoryTokenRevocationStore()
+	}
 	replayStore := cfg.ReplayStore
 	if replayStore == nil {
 		replayStore = smart.NewMemoryReplayStore()
@@ -95,10 +100,11 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		cfg:         cfg,
-		authStore:   cfg.AuthorizationStore,
-		replayStore: replayStore,
-		backendAuth: backendAuth,
+		cfg:             cfg,
+		authStore:       cfg.AuthorizationStore,
+		replayStore:     replayStore,
+		revocationStore: cfg.RevocationStore,
+		backendAuth:     backendAuth,
 	}, nil
 }
 
@@ -143,18 +149,22 @@ func (s *Server) BearerAuthConfig(adapter *smart.AuthAdapter) smart.BearerAuthCo
 		PublicKeyPEM: pem,
 		Algorithm:    s.cfg.SigningKey.Algorithm,
 	}
+	opts := smart.TokenValidateOptions{
+		ExpectedIssuer:   s.cfg.Issuer,
+		ExpectedAudience: s.cfg.FHIRAudience,
+		RequireIssuer:    true,
+		RequireAudience:  true,
+		RequireExpiry:    true,
+		RequireSubject:   true,
+		Now:              s.cfg.Now,
+	}
+	if s.revocationStore != nil {
+		opts.IsJWTRevoked = s.revocationStore.IsRevoked
+	}
 	return smart.BearerAuthConfig{
 		Validator: &smart.TokenValidator{Verifier: verifier},
 		Adapter:   adapter,
-		Options: smart.TokenValidateOptions{
-			ExpectedIssuer:   s.cfg.Issuer,
-			ExpectedAudience: s.cfg.FHIRAudience,
-			RequireIssuer:    true,
-			RequireAudience:  true,
-			RequireExpiry:    true,
-			RequireSubject:   true,
-			Now:              s.cfg.Now,
-		},
+		Options:   opts,
 	}
 }
 

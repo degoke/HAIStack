@@ -32,21 +32,26 @@ func DefaultProductionPaths(stateDir string) ProductionPaths {
 	}
 }
 
-// ProductionStores wires file-backed stores for clustered deployments.
-func ProductionStores(paths ProductionPaths) (AuthorizationStore, ClientRegistry, smart.ReplayStore, error) {
+// ProductionStores wires file-backed stores for single-host or shared-filesystem deployments.
+// Prefer oauthpostgres.NewServer for multi-instance production clusters.
+func ProductionStores(paths ProductionPaths) (AuthorizationStore, ClientRegistry, smart.ReplayStore, TokenRevocationStore, error) {
 	authStore, err := NewFileAuthorizationStore(paths.Tokens)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	clientStore, err := NewFileClientStore(paths.Clients)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	replayStore, err := smart.NewFileReplayStore(paths.Replay)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return authStore, clientStore, replayStore, nil
+	revocationStore, err := NewFileTokenRevocationStore(filepath.Join(paths.StateDir, "oauth-revoked.json"))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return authStore, clientStore, replayStore, revocationStore, nil
 }
 
 // LoadSigningKey loads a persistent signing key when the PEM file exists.
@@ -65,13 +70,14 @@ func NewProductionServer(cfg Config, paths ProductionPaths) (*Server, error) {
 	if strings.TrimSpace(paths.StateDir) == "" {
 		return nil, fmt.Errorf("oauth: production state dir required")
 	}
-	authStore, clientStore, replayStore, err := ProductionStores(paths)
+	authStore, clientStore, replayStore, revocationStore, err := ProductionStores(paths)
 	if err != nil {
 		return nil, err
 	}
 	cfg.AuthorizationStore = authStore
 	cfg.Clients = clientStore
 	cfg.ReplayStore = replayStore
+	cfg.RevocationStore = revocationStore
 	if cfg.SigningKey == nil {
 		key, err := LoadSigningKey(paths)
 		if err != nil {

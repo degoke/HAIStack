@@ -10,82 +10,106 @@ Production-capable OAuth2/OIDC authorization server for SMART on FHIR.
 | `/.well-known/smart-configuration` | SMART metadata |
 | `/oauth/authorize` | Authorization code + PKCE |
 | `/oauth/token` | Token exchange (auth code, client credentials, refresh) |
-| `/oauth/revoke` | Refresh-token revocation (RFC 7009) |
+| `/oauth/revoke` | Revoke refresh tokens and JWT access tokens (by `jti`) |
 | `/oauth/jwks` | Signing key set |
 | `/oauth/register` | Dynamic client registration (opt-in) |
 | `/oauth/consent` | Built-in HTML consent form |
 | `/oauth/launch` | EHR launch context (JSON) |
 | `/oauth/launch/ui` | EHR launch orchestration page |
 
-## Quick start (development)
+## Production deployment (recommended: Postgres)
+
+Use `oauthpostgres.NewServer` for multi-instance clusters. Postgres provides transactional
+`DELETE … RETURNING` consume semantics and row-level locking — no shared filesystem required.
 
 ```go
-server, _ := oauth.NewServer(oauth.Config{
-    Issuer:       "https://auth.example",
-    FHIRAudience: "https://fhir.example",
-})
-_ = server.RegisterClient(oauth.Client{
-    ClientID:     "demo",
-    RedirectURIs: []string{"https://app.example/callback"},
-    Scopes:       []string{"patient/Patient.rs"},
-})
-http.Handle("/", server.Handler())
-```
+import (
+    "github.com/degoke/health-ai-stack/pkg/oauth"
+    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
+    "github.com/degoke/health-ai-stack/pkg/postgres"
+)
 
-## Production deployment
+db, _ := postgres.Open(ctx, dsn)
+_ = db.Migrate(ctx)
 
-Use durable file-backed stores and a persistent signing key:
-
-```go
-paths := oauth.DefaultProductionPaths("/var/lib/haistack/oauth")
-server, err := oauth.NewProductionServer(oauth.Config{
+server, err := oauthpostgres.NewServer(oauth.Config{
     Issuer:             "https://auth.example",
     FHIRAudience:       "https://fhir.example",
     RequireConsentForm: true,
     LaunchResolver:     myLaunchResolver,
     UserAuthenticator:  myUserAuthenticator,
-}, paths)
+}, db.Pool())
 ```
 
-`NewProductionServer` wires:
+`oauthpostgres.Stores` wires:
 
-- `FileAuthorizationStore` — auth codes, refresh tokens, consent sessions (shared across AS replicas)
-- `FileClientStore` — registered clients with bcrypt-hashed secrets
-- `FileReplayStore` — backend assertion `jti` replay protection
-- `LoadKeySetFromPEM` — stable JWT signing when `oauth-signing.pem` exists
+- `AuthorizationStore` — auth codes, refresh tokens, consent sessions
+- `ClientRegistry` — clients with bcrypt-hashed secrets
+- `ReplayStore` — backend/client-assertion `jti` replay protection
+- `RevocationStore` — revoked access-token `jti` denylist
 
-### Multi-instance checklist
+Schema: migration `0015_oauth.sql`.
 
-1. Mount a shared state directory (NFS/EBS) or migrate stores to Postgres/Redis implementing the same interfaces.
-2. Persist `oauth-signing.pem` and set `SigningKey` explicitly on first boot.
-3. Set `UserAuthenticator` so consent binds to a real end-user `sub` / `fhirUser`.
-4. Keep `AutoApprove: false` in production; use `RequireConsentForm` or a custom `ConsentHandler`.
-5. Enable dynamic registration only when needed: `AllowDynamicRegistration: true`.
-6. Register explicit `RedirectURIs` for every client.
+### Why file stores existed
 
-### Client authentication
+Early iterations used `FileAuthorizationStore` for a **zero-dependency** way to share
+OAuth state across a few AS replicas on a mounted volume. That works for dev/small
+deployments but is a poor fit for production:
 
-| Method | Server | Client SDK |
-|--------|--------|------------|
-| `client_secret_post` | Supported | `ClientAuth: client.ClientAuthSecretPost` (default) |
-| `client_secret_basic` | Supported | `ClientAuth: client.ClientAuthSecretBasic` |
-| `private_key_jwt` | `client_credentials` grant | `ExchangeClientAssertion` |
+- No cross-host locking (NFS latency and corruption risk)
+- Full-file rewrite on every token operation
+- No HA failover semantics
 
-Set `TokenEndpointAuthMethod` on each `Client` registration; the server enforces the configured method.
+`NewProductionServer` (file-backed) remains for single-node and test environments.
+**Postgres is the recommended production path.**
 
-### SMART launch
+For very high throughput, the same `AuthorizationStore`, `ClientRegistry`, `ReplayStore`, and
+`TokenRevocationStore` interfaces can be backed by Redis or another shared cache; the OAuth
+server depends only on those interfaces.
+
+### File-backed alternative (single node / dev)
 
 ```go
-server, _ := oauth.NewServer(oauth.Config{
-    LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
-        PatientID: "pat-1", Encounter: "enc-1",
-    }),
-})
+paths := oauth.DefaultProductionPaths("/var/lib/haistack/oauth")
+server, err := oauth.NewProductionServer(oauth.Config{...}, paths)
 ```
 
-- `/oauth/launch?launch=...&iss=...` returns JSON launch context
-- `/oauth/launch/ui` validates `client_id` + `redirect_uri`, shows resolved patient/encounter, and forwards PKCE params to authorize
+## Client authentication at the token endpoint
 
-Wire `hahttp.SMARTBearerPrincipalResolver(bearer)` on the FHIR handler to validate access tokens issued by this server.
+| Method | Grants | Server | Client SDK |
+|--------|--------|--------|------------|
+| `client_secret_post` | auth code, refresh, revoke | Supported | `ClientAuthSecretPost` (default) |
+| `client_secret_basic` | auth code, refresh, revoke | Supported | `ClientAuthSecretBasic` |
+| `private_key_jwt` | auth code, refresh, revoke, client credentials | Supported | `client_assertion` form fields |
 
-See `examples/smart-oauth` for a combined OAuth + FHIR demo with production stores, consent, and launch.
+Set `TokenEndpointAuthMethod` on each registered `Client`.
+
+### private_key_jwt example (auth code exchange)
+
+```go
+form.Set("grant_type", "authorization_code")
+form.Set("code", code)
+form.Set("redirect_uri", redirectURI)
+form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+form.Set("client_assertion", signedJWT)
+form.Set("code_verifier", pkceVerifier)
+```
+
+## Access-token revocation
+
+`POST /oauth/revoke` accepts:
+
+- `refresh_token` — deletes the refresh token row
+- `access_token` (or `token_type_hint=access_token`) — adds the JWT `jti` to the revocation denylist
+
+Revoked access tokens are rejected by `server.BearerAuthConfig()` via `TokenValidateOptions.IsJWTRevoked`.
+
+## Multi-instance checklist
+
+1. Use `oauthpostgres.NewServer` (recommended) or shared file stores for dev only.
+2. Persist `oauth-signing.pem` across restarts (`LoadKeySetFromPEM`).
+3. Set `UserAuthenticator` for end-user consent binding.
+4. Keep `AutoApprove: false` in production.
+5. Enable `AllowDynamicRegistration` only when required.
+
+See `examples/smart-oauth` for a runnable demo.
