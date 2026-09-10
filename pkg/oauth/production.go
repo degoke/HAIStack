@@ -12,12 +12,12 @@ import (
 
 // ProductionPaths names durable state files for a multi-instance authorization server.
 type ProductionPaths struct {
-	StateDir    string
-	Clients     string
-	Tokens      string
-	Replay      string
-	SigningKey  string
-	SigningKID  string
+	StateDir   string
+	Clients    string
+	Tokens     string
+	Replay     string
+	SigningKey string
+	SigningKID string
 }
 
 // DefaultProductionPaths returns conventional file paths under stateDir.

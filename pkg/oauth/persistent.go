@@ -21,6 +21,7 @@ type AuthorizationStore interface {
 	SavePendingAuthorization(id string, entry PendingAuthorization) error
 	GetPendingAuthorization(id string) (PendingAuthorization, bool)
 	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
+	GetRefreshToken(token string) (RefreshTokenEntry, bool)
 	DeleteRefreshToken(token string) bool
 }
 
@@ -137,6 +138,17 @@ func (s *MemoryAuthorizationStore) GetPendingAuthorization(id string) (PendingAu
 	return entry, true
 }
 
+func (s *MemoryAuthorizationStore) GetRefreshToken(token string) (RefreshTokenEntry, bool) {
+	now := memoryStoreNow(s)
+	s.mu.Lock()
+	entry, ok := s.refreshTokens[token]
+	s.mu.Unlock()
+	if !ok || now.After(entry.ExpiresAt) {
+		return RefreshTokenEntry{}, false
+	}
+	return entry, true
+}
+
 func (s *MemoryAuthorizationStore) DeleteRefreshToken(token string) bool {
 	s.mu.Lock()
 	_, ok := s.refreshTokens[token]
@@ -184,9 +196,9 @@ func NewFileAuthorizationStore(path string) (*FileAuthorizationStore, error) {
 }
 
 type fileAuthorizationState struct {
-	Codes    map[string]AuthorizationCode   `json:"codes"`
-	Refresh  map[string]RefreshTokenEntry   `json:"refresh"`
-	Pending  map[string]PendingAuthorization `json:"pending"`
+	Codes   map[string]AuthorizationCode    `json:"codes"`
+	Refresh map[string]RefreshTokenEntry    `json:"refresh"`
+	Pending map[string]PendingAuthorization `json:"pending"`
 }
 
 func (s *FileAuthorizationStore) SaveAuthorizationCode(code string, entry AuthorizationCode) error {
@@ -282,6 +294,19 @@ func (s *FileAuthorizationStore) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func (s *FileAuthorizationStore) GetRefreshToken(token string) (RefreshTokenEntry, bool) {
+	now := s.now()
+	var entry RefreshTokenEntry
+	var ok bool
+	err := s.update(func(state *fileAuthorizationState) {
+		entry, ok = state.Refresh[token]
+	})
+	if err != nil || !ok || now.After(entry.ExpiresAt) {
+		return RefreshTokenEntry{}, false
+	}
+	return entry, true
 }
 
 func (s *FileAuthorizationStore) DeleteRefreshToken(token string) bool {

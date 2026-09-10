@@ -58,7 +58,7 @@ func TestOAuthServer_DiscoveryAndPKCEFlow(t *testing.T) {
 	}
 	authURL, err := smartClient.BuildAuthURL(client.AuthCodeRequest{
 		Config:      cfg,
-		ClientID:      "demo-client",
+		ClientID:    "demo-client",
 		RedirectURI: "https://app.example/callback",
 		Scope:       "patient/Patient.rs",
 		State:       "state-1",

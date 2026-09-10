@@ -63,9 +63,22 @@ deployments but is a poor fit for production:
 `NewProductionServer` (file-backed) remains for single-node and test environments.
 **Postgres is the recommended production path.**
 
-For very high throughput, the same `AuthorizationStore`, `ClientRegistry`, `ReplayStore`, and
-`TokenRevocationStore` interfaces can be backed by Redis or another shared cache; the OAuth
-server depends only on those interfaces.
+### Redis (high-throughput cache)
+
+Use `oauthredis.NewServer` when you want a shared in-memory cache instead of relational storage:
+
+```go
+import (
+    "github.com/degoke/health-ai-stack/pkg/oauth"
+    oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
+    goredis "github.com/redis/go-redis/v9"
+)
+
+rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
+server, err := oauthredis.NewServer(oauth.Config{...}, rdb, "hai:oauth:")
+```
+
+`oauthredis.Stores` implements the same four interfaces with TTL-based keys.
 
 ### File-backed alternative (single node / dev)
 
@@ -80,7 +93,7 @@ server, err := oauth.NewProductionServer(oauth.Config{...}, paths)
 |--------|--------|--------|------------|
 | `client_secret_post` | auth code, refresh, revoke | Supported | `ClientAuthSecretPost` (default) |
 | `client_secret_basic` | auth code, refresh, revoke | Supported | `ClientAuthSecretBasic` |
-| `private_key_jwt` | auth code, refresh, revoke, client credentials | Supported | `client_assertion` form fields |
+| `private_key_jwt` | auth code, refresh, revoke, client credentials | Supported | `ClientAuthPrivateKeyJWT` + `ClientJWT` |
 
 Set `TokenEndpointAuthMethod` on each registered `Client`.
 
@@ -99,10 +112,11 @@ form.Set("code_verifier", pkceVerifier)
 
 `POST /oauth/revoke` accepts:
 
-- `refresh_token` — deletes the refresh token row
-- `access_token` (or `token_type_hint=access_token`) — adds the JWT `jti` to the revocation denylist
+- `refresh_token` — deletes the refresh token when it belongs to the authenticated client
+- `access_token` (or `token_type_hint=access_token`) — adds the JWT `jti` to the revocation denylist when the token's `client_id` claim matches
 
 Revoked access tokens are rejected by `server.BearerAuthConfig()` via `TokenValidateOptions.IsJWTRevoked`.
+Access tokens include a `client_id` claim for ownership checks.
 
 ## Multi-instance checklist
 

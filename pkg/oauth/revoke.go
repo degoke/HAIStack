@@ -16,7 +16,8 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid form")
 		return
 	}
-	if _, _, err := s.lookupAuthenticatedClient(r, r.Form.Get("client_id")); err != nil {
+	_, clientID, err := s.lookupAuthenticatedClient(r, r.Form.Get("client_id"))
+	if err != nil {
 		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", err.Error())
 		return
 	}
@@ -28,24 +29,38 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	hint := strings.TrimSpace(r.Form.Get("token_type_hint"))
 	switch hint {
 	case "refresh_token":
-		_ = s.authStore.DeleteRefreshToken(token)
+		s.revokeRefreshToken(token, clientID)
 	case "access_token":
-		s.revokeAccessToken(token)
+		s.revokeAccessToken(token, clientID)
 	default:
-		if s.authStore.DeleteRefreshToken(token) {
+		if s.revokeRefreshToken(token, clientID) {
 			break
 		}
-		s.revokeAccessToken(token)
+		s.revokeAccessToken(token, clientID)
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) revokeAccessToken(token string) {
+func (s *Server) revokeRefreshToken(token, clientID string) bool {
+	entry, ok := s.authStore.GetRefreshToken(token)
+	if !ok || entry.ClientID != clientID {
+		return false
+	}
+	return s.authStore.DeleteRefreshToken(token)
+}
+
+func (s *Server) revokeAccessToken(token, clientID string) {
 	if s.revocationStore == nil {
 		return
 	}
 	claims, err := smart.ParseTokenUnverified(token)
 	if err != nil || claims.JWTID == "" {
+		return
+	}
+	if claims.Issuer != "" && claims.Issuer != s.cfg.Issuer {
+		return
+	}
+	if claims.ClientID != "" && claims.ClientID != clientID {
 		return
 	}
 	expiry := claims.ExpiresAt

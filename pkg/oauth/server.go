@@ -41,11 +41,11 @@ type Config struct {
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.
 type Server struct {
-	cfg         Config
-	authStore   AuthorizationStore
-	replayStore      smart.ReplayStore
-	revocationStore  TokenRevocationStore
-	backendAuth      *smart.BackendServiceAuth
+	cfg             Config
+	authStore       AuthorizationStore
+	replayStore     smart.ReplayStore
+	revocationStore TokenRevocationStore
+	backendAuth     *smart.BackendServiceAuth
 }
 
 // NewServer constructs an authorization server.

@@ -243,6 +243,107 @@ func TestClientAssertionGeneration(t *testing.T) {
 	}
 }
 
+func TestAuthCodeExchangeWithPrivateKeyJWT(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	var gotAssertion, gotGrant string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotGrant = r.Form.Get("grant_type")
+		gotAssertion = r.Form.Get("client_assertion")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"jwt-tok","token_type":"Bearer"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	pkce, _ := NewPKCEChallenge()
+	resp, err := c.SMART().ExchangeAuthCode(context.Background(), AuthCodeExchangeRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "jwt-client",
+		ClientAuth:    ClientAuthPrivateKeyJWT,
+		ClientJWT:     &ClientJWTAuth{PrivateKey: key},
+		RedirectURI:   "https://app/cb",
+		Code:          "code-abc",
+		PKCE:          pkce,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeAuthCode: %v", err)
+	}
+	if gotGrant != "authorization_code" || gotAssertion == "" {
+		t.Fatalf("grant=%s assertion=%q", gotGrant, gotAssertion)
+	}
+	if resp.AccessToken != "jwt-tok" {
+		t.Fatalf("token: %s", resp.AccessToken)
+	}
+}
+
+func TestRefreshTokenWithPrivateKeyJWT(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	var gotAssertion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotAssertion = r.Form.Get("client_assertion")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"jwt-refresh","token_type":"Bearer"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	resp, err := c.SMART().RefreshToken(context.Background(), RefreshTokenRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "jwt-client",
+		ClientAuth:    ClientAuthPrivateKeyJWT,
+		ClientJWT:     &ClientJWTAuth{PrivateKey: key},
+		RefreshToken:  "refresh-abc",
+	})
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if gotAssertion == "" {
+		t.Fatal("expected client_assertion")
+	}
+	if resp.AccessToken != "jwt-refresh" {
+		t.Fatalf("token: %s", resp.AccessToken)
+	}
+}
+
+func TestRevokeTokenWithPrivateKeyJWT(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	var gotAssertion, gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotAssertion = r.Form.Get("client_assertion")
+		gotToken = r.Form.Get("token")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	err = c.SMART().RevokeToken(context.Background(), RevokeTokenRequest{
+		RevocationEndpoint: srv.URL,
+		ClientID:           "jwt-client",
+		ClientAuth:         ClientAuthPrivateKeyJWT,
+		ClientJWT:          &ClientJWTAuth{PrivateKey: key},
+		Token:              "access-tok",
+		TokenTypeHint:      "access_token",
+	})
+	if err != nil {
+		t.Fatalf("RevokeToken: %v", err)
+	}
+	if gotAssertion == "" || gotToken != "access-tok" {
+		t.Fatalf("assertion=%q token=%q", gotAssertion, gotToken)
+	}
+}
+
 func TestTokenResponseParsing(t *testing.T) {
 	var tr TokenResponse
 	if err := json.Unmarshal([]byte(`{"access_token":"a","token_type":"Bearer","patient":"p1"}`), &tr); err != nil {

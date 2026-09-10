@@ -397,14 +397,15 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 	now := s.cfg.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
 	claims := map[string]any{
-		"iss":     s.cfg.Issuer,
-		"sub":     subject,
-		"aud":     s.cfg.FHIRAudience,
-		"iat":     now.Unix(),
-		"exp":     exp.Unix(),
-		"scope":   scope,
-		"patient": patient,
-		"jti":     randomToken(),
+		"iss":       s.cfg.Issuer,
+		"sub":       subject,
+		"aud":       s.cfg.FHIRAudience,
+		"iat":       now.Unix(),
+		"exp":       exp.Unix(),
+		"scope":     scope,
+		"patient":   patient,
+		"client_id": clientID,
+		"jti":       randomToken(),
 	}
 	if encounter != "" {
 		claims["encounter"] = encounter
@@ -544,4 +545,3 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
-

@@ -61,7 +61,7 @@ func (s *ClientStore) Get(clientID string) (Client, bool) {
 // ToBackendClient converts client key metadata for backend assertion validation.
 func (c Client) ToBackendClient() smart.BackendClient {
 	return smart.BackendClient{
-		ClientID: c.ClientID,
+		ClientID:      c.ClientID,
 		AllowedScopes: c.Scopes,
 		Key: smart.ClientKeyMetadata{
 			Algorithm:    c.Algorithm,

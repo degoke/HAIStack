@@ -20,9 +20,9 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 	base := strings.TrimSuffix(srv.URL, "/")
 
 	server, err := oauth.NewServer(oauth.Config{
-		Issuer:         base,
-		FHIRAudience:   base,
-		AutoApprove:    true,
+		Issuer:       base,
+		FHIRAudience: base,
+		AutoApprove:  true,
 		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
 			PatientID: "pat-launch-1",
 			Encounter: "enc-launch-1",
