@@ -26,8 +26,8 @@ type TenantIssuerConfig struct {
 
 // TenantRegistry stores per-tenant issuer configuration.
 type TenantRegistry struct {
-	mu      sync.RWMutex
-	tenants map[string]TenantIssuerConfig
+	mu       sync.RWMutex
+	tenants  map[string]TenantIssuerConfig
 	byIssuer map[string]string
 }
 

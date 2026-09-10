@@ -121,10 +121,10 @@ func run() error {
 	}
 
 	fhirHandler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService: hahttp.CoreResourceService{Svc: stack.ResourceService},
-		SearchService:   hahttp.SearchServiceAdapter{Svc: stack.SearchService},
+		ResourceService:   hahttp.CoreResourceService{Svc: stack.ResourceService},
+		SearchService:     hahttp.SearchServiceAdapter{Svc: stack.SearchService},
 		PrincipalResolver: wired.PrincipalResolver,
-		AuthChecker: oauth.ScopePolicyAuthChecker{Engine: authEngine},
+		AuthChecker:       oauth.ScopePolicyAuthChecker{Engine: authEngine},
 	})
 	if err != nil {
 		return err
