@@ -16,6 +16,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/sdc"
+	"github.com/degoke/health-ai-stack/pkg/structuremap"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -464,7 +465,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
 			Provider:    sdc.FHIRPathExpressions{Engine: engine},
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
-			Extractor:   sdc.QuestionnaireExtractor{Expressions: sdc.FHIRPathExpressions{Engine: engine}},
+			Extractor: sdc.QuestionnaireExtractor{
+				Expressions:  sdc.FHIRPathExpressions{Engine: engine},
+				StructureMap: structuremap.NewExtractor(structuremap.Config{
+					Resolver: structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+					Engine:   structuremap.Engine{FHIRPath: engine},
+				}),
+			},
 			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}

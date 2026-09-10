@@ -1,1 +1,88 @@
-{"resourceType":"StructureMap","url":"http://example.org/sdc/StructureMap/example-extraction","version":"1.0.0","status":"active","name":"ExampleExtraction","structure":[]}
+{
+  "resourceType": "StructureMap",
+  "url": "http://example.org/sdc/StructureMap/example-extraction",
+  "version": "1.0.0",
+  "status": "active",
+  "name": "ExampleExtraction",
+  "structure": [
+    {
+      "url": "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse",
+      "mode": "source"
+    },
+    {
+      "url": "http://hl7.org/fhir/StructureDefinition/Patient",
+      "mode": "target"
+    }
+  ],
+  "group": [
+    {
+      "name": "ExtractPatient",
+      "input": [
+        {
+          "name": "src",
+          "type": "QuestionnaireResponse",
+          "mode": "source"
+        },
+        {
+          "name": "tgt",
+          "type": "Patient",
+          "mode": "target"
+        }
+      ],
+      "rule": [
+        {
+          "name": "createPatient",
+          "target": [
+            {
+              "context": "tgt",
+              "transform": "create",
+              "parameter": [{ "valueString": "Patient" }]
+            }
+          ],
+          "rule": [
+            {
+              "name": "setGiven",
+              "source": [
+                {
+                  "context": "src",
+                  "element": ["item"],
+                  "variable": "nameItem",
+                  "condition": "linkId = 'name'"
+                }
+              ],
+              "target": [
+                {
+                  "context": "tgt",
+                  "element": ["name"],
+                  "transform": "create",
+                  "parameter": [{ "valueString": "HumanName" }],
+                  "variable": "humanName"
+                }
+              ],
+              "rule": [
+                {
+                  "name": "copyGiven",
+                  "source": [
+                    {
+                      "context": "nameItem",
+                      "element": ["answer"],
+                      "variable": "answer"
+                    }
+                  ],
+                  "target": [
+                    {
+                      "context": "humanName",
+                      "element": ["text"],
+                      "transform": "copy",
+                      "parameter": [{ "valueId": "answer" }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

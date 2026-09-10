@@ -179,8 +179,8 @@ result, err := coreService.ProcessTransactionBundle(ctx, bundle)
 
 Definition extraction supports deterministic mappings, repeated answers,
 resource identities, POST-versus-PUT request generation, and extraction
-diagnostics. StructureMap execution is an adapter contract; no StructureMap
-runtime is bundled.
+diagnostics. StructureMap execution is provided by `pkg/structuremap` and
+wired into the default runtime when `sourceStructureMap` is configured.
 
 ## HTTP and runtime
 
