@@ -85,6 +85,30 @@ the resource is available on node B.
 go run ./examples/sync-two-nodes
 ```
 
+### `smart-authz`
+
+SMART 2.2 scope enforcement and authorization policy demo:
+
+- `pkg/smart` scope CRUDS + filter enforcement
+- `pkg/http` bearer + policy checker wiring
+- patient compartment vs unrestricted principals
+
+```bash
+go run ./examples/smart-authz
+```
+
+### `smart-oauth`
+
+Production-shaped SMART OAuth + FHIR demo:
+
+- `oauth.NewProductionServer` with file-backed client/token/replay stores
+- HTML consent with CSRF, EHR launch resolver, and end-user identity
+- PKCE auth-code flow and FHIR read via issued bearer token
+
+```bash
+go run ./examples/smart-oauth
+```
+
 ### `ai-authz`
 
 Governed AI access with:

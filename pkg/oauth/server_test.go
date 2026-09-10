@@ -33,7 +33,7 @@ func TestOAuthServer_DiscoveryAndPKCEFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.RegisterClient(oauth.Client{
+	_ = server.RegisterClient(oauth.Client{
 		ClientID:     "demo-client",
 		RedirectURIs: []string{"https://app.example/callback"},
 		Scopes:       []string{"patient/Patient.rs"},
@@ -128,7 +128,7 @@ func TestOAuthServer_ClientCredentialsAssertion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.RegisterClient(oauth.Client{
+	_ = server.RegisterClient(oauth.Client{
 		ClientID:     "backend-client",
 		PublicKeyPEM: pemPub,
 		Algorithm:    "RS256",
@@ -166,7 +166,7 @@ func TestOAuthServer_ClientCredentialsAssertion(t *testing.T) {
 }
 
 func TestOAuthServer_JWKSAndRegistration(t *testing.T) {
-	server, err := oauth.NewServer(oauth.Config{Issuer: "https://issuer.example"})
+	server, err := oauth.NewServer(oauth.Config{Issuer: "https://issuer.example", AllowDynamicRegistration: true})
 	if err != nil {
 		t.Fatal(err)
 	}

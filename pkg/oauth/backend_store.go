@@ -7,7 +7,7 @@ import (
 )
 
 type clientStoreBridge struct {
-	store *ClientStore
+	store ClientRegistry
 }
 
 func (b clientStoreBridge) LookupBackendClient(clientID string) (smart.BackendClient, error) {
@@ -25,12 +25,11 @@ func (b clientStoreBridge) RegisterBackendClient(client smart.BackendClient) err
 	if b.store == nil {
 		return fmt.Errorf("oauth: client store is nil")
 	}
-	b.store.Register(Client{
+	return b.store.Register(Client{
 		ClientID:     client.ClientID,
 		Scopes:       client.AllowedScopes,
 		PublicKeyPEM: client.Key.PublicKeyPEM,
 		KeyID:        client.Key.KeyID,
 		Algorithm:    client.Key.Algorithm,
 	})
-	return nil
 }

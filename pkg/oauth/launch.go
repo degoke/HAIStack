@@ -78,6 +78,15 @@ func (s *Server) handleLaunchUI(w http.ResponseWriter, r *http.Request) {
 	}
 	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
 	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirect_uri"))
+	if clientID == "" || redirectURI == "" {
+		http.Error(w, "client_id and redirect_uri are required", http.StatusBadRequest)
+		return
+	}
+	client, ok := s.cfg.Clients.Get(clientID)
+	if !ok || !redirectAllowed(client.RedirectURIs, redirectURI) {
+		http.Error(w, "invalid client or redirect_uri", http.StatusBadRequest)
+		return
+	}
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	if scope == "" {
 		scope = "openid fhirUser launch/patient patient/*.read"
@@ -91,9 +100,18 @@ func (s *Server) handleLaunchUI(w http.ResponseWriter, r *http.Request) {
 	if challengeMethod == "" && challenge != "" {
 		challengeMethod = "S256"
 	}
+	launchCtx := LaunchContext{}
+	if s.cfg.LaunchResolver != nil {
+		resolved, err := s.cfg.LaunchResolver.ResolveLaunch(r.Context(), launch, iss)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		launchCtx = resolved
+	}
 	authorizeURL := s.buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state, challenge, challengeMethod)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(renderLaunchPage(launch, iss, authorizeURL)))
+	_, _ = w.Write([]byte(renderLaunchPage(launch, iss, launchCtx, authorizeURL)))
 }
 
 func (s *Server) buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state, challenge, challengeMethod string) string {
@@ -134,7 +152,17 @@ func (s *Server) applyLaunchContext(ctx context.Context, launch, aud string, req
 	return nil
 }
 
-func renderLaunchPage(launch, iss, authorizeURL string) string {
+func renderLaunchPage(launch, iss string, ctx LaunchContext, authorizeURL string) string {
+	contextRows := ""
+	if ctx.PatientID != "" {
+		contextRows += fmt.Sprintf("<dt>Patient</dt><dd>%s</dd>", htmlEscape(ctx.PatientID))
+	}
+	if ctx.Encounter != "" {
+		contextRows += fmt.Sprintf("<dt>Encounter</dt><dd>%s</dd>", htmlEscape(ctx.Encounter))
+	}
+	if ctx.Intent != "" {
+		contextRows += fmt.Sprintf("<dt>Intent</dt><dd>%s</dd>", htmlEscape(ctx.Intent))
+	}
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -157,9 +185,10 @@ func renderLaunchPage(launch, iss, authorizeURL string) string {
     <dl>
       <dt>Launch token</dt><dd>%s</dd>
       <dt>Issuer (aud)</dt><dd>%s</dd>
+      %s
     </dl>
     <p><a href="%s"><button type="button">Continue to authorize</button></a></p>
   </div>
 </body>
-</html>`, htmlEscape(launch), htmlEscape(iss), htmlEscape(authorizeURL))
+</html>`, htmlEscape(launch), htmlEscape(iss), contextRows, htmlEscape(authorizeURL))
 }

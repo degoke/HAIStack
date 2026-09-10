@@ -55,23 +55,25 @@ func run() error {
 	defer asServer.Close()
 	issuer := asServer.URL
 
-	authStore, err := oauth.NewFileAuthorizationStore(filepath.Join(tempDir, "oauth-tokens.json"))
-	if err != nil {
-		return err
-	}
-	oauthServer, err := oauth.NewServer(oauth.Config{
+	oauthServer, err := oauth.NewProductionServer(oauth.Config{
 		Issuer:             issuer,
 		FHIRAudience:       issuer,
-		AuthorizationStore: authStore,
 		RequireConsentForm: true,
-	})
+		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
+			PatientID: created.ID,
+		}),
+		UserAuthenticator: oauth.StaticUserAuthenticator(oauth.UserIdentity{
+			Subject:  "practitioner-demo",
+			FHIRUser: "Practitioner/demo",
+		}),
+	}, oauth.DefaultProductionPaths(filepath.Join(tempDir, "oauth")))
 	if err != nil {
 		return err
 	}
-	oauthServer.RegisterClient(oauth.Client{
+	_ = oauthServer.RegisterClient(oauth.Client{
 		ClientID:     "demo-app",
 		RedirectURIs: []string{"https://localhost/callback"},
-		Scopes:       []string{"patient/Patient.rs"},
+		Scopes:       []string{"patient/Patient.rs", "openid", "fhirUser"},
 	})
 	asMux.Handle("/", oauthServer.Handler())
 
@@ -122,7 +124,8 @@ func run() error {
 	}
 	authURL, err := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
 		Config: cfg, ClientID: "demo-app", RedirectURI: "https://localhost/callback",
-		Scope: "patient/Patient.rs", State: "demo", PKCE: pkce,
+		Scope: "patient/Patient.rs openid fhirUser", Launch: "demo-launch", Aud: issuer,
+		State: "demo", PKCE: pkce,
 	})
 	if err != nil {
 		return err

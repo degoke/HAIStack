@@ -247,6 +247,7 @@ tokens, err := c.SMART().ExchangeAuthCode(ctx, client.AuthCodeExchangeRequest{
     TokenEndpoint: cfg.TokenEndpoint,
     ClientID:      "my-app",
     ClientSecret:  "optional-for-confidential-clients",
+    ClientAuth:    client.ClientAuthSecretPost, // or ClientAuthSecretBasic
     RedirectURI:   "https://app.example/callback",
     Code:          code,
     PKCE:          pkce,
@@ -266,6 +267,7 @@ refreshed, err := c.SMART().RefreshToken(ctx, client.RefreshTokenRequest{
     TokenEndpoint: cfg.TokenEndpoint,
     ClientID:      "my-app",
     ClientSecret:  "optional-for-confidential-clients",
+    ClientAuth:    client.ClientAuthSecretBasic,
     RefreshToken:  tokens.RefreshToken,
 })
 ```

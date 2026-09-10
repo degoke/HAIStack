@@ -92,9 +92,12 @@ Bundle `_include` / `_revinclude` entries accept scopes with either `r` or `s`.
 catalog, `pkg/http` Inferno-style SMART-on-FHIR smoke (discovery + PKCE + FHIR read),
 and `pkg/oauth` authorization-server tests.
 
+## Built-in OAuth server (`pkg/oauth`)
+
+Production deployment uses `oauth.NewProductionServer` with file-backed client, token, and replay stores. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and persist `oauth-signing.pem` across restarts. See `pkg/oauth/README.md`.
+
 ## Non-goals
 
-- EHR launch UI orchestration
 - Full third-party Inferno test-kit Docker runs (Go smoke tests cover core flows)
 
 ## References

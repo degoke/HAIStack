@@ -13,6 +13,8 @@ type AuthorizationRequest struct {
 	State               string
 	Patient             string
 	Encounter           string
+	Subject             string
+	FHIRUser            string
 	Launch              string
 	CodeChallenge       string
 	CodeChallengeMethod string
@@ -44,6 +46,13 @@ func AutoApproveConsentHandler() ConsentHandler {
 
 // ServeConsentPage writes a minimal HTML consent form for pending authorization requests.
 func ServeConsentPage(w http.ResponseWriter, req AuthorizationRequest, csrfToken string) {
+	contextLines := ""
+	if req.Patient != "" {
+		contextLines += `<p>Patient context: <strong>` + htmlEscape(req.Patient) + `</strong></p>`
+	}
+	if req.Encounter != "" {
+		contextLines += `<p>Encounter context: <strong>` + htmlEscape(req.Encounter) + `</strong></p>`
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html><head><title>Authorize application</title></head>
@@ -51,6 +60,7 @@ func ServeConsentPage(w http.ResponseWriter, req AuthorizationRequest, csrfToken
 <h1>Authorize access</h1>
 <p>Client <strong>` + htmlEscape(req.ClientID) + `</strong> requests access with scope:</p>
 <pre>` + htmlEscape(req.Scope) + `</pre>
+` + contextLines + `
 <form method="POST">
 <input type="hidden" name="csrf_token" value="` + htmlEscape(csrfToken) + `">
 <button name="approve" value="yes">Approve</button>

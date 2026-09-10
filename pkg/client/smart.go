@@ -156,11 +156,17 @@ func (s *SMARTClient) BuildAuthURL(req AuthCodeRequest) (string, error) {
 	return req.Config.AuthorizationEndpoint + "?" + values.Encode(), nil
 }
 
+const (
+	ClientAuthSecretPost  = "client_secret_post"
+	ClientAuthSecretBasic = "client_secret_basic"
+)
+
 // AuthCodeExchangeRequest exchanges an authorization code for tokens.
 type AuthCodeExchangeRequest struct {
 	TokenEndpoint string
 	ClientID      string
 	ClientSecret  string
+	ClientAuth    string
 	RedirectURI   string
 	Code          string
 	PKCE          *PKCEChallenge
@@ -184,14 +190,21 @@ func (s *SMARTClient) ExchangeAuthCode(ctx context.Context, req AuthCodeExchange
 	values.Set("grant_type", "authorization_code")
 	values.Set("code", req.Code)
 	values.Set("redirect_uri", req.RedirectURI)
-	values.Set("client_id", req.ClientID)
-	if req.ClientSecret != "" {
-		values.Set("client_secret", req.ClientSecret)
+	auth := req.ClientAuth
+	if auth == "" {
+		auth = ClientAuthSecretPost
+	}
+	if auth == ClientAuthSecretPost {
+		values.Set("client_id", req.ClientID)
+		if req.ClientSecret != "" {
+			values.Set("client_secret", req.ClientSecret)
+		}
 	}
 	if req.PKCE != nil {
 		values.Set("code_verifier", req.PKCE.Verifier)
 	}
-	return s.postToken(ctx, req.TokenEndpoint, values)
+	basicUser, basicPass := tokenClientAuth(req.ClientID, req.ClientSecret, auth)
+	return s.postToken(ctx, req.TokenEndpoint, values, basicUser, basicPass)
 }
 
 // ExchangeClientAssertion exchanges a backend-service client assertion for tokens.
@@ -224,7 +237,7 @@ func (s *SMARTClient) ExchangeClientAssertion(ctx context.Context, req ClientAss
 	if req.Scope != "" {
 		values.Set("scope", req.Scope)
 	}
-	return s.postToken(ctx, req.TokenEndpoint, values)
+	return s.postToken(ctx, req.TokenEndpoint, values, "", "")
 }
 
 // RefreshTokenRequest refreshes an access token when the server supports it.
@@ -232,6 +245,7 @@ type RefreshTokenRequest struct {
 	TokenEndpoint string
 	ClientID      string
 	ClientSecret  string
+	ClientAuth    string
 	RefreshToken  string
 }
 
@@ -249,11 +263,25 @@ func (s *SMARTClient) RefreshToken(ctx context.Context, req RefreshTokenRequest)
 	values := url.Values{}
 	values.Set("grant_type", "refresh_token")
 	values.Set("refresh_token", req.RefreshToken)
-	values.Set("client_id", req.ClientID)
-	if req.ClientSecret != "" {
-		values.Set("client_secret", req.ClientSecret)
+	auth := req.ClientAuth
+	if auth == "" {
+		auth = ClientAuthSecretPost
 	}
-	return s.postToken(ctx, req.TokenEndpoint, values)
+	if auth == ClientAuthSecretPost {
+		values.Set("client_id", req.ClientID)
+		if req.ClientSecret != "" {
+			values.Set("client_secret", req.ClientSecret)
+		}
+	}
+	basicUser, basicPass := tokenClientAuth(req.ClientID, req.ClientSecret, auth)
+	return s.postToken(ctx, req.TokenEndpoint, values, basicUser, basicPass)
+}
+
+func tokenClientAuth(clientID, secret, method string) (string, string) {
+	if method == ClientAuthSecretBasic && clientID != "" && secret != "" {
+		return clientID, secret
+	}
+	return "", ""
 }
 
 // TokenProviderFromResponse returns a TokenProvider backed by a token response.
@@ -266,7 +294,7 @@ func ParseTokenClaims(token string) (smart.TokenClaims, error) {
 	return smart.ParseTokenUnverified(token)
 }
 
-func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, values url.Values) (*TokenResponse, error) {
+func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, values url.Values, basicUser, basicPass string) (*TokenResponse, error) {
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("smart client is nil")
 	}
@@ -276,6 +304,8 @@ func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, value
 		body:        []byte(values.Encode()),
 		contentType: "application/x-www-form-urlencoded",
 		accept:      "application/json",
+		basicUser:   basicUser,
+		basicPass:   basicPass,
 		skipAuth:    true,
 	})
 	if err != nil {

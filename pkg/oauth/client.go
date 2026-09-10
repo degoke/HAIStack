@@ -10,6 +10,8 @@ import (
 type Client struct {
 	ClientID                string
 	ClientSecret            string
+	ClientSecretHash        string
+	ClientName              string
 	RedirectURIs            []string
 	GrantTypes              []string
 	ResponseTypes           []string
@@ -20,7 +22,7 @@ type Client struct {
 	Algorithm               string
 }
 
-// ClientStore stores registered OAuth clients.
+// ClientStore stores registered OAuth clients in memory.
 type ClientStore struct {
 	mu      sync.RWMutex
 	clients map[string]Client
@@ -32,13 +34,17 @@ func NewClientStore() *ClientStore {
 }
 
 // Register adds or replaces a client.
-func (s *ClientStore) Register(client Client) {
+func (s *ClientStore) Register(client Client) error {
 	if s == nil {
-		return
+		return nil
+	}
+	if err := prepareClientSecret(&client); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	s.clients[client.ClientID] = client
 	s.mu.Unlock()
+	return nil
 }
 
 // Get returns a registered client.

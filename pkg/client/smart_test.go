@@ -153,6 +153,35 @@ func TestAuthCodeTokenExchangeWithClientSecret(t *testing.T) {
 	}
 }
 
+func TestAuthCodeTokenExchangeWithClientSecretBasic(t *testing.T) {
+	var gotUser, gotPass string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, _ = r.BasicAuth()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-basic","token_type":"Bearer"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	resp, err := c.SMART().ExchangeAuthCode(context.Background(), AuthCodeExchangeRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "client-1",
+		ClientSecret:  "secret-value",
+		ClientAuth:    ClientAuthSecretBasic,
+		RedirectURI:   "https://app/cb",
+		Code:          "code-abc",
+	})
+	if err != nil {
+		t.Fatalf("ExchangeAuthCode: %v", err)
+	}
+	if gotUser != "client-1" || gotPass != "secret-value" {
+		t.Fatalf("basic auth = %q:%q", gotUser, gotPass)
+	}
+	if resp.AccessToken != "tok-basic" {
+		t.Fatalf("token: %s", resp.AccessToken)
+	}
+}
+
 func TestRefreshTokenWithClientSecret(t *testing.T) {
 	var gotSecret string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

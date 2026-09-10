@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,11 +21,14 @@ type AuthorizationStore interface {
 	SavePendingAuthorization(id string, entry PendingAuthorization) error
 	GetPendingAuthorization(id string) (PendingAuthorization, bool)
 	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
+	DeleteRefreshToken(token string) bool
 }
 
 // PendingAuthorization stores an in-progress authorize/consent/launch session.
 type PendingAuthorization struct {
 	Request   AuthorizationRequest `json:"request"`
+	Subject   string               `json:"subject,omitempty"`
+	FHIRUser  string               `json:"fhirUser,omitempty"`
 	CSRFToken string               `json:"csrfToken,omitempty"`
 	ExpiresAt time.Time            `json:"expiresAt"`
 }
@@ -38,6 +40,8 @@ type AuthorizationCode struct {
 	Scope       string    `json:"scope"`
 	Patient     string    `json:"patient,omitempty"`
 	Encounter   string    `json:"encounter,omitempty"`
+	Subject     string    `json:"subject,omitempty"`
+	FHIRUser    string    `json:"fhirUser,omitempty"`
 	Challenge   string    `json:"challenge,omitempty"`
 	Method      string    `json:"method,omitempty"`
 	ExpiresAt   time.Time `json:"expiresAt"`
@@ -50,6 +54,7 @@ type RefreshTokenEntry struct {
 	Patient   string    `json:"patient,omitempty"`
 	Encounter string    `json:"encounter,omitempty"`
 	Subject   string    `json:"subject"`
+	FHIRUser  string    `json:"fhirUser,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
@@ -130,6 +135,16 @@ func (s *MemoryAuthorizationStore) GetPendingAuthorization(id string) (PendingAu
 		return PendingAuthorization{}, false
 	}
 	return entry, true
+}
+
+func (s *MemoryAuthorizationStore) DeleteRefreshToken(token string) bool {
+	s.mu.Lock()
+	_, ok := s.refreshTokens[token]
+	if ok {
+		delete(s.refreshTokens, token)
+	}
+	s.mu.Unlock()
+	return ok
 }
 
 func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
@@ -269,6 +284,17 @@ func (s *FileAuthorizationStore) now() time.Time {
 	return time.Now()
 }
 
+func (s *FileAuthorizationStore) DeleteRefreshToken(token string) bool {
+	var ok bool
+	err := s.update(func(state *fileAuthorizationState) {
+		_, ok = state.Refresh[token]
+		if ok {
+			delete(state.Refresh, token)
+		}
+	})
+	return err == nil && ok
+}
+
 func (s *FileAuthorizationStore) update(fn func(*fileAuthorizationState)) error {
 	if s == nil {
 		return fmt.Errorf("oauth: authorization store is nil")
@@ -279,8 +305,27 @@ func (s *FileAuthorizationStore) update(fn func(*fileAuthorizationState)) error 
 	if err != nil {
 		return err
 	}
+	purgeExpiredAuthorizationState(&state, s.now())
 	fn(&state)
 	return s.save(state)
+}
+
+func purgeExpiredAuthorizationState(state *fileAuthorizationState, now time.Time) {
+	for code, entry := range state.Codes {
+		if now.After(entry.ExpiresAt) {
+			delete(state.Codes, code)
+		}
+	}
+	for token, entry := range state.Refresh {
+		if now.After(entry.ExpiresAt) {
+			delete(state.Refresh, token)
+		}
+	}
+	for id, entry := range state.Pending {
+		if now.After(entry.ExpiresAt) {
+			delete(state.Pending, id)
+		}
+	}
 }
 
 func (s *FileAuthorizationStore) load() (fileAuthorizationState, error) {
@@ -319,12 +364,9 @@ func (s *FileAuthorizationStore) load() (fileAuthorizationState, error) {
 }
 
 func (s *FileAuthorizationStore) save(state fileAuthorizationState) error {
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return fmt.Errorf("create authorization store dir: %w", err)
-	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode authorization store: %w", err)
 	}
-	return os.WriteFile(s.Path, data, 0o600)
+	return atomicWritePrivateFile(s.Path, data)
 }

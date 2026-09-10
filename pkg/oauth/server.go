@@ -13,15 +13,16 @@ import (
 
 // Config configures a built-in OAuth2/OIDC authorization server.
 type Config struct {
-	Issuer          string
-	FHIRAudience    string
-	SigningKey      *KeySet
-	Clients         *ClientStore
+	Issuer             string
+	FHIRAudience       string
+	SigningKey         *KeySet
+	Clients            ClientRegistry
 	AuthorizationStore AuthorizationStore
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
-	AuthCodeTTL     time.Duration
-	Now             func() time.Time
+	ReplayStore        smart.ReplayStore
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
+	AuthCodeTTL        time.Duration
+	Now                func() time.Time
 	// ConsentHandler approves authorization requests. When nil and AutoApprove is false,
 	// the authorize endpoint rejects requests.
 	ConsentHandler ConsentHandler
@@ -29,8 +30,12 @@ type Config struct {
 	AutoApprove bool
 	// RequireConsentForm redirects to a built-in HTML consent page before issuing codes.
 	RequireConsentForm bool
+	// AllowDynamicRegistration enables POST /oauth/register. Disabled by default.
+	AllowDynamicRegistration bool
 	// LaunchResolver resolves EHR launch tokens for /oauth/launch and authorize.
 	LaunchResolver LaunchResolver
+	// UserAuthenticator identifies the end user approving access in production flows.
+	UserAuthenticator UserAuthenticator
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.
@@ -77,10 +82,14 @@ func NewServer(cfg Config) (*Server, error) {
 		store.Now = cfg.Now
 		cfg.AuthorizationStore = store
 	}
+	replayStore := cfg.ReplayStore
+	if replayStore == nil {
+		replayStore = smart.NewMemoryReplayStore()
+	}
 	backendAuth, err := smart.NewBackendServiceAuthWithStores(
 		cfg.Issuer+"/oauth/token",
 		clientStoreBridge{store: cfg.Clients},
-		smart.NewMemoryReplayStore(),
+		replayStore,
 	)
 	if err != nil {
 		return nil, err
@@ -88,7 +97,7 @@ func NewServer(cfg Config) (*Server, error) {
 	return &Server{
 		cfg:         cfg,
 		authStore:   cfg.AuthorizationStore,
-		replayStore: backendAuth.Replay,
+		replayStore: replayStore,
 		backendAuth: backendAuth,
 	}, nil
 }
@@ -110,11 +119,18 @@ func (s *Server) SigningPrivateKey() *rsa.PrivateKey {
 }
 
 // RegisterClient registers an OAuth client.
-func (s *Server) RegisterClient(client Client) {
+func (s *Server) RegisterClient(client Client) error {
 	if s == nil || s.cfg.Clients == nil {
-		return
+		return nil
 	}
-	s.cfg.Clients.Register(client)
+	return s.cfg.Clients.Register(client)
+}
+
+func (s *Server) authenticatedUser(r *http.Request) (UserIdentity, bool) {
+	if s == nil || s.cfg.UserAuthenticator == nil {
+		return UserIdentity{}, false
+	}
+	return s.cfg.UserAuthenticator.AuthenticateUser(r)
 }
 
 // BearerAuthConfig returns SMART bearer validation wired to this server's signing key.
@@ -165,6 +181,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/.well-known/smart-configuration", s.handleSMARTConfiguration)
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("/oauth/token", s.handleToken)
+	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
 	mux.HandleFunc("/oauth/jwks", s.handleJWKS)
 	mux.HandleFunc("/oauth/register", s.handleRegister)
 	mux.HandleFunc("/oauth/consent", s.handleConsent)

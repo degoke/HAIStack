@@ -21,7 +21,9 @@ func (s *Server) handleSMARTConfiguration(w http.ResponseWriter, _ *http.Request
 	cfg.JWKSURI = s.cfg.Issuer + "/oauth/jwks"
 	cfg.AuthorizationEndpoint = s.cfg.Issuer + "/oauth/authorize"
 	cfg.TokenEndpoint = s.cfg.Issuer + "/oauth/token"
-	cfg.RegistrationEndpoint = s.cfg.Issuer + "/oauth/register"
+	if s.cfg.AllowDynamicRegistration {
+		cfg.RegistrationEndpoint = s.cfg.Issuer + "/oauth/register"
+	}
 	writeJSON(w, http.StatusOK, cfg)
 }
 
@@ -50,7 +52,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported response_type", http.StatusBadRequest)
 		return
 	}
-	if challenge := q.Get("code_challenge"); challenge == "" && client.PublicKeyPEM == "" && client.ClientSecret == "" {
+	if challenge := q.Get("code_challenge"); challenge == "" && client.PublicKeyPEM == "" && client.ClientSecret == "" && client.ClientSecretHash == "" {
 		http.Error(w, "code_challenge required for public clients", http.StatusBadRequest)
 		return
 	}
@@ -72,10 +74,19 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if user, ok := s.authenticatedUser(r); ok {
+		authReq.Subject = user.Subject
+		authReq.FHIRUser = user.FHIRUser
+	} else if s.cfg.UserAuthenticator != nil {
+		http.Error(w, "user authentication required", http.StatusUnauthorized)
+		return
+	}
 	if s.cfg.RequireConsentForm && s.cfg.ConsentHandler == nil && !s.cfg.AutoApprove {
 		id := randomToken()
 		_ = s.authStore.SavePendingAuthorization(id, PendingAuthorization{
 			Request:   authReq,
+			Subject:   authReq.Subject,
+			FHIRUser:  authReq.FHIRUser,
 			CSRFToken: randomToken(),
 			ExpiresAt: s.cfg.Now().Add(s.cfg.AuthCodeTTL),
 		})
@@ -136,7 +147,14 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 		s.redirectAuthorizeError(w, r, pending.Request.RedirectURI, "access_denied", pending.Request.State)
 		return
 	}
-	s.issueAuthorizationRedirect(w, r, pending.Request.ClientID, pending.Request)
+	req := pending.Request
+	if req.Subject == "" {
+		req.Subject = pending.Subject
+	}
+	if req.FHIRUser == "" {
+		req.FHIRUser = pending.FHIRUser
+	}
+	s.issueAuthorizationRedirect(w, r, pending.Request.ClientID, req)
 }
 
 func (s *Server) resolveConsent(ctx context.Context, req AuthorizationRequest) (bool, error) {
@@ -152,12 +170,18 @@ func (s *Server) resolveConsent(ctx context.Context, req AuthorizationRequest) (
 
 func (s *Server) issueAuthorizationRedirect(w http.ResponseWriter, r *http.Request, clientID string, req AuthorizationRequest) {
 	code := randomToken()
+	subject := req.Subject
+	if subject == "" {
+		subject = clientID
+	}
 	_ = s.authStore.SaveAuthorizationCode(code, AuthorizationCode{
 		ClientID:    clientID,
 		RedirectURI: req.RedirectURI,
 		Scope:       req.Scope,
 		Patient:     req.Patient,
 		Encounter:   req.Encounter,
+		Subject:     subject,
+		FHIRUser:    req.FHIRUser,
 		Challenge:   req.CodeChallenge,
 		Method:      req.CodeChallengeMethod,
 		ExpiresAt:   s.cfg.Now().Add(s.cfg.AuthCodeTTL),
@@ -208,42 +232,50 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	case "refresh_token":
 		s.handleRefreshToken(w, r)
 	default:
-		http.Error(w, "unsupported grant_type", http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "unsupported grant_type")
 	}
 }
 
 func (s *Server) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
 	code := r.Form.Get("code")
 	redirectURI := r.Form.Get("redirect_uri")
-	clientID := r.Form.Get("client_id")
+	creds := clientCredentialsFromRequest(r, r.Form.Get("client_id"))
+	clientID := creds.ClientID
+	if clientID == "" {
+		clientID = r.Form.Get("client_id")
+	}
 	client, ok := s.cfg.Clients.Get(clientID)
 	if !ok {
-		http.Error(w, "invalid_client", http.StatusUnauthorized)
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
 		return
 	}
-	if !validateClientSecret(client, clientSecretFromRequest(r)) {
-		http.Error(w, "invalid_client", http.StatusUnauthorized)
+	if !authenticateConfidentialClient(client, creds) {
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 		return
 	}
 	entry, ok := s.authStore.ConsumeAuthorizationCode(code)
 	if !ok || entry.ClientID != clientID || entry.RedirectURI != redirectURI {
-		http.Error(w, "invalid_grant", http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "invalid authorization code")
 		return
 	}
 	if entry.Challenge != "" {
 		verifier := r.Form.Get("code_verifier")
 		if !pkceValid(entry.Challenge, entry.Method, verifier) {
-			http.Error(w, "invalid_grant", http.StatusBadRequest)
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "invalid code_verifier")
 			return
 		}
 	}
 	if err := validateRequestedScopes(client, entry.Scope); err != nil {
-		http.Error(w, "invalid_scope", http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope", err.Error())
 		return
 	}
-	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, clientID)
+	subject := entry.Subject
+	if subject == "" {
+		subject = clientID
+	}
+	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, subject, entry.FHIRUser)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -275,7 +307,7 @@ func (s *Server) handleClientCredentials(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid_scope", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.issueTokens(claims.ClientID, scope, claims.Patient, "", claims.Subject)
+	resp, err := s.issueTokens(claims.ClientID, scope, claims.Patient, "", claims.Subject, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -289,32 +321,40 @@ func clientStoreClient(c smart.BackendClient) Client {
 
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Form.Get("refresh_token")
-	clientID := r.Form.Get("client_id")
+	creds := clientCredentialsFromRequest(r, r.Form.Get("client_id"))
+	clientID := creds.ClientID
+	if clientID == "" {
+		clientID = r.Form.Get("client_id")
+	}
 	client, ok := s.cfg.Clients.Get(clientID)
 	if !ok {
-		http.Error(w, "invalid_client", http.StatusUnauthorized)
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "unknown client")
 		return
 	}
-	if !validateClientSecret(client, clientSecretFromRequest(r)) {
-		http.Error(w, "invalid_client", http.StatusUnauthorized)
+	if !authenticateConfidentialClient(client, creds) {
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
 		return
 	}
 	entry, ok := s.authStore.ConsumeRefreshToken(token)
 	if !ok || entry.ClientID != clientID {
-		http.Error(w, "invalid_grant", http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "invalid refresh token")
 		return
 	}
-	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, entry.Subject)
+	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, entry.Subject, entry.FHIRUser)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.AllowDynamicRegistration {
+		writeOAuthError(w, http.StatusNotFound, "invalid_request", "dynamic client registration is disabled")
+		return
+	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeOAuthError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
 	var req struct {
@@ -336,16 +376,21 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	clientID := randomToken()
 	secret := generateClientSecret()
+	authMethod := normalizeAuthMethod(req.TokenEndpointAuthMethod)
 	client := Client{
 		ClientID:                clientID,
 		ClientSecret:            secret,
+		ClientName:              req.ClientName,
 		RedirectURIs:            req.RedirectURIs,
 		GrantTypes:              grantTypes,
 		ResponseTypes:           defaultIfEmpty(req.ResponseTypes, []string{"code"}),
 		Scopes:                  strings.Fields(req.Scope),
-		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
+		TokenEndpointAuthMethod: authMethod,
 	}
-	s.cfg.Clients.Register(client)
+	if err := s.cfg.Clients.Register(client); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to register client")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"client_id":                  clientID,
 		"client_secret":              secret,
@@ -357,7 +402,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) issueTokens(clientID, scope, patient, encounter, subject string) (map[string]any, error) {
+func scopeIncludes(scope, token string) bool {
+	for _, part := range strings.Fields(scope) {
+		if part == token {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirUser string) (map[string]any, error) {
 	now := s.cfg.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
 	claims := map[string]any{
@@ -388,6 +442,7 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject string
 		Patient:   patient,
 		Encounter: encounter,
 		Subject:   subject,
+		FHIRUser:  fhirUser,
 		ExpiresAt: now.Add(s.cfg.RefreshTokenTTL),
 	})
 	resp := map[string]any{
@@ -401,16 +456,42 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject string
 	if encounter != "" {
 		resp["encounter"] = encounter
 	}
+	if scopeIncludes(scope, "openid") {
+		idClaims := map[string]any{
+			"iss": s.cfg.Issuer,
+			"sub": subject,
+			"aud": clientID,
+			"iat": now.Unix(),
+			"exp": exp.Unix(),
+		}
+		if fhirUser != "" {
+			idClaims["fhirUser"] = fhirUser
+		}
+		idToken, err := buildJWT(map[string]string{
+			"alg": s.cfg.SigningKey.Algorithm,
+			"kid": s.cfg.SigningKey.KeyID,
+			"typ": "JWT",
+		}, idClaims, s.cfg.SigningKey.PrivateKey)
+		if err != nil {
+			return nil, err
+		}
+		resp["id_token"] = idToken
+	}
 	return resp, nil
 }
 
 func (s *Server) openIDConfiguration() map[string]any {
+	registration := ""
+	if s.cfg.AllowDynamicRegistration {
+		registration = s.cfg.Issuer + "/oauth/register"
+	}
 	return map[string]any{
 		"issuer":                                s.cfg.Issuer,
 		"jwks_uri":                              s.cfg.Issuer + "/oauth/jwks",
 		"authorization_endpoint":                s.cfg.Issuer + "/oauth/authorize",
 		"token_endpoint":                        s.cfg.Issuer + "/oauth/token",
-		"registration_endpoint":                 s.cfg.Issuer + "/oauth/register",
+		"revocation_endpoint":                   s.cfg.Issuer + "/oauth/revoke",
+		"registration_endpoint":                 registration,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "client_credentials", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
