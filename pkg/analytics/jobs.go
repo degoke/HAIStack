@@ -29,23 +29,22 @@ const (
 	TypeExport  = jobs.TypeExportCSV
 )
 
-// RefreshHandler returns a jobs.Handler that runs full reporting refreshes using
-// the supplied reporting target.
-func RefreshHandler(runner *Runner, target *ReportingTarget) jobs.Handler {
+// RefreshHandler returns a jobs.Handler that runs reporting refreshes using the
+// supplied reporting target.
+func RefreshHandler(runner *Runner, target reportingWriter) jobs.Handler {
 	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
 		var payload RefreshPayload
 		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 			return err
 		}
 		_, err := runner.Run(ctx, RunRequest{
-			ViewName: payload.ViewName,
-			Version:  payload.Version,
-			Mode:     ModeRefresh,
-			Destination: Destination{
-				Reporting: target,
-			},
-			Actor:   payload.Actor,
-			Subject: payload.Subject,
+			ViewName:    payload.ViewName,
+			Version:     payload.Version,
+			Mode:        ModeRefresh,
+			Destination: Destination{Reporting: target},
+			Actor:       payload.Actor,
+			Subject:     payload.Subject,
+			Incremental: true,
 		})
 		return err
 	})

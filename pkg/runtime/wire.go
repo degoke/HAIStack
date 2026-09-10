@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -23,6 +24,7 @@ import (
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
 type wireState struct {
@@ -30,6 +32,7 @@ type wireState struct {
 	httpHandler   http.Handler
 	jobRunner     *jobs.Runner
 	syncProcessor *hasync.JobProcessor
+	analyticsCDC  *analytics.CDCProcessor
 	reindexWorker *search.ReindexWorker
 	syncEngine    *hasync.Engine
 	sqliteDB      *sqlite.DB
@@ -89,6 +92,7 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	rt.handler = hahttp.WithHealthEndpoints(state.httpHandler, rt.IsStarted)
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
+	rt.analyticsCDC = state.analyticsCDC
 	rt.reindexWorker = state.reindexWorker
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
@@ -161,6 +165,14 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		return fmt.Errorf("runtime: ensure tenant: %w", err)
 	}
 	tdb := db.Tenant(b.tenantID)
+	if b.postgresReadReplicaDSN != "" {
+		readDB, err := postgres.ReadReplica(ctx, b.postgresReadReplicaDSN, opts...)
+		if err != nil {
+			return fmt.Errorf("runtime: open postgres read replica: %w", err)
+		}
+		state.cleanup.add(func() { readDB.Close() })
+		tdb = tdb.WithReadPool(readDB.Pool())
+	}
 	state.services.TenantDB = tdb
 
 	return b.wireCommon(ctx, state, persistenceContext{
@@ -441,6 +453,17 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			},
 			EnableTypes: true,
 		}
+		if err := b.wireAnalytics(ctx, state, wireAnalyticsContext{
+			engine:       engine,
+			resources:    pc.resources,
+			jobStore:     pc.jobStore,
+			outboxEvents: pc.outboxEvents,
+			cursors:      pc.syncCursors,
+			runner:       runner,
+			packageInstaller: packageInstaller,
+		}); err != nil {
+			return fmt.Errorf("runtime: analytics: %w", err)
+		}
 		packageWorker := &packages.InstallWorker{Installer: packageInstaller}
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
@@ -537,5 +560,95 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		rootCfg.SyncMiddleware = b.syncMiddleware
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
+	return nil
+}
+
+type wireAnalyticsContext struct {
+	engine           fhirpath.Engine
+	resources        store.ResourceStore
+	jobStore         store.JobStore
+	outboxEvents     store.EventStore
+	cursors          store.CursorStore
+	runner           *jobs.Runner
+	packageInstaller *packages.Installer
+}
+
+func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
+	if !b.analyticsEnabled {
+		return nil
+	}
+	if state.services.TenantDB == nil {
+		return fmt.Errorf("analytics requires Postgres storage")
+	}
+	viewReg := view.NewRegistry()
+	if err := analytics.RegisterBuiltInViews(viewReg, ac.engine); err != nil {
+		return err
+	}
+	ac.packageInstaller.ViewRegistry = viewReg
+	ac.packageInstaller.FHIRPath = ac.engine
+
+	readResources := ac.resources
+	if state.services.TenantDB != nil {
+		readResources = state.services.TenantDB.ReadOnlyResourceStore()
+	}
+	viewExec, err := view.NewExecutor(view.Config{
+		Resources: readResources,
+		Engine:    ac.engine,
+		Registry:  viewReg,
+	})
+	if err != nil {
+		return err
+	}
+	analyticsRunner, err := analytics.NewRunner(analytics.Config{Executor: viewExec})
+	if err != nil {
+		return err
+	}
+	state.services.ViewRegistry = viewReg
+	state.services.AnalyticsRunner = analyticsRunner
+
+	reportingStore := b.resolveReportingStore(state)
+	if reportingStore == nil {
+		return fmt.Errorf("reporting table store is required for analytics")
+	}
+	baseTarget := analytics.NewReportingTarget(reportingStore)
+	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, ac.cursors)
+
+	maxConcurrent := b.analyticsMaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	limiter := analytics.NewConcurrencyLimiter(maxConcurrent)
+	refreshHandler := analytics.LimitedRefreshHandler(
+		analytics.RefreshHandler(analyticsRunner, incrementalTarget),
+		limiter,
+	)
+	if err := ac.runner.Register(analytics.TypeRefresh, refreshHandler); err != nil {
+		return err
+	}
+
+	if ac.outboxEvents != nil && ac.cursors != nil && ac.jobStore != nil {
+		cdc := &analytics.CDCProcessor{
+			Events:    ac.outboxEvents,
+			Cursors:   ac.cursors,
+			Jobs:      ac.jobStore,
+			Views:     analytics.SupportedViews,
+			Scope:     state.services.TenantDB.TenantID(),
+			BatchSize: 100,
+		}
+		state.analyticsCDC = cdc
+		state.services.AnalyticsCDC = cdc
+	}
+	return nil
+}
+
+func (b *Builder) resolveReportingStore(state *wireState) store.ReportingTableStore {
+	if b.warehouse != nil {
+		if store := b.warehouse.ReportingTables(); store != nil {
+			return store
+		}
+	}
+	if state.services.TenantDB != nil {
+		return state.services.TenantDB.ReportingTableStore()
+	}
 	return nil
 }
