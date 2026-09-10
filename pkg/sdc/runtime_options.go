@@ -1,6 +1,10 @@
 package sdc
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 func effectiveAnswerOptions(ctx context.Context, q Questionnaire, item Item, r QuestionnaireResponse, opts ValidationOptions) []AnswerOption {
 	options := append([]AnswerOption(nil), item.AnswerOption...)
@@ -38,6 +42,57 @@ func evaluateCandidates(ctx context.Context, q Questionnaire, item Item, r Quest
 		return nil
 	}
 	return values
+}
+
+// evaluateContextExpressions resolves contextExpression extensions during render.
+// Unlike evaluateCandidates, evaluation failures surface as field-level warnings
+// because context resources are optional UI hints rather than answer metadata.
+func evaluateContextExpressions(ctx context.Context, q Questionnaire, item Item, r QuestionnaireResponse, opts ValidationOptions) ([]ContextResourceResult, []Issue) {
+	if len(item.ContextExpressions) == 0 {
+		return nil, nil
+	}
+	if opts.Expressions == nil {
+		return nil, contextExpressionIssues(item, "context expression evaluation is unavailable")
+	}
+	ancestors := questionnaireAncestors(q, item.LinkID)
+	provider := expressionProviderWithAncestors(ctx, opts.Expressions, ancestors, r)
+	// %qitem is the current questionnaire item; only linkId is substituted today.
+	provider = expressionProviderWithScope(provider, map[string]any{"qitem": item})
+	if provider == nil {
+		return nil, contextExpressionIssues(item, "context expression evaluation is unavailable")
+	}
+	var results []ContextResourceResult
+	var issues []Issue
+	for _, expr := range item.ContextExpressions {
+		if !strings.EqualFold(expr.Expression.Language, FHIRQueryLanguage) {
+			issues = append(issues, contextExpressionIssue(item, fmt.Sprintf("unsupported context expression language %q", expr.Expression.Language)))
+			continue
+		}
+		values, err := provider.Evaluate(ctx, expr.Expression, r)
+		if err != nil {
+			issues = append(issues, contextExpressionIssue(item, err.Error()))
+			continue
+		}
+		if len(values) == 0 {
+			results = append(results, ContextResourceResult{Label: expr.Label})
+			continue
+		}
+		results = append(results, ContextResourceResult{Label: expr.Label, Resources: values})
+	}
+	return results, issues
+}
+
+func contextExpressionIssues(item Item, diagnostics string) []Issue {
+	return []Issue{contextExpressionIssue(item, diagnostics)}
+}
+
+func contextExpressionIssue(item Item, diagnostics string) Issue {
+	return Issue{
+		Severity:    "warning",
+		Code:        "exception",
+		Diagnostics: diagnostics,
+		FieldPath:   "item[" + item.LinkID + "]",
+	}
 }
 
 func validateAnswerOptionsEnabled(o *Outcome, item *Item, q Questionnaire, r QuestionnaireResponse, opts ValidationOptions, path string) {

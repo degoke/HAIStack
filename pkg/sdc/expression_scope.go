@@ -96,5 +96,31 @@ type scopedExpressionProvider struct {
 }
 
 func (p scopedExpressionProvider) Evaluate(ctx context.Context, e Expression, input any) ([]any, error) {
-	return expressionProviderWithScope(p.inner, p.scope).Evaluate(ctx, e, input)
+	if cp, ok := p.inner.(contextualExpressionProvider); ok {
+		return cp.withScope(p.scope).Evaluate(ctx, e, input)
+	}
+	if sp, ok := p.inner.(scopedExpressionProvider); ok {
+		return scopedExpressionProvider{inner: sp.inner, scope: mergeScopeMaps(sp.scope, p.scope)}.Evaluate(ctx, e, input)
+	}
+	if provider := extractFHIRQueryProvider(p.inner); provider != nil && isFHIRQueryExpression(e) {
+		return executeFHIRQueryWithConstants(ctx, provider, e.Expression, p.scope, input)
+	}
+	return p.inner.Evaluate(ctx, e, input)
+}
+
+func mergeScopeMaps(base, overlay map[string]any) map[string]any {
+	if len(base) == 0 {
+		return overlay
+	}
+	if len(overlay) == 0 {
+		return base
+	}
+	merged := map[string]any{}
+	for name, value := range base {
+		merged[name] = value
+	}
+	for name, value := range overlay {
+		merged[name] = value
+	}
+	return merged
 }
