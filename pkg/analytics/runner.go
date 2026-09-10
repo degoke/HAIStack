@@ -107,7 +107,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			since = cursorSince
 		}
 	}
-
 	result, err := r.executor.Execute(ctx, view.ExecuteRequest{
 		ViewName:   req.ViewName,
 		Version:    req.Version,

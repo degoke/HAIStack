@@ -8,32 +8,42 @@ import (
 	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 )
 
+// ResourceResolverConfig configures reference resolution for resolve() and joins.
+type ResourceResolverConfig struct {
+	Read             func(ctx context.Context, resourceType, id string) (any, error)
+	BaseURL          string
+	ResolveLogicalID func(ctx context.Context, logicalID string) (resourceType, id string, ok bool)
+}
+
 // ResourceStoreResolver returns a ResolveFunc backed by store.ResourceStore.Read.
-// It resolves typed relative references such as Patient/123.
+// It resolves typed relative references, absolute REST URLs, and urn:uuid ids.
 func ResourceStoreResolver(read func(ctx context.Context, resourceType, id string) (any, error)) ResolveFunc {
+	return EnhancedResourceStoreResolver(ResourceResolverConfig{Read: read})
+}
+
+// EnhancedResourceStoreResolver resolves references using ResourceResolverConfig.
+func EnhancedResourceStoreResolver(cfg ResourceResolverConfig) ResolveFunc {
 	return func(ctx context.Context, ref string) (any, error) {
-		resourceType, id, ok := parseTypedReference(ref)
+		if cfg.Read == nil {
+			return nil, nil
+		}
+		resourceType, id, ok := ParseReferenceForRead(ref, cfg.BaseURL)
 		if !ok {
 			return nil, nil
 		}
-		return read(ctx, resourceType, id)
+		if resourceType == "" {
+			if cfg.ResolveLogicalID != nil {
+				resolvedType, resolvedID, found := cfg.ResolveLogicalID(ctx, id)
+				if found {
+					resourceType, id = resolvedType, resolvedID
+				}
+			}
+			if resourceType == "" {
+				return nil, nil
+			}
+		}
+		return cfg.Read(ctx, resourceType, id)
 	}
-}
-
-func parseTypedReference(raw string) (resourceType, id string, ok bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", "", false
-	}
-	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") ||
-		strings.HasPrefix(raw, "urn:") || strings.HasPrefix(raw, "#") {
-		return "", "", false
-	}
-	parts := strings.SplitN(raw, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.Contains(parts[0], ":") {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
 }
 
 // TerminologyServiceAdapter adapts a validate-code callback to TerminologyValidator.

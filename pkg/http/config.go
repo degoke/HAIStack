@@ -83,6 +83,15 @@ type Config struct {
 	// ViewMaterializeService handles ViewDefinition/$materialize when configured.
 	ViewMaterializeService ViewMaterializeService
 
+	// ViewRunService handles ViewDefinition/$viewdefinition-run when configured.
+	ViewRunService ViewRunService
+
+	// SQLQueryService handles Library/$sqlquery-run when configured.
+	SQLQueryService SQLQueryService
+
+	// ViewExportService handles ViewDefinition/$viewdefinition-export when configured.
+	ViewExportService ViewExportService
+
 	// PatientReferenceResolver resolves patient ownership for loaded resources when
 	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.
 	PatientReferenceResolver auth.ResourcePatientResolver

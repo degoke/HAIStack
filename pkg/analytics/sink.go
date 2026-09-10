@@ -16,42 +16,17 @@ type ParquetSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
 }
 
-// WarehouseSink writes view rows to a warehouse backend. Not implemented in v1.
+// WarehouseSink writes view rows to a warehouse backend.
 type WarehouseSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
 }
 
-// LakehouseSink writes view rows to a data lake / lakehouse. Not implemented in v1.
+// LakehouseSink writes view rows to a data lake / lakehouse.
 type LakehouseSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
 }
 
 // ManifestExportSink supports cursor-based incremental export with manifests.
-// Not implemented in v1.
 type ManifestExportSink interface {
 	WriteRows(ctx context.Context, result *view.Result) error
-}
-
-// deferredSink is a placeholder for unimplemented sink backends.
-type deferredSink struct {
-	name string
-}
-
-func (d *deferredSink) WriteRows(context.Context, *view.Result) error {
-	return ErrSinkNotImplemented
-}
-
-// NewWarehouseSink returns a stub warehouse sink for interface wiring tests.
-func NewWarehouseSink() WarehouseSink {
-	return &deferredSink{name: "warehouse"}
-}
-
-// NewLakehouseSink returns a stub lakehouse sink for interface wiring tests.
-func NewLakehouseSink() LakehouseSink {
-	return &deferredSink{name: "lakehouse"}
-}
-
-// NewManifestExportSink returns a stub manifest export sink for interface wiring tests.
-func NewManifestExportSink() ManifestExportSink {
-	return &deferredSink{name: "manifest"}
 }

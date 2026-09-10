@@ -45,4 +45,6 @@ const (
 	TypeExportBulk = TypePrefixExport + "bulk"
 	// TypeViewMaterialize schedules a ViewDefinition materialize run.
 	TypeViewMaterialize = TypePrefixView + "materialize"
+	// TypeViewExport schedules a ViewDefinition export run.
+	TypeViewExport = TypePrefixView + "export"
 )

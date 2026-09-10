@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -23,98 +24,104 @@ func referenceStringFromValue(v fhirpath.Value) (string, bool) {
 }
 
 func referenceStringFromProto(ref *dtpb.Reference) (string, bool) {
-	if ref == nil {
-		return "", false
-	}
-	if uri := ref.GetUri(); uri != nil && uri.GetValue() != "" {
-		return strings.TrimSpace(uri.GetValue()), true
-	}
-	type idPair struct {
-		resourceType string
-		id           string
-	}
-	var pair idPair
-	switch {
-	case ref.GetPatientId() != nil:
-		pair = idPair{"Patient", ref.GetPatientId().GetValue()}
-	case ref.GetPractitionerId() != nil:
-		pair = idPair{"Practitioner", ref.GetPractitionerId().GetValue()}
-	case ref.GetRelatedPersonId() != nil:
-		pair = idPair{"RelatedPerson", ref.GetRelatedPersonId().GetValue()}
-	case ref.GetOrganizationId() != nil:
-		pair = idPair{"Organization", ref.GetOrganizationId().GetValue()}
-	case ref.GetEncounterId() != nil:
-		pair = idPair{"Encounter", ref.GetEncounterId().GetValue()}
-	case ref.GetAppointmentId() != nil:
-		pair = idPair{"Appointment", ref.GetAppointmentId().GetValue()}
-	case ref.GetObservationId() != nil:
-		pair = idPair{"Observation", ref.GetObservationId().GetValue()}
-	case ref.GetLocationId() != nil:
-		pair = idPair{"Location", ref.GetLocationId().GetValue()}
-	case ref.GetDeviceId() != nil:
-		pair = idPair{"Device", ref.GetDeviceId().GetValue()}
-	case ref.GetMedicationId() != nil:
-		pair = idPair{"Medication", ref.GetMedicationId().GetValue()}
-	case ref.GetResourceId() != nil:
-		pair = idPair{"", ref.GetResourceId().GetValue()}
-	}
-	if pair.id == "" {
-		return "", false
-	}
-	if pair.resourceType != "" {
-		return pair.resourceType + "/" + pair.id, true
-	}
-	return pair.id, true
+	return fhirpath.ReferenceStringFromProto(ref)
 }
 
-func parseTypedReference(raw string) (resourceType, id string, ok bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", "", false
-	}
-	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") ||
-		strings.HasPrefix(raw, "urn:") || strings.HasPrefix(raw, "#") {
-		return "", "", false
-	}
-	parts := strings.SplitN(raw, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.Contains(parts[0], ":") {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}
-
-func (e *Executor) resolveIterationContext(ctx context.Context, item fhirpath.Value) (any, error) {
+func (e *Executor) resolveIterationContext(ctx context.Context, item fhirpath.Value, parent any) (any, error) {
 	raw := item.Raw()
 	if raw == nil {
 		return nil, nil
 	}
 	if ref, ok := raw.(*dtpb.Reference); ok {
-		return e.resolveReferenceProto(ctx, ref)
+		return e.resolveReferenceProto(ctx, ref, parent)
 	}
 	if refStr, ok := referenceStringFromValue(item); ok {
-		if resourceType, id, typed := parseTypedReference(refStr); typed {
-			env, err := e.cfg.Resources.Read(ctx, resourceType, id)
-			if err != nil {
-				return nil, fmt.Errorf("resolve reference %q: %w", refStr, err)
-			}
-			return env, nil
-		}
+		return e.resolveReferenceString(ctx, refStr, parent)
 	}
 	return raw, nil
 }
 
-func (e *Executor) resolveReferenceProto(ctx context.Context, ref *dtpb.Reference) (any, error) {
+func (e *Executor) resolveReferenceProto(ctx context.Context, ref *dtpb.Reference, parent any) (any, error) {
 	refStr, ok := referenceStringFromProto(ref)
 	if !ok {
 		return ref, nil
 	}
-	resourceType, id, typed := parseTypedReference(refStr)
-	if !typed {
-		return ref, nil
+	return e.resolveReferenceString(ctx, refStr, parent)
+}
+
+func (e *Executor) resolveReferenceString(ctx context.Context, refStr string, parent any) (any, error) {
+	refStr = strings.TrimSpace(refStr)
+	if refStr == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(refStr, "#") {
+		if resolved, ok := resolveContainedReference(parent, refStr); ok {
+			return resolved, nil
+		}
+		return nil, nil
+	}
+	resourceType, id, ok := fhirpath.ParseReferenceForRead(refStr, e.cfg.BaseURL)
+	if !ok {
+		return nil, nil
+	}
+	if resourceType == "" {
+		if e.cfg.ResolveLogicalID != nil {
+			resolvedType, resolvedID, found := e.cfg.ResolveLogicalID(ctx, id)
+			if found {
+				resourceType, id = resolvedType, resolvedID
+			}
+		}
+		if resourceType == "" {
+			return nil, nil
+		}
 	}
 	env, err := e.cfg.Resources.Read(ctx, resourceType, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve reference %q: %w", refStr, err)
 	}
 	return env, nil
+}
+
+func resolveContainedReference(parent any, fragment string) (any, bool) {
+	if parent == nil {
+		return nil, false
+	}
+	targetID := strings.TrimPrefix(strings.TrimSpace(fragment), "#")
+	if targetID == "" {
+		return nil, false
+	}
+	switch env := parent.(type) {
+	case map[string]any:
+		return findContainedInMap(env, targetID)
+	default:
+		data, err := json.Marshal(parent)
+		if err != nil {
+			return nil, false
+		}
+		var asMap map[string]any
+		if err := json.Unmarshal(data, &asMap); err != nil {
+			return nil, false
+		}
+		return findContainedInMap(asMap, targetID)
+	}
+}
+
+func findContainedInMap(resource map[string]any, targetID string) (any, bool) {
+	if id, _ := resource["id"].(string); id == targetID {
+		return resource, true
+	}
+	contained, ok := resource["contained"].([]any)
+	if !ok {
+		return nil, false
+	}
+	for _, item := range contained {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, _ := entry["id"].(string); id == targetID {
+			return entry, true
+		}
+	}
+	return nil, false
 }

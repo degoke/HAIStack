@@ -37,4 +37,8 @@ var (
 	// ErrMissingMaterializedViewStore is returned when materialization is requested
 	// without a configured MaterializedViewStore.
 	ErrMissingMaterializedViewStore = errors.New("view: missing materialized view store")
+
+	// ErrMissingReportingTables is returned when SQL query execution is requested
+	// without a configured ReportingTableStore.
+	ErrMissingReportingTables = errors.New("view: missing reporting table store")
 )

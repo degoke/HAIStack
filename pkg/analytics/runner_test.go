@@ -230,18 +230,28 @@ func TestRunner_RejectsCustomDefinitionUsingBuiltInName(t *testing.T) {
 	}
 }
 
-func TestDeferredSinksNotImplemented(t *testing.T) {
+func TestDeferredSinksRequireConfiguration(t *testing.T) {
 	ctx := context.Background()
 	result := &view.Result{ViewName: analytics.ViewPatientSummary, Version: "1.0.0"}
-	sinks := []analytics.RowSink{
-		analytics.NewWarehouseSink(),
-		analytics.NewLakehouseSink(),
-		analytics.NewManifestExportSink(),
+
+	reporting := newMemReportingTableStore()
+	if err := analytics.NewWarehouseSink(reporting).WriteRows(ctx, result); err != nil {
+		t.Fatalf("warehouse sink: %v", err)
 	}
-	for _, sink := range sinks {
-		if err := sink.WriteRows(ctx, result); !errors.Is(err, analytics.ErrSinkNotImplemented) {
-			t.Fatalf("WriteRows err = %v, want ErrSinkNotImplemented", err)
-		}
+
+	var lakeBuf bytes.Buffer
+	lakeSink := analytics.NewLakehouseSink(analytics.LakehouseConfig{Root: &lakeBuf})
+	if err := lakeSink.WriteRows(ctx, result); err != nil {
+		t.Fatalf("lakehouse sink: %v", err)
+	}
+
+	var manifestBuf bytes.Buffer
+	manifestSink := analytics.NewManifestExportSink(analytics.ManifestExportConfig{
+		Root:   &manifestBuf,
+		Format: analytics.FormatNDJSON,
+	})
+	if err := manifestSink.WriteRows(ctx, result); err != nil {
+		t.Fatalf("manifest sink: %v", err)
 	}
 }
 

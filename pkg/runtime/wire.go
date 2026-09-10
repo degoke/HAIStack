@@ -470,8 +470,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				_, err := conformanceRuntime.Refresh(ctx)
 				return err
 			},
-			EnableTypes: true,
+			EnableTypes:  true,
+			ViewRegistry: view.NewRegistry(),
+			FHIRPath:     engine,
 		}
+		state.services.ViewRegistry = packageInstaller.ViewRegistry
 		if err := b.wireAnalytics(ctx, state, wireAnalyticsContext{
 			engine:           engine,
 			resources:        pc.resources,
@@ -562,6 +565,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
 		ViewMaterializeService:   state.services.MaterializeService,
+		ViewRunService:           state.services.ViewRunService,
+		SQLQueryService:          state.services.SQLQueryService,
+		ViewExportService:        state.services.ViewExportService,
 		RateLimit:                b.httpRateLimit,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
@@ -598,18 +604,23 @@ type wireAnalyticsContext struct {
 }
 
 func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
+	viewReg := ac.packageInstaller.ViewRegistry
+	if viewReg == nil {
+		viewReg = view.NewRegistry()
+		ac.packageInstaller.ViewRegistry = viewReg
+		ac.packageInstaller.FHIRPath = ac.engine
+	}
+	state.services.ViewRegistry = viewReg
+
 	if !b.analyticsEnabled {
 		return nil
 	}
 	if state.services.TenantDB == nil {
 		return fmt.Errorf("analytics requires Postgres storage")
 	}
-	viewReg := view.NewRegistry()
 	if err := analytics.RegisterBuiltInViews(viewReg, ac.engine); err != nil {
 		return err
 	}
-	ac.packageInstaller.ViewRegistry = viewReg
-	ac.packageInstaller.FHIRPath = ac.engine
 
 	readResources := ac.resources
 	if state.services.TenantDB != nil {
@@ -619,6 +630,7 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 		Resources: readResources,
 		Engine:    ac.engine,
 		Registry:  viewReg,
+		BaseURL:   "/fhir",
 	}
 	if state.services.TenantDB != nil {
 		viewCfg.MaterializedViews = state.services.TenantDB.MaterializedViewStore()
@@ -638,6 +650,14 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	state.services.ViewRegistry = viewReg
 	state.services.ViewExecutor = viewExec
 	state.services.AnalyticsRunner = analyticsRunner
+	state.services.ViewRunService = view.NewRunService(viewExec)
+
+	reportingStore := b.resolveReportingStore(state)
+	if reportingStore == nil {
+		return fmt.Errorf("reporting table store is required for analytics")
+	}
+	state.services.SQLQueryService = view.NewSQLQueryService(view.NewSQLQueryEngine(reportingStore))
+	watermarks := analytics.NewWatermarkStore(ac.cursors)
 
 	if ac.jobStore != nil {
 		matJobs := view.NewInMemoryMaterializeJobStore()
@@ -656,12 +676,28 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 				return err
 			}
 		}
+
+		exportJobs := view.NewInMemoryViewExportJobStore()
+		exportWriter := view.NewMemoryExportWriter()
+		exportSvc, err := view.NewExportService(view.ExportServiceConfig{
+			Jobs:      exportJobs,
+			Executor:  viewExec,
+			Writer:    exportWriter,
+			Watermark: watermarks,
+			JobQueue:  ac.jobStore,
+			BasePath:  "/fhir",
+		})
+		if err != nil {
+			return err
+		}
+		state.services.ViewExportService = exportSvc
+		if ac.runner != nil {
+			if err := ac.runner.Register(jobs.TypeViewExport, exportSvc.JobHandler()); err != nil {
+				return err
+			}
+		}
 	}
 
-	reportingStore := b.resolveReportingStore(state)
-	if reportingStore == nil {
-		return fmt.Errorf("reporting table store is required for analytics")
-	}
 	baseTarget := analytics.NewReportingTarget(reportingStore)
 	incrementalTarget := analytics.NewIncrementalTarget(baseTarget, ac.cursors)
 
@@ -686,6 +722,7 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 			Views:     analytics.SupportedViews,
 			Scope:     state.services.TenantDB.TenantID(),
 			BatchSize: 100,
+			Watermark: watermarks,
 		}
 		state.analyticsCDC = cdc
 		state.services.AnalyticsCDC = cdc

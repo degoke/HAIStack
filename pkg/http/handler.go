@@ -77,6 +77,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleViewMaterialize(w, r, route)
 			return
 		}
+		if route.operation == "$viewdefinition-run" && route.resourceType == "ViewDefinition" {
+			h.handleViewDefinitionRun(w, r, route)
+			return
+		}
+		if route.operation == "$viewdefinition-export" && route.resourceType == "ViewDefinition" {
+			h.handleViewDefinitionExport(w, r, route)
+			return
+		}
+		if route.operation == "$sqlquery-run" && route.resourceType == "Library" {
+			h.handleSQLQueryRun(w, r, route)
+			return
+		}
 		if route.operation == "$validate" && !isSDCResourceOperation(route.operation, route.resourceType) {
 			h.handleValidateOperation(w, r, route)
 			return
@@ -120,6 +132,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBulkExportFile(w, r, route.jobID, route.filename)
 	case routeMaterializeStatus:
 		h.handleViewMaterializeStatus(w, r, route.jobID)
+	case routeViewExportStatus:
+		h.handleViewDefinitionExportStatus(w, r, route.jobID)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}

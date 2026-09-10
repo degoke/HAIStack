@@ -25,6 +25,8 @@ type Config struct {
 	Search            search.Executor
 	SearchRegistry    search.Registry
 	SearchPlanner     search.Planner
+	BaseURL           string
+	ResolveLogicalID  func(ctx context.Context, logicalID string) (resourceType, id string, ok bool)
 	Now               func() time.Time
 }
 

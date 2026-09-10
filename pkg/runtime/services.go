@@ -45,6 +45,12 @@ type ServiceContainer struct {
 	ViewExecutor *view.Executor
 	// MaterializeService handles ViewDefinition/$materialize operations.
 	MaterializeService *view.MaterializeService
+	// ViewRunService handles ViewDefinition/$viewdefinition-run operations.
+	ViewRunService *view.RunService
+	// SQLQueryService handles Library/$sqlquery-run operations.
+	SQLQueryService *view.SQLQueryService
+	// ViewExportService handles ViewDefinition/$viewdefinition-export operations.
+	ViewExportService *view.ExportService
 	// AnalyticsCDC consumes outbox events and schedules refresh jobs.
 	AnalyticsCDC *analytics.CDCProcessor
 }

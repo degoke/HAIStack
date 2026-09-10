@@ -126,11 +126,14 @@ res, err := exec.Execute(ctx, view.ExecuteRequest{
 - Materialization via `metadata.materialize` / `metadata.materializeKey` when `MaterializedViews` is configured.
 - Declared permissions as a top-level `permissions` array (v1 extension).
 
-Still unsupported:
+## SQL-on-FHIR operations
 
-- Arbitrary SQL backend (in-process execution only).
-- Absolute URL / URN reference resolution in `resolve()`.
-- Search-driven execution when search is not configured (`searchMode=index` fails without index).
+| Operation | Endpoint | Notes |
+|-----------|----------|-------|
+| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Parquet output |
+| `$viewdefinition-export` | `POST /fhir/ViewDefinition/$viewdefinition-export` | Async export with watermark-aware `_since` |
+| `$materialize` | `POST /fhir/ViewDefinition/$materialize` | Async materialized view refresh |
+| `$sqlquery-run` | `POST /fhir/Library/$sqlquery-run` | Read-only SQL over reporting tables |
 
 ## Search-driven execution
 

@@ -111,7 +111,7 @@ func (e *Executor) expandForEach(ctx context.Context, sel SelectSpec, rootResour
 			var childOut []map[string]any
 			contextResource := rootResource
 			if rawItem.Raw() != nil {
-				resolved, resolveErr := e.resolveIterationContext(ctx, rawItem)
+				resolved, resolveErr := e.resolveIterationContext(ctx, rawItem, rootResource)
 				if resolveErr != nil {
 					return nil, resolveErr
 				}
