@@ -42,13 +42,16 @@ type mapCardinalityResolver struct {
 	profiles map[string]string
 	mu       sync.Mutex
 	indexes  map[string]map[string]string
+	// authoritative profiles use snapshot elements only and do not fall back to base paths.
+	authoritative map[string]bool
 }
 
 func newMapCardinalityResolver(store store.DefinitionStore, m Map) *mapCardinalityResolver {
 	return &mapCardinalityResolver{
-		store:    store,
-		profiles: targetProfilesFromMap(context.Background(), store, m),
-		indexes:  map[string]map[string]string{},
+		store:         store,
+		profiles:      targetProfilesFromMap(context.Background(), store, m),
+		indexes:       map[string]map[string]string{},
+		authoritative: map[string]bool{},
 	}
 }
 
@@ -91,6 +94,11 @@ func (r *mapCardinalityResolver) IsRepeatingFor(ctx context.Context, root map[st
 			return true, true
 		}
 	}
+	for _, profileURL := range profileURLs {
+		if r.isSnapshotAuthoritative(ctx, profileURL) {
+			return false, false
+		}
+	}
 	return r.lookup(ctx, "", fhirPath)
 }
 
@@ -117,6 +125,9 @@ func (r *mapCardinalityResolver) lookupResolved(ctx context.Context, profileURL,
 		}
 		if found {
 			return isRepeatingMax(max), true, nil
+		}
+		if r.isSnapshotAuthoritative(ctx, profileURL) {
+			return false, false, nil
 		}
 	}
 	baseCanonical := baseStructureDefinitionURL(resourceType)
@@ -153,7 +164,7 @@ func (r *mapCardinalityResolver) loadIndex(ctx context.Context, canonicalURL, re
 	}
 	r.mu.Unlock()
 
-	index, err := r.buildIndex(ctx, canonicalURL, resourceType)
+	index, authoritative, err := r.buildIndex(ctx, canonicalURL, resourceType)
 	if err != nil {
 		return nil, err
 	}
@@ -164,18 +175,37 @@ func (r *mapCardinalityResolver) loadIndex(ctx context.Context, canonicalURL, re
 		return cached, nil
 	}
 	r.indexes[canonicalURL] = index
+	r.authoritative[canonicalURL] = authoritative
 	r.mu.Unlock()
 	return index, nil
 }
 
-func (r *mapCardinalityResolver) buildIndex(ctx context.Context, canonicalURL, resourceType string) (map[string]string, error) {
+func (r *mapCardinalityResolver) isSnapshotAuthoritative(ctx context.Context, canonicalURL string) bool {
+	r.mu.Lock()
+	if authoritative, ok := r.authoritative[canonicalURL]; ok {
+		r.mu.Unlock()
+		return authoritative
+	}
+	r.mu.Unlock()
+
+	_, authoritative, err := r.buildIndex(ctx, canonicalURL, "")
+	if err != nil {
+		return false
+	}
+	return authoritative
+}
+
+func (r *mapCardinalityResolver) buildIndex(ctx context.Context, canonicalURL, resourceType string) (map[string]string, bool, error) {
 	record, err := r.store.Get(ctx, canonicalURL, "")
 	if err != nil || record == nil || len(record.JSONData) == 0 {
-		return nil, fmt.Errorf("StructureDefinition %s not found", canonicalURL)
+		return nil, false, fmt.Errorf("StructureDefinition %s not found", canonicalURL)
 	}
 	var sd map[string]any
 	if err := json.Unmarshal(record.JSONData, &sd); err != nil {
-		return nil, fmt.Errorf("parse StructureDefinition %s: %w", canonicalURL, err)
+		return nil, false, fmt.Errorf("parse StructureDefinition %s: %w", canonicalURL, err)
+	}
+	if resourceType == "" {
+		resourceType, _ = sd["type"].(string)
 	}
 	index := elementIndexFromDefinition(sd, resourceType)
 	sdType, _ := sd["type"].(string)
@@ -189,7 +219,7 @@ func (r *mapCardinalityResolver) buildIndex(ctx context.Context, canonicalURL, r
 			index = mergeElementIndexes(baseIndex, index)
 		}
 	}
-	return index, nil
+	return index, profileIsSnapshotAuthoritative(sd), nil
 }
 
 func profileUsesDifferentialOverlay(sd map[string]any) bool {
@@ -205,6 +235,15 @@ func profileUsesDifferentialOverlay(sd map[string]any) bool {
 	snapshot, _ := sd["snapshot"].(map[string]any)
 	snapElements, _ := snapshot["element"].([]any)
 	return len(snapElements) == 0
+}
+
+func profileIsSnapshotAuthoritative(sd map[string]any) bool {
+	snapshot, _ := sd["snapshot"].(map[string]any)
+	snapElements, _ := snapshot["element"].([]any)
+	if len(snapElements) == 0 {
+		return false
+	}
+	return !profileUsesDifferentialOverlay(sd)
 }
 
 func elementIndexFromDefinition(sd map[string]any, resourceType string) map[string]string {
@@ -371,10 +410,10 @@ func structureDefinitionElements(sd map[string]any) []any {
 	diffElements, _ := differential["element"].([]any)
 	snapElements, _ := snapshot["element"].([]any)
 	switch {
-	case derivation == "constraint" && len(diffElements) > 0:
-		return diffElements
 	case len(snapElements) > 0:
 		return snapElements
+	case derivation == "constraint" && len(diffElements) > 0:
+		return diffElements
 	case len(diffElements) > 0:
 		return diffElements
 	default:

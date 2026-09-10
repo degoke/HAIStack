@@ -48,6 +48,59 @@ func TestRemoteHTTPClientTranslate(t *testing.T) {
 	}
 }
 
+func TestTranslatorDoesNotFallBackToRemoteOnTranslationMiss(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("remote translate must not be called when local ConceptMap exists")
+	}))
+	defer server.Close()
+
+	m := Map{
+		URL: "http://example.org/maps/gender",
+		Group: []Group{{
+			Element: []Element{{Code: "M", Target: []Target{{Code: "male"}}}},
+		}},
+	}
+	translator := Translator{
+		Resolver: StaticResolver{m.URL: m},
+		Remote:   RemoteHTTPClient{BaseURL: server.URL},
+	}
+	_, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "missing"},
+	})
+	if err == nil {
+		t.Fatal("expected local translation error")
+	}
+	if IsNotFound(err) {
+		t.Fatalf("expected translation miss, got not-found: %v", err)
+	}
+}
+
+func TestTranslatorDoesNotFallBackToRemoteOnNoMap(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("remote translate must not be called for local no-map")
+	}))
+	defer server.Close()
+
+	m := Map{
+		URL: "http://example.org/maps/gender",
+		Group: []Group{{
+			Element: []Element{{Code: "M", NoMap: true}},
+		}},
+	}
+	translator := Translator{
+		Resolver: StaticResolver{m.URL: m},
+		Remote:   RemoteHTTPClient{BaseURL: server.URL},
+	}
+	_, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "M"},
+	})
+	if err == nil {
+		t.Fatal("expected no-map error")
+	}
+}
+
 func TestTranslatorFallsBackToRemote(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/fhir+json")

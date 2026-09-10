@@ -210,6 +210,14 @@ func testEngine() Engine {
 	return Engine{Cardinality: &StoreCardinalityResolver{Store: registry.EmbeddedDefinitionStore()}}
 }
 
+func TestCardinalityUsesHL7ObservationValueQuantityChoice(t *testing.T) {
+	resolver := newMapCardinalityResolver(registry.EmbeddedDefinitionStore(), Map{})
+	singular, ok := resolver.IsRepeating(context.Background(), "Observation.valueQuantity")
+	if !ok || singular {
+		t.Fatalf("expected HL7 Observation.valueQuantity to be singular, got ok=%v repeating=%v", ok, singular)
+	}
+}
+
 func TestCardinalityUsesHL7PatientStructureDefinition(t *testing.T) {
 	resolver := newMapCardinalityResolver(registry.EmbeddedDefinitionStore(), Map{})
 	repeating, ok := resolver.IsRepeating(context.Background(), "Patient.name")
@@ -320,6 +328,77 @@ func TestMapCardinalityResolverFirstRepeatingProfileWins(t *testing.T) {
 	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.component")
 	if !ok || !repeating {
 		t.Fatalf("expected first repeating profile to win over base singular, got ok=%v repeating=%v", ok, repeating)
+	}
+}
+
+func TestMapCardinalityResolverSnapshotProfileDoesNotFallBackToBase(t *testing.T) {
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"type":         "Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.code", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/snapshot-only",
+		"type":         "Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation":  baseSD,
+		"http://example.org/StructureDefinition/snapshot-only": profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	obs := map[string]any{
+		"resourceType": "Observation",
+		"meta": map[string]any{
+			"profile": []any{"http://example.org/StructureDefinition/snapshot-only"},
+		},
+	}
+	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.code")
+	if ok {
+		t.Fatalf("snapshot-authoritative profile must not inherit base path cardinality, got repeating=%v", repeating)
+	}
+}
+
+func TestMapCardinalityResolverConstraintWithSnapshotUsesSnapshotElements(t *testing.T) {
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/constraint-with-snapshot",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://example.org/StructureDefinition/constraint-with-snapshot": profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	index, err := resolver.loadIndex(context.Background(), "http://example.org/StructureDefinition/constraint-with-snapshot", "Observation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index["Observation.component"] != "1" {
+		t.Fatalf("expected snapshot component max, got %#v", index["Observation.component"])
 	}
 }
 

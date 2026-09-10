@@ -56,7 +56,7 @@ func (r *StoreResolver) Resolve(ctx context.Context, canonical string) (Map, err
 			}
 		}
 	}
-	return Map{}, fmt.Errorf("ConceptMap not found: %s", canonical)
+	return Map{}, ErrNotFound(canonical)
 }
 
 func (r *StoreResolver) buildIndex(ctx context.Context) (map[string][]Map, error) {
@@ -106,7 +106,7 @@ func (r StaticResolver) Resolve(_ context.Context, canonical string) (Map, error
 	} else if ok {
 		return m, nil
 	}
-	return Map{}, fmt.Errorf("ConceptMap not found: %s", canonical)
+	return Map{}, ErrNotFound(canonical)
 }
 
 func resolveFromIndex(byURL map[string][]Map, canonical string) (Map, bool, error) {

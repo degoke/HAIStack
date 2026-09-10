@@ -34,7 +34,7 @@ func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[
 		if err == nil {
 			return codings, nil
 		}
-		if t.Remote == nil {
+		if t.Remote == nil || !IsNotFound(err) {
 			return nil, err
 		}
 	}

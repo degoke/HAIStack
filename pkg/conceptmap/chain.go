@@ -1,6 +1,9 @@
 package conceptmap
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // ChainResolver tries resolvers in order until one succeeds.
 type ChainResolver struct {
@@ -36,4 +39,10 @@ type notFoundError struct {
 
 func (e *notFoundError) Error() string {
 	return "ConceptMap not found: " + e.canonical
+}
+
+// IsNotFound reports whether err indicates the ConceptMap canonical URL was not found.
+func IsNotFound(err error) bool {
+	var nf *notFoundError
+	return errors.As(err, &nf)
 }
