@@ -202,7 +202,7 @@ func codingCodeFromConcept(value any) string {
 }
 
 // FilterBundleEnvelopeScopeFilters removes bundle entries outside granted scope filters.
-func FilterBundleEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, defaultResourceType string, envelope *types.ResourceEnvelope, codec types.ResourceCodec) (*types.ResourceEnvelope, error) {
+func FilterBundleEnvelopeScopeFilters(ctx context.Context, scopes ScopeSet, actor ActorClass, defaultResourceType string, envelope *types.ResourceEnvelope, codec types.ResourceCodec) (*types.ResourceEnvelope, error) {
 	if envelope == nil || scopes.Empty() || envelope.ResourceType != "Bundle" {
 		return envelope, nil
 	}
@@ -213,7 +213,7 @@ func FilterBundleEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, default
 	if err != nil {
 		return nil, err
 	}
-	if err := FilterSearchBundleScopeFilters(context.Background(), scopes, actor, defaultResourceType, bundle); err != nil {
+	if err := FilterSearchBundleScopeFilters(ctx, scopes, actor, defaultResourceType, bundle); err != nil {
 		return nil, err
 	}
 	return searchBundleToBundleEnvelope(bundle, envelope, codec)

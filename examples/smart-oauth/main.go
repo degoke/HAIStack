@@ -135,7 +135,13 @@ func run() error {
 		return err
 	}
 	code := queryValue(redirectURL, "code")
-	tokenResp, err := httpClient.SMART().ExchangeAuthCode(ctx, cfg.TokenEndpoint, "demo-app", "https://localhost/callback", code, pkce)
+	tokenResp, err := httpClient.SMART().ExchangeAuthCode(ctx, client.AuthCodeExchangeRequest{
+		TokenEndpoint: cfg.TokenEndpoint,
+		ClientID:      "demo-app",
+		RedirectURI:   "https://localhost/callback",
+		Code:          code,
+		PKCE:          pkce,
+	})
 	if err != nil {
 		return err
 	}

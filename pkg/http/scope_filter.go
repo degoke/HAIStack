@@ -91,7 +91,7 @@ func (h *handler) filterOperationBundleResult(ctx context.Context, defaultResour
 	if !ok || envelope == nil || envelope.ResourceType != "Bundle" {
 		return envelope, nil
 	}
-	return smart.FilterBundleEnvelopeScopeFilters(scopes, actor, defaultResourceType, envelope, h.cfg.Codec)
+	return smart.FilterBundleEnvelopeScopeFilters(ctx, scopes, actor, defaultResourceType, envelope, h.cfg.Codec)
 }
 
 func (h *handler) filterHistoryVersions(ctx context.Context, resourceType string, versions []store.ResourceVersion) ([]store.ResourceVersion, error) {

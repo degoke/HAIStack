@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,7 +104,13 @@ func (e *infernoEnv) authorizePKCE(t *testing.T, ctx context.Context, scope stri
 	}
 	loc := authResp.Header.Get("Location")
 	code := strings.Split(strings.Split(loc, "code=")[1], "&")[0]
-	tokenResp, err := httpClient.SMART().ExchangeAuthCode(ctx, cfg.TokenEndpoint, "inferno-client", "https://localhost/callback", code, pkce)
+	tokenResp, err := httpClient.SMART().ExchangeAuthCode(ctx, client.AuthCodeExchangeRequest{
+		TokenEndpoint: cfg.TokenEndpoint,
+		ClientID:      "inferno-client",
+		RedirectURI:   "https://localhost/callback",
+		Code:          code,
+		PKCE:          pkce,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +205,74 @@ func TestInfernoStyleRedirectURIRejected(t *testing.T) {
 	_ = authResp.Body.Close()
 	if authResp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("authorize status = %d", authResp.StatusCode)
+	}
+}
+
+func TestInfernoStyleConsentFormEndToEnd(t *testing.T) {
+	mux := http.NewServeMux()
+	as := httptest.NewServer(mux)
+	defer as.Close()
+	issuer := strings.TrimSuffix(as.URL, "/")
+	server, err := oauth.NewServer(oauth.Config{
+		Issuer: issuer, FHIRAudience: issuer, RequireConsentForm: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.RegisterClient(oauth.Client{
+		ClientID: "inferno-client", RedirectURIs: []string{"https://localhost/callback"},
+		Scopes: []string{"patient/Patient.rs"},
+	})
+	mux.Handle("/", server.Handler())
+	httpClient, _ := client.New(client.Config{BaseURL: issuer})
+	cfg, _ := httpClient.SMART().Discover(context.Background(), issuer)
+	pkce, _ := client.NewPKCEChallenge()
+	authURL, _ := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
+		Config: cfg, ClientID: "inferno-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", PKCE: pkce,
+	})
+	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authResp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = authResp.Body.Close()
+	if authResp.StatusCode != http.StatusFound {
+		t.Fatalf("expected consent redirect, status=%d", authResp.StatusCode)
+	}
+	consentURL := authResp.Header.Get("Location")
+	consentPage, err := noRedirect.Get(consentURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, _ := io.ReadAll(consentPage.Body)
+	_ = consentPage.Body.Close()
+	if consentPage.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Authorize access") {
+		t.Fatalf("consent page status=%d", consentPage.StatusCode)
+	}
+	approveResp, err := noRedirect.Post(consentURL, "application/x-www-form-urlencoded", strings.NewReader("approve=yes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusFound {
+		t.Fatalf("approve status=%d", approveResp.StatusCode)
+	}
+	code := strings.Split(strings.Split(approveResp.Header.Get("Location"), "code=")[1], "&")[0]
+	tokenResp, err := httpClient.SMART().ExchangeAuthCode(context.Background(), client.AuthCodeExchangeRequest{
+		TokenEndpoint: cfg.TokenEndpoint,
+		ClientID:      "inferno-client",
+		RedirectURI:   "https://localhost/callback",
+		Code:          code,
+		PKCE:          pkce,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenResp.AccessToken == "" {
+		t.Fatal("missing access token after consent")
 	}
 }
 

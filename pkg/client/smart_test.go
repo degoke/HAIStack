@@ -106,7 +106,13 @@ func TestAuthCodeTokenExchange(t *testing.T) {
 
 	c, _ := New(Config{BaseURL: srv.URL})
 	pkce, _ := NewPKCEChallenge()
-	resp, err := c.SMART().ExchangeAuthCode(context.Background(), srv.URL, "client-1", "https://app/cb", "code-abc", pkce)
+	resp, err := c.SMART().ExchangeAuthCode(context.Background(), AuthCodeExchangeRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "client-1",
+		RedirectURI:   "https://app/cb",
+		Code:          "code-abc",
+		PKCE:          pkce,
+	})
 	if err != nil {
 		t.Fatalf("ExchangeAuthCode: %v", err)
 	}
@@ -114,6 +120,35 @@ func TestAuthCodeTokenExchange(t *testing.T) {
 		t.Fatalf("form: grant=%s code=%s verifier=%s", gotGrant, gotCode, gotVerifier)
 	}
 	if resp.AccessToken != "tok-1" {
+		t.Fatalf("token: %s", resp.AccessToken)
+	}
+}
+
+func TestAuthCodeTokenExchangeWithClientSecret(t *testing.T) {
+	var gotSecret string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotSecret = r.Form.Get("client_secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-secret","token_type":"Bearer"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	resp, err := c.SMART().ExchangeAuthCode(context.Background(), AuthCodeExchangeRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "client-1",
+		ClientSecret:  "secret-value",
+		RedirectURI:   "https://app/cb",
+		Code:          "code-abc",
+	})
+	if err != nil {
+		t.Fatalf("ExchangeAuthCode: %v", err)
+	}
+	if gotSecret != "secret-value" {
+		t.Fatalf("client_secret = %q", gotSecret)
+	}
+	if resp.AccessToken != "tok-secret" {
 		t.Fatalf("token: %s", resp.AccessToken)
 	}
 }

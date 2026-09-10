@@ -29,6 +29,8 @@ type Config struct {
 	AutoApprove bool
 	// RequireConsentForm redirects to a built-in HTML consent page before issuing codes.
 	RequireConsentForm bool
+	// LaunchResolver resolves EHR launch tokens for /oauth/launch and authorize.
+	LaunchResolver LaunchResolver
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.
@@ -166,6 +168,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/oauth/jwks", s.handleJWKS)
 	mux.HandleFunc("/oauth/register", s.handleRegister)
 	mux.HandleFunc("/oauth/consent", s.handleConsent)
+	mux.HandleFunc("/oauth/launch", s.handleLaunch)
+	mux.HandleFunc("/oauth/launch/ui", s.handleLaunchUI)
 	return mux
 }
 

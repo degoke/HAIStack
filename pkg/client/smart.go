@@ -156,17 +156,42 @@ func (s *SMARTClient) BuildAuthURL(req AuthCodeRequest) (string, error) {
 	return req.Config.AuthorizationEndpoint + "?" + values.Encode(), nil
 }
 
+// AuthCodeExchangeRequest exchanges an authorization code for tokens.
+type AuthCodeExchangeRequest struct {
+	TokenEndpoint string
+	ClientID      string
+	ClientSecret  string
+	RedirectURI   string
+	Code          string
+	PKCE          *PKCEChallenge
+}
+
 // ExchangeAuthCode exchanges an authorization code for tokens.
-func (s *SMARTClient) ExchangeAuthCode(ctx context.Context, tokenEndpoint, clientID, redirectURI, code string, pkce *PKCEChallenge) (*TokenResponse, error) {
+func (s *SMARTClient) ExchangeAuthCode(ctx context.Context, req AuthCodeExchangeRequest) (*TokenResponse, error) {
+	if req.TokenEndpoint == "" {
+		return nil, fmt.Errorf("token endpoint is required")
+	}
+	if req.ClientID == "" {
+		return nil, fmt.Errorf("clientId is required")
+	}
+	if req.RedirectURI == "" {
+		return nil, fmt.Errorf("redirectUri is required")
+	}
+	if req.Code == "" {
+		return nil, fmt.Errorf("code is required")
+	}
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
-	values.Set("code", code)
-	values.Set("redirect_uri", redirectURI)
-	values.Set("client_id", clientID)
-	if pkce != nil {
-		values.Set("code_verifier", pkce.Verifier)
+	values.Set("code", req.Code)
+	values.Set("redirect_uri", req.RedirectURI)
+	values.Set("client_id", req.ClientID)
+	if req.ClientSecret != "" {
+		values.Set("client_secret", req.ClientSecret)
 	}
-	return s.postToken(ctx, tokenEndpoint, values)
+	if req.PKCE != nil {
+		values.Set("code_verifier", req.PKCE.Verifier)
+	}
+	return s.postToken(ctx, req.TokenEndpoint, values)
 }
 
 // ExchangeClientAssertion exchanges a backend-service client assertion for tokens.

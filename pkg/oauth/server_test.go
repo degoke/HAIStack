@@ -87,7 +87,13 @@ func TestOAuthServer_DiscoveryAndPKCEFlow(t *testing.T) {
 		t.Fatal("missing authorization code")
 	}
 
-	tokenResp, err := smartClient.ExchangeAuthCode(context.Background(), cfg.TokenEndpoint, "demo-client", "https://app.example/callback", code, pkce)
+	tokenResp, err := smartClient.ExchangeAuthCode(context.Background(), client.AuthCodeExchangeRequest{
+		TokenEndpoint: cfg.TokenEndpoint,
+		ClientID:      "demo-client",
+		RedirectURI:   "https://app.example/callback",
+		Code:          code,
+		PKCE:          pkce,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

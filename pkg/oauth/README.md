@@ -12,6 +12,9 @@ Built-in OAuth2/OIDC authorization server for SMART on FHIR development and conf
 | `/oauth/token` | Token exchange (auth code, client credentials, refresh) |
 | `/oauth/jwks` | Signing key set |
 | `/oauth/register` | Dynamic client registration |
+| `/oauth/consent` | Built-in HTML consent form |
+| `/oauth/launch` | EHR launch context (JSON) |
+| `/oauth/launch/ui` | EHR launch orchestration page |
 
 ## Usage
 
@@ -38,7 +41,8 @@ access tokens issued by this server.
 
 - Register explicit `RedirectURIs` for every client (empty lists are rejected).
 - Set `ConsentHandler` or `RequireConsentForm`; use `AutoApprove` only in tests.
-- Use `AuthorizationStore: oauth.NewFileAuthorizationStore(path)` for durable codes/tokens.
+- Use `AuthorizationStore: oauth.NewFileAuthorizationStore(path)` for durable codes, refresh tokens, and consent sessions across AS instances.
+- Set `LaunchResolver` for EHR launch flows; use `/oauth/launch/ui` for a minimal launch orchestration page.
 - Confidential clients must send `client_secret` on token exchange (basic auth or form field).
 - Public clients must use PKCE (`code_challenge` / `code_verifier`).
 

@@ -8,15 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
-
-type pendingAuthorization struct {
-	Request   AuthorizationRequest
-	ExpiresAt int64
-}
 
 func (s *Server) handleOpenIDConfiguration(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.openIDConfiguration())
@@ -70,18 +64,22 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       q.Get("code_challenge"),
 		CodeChallengeMethod: q.Get("code_challenge_method"),
 	}
+	patient, err := s.resolveLaunchPatient(r.Context(), authReq.Launch, q.Get("aud"), authReq.Patient)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	authReq.Patient = patient
 	if err := validateRequestedScopes(client, authReq.Scope); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if s.cfg.RequireConsentForm && s.cfg.ConsentHandler == nil && !s.cfg.AutoApprove {
 		id := randomToken()
-		pendingMu.Lock()
-		pendingAuthorizations[id] = pendingAuthorization{
+		_ = s.authStore.SavePendingAuthorization(id, PendingAuthorization{
 			Request:   authReq,
-			ExpiresAt: s.cfg.Now().Add(s.cfg.AuthCodeTTL).Unix(),
-		}
-		pendingMu.Unlock()
+			ExpiresAt: s.cfg.Now().Add(s.cfg.AuthCodeTTL),
+		})
 		http.Redirect(w, r, s.cfg.Issuer+"/oauth/consent?id="+url.QueryEscape(id), http.StatusFound)
 		return
 	}
@@ -103,17 +101,22 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing consent id", http.StatusBadRequest)
 		return
 	}
-	pending, ok := s.consumePendingAuthorization(id)
-	if !ok {
-		http.Error(w, "consent session expired", http.StatusBadRequest)
-		return
-	}
 	if r.Method == http.MethodGet {
+		pending, ok := s.authStore.GetPendingAuthorization(id)
+		if !ok {
+			http.Error(w, "consent session expired", http.StatusBadRequest)
+			return
+		}
 		ServeConsentPage(w, pending.Request)
 		return
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	pending, ok := s.authStore.ConsumePendingAuthorization(id)
+	if !ok {
+		http.Error(w, "consent session expired", http.StatusBadRequest)
 		return
 	}
 	approved := r.FormValue("approve") == "yes"
@@ -457,18 +460,3 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-var pendingMu sync.Mutex
-var pendingAuthorizations = make(map[string]pendingAuthorization)
-
-func (s *Server) consumePendingAuthorization(id string) (pendingAuthorization, bool) {
-	pendingMu.Lock()
-	entry, ok := pendingAuthorizations[id]
-	if ok {
-		delete(pendingAuthorizations, id)
-	}
-	pendingMu.Unlock()
-	if !ok || s.cfg.Now().Unix() > entry.ExpiresAt {
-		return pendingAuthorization{}, false
-	}
-	return entry, true
-}

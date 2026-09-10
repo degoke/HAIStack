@@ -11,12 +11,23 @@ import (
 	"time"
 )
 
-// AuthorizationStore persists authorization codes and refresh tokens.
+// AuthorizationStore persists authorization codes, refresh tokens, and pending
+// authorization sessions. File-backed implementations support multi-instance AS
+// deployments that share a filesystem.
 type AuthorizationStore interface {
 	SaveAuthorizationCode(code string, entry AuthorizationCode) error
 	ConsumeAuthorizationCode(code string) (AuthorizationCode, bool)
 	SaveRefreshToken(token string, entry RefreshTokenEntry) error
 	ConsumeRefreshToken(token string) (RefreshTokenEntry, bool)
+	SavePendingAuthorization(id string, entry PendingAuthorization) error
+	GetPendingAuthorization(id string) (PendingAuthorization, bool)
+	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
+}
+
+// PendingAuthorization stores an in-progress authorize/consent/launch session.
+type PendingAuthorization struct {
+	Request   AuthorizationRequest `json:"request"`
+	ExpiresAt time.Time            `json:"expiresAt"`
 }
 
 // AuthorizationCode is a short-lived authorization code entry.
@@ -44,7 +55,8 @@ type MemoryAuthorizationStore struct {
 	mu            sync.Mutex
 	codes         map[string]AuthorizationCode
 	refreshTokens map[string]RefreshTokenEntry
-	Now func() time.Time
+	pending       map[string]PendingAuthorization
+	Now           func() time.Time
 }
 
 // NewMemoryAuthorizationStore constructs an in-memory authorization store.
@@ -52,6 +64,7 @@ func NewMemoryAuthorizationStore() *MemoryAuthorizationStore {
 	return &MemoryAuthorizationStore{
 		codes:         make(map[string]AuthorizationCode),
 		refreshTokens: make(map[string]RefreshTokenEntry),
+		pending:       make(map[string]PendingAuthorization),
 		Now:           time.Now,
 	}
 }
@@ -98,6 +111,38 @@ func (s *MemoryAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTok
 	return entry, true
 }
 
+func (s *MemoryAuthorizationStore) SavePendingAuthorization(id string, entry PendingAuthorization) error {
+	s.mu.Lock()
+	s.pending[id] = entry
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *MemoryAuthorizationStore) GetPendingAuthorization(id string) (PendingAuthorization, bool) {
+	now := memoryStoreNow(s)
+	s.mu.Lock()
+	entry, ok := s.pending[id]
+	s.mu.Unlock()
+	if !ok || now.After(entry.ExpiresAt) {
+		return PendingAuthorization{}, false
+	}
+	return entry, true
+}
+
+func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
+	now := memoryStoreNow(s)
+	s.mu.Lock()
+	entry, ok := s.pending[id]
+	if ok {
+		delete(s.pending, id)
+	}
+	s.mu.Unlock()
+	if !ok || now.After(entry.ExpiresAt) {
+		return PendingAuthorization{}, false
+	}
+	return entry, true
+}
+
 func memoryStoreNow(s *MemoryAuthorizationStore) time.Time {
 	if s != nil && s.Now != nil {
 		return s.Now()
@@ -121,8 +166,9 @@ func NewFileAuthorizationStore(path string) (*FileAuthorizationStore, error) {
 }
 
 type fileAuthorizationState struct {
-	Codes    map[string]AuthorizationCode  `json:"codes"`
-	Refresh  map[string]RefreshTokenEntry  `json:"refresh"`
+	Codes    map[string]AuthorizationCode   `json:"codes"`
+	Refresh  map[string]RefreshTokenEntry   `json:"refresh"`
+	Pending  map[string]PendingAuthorization `json:"pending"`
 }
 
 func (s *FileAuthorizationStore) SaveAuthorizationCode(code string, entry AuthorizationCode) error {
@@ -175,6 +221,44 @@ func (s *FileAuthorizationStore) ConsumeRefreshToken(token string) (RefreshToken
 	return entry, true
 }
 
+func (s *FileAuthorizationStore) SavePendingAuthorization(id string, entry PendingAuthorization) error {
+	return s.update(func(state *fileAuthorizationState) {
+		if state.Pending == nil {
+			state.Pending = make(map[string]PendingAuthorization)
+		}
+		state.Pending[id] = entry
+	})
+}
+
+func (s *FileAuthorizationStore) GetPendingAuthorization(id string) (PendingAuthorization, bool) {
+	now := s.now()
+	var entry PendingAuthorization
+	var ok bool
+	err := s.update(func(state *fileAuthorizationState) {
+		entry, ok = state.Pending[id]
+	})
+	if err != nil || !ok || now.After(entry.ExpiresAt) {
+		return PendingAuthorization{}, false
+	}
+	return entry, true
+}
+
+func (s *FileAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
+	now := s.now()
+	var entry PendingAuthorization
+	var ok bool
+	err := s.update(func(state *fileAuthorizationState) {
+		entry, ok = state.Pending[id]
+		if ok {
+			delete(state.Pending, id)
+		}
+	})
+	if err != nil || !ok || now.After(entry.ExpiresAt) {
+		return PendingAuthorization{}, false
+	}
+	return entry, true
+}
+
 func (s *FileAuthorizationStore) now() time.Time {
 	if s.Now != nil {
 		return s.Now()
@@ -202,6 +286,7 @@ func (s *FileAuthorizationStore) load() (fileAuthorizationState, error) {
 		return fileAuthorizationState{
 			Codes:   make(map[string]AuthorizationCode),
 			Refresh: make(map[string]RefreshTokenEntry),
+			Pending: make(map[string]PendingAuthorization),
 		}, nil
 	}
 	if err != nil {
@@ -211,6 +296,7 @@ func (s *FileAuthorizationStore) load() (fileAuthorizationState, error) {
 		return fileAuthorizationState{
 			Codes:   make(map[string]AuthorizationCode),
 			Refresh: make(map[string]RefreshTokenEntry),
+			Pending: make(map[string]PendingAuthorization),
 		}, nil
 	}
 	var state fileAuthorizationState
@@ -222,6 +308,9 @@ func (s *FileAuthorizationStore) load() (fileAuthorizationState, error) {
 	}
 	if state.Refresh == nil {
 		state.Refresh = make(map[string]RefreshTokenEntry)
+	}
+	if state.Pending == nil {
+		state.Pending = make(map[string]PendingAuthorization)
 	}
 	return state, nil
 }
