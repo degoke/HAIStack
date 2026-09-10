@@ -158,6 +158,9 @@ func validateClientRegistration(c Client) error {
 	if strings.TrimSpace(c.ClientID) == "" {
 		return fmt.Errorf("%w: client id required", ErrInvalidConfig)
 	}
+	if err := validateRedirectURIs(c.RedirectURIs); err != nil {
+		return err
+	}
 	allowed := c.AllowedScopes
 	if len(allowed) == 0 {
 		allowed = c.Scopes

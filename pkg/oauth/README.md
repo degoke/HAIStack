@@ -96,8 +96,13 @@ When `ConsentLogin` returns a subject, that identity is written into issued toke
 Gate open registration in production with a bearer token:
 
 ```go
-cfg.RegistrationAccessToken = "change-me-registration-token"
+cfg.RegistrationAccessToken = os.Getenv("OAUTH_REGISTRATION_TOKEN")
+if err := oauth.ApplyProductionDefaults(&cfg); err != nil {
+    return err
+}
 ```
+
+`ApplyProductionDefaults` requires `RegistrationAccessToken` when dynamic registration is enabled. Redirect URIs must use **https** except for loopback **http** hosts (`localhost`, `127.0.0.1`, `::1`). Server-assigned client IDs retry on the extremely unlikely collision with an existing registration.
 
 ```bash
 curl -X POST "$BASE/oauth/register" \
@@ -128,6 +133,7 @@ cfg.LaunchIssuerAuth = &oauth.LaunchIssuerAuth{
 }
 
 // Rotating credentials (old + new secrets both valid during rotation)
+// Secrets are bcrypt-hashed at rest inside LaunchIssuerRegistry.
 issuers := oauth.NewLaunchIssuerRegistry()
 _ = issuers.RegisterRotating("ehr-launcher", "old-secret", "new-secret")
 cfg.LaunchIssuers = issuers
@@ -198,8 +204,12 @@ Run `pkg/sqlite` migrations `0012_oauth.sql` through `0018_oauth_client.sql`, th
 ```go
 cfg := oauth.Config{ /* issuer, signer, clients, ... */ }
 _ = store.ApplySQLiteStores(&cfg, db.SQL())
+cfg.RegistrationAccessToken = os.Getenv("OAUTH_REGISTRATION_TOKEN")
+_ = oauth.ApplyProductionDefaults(&cfg) // recommended for production-like hosts
 srv, _ := oauth.NewServer(cfg)
 ```
+
+Expired consent sessions are purged opportunistically on create/consume in SQLite.
 
 ## Security notes
 
@@ -209,8 +219,9 @@ srv, _ := oauth.NewServer(cfg)
 - Auth codes, launch tokens, and refresh tokens must match the issuing OAuth issuer at exchange/consume/refresh time
 - Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`; in-memory otherwise)
 - Auth codes, launch tokens, refresh tokens, consent sessions, and registered clients use SQLite when `ApplySQLiteStores` is wired
-- Client secrets and launch issuer secrets are compared with constant-time equality checks; persisted client secrets are bcrypt-hashed in SQLite
+- Client secrets and launch issuer secrets are compared with constant-time equality checks; persisted client secrets and launch issuer registry secrets are bcrypt-hashed at rest
 - Multi-tenant servers overlay static tenant clients on the shared SQLite `ClientStore` so dynamic registration remains issuer-scoped
+- `registration_endpoint` is advertised in SMART and OIDC discovery when dynamic registration is enabled
 - Consent sessions (CSRF state) are single-process in-memory unless SQLite is wired
 - Refresh tokens rotate by default
 - `/oauth/introspect` and `/oauth/revoke` require **confidential** registered client authentication

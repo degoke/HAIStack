@@ -9,6 +9,7 @@ type openIDConfiguration struct {
 	Issuer                           string   `json:"issuer"`
 	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 	TokenEndpoint                    string   `json:"token_endpoint"`
+	RegistrationEndpoint             string   `json:"registration_endpoint,omitempty"`
 	RevocationEndpoint               string   `json:"revocation_endpoint,omitempty"`
 	IntrospectionEndpoint            string   `json:"introspection_endpoint,omitempty"`
 	JWKSURI                          string   `json:"jwks_uri,omitempty"`
@@ -47,6 +48,9 @@ func (s *Server) openIDConfiguration() openIDConfiguration {
 	}
 	if _, ok := s.signer.(interface{ PublicJWKS() ([]byte, error) }); ok {
 		cfg.JWKSURI = s.issuer + "/.well-known/jwks.json"
+	}
+	if s.dynamicClientRegistrationEnabled() {
+		cfg.RegistrationEndpoint = s.RegistrationEndpoint()
 	}
 	return cfg
 }

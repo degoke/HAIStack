@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/examples/internal/appkit"
@@ -109,6 +110,14 @@ func run() error {
 	}
 	if err := oauthstore.ApplySQLiteStores(&oauthCfg, stack.DB.SQL()); err != nil {
 		return err
+	}
+	if token := strings.TrimSpace(os.Getenv("OAUTH_REGISTRATION_TOKEN")); token != "" {
+		oauthCfg.RegistrationAccessToken = token
+	}
+	if os.Getenv("HAISTACK_PRODUCTION") == "1" {
+		if err := oauth.ApplyProductionDefaults(&oauthCfg); err != nil {
+			return err
+		}
 	}
 	autoApprove := true
 	oauthCfg.AutoApprove = &autoApprove

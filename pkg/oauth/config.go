@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/smart"
@@ -72,23 +73,25 @@ type Config struct {
 type Server struct {
 	cfg Config
 
-	clients         ClientStore
-	codes           AuthorizationCodeStore
-	launches        LaunchStore
-	refresh         RefreshTokenStore
-	revocation      TokenRevocationStore
-	consentSessions ConsentSessionStore
-	consentLogin    ConsentLoginHandler
-	backendAuth     *smart.BackendServiceAuth
-	signer          TokenSigner
-	issuer          string
-	fhirBase        string
-	tokenTTL        time.Duration
-	refreshTTL      time.Duration
-	rotateRefresh   bool
-	autoApprove     bool
-	scopes          []string
-	nowFn           func() time.Time
+	clients              ClientStore
+	codes                AuthorizationCodeStore
+	launches             LaunchStore
+	refresh              RefreshTokenStore
+	revocation           TokenRevocationStore
+	consentSessions      ConsentSessionStore
+	consentLogin         ConsentLoginHandler
+	backendAuth          *smart.BackendServiceAuth
+	signer               TokenSigner
+	issuer               string
+	fhirBase             string
+	tokenTTL             time.Duration
+	refreshTTL           time.Duration
+	rotateRefresh        bool
+	autoApprove          bool
+	scopes               []string
+	nowFn                func() time.Time
+	launchIssuerAuthHash string
+	launchIssuerAuthID   string
 }
 
 // NewServer validates config and returns a Server.
@@ -167,25 +170,37 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.RotateRefreshTokens != nil {
 		rotateRefresh = *cfg.RotateRefreshTokens
 	}
+	launchAuthHash := ""
+	launchAuthID := ""
+	if cfg.LaunchIssuerAuth != nil {
+		hash, err := hashClientSecret(cfg.LaunchIssuerAuth.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		launchAuthHash = hash
+		launchAuthID = strings.TrimSpace(cfg.LaunchIssuerAuth.ClientID)
+	}
 	return &Server{
-		cfg:             cfg,
-		clients:         clients,
-		codes:           codes,
-		launches:        launches,
-		refresh:         refresh,
-		revocation:      revocation,
-		consentSessions: consentSessions,
-		consentLogin:    cfg.ConsentLogin,
-		backendAuth:     cfg.BackendAuth,
-		signer:          cfg.Signer,
-		issuer:          trimSlash(cfg.Issuer),
-		fhirBase:        trimSlash(cfg.FHIRBaseURL),
-		tokenTTL:        ttl,
-		refreshTTL:      refreshTTL,
-		rotateRefresh:   rotateRefresh,
-		autoApprove:     autoApprove,
-		scopes:          scopes,
-		nowFn:           nowFn,
+		cfg:                  cfg,
+		clients:              clients,
+		codes:                codes,
+		launches:             launches,
+		refresh:              refresh,
+		revocation:           revocation,
+		consentSessions:      consentSessions,
+		consentLogin:         cfg.ConsentLogin,
+		backendAuth:          cfg.BackendAuth,
+		signer:               cfg.Signer,
+		issuer:               trimSlash(cfg.Issuer),
+		fhirBase:             trimSlash(cfg.FHIRBaseURL),
+		tokenTTL:             ttl,
+		refreshTTL:           refreshTTL,
+		rotateRefresh:        rotateRefresh,
+		autoApprove:          autoApprove,
+		scopes:               scopes,
+		nowFn:                nowFn,
+		launchIssuerAuthHash: launchAuthHash,
+		launchIssuerAuthID:   launchAuthID,
 	}, nil
 }
 

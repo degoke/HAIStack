@@ -9,9 +9,10 @@ import (
 
 // LaunchIssuerRegistry holds launch issuer credentials with optional rotation support.
 // Multiple secrets may be registered for the same ClientID during credential rotation.
+// Secrets are stored as bcrypt hashes at rest.
 type LaunchIssuerRegistry struct {
 	mu          sync.RWMutex
-	credentials map[string][]string // client id -> valid secrets (most recent first)
+	credentials map[string][]string // client id -> valid secret hashes (most recent first)
 }
 
 // NewLaunchIssuerRegistry returns an empty launch issuer registry.
@@ -29,12 +30,16 @@ func (r *LaunchIssuerRegistry) Register(id, secret string) error {
 	if id == "" || secret == "" {
 		return ErrInvalidConfig
 	}
+	hashed, err := hashClientSecret(secret)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.credentials == nil {
 		r.credentials = make(map[string][]string)
 	}
-	r.credentials[id] = []string{secret}
+	r.credentials[id] = []string{hashed}
 	return nil
 }
 
@@ -59,7 +64,11 @@ func (r *LaunchIssuerRegistry) RegisterRotating(id string, secrets ...string) er
 			continue
 		}
 		seen[secret] = struct{}{}
-		unique = append(unique, secret)
+		hashed, err := hashClientSecret(secret)
+		if err != nil {
+			return err
+		}
+		unique = append(unique, hashed)
 	}
 	if len(unique) == 0 {
 		return ErrInvalidConfig
@@ -86,7 +95,7 @@ func (r *LaunchIssuerRegistry) Validate(id, secret string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, candidate := range r.credentials[id] {
-		if secretEqual(secret, candidate) {
+		if verifyStoredClientSecret(candidate, secret) {
 			return true
 		}
 	}

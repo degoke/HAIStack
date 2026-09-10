@@ -53,7 +53,7 @@ func (s *Server) authenticateLaunchIssuer(r *http.Request) error {
 		return nil
 	}
 	if auth := s.cfg.LaunchIssuerAuth; auth != nil {
-		if id == auth.ClientID && secretEqual(secret, auth.ClientSecret) {
+		if id == s.launchIssuerAuthID && verifyStoredClientSecret(s.launchIssuerAuthHash, secret) {
 			return nil
 		}
 	}

@@ -68,17 +68,31 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "malformed registration request")
 		return
 	}
-	client, secret, err := s.buildRegisteredClient(req)
-	if err != nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
-		return
+	const maxRegisterAttempts = 5
+	var client Client
+	var secret string
+	var registerErr error
+	var err error
+	for attempt := 0; attempt < maxRegisterAttempts; attempt++ {
+		client, secret, err = s.buildRegisteredClient(req)
+		if err != nil {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+			return
+		}
+		registerErr = s.clients.Register(s.issuer, client)
+		if registerErr == nil {
+			break
+		}
+		if !errors.Is(registerErr, ErrClientExists) {
+			break
+		}
 	}
-	if err := s.clients.Register(s.issuer, client); err != nil {
-		if errors.Is(err, ErrClientExists) {
+	if registerErr != nil {
+		if errors.Is(registerErr, ErrClientExists) {
 			writeOAuthError(w, http.StatusConflict, "invalid_client_metadata", "client_id already registered")
 			return
 		}
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", registerErr.Error())
 		return
 	}
 	issuedAt := s.nowFn().Unix()
