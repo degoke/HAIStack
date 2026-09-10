@@ -24,6 +24,7 @@ External IdPs (Keycloak, Auth0, Epic, Cerner) remain fully supported — omit th
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, `client_credentials` |
 | `POST /oauth/revoke` | Revoke access or refresh tokens (confidential client auth required) |
 | `POST /oauth/introspect` | RFC 7662 token introspection (confidential client auth required) |
+| `POST /oauth/register` | Dynamic client registration (RFC 7591 subset; enabled by default) |
 | `GET /.well-known/smart-configuration` | SMART discovery (also mirrored at `{fhir_base}/.well-known/...` by `pkg/http`) |
 | `GET /.well-known/openid-configuration` | OIDC subset discovery |
 | `GET /.well-known/jwks.json` | JWKS (RS256 signers) |
@@ -86,8 +87,24 @@ Optional login hook for hosts that authenticate users before consent:
 cfg.ConsentLogin = myLoginHandler // implements oauth.ConsentLoginHandler
 ```
 
-When `ConsentLogin` returns a subject, that identity is written into issued tokens (unless an EHR launch context already supplied a user). Consent sessions remain **in-memory only** (not persisted to SQLite).
+When `ConsentLogin` returns a subject, that identity is written into issued tokens (unless an EHR launch context already supplied a user). Consent sessions are persisted to SQLite when using `ApplySQLiteStores` (issuer-scoped, single-use, 5-minute TTL).
 
+## Dynamic client registration
+
+`POST /oauth/register` accepts a JSON client metadata document and returns a registered `client_id` (and `client_secret` for confidential clients). The endpoint is advertised as `registration_endpoint` in SMART discovery when enabled (default). Clients are persisted when `ApplySQLiteStores` wires `ClientStore`.
+
+```bash
+curl -X POST "$BASE/oauth/register" \
+  -H 'Content-Type: application/json' \
+  -d '{"client_name":"My App","redirect_uris":["https://app.example/callback"],"token_endpoint_auth_method":"none"}'
+```
+
+Disable dynamic registration explicitly when needed:
+
+```go
+disabled := false
+cfg.DynamicClientRegistration = &disabled
+```
 The built-in consent page is intentionally minimal (HTML + CSRF cookie). `ConsentUI.LogoURL` accepts **http/https** URLs only. Edge and demo IdPs can rely on title/logo theming without a full login portal; production hosts typically integrate an external IdP or custom `ConsentLogin` implementation.
 
 ## EHR launch issuer credentials
@@ -167,7 +184,7 @@ if oauth.UsesInMemoryStores(cfg) {
 }
 ```
 
-Run `pkg/sqlite` migrations `0012_oauth.sql` through `0016_oauth_refresh_issuer.sql`, then:
+Run `pkg/sqlite` migrations `0012_oauth.sql` through `0018_oauth_client.sql`, then:
 
 ```go
 cfg := oauth.Config{ /* issuer, signer, clients, ... */ }
@@ -182,7 +199,9 @@ srv, _ := oauth.NewServer(cfg)
 - Redirect URIs must match exactly
 - Auth codes, launch tokens, and refresh tokens must match the issuing OAuth issuer at exchange/consume/refresh time
 - Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`; in-memory otherwise)
-- Consent sessions (CSRF state) are always in-memory and single-process
+- Auth codes, launch tokens, refresh tokens, consent sessions, and registered clients use SQLite when `ApplySQLiteStores` is wired
+- Client secrets and launch issuer secrets are compared with constant-time equality checks
+- Consent sessions (CSRF state) are single-process in-memory unless SQLite is wired
 - Refresh tokens rotate by default
 - `/oauth/introspect` and `/oauth/revoke` require **confidential** registered client authentication
 - `WireHTTP` exposes `ScopePolicyAuthChecker(engine)` wired to the same SMART adapter
