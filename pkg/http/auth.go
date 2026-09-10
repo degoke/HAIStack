@@ -27,17 +27,19 @@ func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker
 			return
 		}
 		w = withResponseFormat(w, format)
-		principal, tenant, err := resolver(r.Context(), r)
+		ctx := smart.ContextWithBearerAuthCache(r.Context())
+		r = r.WithContext(ctx)
+		principal, tenant, err := resolver(ctx, r)
 		if err != nil {
 			writeError(w, mapAuthResolverError(err))
 			return
 		}
-		ctx := context.WithValue(r.Context(), authContextKey{}, requestIdentity{
+		ctx = context.WithValue(ctx, authContextKey{}, requestIdentity{
 			Principal: principal,
 			Tenant:    tenant,
 		})
 		if bundleResolver != nil {
-			if bundle, ok := bundleResolver(r.Context(), r); ok {
+			if bundle, ok := bundleResolver(ctx, r); ok {
 				ctx = smart.ContextWithAuthBundle(ctx, bundle)
 			}
 		}

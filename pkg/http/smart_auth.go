@@ -19,12 +19,13 @@ func SMARTBearerAuthMiddleware(cfg smart.BearerAuthConfig) func(http.Handler) ht
 				return
 			}
 			w = withResponseFormat(w, format)
-			result, err := cfg.ResolveBearerToken(r)
+			ctx := smart.ContextWithBearerAuthCache(r.Context())
+			result, err := cfg.ResolveBearerTokenCached(ctx, r)
 			if err != nil {
 				writeError(w, mapAuthResolverError(err))
 				return
 			}
-			ctx := smart.ContextWithAuthBundle(r.Context(), result.Bundle)
+			ctx = smart.ContextWithAuthBundle(ctx, result.Bundle)
 			ctx = contextWithIdentity(ctx, result.Bundle.Principal, result.Bundle.Tenant)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -33,8 +34,8 @@ func SMARTBearerAuthMiddleware(cfg smart.BearerAuthConfig) func(http.Handler) ht
 
 // SMARTBearerPrincipalResolver returns principal and tenant from a validated Bearer token.
 func SMARTBearerPrincipalResolver(cfg smart.BearerAuthConfig) PrincipalResolver {
-	return func(_ context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
-		result, err := cfg.ResolveBearerToken(r)
+	return func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+		result, err := cfg.ResolveBearerTokenCached(ctx, r)
 		if err != nil {
 			return auth.Principal{}, auth.TenantContext{}, err
 		}
@@ -44,8 +45,8 @@ func SMARTBearerPrincipalResolver(cfg smart.BearerAuthConfig) PrincipalResolver 
 
 // SMARTBearerBundleResolver returns the AuthBundle from a validated Bearer token.
 func SMARTBearerBundleResolver(cfg smart.BearerAuthConfig) AuthBundleResolver {
-	return func(_ context.Context, r *http.Request) (smart.AuthBundle, bool) {
-		result, err := cfg.ResolveBearerToken(r)
+	return func(ctx context.Context, r *http.Request) (smart.AuthBundle, bool) {
+		result, err := cfg.ResolveBearerTokenCached(ctx, r)
 		if err != nil {
 			return smart.AuthBundle{}, false
 		}
@@ -58,6 +59,28 @@ func contextWithIdentity(ctx context.Context, principal auth.Principal, tenant a
 		Principal: principal,
 		Tenant:    tenant,
 	})
+}
+
+// SMARTBackendAssertionPrincipalResolver validates a backend client assertion Bearer token.
+func SMARTBackendAssertionPrincipalResolver(cfg smart.BackendAssertionAuthConfig) PrincipalResolver {
+	return func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+		result, err := cfg.ResolveBackendAssertionCached(ctx, r)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		return result.Bundle.Principal, result.Bundle.Tenant, nil
+	}
+}
+
+// SMARTBackendAssertionBundleResolver returns the AuthBundle from a validated backend assertion.
+func SMARTBackendAssertionBundleResolver(cfg smart.BackendAssertionAuthConfig) AuthBundleResolver {
+	return func(ctx context.Context, r *http.Request) (smart.AuthBundle, bool) {
+		result, err := cfg.ResolveBackendAssertionCached(ctx, r)
+		if err != nil {
+			return smart.AuthBundle{}, false
+		}
+		return result.Bundle, true
+	}
 }
 
 func mapAuthResolverError(err error) error {

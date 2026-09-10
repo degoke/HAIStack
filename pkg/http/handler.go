@@ -181,7 +181,7 @@ func (h *handler) handleCustomOperation(w http.ResponseWriter, r *http.Request, 
 		writeError(w, invalidRequest("custom operation returned no resource", nil))
 		return
 	}
-	if route.operation == "$everything" || result.ResourceType == "Bundle" {
+	if route.operation == "$everything" {
 		filtered, filterErr := h.filterOperationBundleResult(r.Context(), route.resourceType, result)
 		if filterErr != nil {
 			writeError(w, scopeFilterError(filterErr))

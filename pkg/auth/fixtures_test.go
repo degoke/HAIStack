@@ -97,7 +97,7 @@ func baseConfig() auth.Config {
 					Match: auth.RuleMatch{
 						Actions: []string{auth.ActionPatientAccess},
 					},
-					Reason: "patient access stub",
+					Reason: "patient compartment access",
 				},
 				{
 					Name:   "device-push",

@@ -56,6 +56,7 @@ func CheckEnvelopeScopeFilters(scopes ScopeSet, actor ActorClass, resourceType s
 }
 
 // FilterSearchBundleScopeFilters removes bundle entries outside granted scope filters.
+// Included and revincluded entries accept either read (r) or search (s) scope letters.
 func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceType string, bundle *search.SearchBundle) error {
 	if bundle == nil || scopes.Empty() {
 		return nil
@@ -69,11 +70,8 @@ func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceT
 		if resType == "" {
 			resType = resourceType
 		}
-		if err := CheckEnvelopeScopeFilters(scopes, actor, resType, OpSearch, entry.Resource); err != nil {
-			if err == ErrScopeFilterDenied {
-				continue
-			}
-			return err
+		if !AllowsResourceWithFiltersReadOrSearch(scopes, actor, resType, entry.Resource) {
+			continue
 		}
 		kept = append(kept, entry)
 	}
@@ -84,6 +82,12 @@ func FilterSearchBundleScopeFilters(scopes ScopeSet, actor ActorClass, resourceT
 		bundle.Total = &total
 	}
 	return nil
+}
+
+// AllowsResourceWithFiltersReadOrSearch reports whether read or search scope authorizes a bundle entry.
+func AllowsResourceWithFiltersReadOrSearch(scopes ScopeSet, actor ActorClass, resourceType string, resource *types.ResourceEnvelope) bool {
+	return scopes.AllowsResourceWithFilters(actor, resourceType, OpRead, resource) ||
+		scopes.AllowsResourceWithFilters(actor, resourceType, OpSearch, resource)
 }
 
 // AllowsResourceWithFilters reports whether any granted scope authorizes the resource
@@ -121,6 +125,9 @@ func resourceMatchesScopeFilters(resourceType string, resource *types.ResourceEn
 	return true
 }
 
+// Scope filter matching is MVP: Observation.category uses FHIR coding semantics; other
+// parameters fall back to a top-level string field. Hosts with broader filter needs
+// should add registry-backed evaluators before production SMART 2.2 filter enforcement.
 func resourceMatchesSearchParam(resourceType string, resource *types.ResourceEnvelope, param string, want []string) bool {
 	switch {
 	case resourceType == "Observation" && param == "category":

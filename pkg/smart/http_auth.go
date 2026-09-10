@@ -81,15 +81,10 @@ func (c ScopePolicyAuthChecker) bundleFor(ctx context.Context, principal auth.Pr
 
 func (c ScopePolicyAuthChecker) scopeAllows(bundle AuthBundle, resourceType string, op AccessOp) bool {
 	actor := actorForKind(bundle.Principal.Kind, bundle.Scopes)
-	if actor != "" && bundle.Scopes.AllowsOp(actor, resourceType, op) {
-		return true
+	if actor == "" {
+		return false
 	}
-	for _, ac := range []ActorClass{ActorPatient, ActorUser, ActorSystem} {
-		if bundle.Scopes.AllowsOp(ac, resourceType, op) {
-			return true
-		}
-	}
-	return false
+	return bundle.Scopes.AllowsOp(actor, resourceType, op)
 }
 
 func (c ScopePolicyAuthChecker) scopeAllowsWrite(bundle AuthBundle, operation, resourceType string) bool {

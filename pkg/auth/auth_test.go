@@ -360,7 +360,7 @@ func TestAIPolicyAdapter_EnforcesPatientScopeForSearchAndViews(t *testing.T) {
 	}
 }
 
-func TestPatientScopeStub(t *testing.T) {
+func TestPatientScopeCompartment(t *testing.T) {
 	eng := mustEngine(t, baseConfig())
 	scoped := auth.TenantContext{TenantID: "tenant-a", PatientScope: "pat-1", RoleBindings: []string{"clinician"}}
 
@@ -385,7 +385,7 @@ func TestPatientScopeStub(t *testing.T) {
 		t.Fatalf("expected deny other patient, got %#v", d)
 	}
 
-	// Resource read of Patient outside scope is denied by stub gate.
+	// Resource read of Patient outside scope is denied by compartment constraint.
 	d, err = eng.CanReadResource(context.Background(), auth.ReadRequest{
 		Principal:    clinician(),
 		Tenant:       scoped,
@@ -396,7 +396,7 @@ func TestPatientScopeStub(t *testing.T) {
 		t.Fatal(err)
 	}
 	if d.Allowed {
-		t.Fatalf("expected patient stub deny, got %#v", d)
+		t.Fatalf("expected patient compartment deny, got %#v", d)
 	}
 }
 

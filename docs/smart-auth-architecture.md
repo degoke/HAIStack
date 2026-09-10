@@ -63,6 +63,18 @@ http.Handle("/.well-known/smart-configuration", smart.WellKnownHandler(smart.Def
 
 Golden shapes live in `pkg/testkit/golden/auth_outcomes.go`. Scenario catalog: `pkg/testkit/authztest`.
 
+## Scope filter matching (MVP)
+
+SMART 2.2 `?param=value` filters are enforced, but resource matching is intentionally
+narrow today:
+
+- `Observation.category` — FHIR coding comparison
+- Other parameters — top-level string field fallback
+
+Bundle `_include` / `_revinclude` entries accept scopes with either `r` or `s`.
+Hosts with complex filter matrices should extend `pkg/smart` with registry-backed
+parameter evaluators.
+
 ## Non-goals
 
 - OAuth2/OIDC authorization server

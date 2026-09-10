@@ -2,10 +2,17 @@ package http_test
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +42,9 @@ func TestHTTPAuthz_BearerTokenExpired(t *testing.T) {
 	}
 	outcome := decodeOutcome(t, rec.Body.Bytes())
 	golden.AssertOutcomeCode(t, outcome, "security")
+	if outcome.Issue[0].Diagnostics == "" || !strings.Contains(outcome.Issue[0].Diagnostics, "token expired") {
+		t.Fatalf("diagnostics = %q", outcome.Issue[0].Diagnostics)
+	}
 }
 
 func TestHTTPAuthz_ScopeFilterReadDenied(t *testing.T) {
@@ -177,6 +187,68 @@ func TestHTTPAuthz_HistoryFiltersOutOfScopeVersions(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 history version after scope filter, got %d", len(entries))
 	}
+}
+
+func TestHTTPAuthz_ReadOnlyScopeDeniesSearch(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	bearer := smartBearerConfig(now)
+	token := unsignedJWT(map[string]any{
+		"iss": "https://issuer.example", "sub": "user-1", "aud": "https://aud.example",
+		"exp":   now.Add(time.Hour).Unix(),
+		"scope": "user/Observation.r?category=laboratory",
+	})
+	handler := newBearerAuthHandler(t, bearer, &fakeResourceService{}, &fakeSearchService{}, nil)
+	rec := doRequestWithHeaders(t, handler, http.MethodGet, "/fhir/Observation", nil, map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPAuthz_BackendAssertionReplayRejected(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	key, pemPub := mustRSAKey(t)
+	client := smart.BackendClient{
+		ClientID: "backend-app", AllowedScopes: []string{"system/*.read"},
+		Key: smart.ClientKeyMetadata{Algorithm: "RS256", PublicKeyPEM: pemPub},
+	}
+	bsa, err := smart.NewBackendServiceAuth("https://auth.example/token", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bsa.Now = func() time.Time { return now }
+	assertion := signedJWTAuthz(t, key, map[string]any{
+		"iss": "backend-app", "sub": "backend-app", "aud": "https://auth.example/token",
+		"exp": now.Add(5 * time.Minute).Unix(), "jti": "assertion-replay-http", "scope": "system/*.read",
+	})
+	if _, _, err := bsa.ValidateBackendAssertion(assertion, smart.TokenValidateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	backend := smart.BackendAssertionAuthConfig{
+		Backend: bsa,
+		Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
+			DefaultTenantID: "tenant-svc", DefaultServiceRoles: []string{"backend"},
+		}),
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			readFn: func(_ context.Context, _, _ string) (*types.ResourceEnvelope, error) {
+				return patientEnvelope("pat-1", "Doe"), nil
+			},
+		},
+		PrincipalResolver:  hahttp.SMARTBackendAssertionPrincipalResolver(backend),
+		AuthBundleResolver: hahttp.SMARTBackendAssertionBundleResolver(backend),
+		AuthChecker:        smart.ScopePolicyAuthChecker{Engine: mustAuthEngine(t), Adapter: backend.Adapter},
+	})
+	rec := doRequestWithHeaders(t, handler, http.MethodGet, "/fhir/Patient/pat-1", nil, map[string]string{
+		"Authorization": "Bearer " + assertion,
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	outcome := decodeOutcome(t, rec.Body.Bytes())
+	golden.AssertOutcomeCode(t, outcome, "security")
 }
 
 func TestHTTPAuthz_WriteDeniedForOutOfFilterObservation(t *testing.T) {
@@ -324,6 +396,47 @@ func observationJSON(id, category string) []byte {
 	}
 	data, _ := json.Marshal(payload)
 	return data
+}
+
+func mustAuthEngine(t *testing.T) *auth.Engine {
+	eng, err := auth.NewEngine(auth.Config{
+		Roles:       []auth.Role{{Name: "backend", Permissions: []auth.Permission{"*.read"}}},
+		PolicyBytes: []byte(`{"version":"1","rules":[{"name":"read","effect":"allow","match":{"actions":["read"],"anyPermissions":["*.read"]}}]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return eng
+}
+
+func mustRSAKey(t *testing.T) (*rsa.PrivateKey, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+func signedJWTAuthz(t *testing.T, key *rsa.PrivateKey, payload map[string]any) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadSeg := base64.RawURLEncoding.EncodeToString(body)
+	signingInput := header + "." + payloadSeg
+	sum := sha256.Sum256([]byte(signingInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
 func everythingBundleEnvelope(resources ...*types.ResourceEnvelope) *types.ResourceEnvelope {

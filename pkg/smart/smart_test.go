@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -827,6 +830,58 @@ func TestCheckEnvelopeScopeFilters_ObservationCategory(t *testing.T) {
 	}
 	if err := smart.CheckEnvelopeScopeFilters(scopes, smart.ActorPatient, "Observation", smart.OpRead, vital); err == nil {
 		t.Fatal("expected vital-signs observation to be denied")
+	}
+}
+
+func TestAllowsResourceWithFiltersReadOrSearch_ReadOnlyInclude(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.r?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab := observationEnvelope("obs-lab", "laboratory")
+	if !smart.AllowsResourceWithFiltersReadOrSearch(scopes, smart.ActorPatient, "Observation", lab) {
+		t.Fatal("read-only scope should allow included observation")
+	}
+	bundle := search.AssembleBundle(&search.Result{
+		ResourceType: "Observation",
+		Resources:    []*types.ResourceEnvelope{lab},
+	})
+	if err := smart.FilterSearchBundleScopeFilters(scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Entries) != 1 {
+		t.Fatalf("entries = %d", len(bundle.Entries))
+	}
+}
+
+func TestResolveBearerTokenCachedOncePerContext(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	cfg := smart.BearerAuthConfig{
+		Validator: smart.NewTokenValidator(nil),
+		Adapter:   smart.NewAuthAdapter(smart.AuthAdapterConfig{DefaultTenantID: "tenant-a", DefaultUserRoles: []string{"user"}}),
+		Options: smart.TokenValidateOptions{
+			ExpectedIssuer: "https://issuer.example", ExpectedAudience: "https://aud.example",
+			Now: func() time.Time { return now },
+		},
+	}
+	cfg.Validator.Now = func() time.Time { return now }
+	token := unsignedJWT(t, map[string]any{
+		"iss": "https://issuer.example", "sub": "user-1", "aud": "https://aud.example",
+		"exp": now.Add(time.Hour).Unix(), "scope": "user/Observation.rs",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	ctx := smart.ContextWithBearerAuthCache(context.Background())
+	first, err := cfg.ResolveBearerTokenCached(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cfg.ResolveBearerTokenCached(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Bundle.Principal.ID != second.Bundle.Principal.ID {
+		t.Fatalf("cached result mismatch: %#v vs %#v", first, second)
 	}
 }
 
