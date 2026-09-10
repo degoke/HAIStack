@@ -12,7 +12,7 @@
 //   - TenantContext
 //   - DeviceIdentity and trust state
 //   - PolicyEngine / Engine decision APIs
-//   - Patient-level access stub
+//   - Patient-level compartment enforcement (CheckPatientScope)
 //   - Module install checks
 //   - Core policy DSL (JSON/YAML)
 //   - Adapters for view.Authorizer and ai.PolicyEngine
@@ -70,7 +70,7 @@
 // # Execution model
 //
 // Decision methods resolve role permissions from Catalog, apply tenant binding
-// and patient-scope stub checks, then evaluate CompiledPolicy rules in order.
+// checks, then evaluate CompiledPolicy rules in order.
 // The first matching rule wins. When no rule matches, access is denied.
 //
 // # Integration points
