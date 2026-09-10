@@ -42,9 +42,8 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 }
 
 func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
-	key := s.key("authcode:" + code)
-	payload, err := s.client.GetDel(context.Background(), key).Bytes()
-	if err == goredis.Nil || err != nil {
+	payload, ok := consumeJSONValue(s.client, s.key("authcode:"+code))
+	if !ok {
 		return oauth.AuthorizationCode{}, false
 	}
 	var entry oauth.AuthorizationCode
@@ -64,11 +63,15 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	}
 	key := s.key("refresh:" + token)
 	ttl := ttlUntil(entry.ExpiresAt, s.now())
-	ctx := context.Background()
-	if err := s.client.HSet(ctx, key, "clientId", entry.ClientID, "payload", payload).Err(); err != nil {
-		return err
-	}
-	return s.client.Expire(ctx, key, ttl).Err()
+	_, err = saveRefreshTokenScript.Run(
+		context.Background(),
+		s.client,
+		[]string{key},
+		entry.ClientID,
+		payload,
+		int(ttl.Seconds()),
+	).Result()
+	return err
 }
 
 func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
@@ -112,9 +115,8 @@ func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAu
 }
 
 func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
-	key := s.key("pending:" + id)
-	payload, err := s.client.GetDel(context.Background(), key).Bytes()
-	if err == goredis.Nil || err != nil {
+	payload, ok := consumeJSONValue(s.client, s.key("pending:"+id))
+	if !ok {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
@@ -125,6 +127,14 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
+}
+
+func consumeJSONValue(client goredis.Cmdable, key string) ([]byte, bool) {
+	payload, err := consumeJSONValueScript.Run(context.Background(), client, []string{key}).Text()
+	if err != nil || payload == "" {
+		return nil, false
+	}
+	return []byte(payload), true
 }
 
 func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
