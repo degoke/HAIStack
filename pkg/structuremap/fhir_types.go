@@ -77,7 +77,7 @@ var repeatingDatatypeFields = map[string]bool{
 	"given": true, "prefix": true, "suffix": true, "coding": true,
 }
 
-func isRepeatingField(parent map[string]any, field string) bool {
+func isRepeatingFieldHeuristic(parent map[string]any, field string) bool {
 	if parent == nil || field == "" {
 		return false
 	}

@@ -1,6 +1,7 @@
 package structuremap
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -47,7 +48,7 @@ func flattenValue(value any) []any {
 	}
 }
 
-func assignElementValue(root map[string]any, elements []string, value any, listModes []string) error {
+func assignElementValue(ctx context.Context, root map[string]any, elements []string, value any, listModes []string, cardinality CardinalityResolver) error {
 	if len(elements) == 0 {
 		return fmt.Errorf("target element path is empty")
 	}
@@ -55,15 +56,15 @@ func assignElementValue(root map[string]any, elements []string, value any, listM
 	for i, part := range elements {
 		if i == len(elements)-1 {
 			if hasListMode(listModes, "share") || hasListMode(listModes, "collate") {
-				return appendElementPath(cur, []string{part}, value)
+				return appendElementPath(ctx, root, cur, elements, value, cardinality)
 			}
-			if isRepeatingField(cur, part) && !hasListMode(listModes, "single") {
+			if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) && !hasListMode(listModes, "single") {
 				return assignRepeatingValue(cur, part, value)
 			}
 			cur[part] = value
 			return nil
 		}
-		if isRepeatingField(cur, part) && !hasListMode(listModes, "single") {
+		if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) && !hasListMode(listModes, "single") {
 			next, err := ensureRepeatingObjectElement(cur, part)
 			if err != nil {
 				return err
@@ -134,11 +135,10 @@ func assignRepeatingValue(cur map[string]any, part string, value any) error {
 	return nil
 }
 
-func appendElementPath(root map[string]any, elements []string, value any) error {
+func appendElementPath(ctx context.Context, root map[string]any, cur map[string]any, elements []string, value any, cardinality CardinalityResolver) error {
 	if len(elements) == 0 {
 		return fmt.Errorf("target element path is empty")
 	}
-	cur := root
 	for i, part := range elements {
 		if i == len(elements)-1 {
 			existing := cur[part]
@@ -154,7 +154,7 @@ func appendElementPath(root map[string]any, elements []string, value any) error 
 		}
 		next, ok := objectElement(cur[part])
 		if !ok {
-			if isRepeatingField(cur, part) {
+			if isRepeatingAtPath(ctx, root, elements[:i+1], cardinality) {
 				next, err := ensureRepeatingObjectElement(cur, part)
 				if err != nil {
 					return err

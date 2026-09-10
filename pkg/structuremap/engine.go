@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 )
 
@@ -14,6 +15,10 @@ type Engine struct {
 	FHIRPath fhirpath.Engine
 	// Strict reports an error when a rule declares sources but none match.
 	Strict bool
+	// Translator resolves translate transforms via ConceptMap resources.
+	Translator conceptmap.Translator
+	// Cardinality resolves repeating elements from StructureDefinitions.
+	Cardinality CardinalityResolver
 }
 
 // ExecuteInput names resources available to the map by variable name.
@@ -279,7 +284,7 @@ func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[str
 		if !ok {
 			return fmt.Errorf("target context %q is not an object", target.Context)
 		}
-		if err := assignElementValue(root, target.Element, value, target.ListMode); err != nil {
+		if err := assignElementValue(ctx, root, target.Element, value, target.ListMode, e.Cardinality); err != nil {
 			return err
 		}
 	}
@@ -288,7 +293,7 @@ func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[str
 
 func (e Engine) resolveTargetValue(ctx context.Context, target Target, vars map[string]any, sourceValue any) (any, error) {
 	if target.Transform != "" {
-		return applyTransform(ctx, e.FHIRPath, target.Transform, target.Parameter, vars, sourceContextValue(target, vars, sourceValue))
+		return e.applyTransform(ctx, target.Transform, target.Parameter, vars, sourceContextValue(target, vars, sourceValue))
 	}
 	if len(target.Parameter) > 0 {
 		return resolveParameter(target.Parameter[0], vars)

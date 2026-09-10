@@ -19,7 +19,7 @@ func TestEngineExecutesMinimalPatientExtraction(t *testing.T) {
 }
 
 func TestCreateDatatypeOmitsResourceType(t *testing.T) {
-	value, err := applyTransform(context.Background(), nil, "create", []Parameter{{ValueString: "HumanName"}}, nil, nil)
+	value, err := Engine{}.applyTransform(context.Background(), "create", []Parameter{{ValueString: "HumanName"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestNestedRepeatingPathNameGiven(t *testing.T) {
 
 func TestObservationCodeIsNotArray(t *testing.T) {
 	obs := map[string]any{"resourceType": "Observation"}
-	if err := assignElementValue(obs, []string{"code"}, map[string]any{"text": "weight"}, nil); err != nil {
+	if err := assignElementValue(context.Background(), obs, []string{"code"}, map[string]any{"text": "weight"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := obs["code"].([]any); ok {
@@ -373,14 +373,14 @@ func TestSourceListModeFirst(t *testing.T) {
 }
 
 func TestTransformsReferenceAndAppend(t *testing.T) {
-	ref, err := applyTransform(context.Background(), nil, "reference", []Parameter{{ValueString: "Patient"}, {ValueString: "1"}}, nil, nil)
+	ref, err := Engine{}.applyTransform(context.Background(), "reference", []Parameter{{ValueString: "Patient"}, {ValueString: "1"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ref.(map[string]any)["reference"] != "Patient/1" {
 		t.Fatalf("unexpected reference: %#v", ref)
 	}
-	appended, err := applyTransform(context.Background(), nil, "append", []Parameter{{ValueString: "urn:uuid:"}, {ValueString: "abc"}}, nil, nil)
+	appended, err := Engine{}.applyTransform(context.Background(), "append", []Parameter{{ValueString: "urn:uuid:"}, {ValueString: "abc"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

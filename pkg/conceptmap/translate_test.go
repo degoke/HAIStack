@@ -1,0 +1,78 @@
+package conceptmap
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestTranslatorMapsSourceCoding(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/gender",
+		Group: []Group{{
+			Source: "http://example.org/source",
+			Target: "http://example.org/target",
+			Element: []Element{{
+				Code: "M",
+				Target: []Target{{
+					Code:        "male",
+					Display:     "Male",
+					Equivalence: "equivalent",
+				}},
+			}},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	codings, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"system": "http://example.org/source", "code": "M"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codings) != 1 || codings[0]["code"] != "male" {
+		t.Fatalf("unexpected translation: %#v", codings)
+	}
+}
+
+func TestTranslatorRejectsNoMap(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/gender",
+		Group: []Group{{
+			Element: []Element{{Code: "M", NoMap: true}},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	_, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "M"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no-map") {
+		t.Fatalf("expected no-map error, got %v", err)
+	}
+}
+
+func TestTranslatorUsesUnmappedFixed(t *testing.T) {
+	m := Map{
+		URL: "http://example.org/maps/status",
+		Group: []Group{{
+			Target: "http://example.org/target",
+			Unmapped: &Unmapped{
+				Mode:    "fixed",
+				Code:    "unknown",
+				Display: "Unknown",
+			},
+		}},
+	}
+	translator := Translator{Resolver: StaticResolver{m.URL: m}}
+	codings, err := translator.Translate(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"code": "missing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codings) != 1 || codings[0]["code"] != "unknown" {
+		t.Fatalf("unexpected unmapped translation: %#v", codings)
+	}
+}
