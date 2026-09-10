@@ -12,6 +12,8 @@ import (
 // Engine executes StructureMap group rules.
 type Engine struct {
 	FHIRPath fhirpath.Engine
+	// Strict reports an error when a rule declares sources but none match.
+	Strict bool
 }
 
 // ExecuteInput names resources available to the map by variable name.
@@ -19,10 +21,13 @@ type ExecuteInput map[string]any
 
 // Execute runs a StructureMap and returns produced FHIR resources.
 func (e Engine) Execute(ctx context.Context, m Map, inputs ExecuteInput) ([]json.RawMessage, error) {
-	if len(m.Group) == 0 {
-		return nil, fmt.Errorf("StructureMap %s has no groups", m.URL)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	group := m.Group[0]
+	group, err := entryGroup(m)
+	if err != nil {
+		return nil, err
+	}
 	vars := map[string]any{"__root": inputs}
 	for _, in := range group.Input {
 		if value, ok := inputs[in.Name]; ok {
@@ -30,12 +35,7 @@ func (e Engine) Execute(ctx context.Context, m Map, inputs ExecuteInput) ([]json
 			continue
 		}
 		if in.Mode == "target" && in.Type != "" {
-			typeName := resourceTypeName(in.Type)
-			if isFHIRResourceType(typeName) {
-				vars[in.Name] = map[string]any{"resourceType": typeName}
-				continue
-			}
-			vars[in.Name] = map[string]any{}
+			vars[in.Name] = newTypedInstance(in.Type)
 		}
 	}
 	if err := e.executeRules(ctx, m, group.Rule, vars); err != nil {
@@ -44,8 +44,25 @@ func (e Engine) Execute(ctx context.Context, m Map, inputs ExecuteInput) ([]json
 	return collectOutputs(group.Input, vars)
 }
 
+func entryGroup(m Map) (*Group, error) {
+	if len(m.Group) == 0 {
+		return nil, fmt.Errorf("StructureMap %s has no groups", m.URL)
+	}
+	if m.Name != "" {
+		for i := range m.Group {
+			if m.Group[i].Name == m.Name {
+				return &m.Group[i], nil
+			}
+		}
+	}
+	return &m.Group[0], nil
+}
+
 func (e Engine) executeRules(ctx context.Context, m Map, rules []Rule, vars map[string]any) error {
 	for _, rule := range rules {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := e.executeRule(ctx, m, rule, vars); err != nil {
 			if rule.Name != "" {
 				return fmt.Errorf("rule %q: %w", rule.Name, err)
@@ -57,8 +74,18 @@ func (e Engine) executeRules(ctx context.Context, m Map, rules []Rule, vars map[
 }
 
 func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[string]any) error {
-	sourceBindings := e.bindSources(ctx, rule.Source, vars)
+	sourceBindings, err := e.bindSources(ctx, rule.Source, vars)
+	if err != nil {
+		return err
+	}
 	if len(sourceBindings) == 0 && len(rule.Source) > 0 {
+		if e.Strict || requiresSourceMatch(rule.Source) {
+			name := rule.Name
+			if name == "" {
+				name = "unnamed"
+			}
+			return fmt.Errorf("rule %q: no source bindings matched", name)
+		}
 		return nil
 	}
 	iterations := 1
@@ -66,6 +93,9 @@ func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[stri
 		iterations = len(sourceBindings)
 	}
 	for i := 0; i < iterations; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		scope := cloneVars(vars)
 		if len(sourceBindings) > 0 {
 			for name, values := range sourceBindings[i] {
@@ -95,42 +125,101 @@ func (e Engine) executeRule(ctx context.Context, m Map, rule Rule, vars map[stri
 	return nil
 }
 
-func (e Engine) bindSources(ctx context.Context, sources []Source, vars map[string]any) []map[string]any {
-	if len(sources) == 0 {
-		return nil
+func requiresSourceMatch(sources []Source) bool {
+	for _, source := range sources {
+		if source.Min > 0 {
+			return true
+		}
 	}
-	var combinations []map[string]any
-	e.walkSources(ctx, sources, 0, vars, map[string]any{}, &combinations)
-	return combinations
+	return false
 }
 
-func (e Engine) walkSources(ctx context.Context, sources []Source, index int, vars map[string]any, current map[string]any, out *[]map[string]any) {
+func (e Engine) bindSources(ctx context.Context, sources []Source, vars map[string]any) ([]map[string]any, error) {
+	if len(sources) == 0 {
+		return nil, nil
+	}
+	var combinations []map[string]any
+	if err := e.walkSources(ctx, sources, 0, vars, map[string]any{}, &combinations); err != nil {
+		return nil, err
+	}
+	return combinations, nil
+}
+
+func (e Engine) walkSources(ctx context.Context, sources []Source, index int, vars map[string]any, current map[string]any, out *[]map[string]any) error {
 	if index >= len(sources) {
 		if len(current) > 0 {
 			*out = append(*out, cloneStringAnyMap(current))
 		}
-		return
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	source := sources[index]
 	base, ok := vars[source.Context]
 	if !ok {
-		return
+		return nil
 	}
 	candidates := navigateElements(base, source.Element)
 	if len(candidates) == 0 && len(source.Element) == 0 {
 		candidates = []any{base}
 	}
+	filtered := make([]any, 0, len(candidates))
 	for _, candidate := range candidates {
 		if source.Condition != "" && !e.evaluateCondition(ctx, candidate, source.Condition, vars) {
 			continue
 		}
+		filtered = append(filtered, candidate)
+	}
+	filtered, err := applySourceListMode(filtered, source.ListMode)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range filtered {
 		if source.Variable != "" {
 			current[source.Variable] = candidate
 		}
-		e.walkSources(ctx, sources, index+1, vars, current, out)
+		if err := e.walkSources(ctx, sources, index+1, vars, current, out); err != nil {
+			return err
+		}
 		if source.Variable != "" {
 			delete(current, source.Variable)
 		}
+	}
+	return nil
+}
+
+func applySourceListMode(candidates []any, listMode string) ([]any, error) {
+	switch strings.ToLower(strings.TrimSpace(listMode)) {
+	case "", "no_list":
+		return candidates, nil
+	case "first":
+		if len(candidates) == 0 {
+			return candidates, nil
+		}
+		return []any{candidates[0]}, nil
+	case "last":
+		if len(candidates) == 0 {
+			return candidates, nil
+		}
+		return []any{candidates[len(candidates)-1]}, nil
+	case "only_one":
+		if len(candidates) > 1 {
+			return nil, fmt.Errorf("source listMode only_one matched %d candidates", len(candidates))
+		}
+		return candidates, nil
+	case "not_first":
+		if len(candidates) <= 1 {
+			return nil, nil
+		}
+		return candidates[1:], nil
+	case "not_last":
+		if len(candidates) <= 1 {
+			return nil, nil
+		}
+		return candidates[:len(candidates)-1], nil
+	default:
+		return candidates, nil
 	}
 }
 
@@ -140,15 +229,9 @@ func (e Engine) evaluateCondition(ctx context.Context, value any, condition stri
 		return true
 	}
 	if e.FHIRPath == nil {
-		if object, ok := value.(map[string]any); ok {
-			return evaluateSimpleCondition(object, condition)
-		}
-		return false
+		return evaluateSimpleCondition(asMap(value), condition)
 	}
 	env := cloneStringAnyMap(vars)
-	for key, item := range env {
-		env[key] = item
-	}
 	values, err := e.FHIRPath.EvalWithEnv(ctx, condition, value, env)
 	if err != nil {
 		return evaluateSimpleCondition(asMap(value), condition)
@@ -176,6 +259,9 @@ func evaluateSimpleCondition(object map[string]any, condition string) bool {
 
 func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[string]any, sourceValue any) error {
 	for _, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		value, err := e.resolveTargetValue(ctx, target, vars, sourceValue)
 		if err != nil {
 			return err
@@ -193,13 +279,7 @@ func (e Engine) applyTargets(ctx context.Context, targets []Target, vars map[str
 		if !ok {
 			return fmt.Errorf("target context %q is not an object", target.Context)
 		}
-		if hasListMode(target.ListMode, "share") || hasListMode(target.ListMode, "collate") {
-			if err := appendElementPath(root, target.Element, value); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := setElementPath(root, target.Element, value); err != nil {
+		if err := assignElementValue(root, target.Element, value, target.ListMode); err != nil {
 			return err
 		}
 	}
@@ -235,10 +315,21 @@ func (e Engine) invokeGroup(ctx context.Context, m Map, dep Dependent, vars map[
 		for _, in := range group.Input {
 			if value, ok := vars[in.Name]; ok {
 				scope[in.Name] = value
+			} else if in.Mode == "target" && in.Type != "" {
+				scope[in.Name] = newTypedInstance(in.Type)
 			}
 		}
 	}
-	return e.executeRules(ctx, m, group.Rule, scope)
+	if err := e.executeRules(ctx, m, group.Rule, scope); err != nil {
+		return err
+	}
+	for key, value := range scope {
+		if key == "__root" {
+			continue
+		}
+		vars[key] = value
+	}
+	return nil
 }
 
 func findGroup(m Map, name string) *Group {

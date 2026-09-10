@@ -47,13 +47,19 @@ func flattenValue(value any) []any {
 	}
 }
 
-func setElementPath(root map[string]any, elements []string, value any) error {
+func assignElementValue(root map[string]any, elements []string, value any, listModes []string) error {
 	if len(elements) == 0 {
 		return fmt.Errorf("target element path is empty")
 	}
 	cur := root
 	for i, part := range elements {
 		if i == len(elements)-1 {
+			if hasListMode(listModes, "share") || hasListMode(listModes, "collate") {
+				return appendElementPath(cur, []string{part}, value)
+			}
+			if isRepeatingField(cur, part) && !hasListMode(listModes, "single") {
+				return assignRepeatingValue(cur, part, value)
+			}
 			cur[part] = value
 			return nil
 		}
@@ -63,6 +69,19 @@ func setElementPath(root map[string]any, elements []string, value any) error {
 			cur[part] = next
 		}
 		cur = next
+	}
+	return nil
+}
+
+func assignRepeatingValue(cur map[string]any, part string, value any) error {
+	existing := cur[part]
+	switch typed := existing.(type) {
+	case nil:
+		cur[part] = []any{value}
+	case []any:
+		cur[part] = append(typed, value)
+	default:
+		cur[part] = []any{typed, value}
 	}
 	return nil
 }

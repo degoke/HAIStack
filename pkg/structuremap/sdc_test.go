@@ -143,4 +143,8 @@ func TestExtractorRunProducesJSONResources(t *testing.T) {
 	if patient["resourceType"] != "Patient" {
 		t.Fatalf("unexpected resource: %#v", patient)
 	}
+	name, ok := patient["name"].([]any)
+	if !ok || len(name) != 1 {
+		t.Fatalf("expected Patient.name array, got %#v", patient["name"])
+	}
 }

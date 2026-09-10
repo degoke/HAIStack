@@ -468,7 +468,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Extractor: sdc.QuestionnaireExtractor{
 				Expressions:  sdc.FHIRPathExpressions{Engine: engine},
 				StructureMap: structuremap.NewExtractor(structuremap.Config{
-					Resolver: structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+					Resolver: &structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
 					Engine:   structuremap.Engine{FHIRPath: engine},
 				}),
 			},

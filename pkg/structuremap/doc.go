@@ -7,5 +7,9 @@
 // the supported transforms cover common SDC extraction patterns (create, copy,
 // uuid, cc, evaluate).
 //
+// The entry group is selected by matching StructureMap.name to a group name,
+// otherwise the first group is executed. Helper groups are invoked through
+// rule dependents.
+//
 // Integrate with pkg/sdc via ExtractorRun or NewExtractor.
 package structuremap
