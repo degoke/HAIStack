@@ -1067,16 +1067,13 @@ func TestValueSetValidateCodeUsesValueSetVersion(t *testing.T) {
 	}
 }
 
-func TestCapabilityStatementAdvertisesTerminologyOperations(t *testing.T) {
+func TestCapabilityStatementAdvertisesPlatformOperationsWithoutEnabledTypes(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
 			FHIRVersion: "4.0.1",
 			Resources: []registry.ResourceCapability{
-				{ResourceType: "CodeSystem"},
-				{ResourceType: "ValueSet"},
-				{ResourceType: "Basic"},
-				{ResourceType: "CapabilityStatement"},
+				{ResourceType: "Patient"},
 			},
 		}},
 	})
@@ -1085,9 +1082,47 @@ func TestCapabilityStatementAdvertisesTerminologyOperations(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"lookup", "expand", "validate-code", `"name":"install"`, `"name":"status"`, `"name":"refresh"`} {
+	for _, want := range []string{"lookup", "expand", "validate-code", `"name":"install"`, `"name":"status"`, `"name":"refresh"`, "terminology-install"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metadata missing %q: %s", want, body)
 		}
+	}
+}
+
+func TestBasicJobStatusUsesReadAuthByDefault(t *testing.T) {
+	checker := &recordingAuthChecker{allow: true}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		PrincipalResolver: func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user"}, auth.TenantContext{TenantID: "t1"}, nil
+		},
+		AuthChecker: checker,
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(checker.readCalls) != 1 || checker.readCalls[0] != "Basic/job-1" {
+		t.Fatalf("readCalls=%v writeCalls=%v", checker.readCalls, checker.writeCalls)
+	}
+}
+
+func TestBasicTerminologyInstallHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyInstallService: hahttp.CoreTerminologyInstallService{
+			JobStore:     &fakeJobStore{},
+			DefaultScope: "tenant-a",
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-install", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "jobId") {
+		t.Fatalf("expected job id, got %s", rec.Body.String())
 	}
 }

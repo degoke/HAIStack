@@ -30,6 +30,12 @@ type AuthChecker interface {
 	AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error)
 }
 
+// OperationAuthChecker optionally authorizes named FHIR operations such as
+// Basic/$status independently from resource read or write.
+type OperationAuthChecker interface {
+	AuthorizeOperation(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType, operation, id string) (auth.Decision, error)
+}
+
 // Config configures the FHIR HTTP handler.
 type Config struct {
 	// BasePath is the FHIR REST root path. Defaults to /fhir.
@@ -55,6 +61,9 @@ type Config struct {
 
 	// TerminologyScope is the tenant scope passed to terminology operations.
 	TerminologyScope string
+
+	// TerminologyInstallService handles Basic/$terminology-install.
+	TerminologyInstallService TerminologyInstallService
 
 	// ModuleInstallService handles Basic/$install.
 	ModuleInstallService ModuleInstallService

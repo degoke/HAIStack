@@ -104,7 +104,30 @@ func marshalSearchBundle(bundle *search.SearchBundle) ([]byte, error) {
 	return json.Marshal(obj)
 }
 
+var platformCapabilityResourceTypes = []string{
+	"CodeSystem",
+	"ValueSet",
+	"Basic",
+	"CapabilityStatement",
+}
+
+func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) registry.CapabilitySnapshot {
+	seen := make(map[string]bool, len(snapshot.Resources))
+	for _, res := range snapshot.Resources {
+		seen[res.ResourceType] = true
+	}
+	for _, typ := range platformCapabilityResourceTypes {
+		if seen[typ] {
+			continue
+		}
+		snapshot.Resources = append(snapshot.Resources, registry.ResourceCapability{ResourceType: typ})
+		seen[typ] = true
+	}
+	return snapshot
+}
+
 func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta ServerMetadata, searchEnabled bool) ([]byte, error) {
+	snapshot = augmentCapabilitySnapshot(snapshot)
 	rest := make([]map[string]interface{}, 0, 1)
 	resourceEntries := make([]map[string]interface{}, 0, len(snapshot.Resources))
 	for _, res := range snapshot.Resources {
@@ -166,6 +189,10 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 				map[string]string{
 					"name":       "status",
 					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-status",
+				},
+				map[string]string{
+					"name":       "terminology-install",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-terminology-install",
 				},
 			)
 		case "CapabilityStatement":

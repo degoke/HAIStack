@@ -85,6 +85,25 @@ func TestLayeredStoreGlobalCodeSystemTenantValueSet(t *testing.T) {
 	}
 }
 
+func TestLayeredStoreNilInstallsBlocksGlobal(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	globalCS := []byte(`{"resourceType":"CodeSystem","url":"urn:global","version":"1","concept":[{"code":"x"}]}`)
+	if err := Compile(ctx, m, GlobalScopeID, "", globalCS); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "CodeSystem", CanonicalURL: "urn:global", Version: "1", ResourceJSON: globalCS,
+	})
+
+	layered := NewLayeredStore(m, "tenant-a")
+	svc := NewLocalService(layered, "tenant-a")
+	got, err := svc.Lookup(ctx, LookupRequest{System: "urn:global", Code: "x"})
+	if err != nil || got.Found {
+		t.Fatalf("expected nil installs to block global, lookup=%+v err=%v", got, err)
+	}
+}
+
 func TestLayeredStoreGlobalOptInRequired(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()

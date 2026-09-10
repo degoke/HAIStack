@@ -27,6 +27,12 @@ func (h *handler) handlePlatformOperation(w http.ResponseWriter, r *http.Request
 			}
 			h.handleBasicJobStatus(w, r, route)
 			return true
+		case "$terminology-install":
+			if route.id != "" {
+				return false
+			}
+			h.handleBasicTerminologyInstall(w, r, route)
+			return true
 		}
 	case "CapabilityStatement":
 		if route.operation == "$refresh" && route.id == "" {
@@ -46,7 +52,7 @@ func (h *handler) handleBasicModuleInstall(w http.ResponseWriter, r *http.Reques
 		writeMethodNotAllowed(w, r.Method, http.MethodPost)
 		return
 	}
-	if err := h.authorizeWrite(r.Context(), "operation", route.resourceType, route.id); err != nil {
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -90,7 +96,7 @@ func (h *handler) handleBasicJobStatus(w http.ResponseWriter, r *http.Request, r
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
 		return
 	}
-	if err := h.authorizeWrite(r.Context(), "operation", route.resourceType, route.id); err != nil {
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -119,7 +125,7 @@ func (h *handler) handleCapabilityStatementRefresh(w http.ResponseWriter, r *htt
 		writeMethodNotAllowed(w, r.Method, http.MethodPost)
 		return
 	}
-	if err := h.authorizeWrite(r.Context(), "operation", route.resourceType, route.id); err != nil {
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -130,4 +136,34 @@ func (h *handler) handleCapabilityStatementRefresh(w http.ResponseWriter, r *htt
 	writeEnvelope(w, http.StatusOK, parametersEnvelope([]map[string]any{
 		{"name": "result", "valueBoolean": true},
 	}), nil)
+}
+
+func (h *handler) handleBasicTerminologyInstall(w http.ResponseWriter, r *http.Request, route parsedRoute) {
+	if h.cfg.TerminologyInstallService == nil {
+		writeError(w, notConfigured("terminology install service"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, r.Method, http.MethodPost)
+		return
+	}
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
+		writeError(w, err)
+		return
+	}
+	scopeID := strings.TrimSpace(r.URL.Query().Get("scopeId"))
+	body, err := readBodyAllowEmpty(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if scopeID == "" {
+		scopeID = parseTerminologyInstallScope(body)
+	}
+	job, err := h.cfg.TerminologyInstallService.EnqueueRebuild(r.Context(), scopeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeEnvelope(w, http.StatusAccepted, terminologyInstallJobParameters(job.ID, scopeID), nil)
 }

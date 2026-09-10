@@ -113,7 +113,7 @@ func (s *TerminologyInstallStore) queryInstallRows(ctx context.Context, filter s
 	if err != nil {
 		return nil, fmt.Errorf("list terminology installs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.TerminologyInstallRecord
 	for rows.Next() {

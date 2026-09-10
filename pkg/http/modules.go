@@ -59,6 +59,40 @@ func parseModuleInstallParameters(body []byte) (path string, upgradeOnly bool) {
 	return path, upgradeOnly
 }
 
+func parseTerminologyInstallScope(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var params struct {
+		Parameter []struct {
+			Name        string `json:"name"`
+			ValueString string `json:"valueString,omitempty"`
+		} `json:"parameter"`
+	}
+	if err := json.Unmarshal(body, &params); err != nil {
+		return ""
+	}
+	for _, p := range params.Parameter {
+		if p.Name == "scopeId" {
+			return strings.TrimSpace(p.ValueString)
+		}
+	}
+	return ""
+}
+
+func terminologyInstallJobParameters(jobID, scopeID string) *types.ResourceEnvelope {
+	payload := map[string]any{
+		"resourceType": "Parameters",
+		"parameter": []map[string]any{
+			{"name": "jobId", "valueString": jobID},
+			{"name": "scopeId", "valueString": scopeID},
+			{"name": "status", "valueString": "accepted"},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return &types.ResourceEnvelope{ResourceType: "Parameters", JSON: raw}
+}
+
 func moduleInstallJobParameters(jobID, path string) *types.ResourceEnvelope {
 	payload := map[string]any{
 		"resourceType": "Parameters",

@@ -134,7 +134,7 @@ func (l *LayeredStore) globalAllowed(ctx context.Context, url, ver string) bool 
 		return false
 	}
 	if l.Installs == nil {
-		return true
+		return false
 	}
 	enabled, err := l.enabledKeys(ctx)
 	if err != nil {

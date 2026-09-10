@@ -1,6 +1,9 @@
 package terminology
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Chain resolves terminology providers in precedence order. A provider that
 // cannot answer leaves resolution to the next provider; exact-version requests
@@ -29,6 +32,9 @@ func (c Chain) Expand(ctx context.Context, r ExpandRequest) (*Expansion, error) 
 	for _, p := range c.Providers {
 		v, e := p.Expand(ctx, r)
 		if e != nil {
+			if errors.Is(e, ErrExpansionTooCostly) {
+				return nil, e
+			}
 			last = e
 			continue
 		}

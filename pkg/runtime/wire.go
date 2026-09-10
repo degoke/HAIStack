@@ -237,12 +237,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		termProviders = append(termProviders, tenantLocal)
 	}
 	if b.remoteTerminologyURL != "" {
-		remote, err := terminology.NewRemoteProvider(terminology.RemoteConfig{
+		remoteProvider, err := terminology.NewRemoteProvider(terminology.RemoteConfig{
 			BaseURL:  b.remoteTerminologyURL,
 			CacheTTL: 5 * time.Minute,
 		})
 		if err != nil {
 			return fmt.Errorf("runtime: remote terminology: %w", err)
+		}
+		var remote terminology.Provider = remoteProvider
+		if pc.terminologyInstalls != nil && pc.globalTerminology != nil {
+			remote = terminology.NewOptInRemoteGate(remoteProvider, pc.globalTerminology, pc.terminologyInstalls)
 		}
 		termProviders = append(termProviders, remote)
 	}
@@ -526,6 +530,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	moduleService := hahttp.CoreModuleInstallService{
 		JobStore: pc.jobStore,
 	}
+	terminologyInstallService := hahttp.CoreTerminologyInstallService{
+		JobStore:     pc.jobStore,
+		DefaultScope: termScope,
+	}
 	jobStatusService := hahttp.CoreJobStatusService{
 		JobStore: pc.jobStore,
 	}
@@ -535,16 +543,17 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	})
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:         httpSearchSvc,
-		SDCService:            sdcService,
-		PackageInstallService: packageService,
-		ModuleInstallService:  moduleService,
-		ModulePaths:           append([]string(nil), b.modulePaths...),
-		JobStatusService:      jobStatusService,
-		TerminologyService:    state.services.TerminologyService,
-		TerminologyScope:      termScope,
-		ConformanceRefresher:  conformanceRefresher,
+		ResourceService:           hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:             httpSearchSvc,
+		SDCService:                sdcService,
+		PackageInstallService:     packageService,
+		ModuleInstallService:      moduleService,
+		ModulePaths:               append([]string(nil), b.modulePaths...),
+		JobStatusService:          jobStatusService,
+		TerminologyService:        state.services.TerminologyService,
+		TerminologyScope:          termScope,
+		TerminologyInstallService: terminologyInstallService,
+		ConformanceRefresher:      conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},

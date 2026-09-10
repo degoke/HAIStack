@@ -9,6 +9,32 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
+// TerminologyInstallService enqueues async terminology projection rebuild jobs.
+type TerminologyInstallService interface {
+	EnqueueRebuild(ctx context.Context, scopeID string) (store.JobRecord, error)
+}
+
+// CoreTerminologyInstallService implements terminology rebuild using jobs.
+type CoreTerminologyInstallService struct {
+	JobStore     store.JobStore
+	DefaultScope string
+}
+
+func (s CoreTerminologyInstallService) EnqueueRebuild(ctx context.Context, scopeID string) (store.JobRecord, error) {
+	if s.JobStore == nil {
+		return store.JobRecord{}, notConfigured("job store")
+	}
+	if scopeID == "" {
+		scopeID = s.DefaultScope
+	}
+	if scopeID == "" {
+		return store.JobRecord{}, invalidRequest("scopeId is required for terminology install", nil)
+	}
+	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeTerminologyInstall, jobs.TerminologyInstallPayload{
+		ScopeID: scopeID,
+	}, jobs.EnqueueOptions{})
+}
+
 // JobStatusService reads durable background job state.
 type JobStatusService interface {
 	GetJob(ctx context.Context, id string) (*store.JobRecord, error)

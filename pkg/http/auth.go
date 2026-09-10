@@ -86,6 +86,32 @@ func (h *handler) authorizeWrite(ctx context.Context, operation, resourceType, i
 	return nil
 }
 
+func (h *handler) authorizeOperation(ctx context.Context, resourceType, operation, id string) error {
+	if h.cfg.AuthChecker == nil || h.cfg.PrincipalResolver == nil {
+		return nil
+	}
+	principal, tenant, ok := identityFromContext(ctx)
+	if !ok {
+		return errUnauthenticated
+	}
+	if opAuth, ok := h.cfg.AuthChecker.(OperationAuthChecker); ok {
+		decision, err := opAuth.AuthorizeOperation(ctx, principal, tenant, resourceType, operation, id)
+		if err != nil {
+			return err
+		}
+		if !decision.Allowed {
+			return fmt.Errorf("%w: %s", auth.ErrDenied, decision.Reason)
+		}
+		return nil
+	}
+	switch operation {
+	case "$status":
+		return h.authorizeRead(ctx, resourceType, id)
+	default:
+		return h.authorizeWrite(ctx, "operation", resourceType, id)
+	}
+}
+
 func (h *handler) authorizeSearch(ctx context.Context, resourceType string) error {
 	if h.cfg.AuthChecker == nil || h.cfg.PrincipalResolver == nil {
 		return nil
