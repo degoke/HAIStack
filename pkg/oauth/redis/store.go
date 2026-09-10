@@ -62,18 +62,23 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
+	key := s.key("refresh:" + token)
 	ttl := ttlUntil(entry.ExpiresAt, s.now())
-	return s.client.Set(context.Background(), s.key("refresh:"+token), payload, ttl).Err()
+	ctx := context.Background()
+	if err := s.client.HSet(ctx, key, "clientId", entry.ClientID, "payload", payload).Err(); err != nil {
+		return err
+	}
+	return s.client.Expire(ctx, key, ttl).Err()
 }
 
 func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
 	key := s.key("refresh:" + token)
-	payload, err := s.client.GetDel(context.Background(), key).Bytes()
-	if err == goredis.Nil || err != nil {
+	payload, err := consumeRefreshTokenScript.Run(context.Background(), s.client, []string{key}).Text()
+	if err != nil || payload == "" {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
-	if err := json.Unmarshal(payload, &entry); err != nil {
+	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	if s.now().After(entry.ExpiresAt) {
@@ -124,18 +129,7 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 
 func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
 	key := s.key("refresh:" + token)
-	payload, err := s.client.Get(context.Background(), key).Bytes()
-	if err == goredis.Nil || err != nil {
-		return false
-	}
-	var entry oauth.RefreshTokenEntry
-	if err := json.Unmarshal(payload, &entry); err != nil {
-		return false
-	}
-	if entry.ClientID != clientID || s.now().After(entry.ExpiresAt) {
-		return false
-	}
-	n, err := s.client.Del(context.Background(), key).Result()
+	n, err := deleteRefreshTokenForClientScript.Run(context.Background(), s.client, []string{key}, clientID).Int()
 	return err == nil && n > 0
 }
 

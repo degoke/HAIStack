@@ -44,6 +44,9 @@ func TestEphemeralStores_RoundTrip(t *testing.T) {
 	if !authStore.DeleteRefreshTokenForClient(refresh, "owner") {
 		t.Fatal("expected owner revoke to succeed")
 	}
+	if authStore.DeleteRefreshTokenForClient(refresh, "owner") {
+		t.Fatal("expected second revoke to fail after delete")
+	}
 
 	if err := replayStore.CheckAndStore("jti-1", now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
