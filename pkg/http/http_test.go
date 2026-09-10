@@ -795,6 +795,49 @@ func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
 	}
 }
 
+func TestPatientScopedSearchPostFiltersOutOfCompartment(t *testing.T) {
+	inScope := &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-in"}
+	outScope := &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-out"}
+	searchSvc := hahttp.SearchServiceAdapter{
+		Svc: &fakeSearchService{
+			searchFn: func(_ context.Context, resourceType string, _ url.Values) (*search.SearchBundle, error) {
+				return search.AssembleBundle(&search.Result{
+					ResourceType: resourceType,
+					Resources:    []*types.ResourceEnvelope{inScope, outScope},
+				}), nil
+			},
+		},
+		PatientSearchParamResolver: auth.MapPatientSearchParamResolver{
+			"Observation": "subject",
+		},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:          &fakeResourceService{},
+		SearchService:            searchSvc,
+		PatientReferenceResolver: mapPatientResolver{"obs-in": "pat-1", "obs-out": "pat-2"},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{
+				TenantID:     "t1",
+				PatientScope: "pat-1",
+			}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Observation", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var bundle map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &bundle); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := bundle["entry"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 in-compartment entry, got %d", len(entries))
+	}
+}
+
 func TestDeleteUsesDeleteAuthorizationOperation(t *testing.T) {
 	checker := &recordingAuthChecker{allow: true}
 	handler := newTestHandler(t, hahttp.Config{

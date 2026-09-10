@@ -42,16 +42,12 @@ func (h *handler) enforceScopeFiltersOnEnvelope(ctx context.Context, resourceTyp
 
 func (h *handler) filterSearchBundleScopeFilters(ctx context.Context, resourceType string, bundle *search.SearchBundle) error {
 	scopes, actor, ok := h.scopeBundleFromContext(ctx)
-	if !ok {
-		return nil
+	if ok {
+		if err := smart.FilterSearchBundleScopeFilters(scopes, actor, resourceType, bundle); err != nil {
+			return err
+		}
 	}
-	if err := smart.FilterSearchBundleScopeFilters(scopes, actor, resourceType, bundle); err != nil {
-		return err
-	}
-	if err := h.filterSearchBundlePatientScope(ctx, bundle); err != nil {
-		return err
-	}
-	return nil
+	return h.filterSearchBundlePatientScope(ctx, bundle)
 }
 
 func scopeFilterError(err error) error {
