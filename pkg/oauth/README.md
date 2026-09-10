@@ -63,22 +63,30 @@ deployments but is a poor fit for production:
 `NewProductionServer` (file-backed) remains for single-node and test environments.
 **Postgres is the recommended production path.**
 
-### Redis (high-throughput cache)
+### Redis (ephemeral token state)
 
-Use `oauthredis.NewServer` when you want a shared in-memory cache instead of relational storage:
+Use `oauthredis.NewServer` for TTL-backed auth codes, refresh tokens, replay JTIs, and
+revocation denylist. **Client registration stays on Postgres or file** — pass a durable
+`cfg.Clients` registry; Redis does not store clients.
 
 ```go
 import (
     "github.com/degoke/health-ai-stack/pkg/oauth"
+    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
     oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
     goredis "github.com/redis/go-redis/v9"
 )
 
+db, _ := postgres.Open(ctx, dsn)
+_, clientStore, _, _ := oauthpostgres.Stores(db.Pool())
 rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
-server, err := oauthredis.NewServer(oauth.Config{...}, rdb, "hai:oauth:")
+server, err := oauthredis.NewServer(oauth.Config{
+    Issuer:  "https://auth.example",
+    Clients: clientStore,
+}, rdb, "hai:oauth:")
 ```
 
-`oauthredis.Stores` implements the same four interfaces with TTL-based keys.
+`oauthredis.EphemeralStores` wires the three ephemeral interfaces with TTL-based keys.
 
 ### File-backed alternative (single node / dev)
 
@@ -113,10 +121,10 @@ form.Set("code_verifier", pkceVerifier)
 `POST /oauth/revoke` accepts:
 
 - `refresh_token` — deletes the refresh token when it belongs to the authenticated client
-- `access_token` (or `token_type_hint=access_token`) — adds the JWT `jti` to the revocation denylist when the token's `client_id` claim matches
+- `access_token` (or `token_type_hint=access_token`) — adds the JWT `jti` to the revocation denylist when the token's `client_id` claim matches the authenticated client (required)
 
 Revoked access tokens are rejected by `server.BearerAuthConfig()` via `TokenValidateOptions.IsJWTRevoked`.
-Access tokens include a `client_id` claim for ownership checks.
+All access tokens include a `client_id` claim; revoke rejects tokens without it.
 
 ## Multi-instance checklist
 

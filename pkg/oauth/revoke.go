@@ -42,11 +42,7 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revokeRefreshToken(token, clientID string) bool {
-	entry, ok := s.authStore.GetRefreshToken(token)
-	if !ok || entry.ClientID != clientID {
-		return false
-	}
-	return s.authStore.DeleteRefreshToken(token)
+	return s.authStore.DeleteRefreshTokenForClient(token, clientID)
 }
 
 func (s *Server) revokeAccessToken(token, clientID string) {
@@ -57,10 +53,10 @@ func (s *Server) revokeAccessToken(token, clientID string) {
 	if err != nil || claims.JWTID == "" {
 		return
 	}
-	if claims.Issuer != "" && claims.Issuer != s.cfg.Issuer {
+	if claims.Issuer != s.cfg.Issuer {
 		return
 	}
-	if claims.ClientID != "" && claims.ClientID != clientID {
+	if claims.ClientID != clientID {
 		return
 	}
 	expiry := claims.ExpiresAt

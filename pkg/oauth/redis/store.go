@@ -122,65 +122,21 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 	return entry, true
 }
 
-func (s *AuthorizationStore) GetRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
-	payload, err := s.client.Get(context.Background(), s.key("refresh:"+token)).Bytes()
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+	key := s.key("refresh:" + token)
+	payload, err := s.client.Get(context.Background(), key).Bytes()
 	if err == goredis.Nil || err != nil {
-		return oauth.RefreshTokenEntry{}, false
+		return false
 	}
 	var entry oauth.RefreshTokenEntry
 	if err := json.Unmarshal(payload, &entry); err != nil {
-		return oauth.RefreshTokenEntry{}, false
+		return false
 	}
-	if s.now().After(entry.ExpiresAt) {
-		return oauth.RefreshTokenEntry{}, false
+	if entry.ClientID != clientID || s.now().After(entry.ExpiresAt) {
+		return false
 	}
-	return entry, true
-}
-
-func (s *AuthorizationStore) DeleteRefreshToken(token string) bool {
-	n, err := s.client.Del(context.Background(), s.key("refresh:"+token)).Result()
+	n, err := s.client.Del(context.Background(), key).Result()
 	return err == nil && n > 0
-}
-
-// ClientRegistry persists OAuth clients in Redis.
-type ClientRegistry struct {
-	client goredis.Cmdable
-	prefix string
-}
-
-// NewClientRegistry constructs a Redis-backed ClientRegistry.
-func NewClientRegistry(client goredis.Cmdable, keyPrefix string) *ClientRegistry {
-	if keyPrefix == "" {
-		keyPrefix = defaultKeyPrefix
-	}
-	return &ClientRegistry{client: client, prefix: keyPrefix}
-}
-
-func (s *ClientRegistry) key(clientID string) string {
-	return s.prefix + "client:" + clientID
-}
-
-func (s *ClientRegistry) Get(clientID string) (oauth.Client, bool) {
-	payload, err := s.client.Get(context.Background(), s.key(clientID)).Bytes()
-	if err == goredis.Nil || err != nil {
-		return oauth.Client{}, false
-	}
-	var client oauth.Client
-	if err := json.Unmarshal(payload, &client); err != nil {
-		return oauth.Client{}, false
-	}
-	return client, true
-}
-
-func (s *ClientRegistry) Register(client oauth.Client) error {
-	if err := oauth.PrepareClientSecret(&client); err != nil {
-		return err
-	}
-	payload, err := json.Marshal(client)
-	if err != nil {
-		return fmt.Errorf("encode oauth client: %w", err)
-	}
-	return s.client.Set(context.Background(), s.key(client.ClientID), payload, 0).Err()
 }
 
 // ReplayStore persists backend assertion replay protection in Redis.
@@ -249,10 +205,10 @@ func (s *RevocationStore) IsRevoked(jti string) bool {
 	return err == nil && n > 0
 }
 
-// Stores returns production OAuth stores backed by Redis.
-func Stores(client goredis.Cmdable, keyPrefix string) (oauth.AuthorizationStore, oauth.ClientRegistry, smart.ReplayStore, oauth.TokenRevocationStore) {
+// EphemeralStores returns Redis-backed token, replay, and revocation stores.
+// Client registration must use a durable registry (Postgres or file) via oauth.Config.Clients.
+func EphemeralStores(client goredis.Cmdable, keyPrefix string) (oauth.AuthorizationStore, smart.ReplayStore, oauth.TokenRevocationStore) {
 	return NewAuthorizationStore(client, keyPrefix),
-		NewClientRegistry(client, keyPrefix),
 		NewReplayStore(client, keyPrefix),
 		NewRevocationStore(client, keyPrefix)
 }
@@ -266,6 +222,5 @@ func ttlUntil(expiresAt time.Time, now time.Time) time.Duration {
 }
 
 var _ oauth.AuthorizationStore = (*AuthorizationStore)(nil)
-var _ oauth.ClientRegistry = (*ClientRegistry)(nil)
 var _ smart.ReplayStore = (*ReplayStore)(nil)
 var _ oauth.TokenRevocationStore = (*RevocationStore)(nil)

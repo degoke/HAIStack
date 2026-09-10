@@ -21,8 +21,7 @@ type AuthorizationStore interface {
 	SavePendingAuthorization(id string, entry PendingAuthorization) error
 	GetPendingAuthorization(id string) (PendingAuthorization, bool)
 	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
-	GetRefreshToken(token string) (RefreshTokenEntry, bool)
-	DeleteRefreshToken(token string) bool
+	DeleteRefreshTokenForClient(token, clientID string) bool
 }
 
 // PendingAuthorization stores an in-progress authorize/consent/launch session.
@@ -138,20 +137,13 @@ func (s *MemoryAuthorizationStore) GetPendingAuthorization(id string) (PendingAu
 	return entry, true
 }
 
-func (s *MemoryAuthorizationStore) GetRefreshToken(token string) (RefreshTokenEntry, bool) {
+func (s *MemoryAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[token]
-	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
-		return RefreshTokenEntry{}, false
+	if ok && (entry.ClientID != clientID || now.After(entry.ExpiresAt)) {
+		ok = false
 	}
-	return entry, true
-}
-
-func (s *MemoryAuthorizationStore) DeleteRefreshToken(token string) bool {
-	s.mu.Lock()
-	_, ok := s.refreshTokens[token]
 	if ok {
 		delete(s.refreshTokens, token)
 	}
@@ -296,26 +288,16 @@ func (s *FileAuthorizationStore) now() time.Time {
 	return time.Now()
 }
 
-func (s *FileAuthorizationStore) GetRefreshToken(token string) (RefreshTokenEntry, bool) {
+func (s *FileAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
 	now := s.now()
-	var entry RefreshTokenEntry
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
-		entry, ok = state.Refresh[token]
-	})
-	if err != nil || !ok || now.After(entry.ExpiresAt) {
-		return RefreshTokenEntry{}, false
-	}
-	return entry, true
-}
-
-func (s *FileAuthorizationStore) DeleteRefreshToken(token string) bool {
-	var ok bool
-	err := s.update(func(state *fileAuthorizationState) {
-		_, ok = state.Refresh[token]
-		if ok {
-			delete(state.Refresh, token)
+		entry, found := state.Refresh[token]
+		if !found || entry.ClientID != clientID || now.After(entry.ExpiresAt) {
+			return
 		}
+		delete(state.Refresh, token)
+		ok = true
 	})
 	return err == nil && ok
 }

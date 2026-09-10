@@ -152,26 +152,13 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 	return entry, true
 }
 
-func (s *AuthorizationStore) GetRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
 	now := s.now()
-	var payload []byte
-	err := s.pool.QueryRow(context.Background(), `
-		SELECT payload FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2`, token, now,
-	).Scan(&payload)
-	if errors.Is(err, pgx.ErrNoRows) || err != nil {
-		return oauth.RefreshTokenEntry{}, false
-	}
-	var entry oauth.RefreshTokenEntry
-	if err := json.Unmarshal(payload, &entry); err != nil {
-		return oauth.RefreshTokenEntry{}, false
-	}
-	return entry, true
-}
-
-func (s *AuthorizationStore) DeleteRefreshToken(token string) bool {
 	tag, err := s.pool.Exec(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token WHERE token = $1`, token)
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2 AND payload->>'clientId' = $3`,
+		token, now, clientID,
+	)
 	if err != nil {
 		return false
 	}
