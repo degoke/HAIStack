@@ -3,6 +3,7 @@ package view
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -80,6 +81,7 @@ func ParseDefinition(def []byte, engine fhirpath.Engine) (*ViewSpec, error) {
 	}
 
 	materialize, materializeKey := parseMaterializeMetadata(raw.Metadata)
+	searchParams, searchMode := parseSearchMetadata(raw.Metadata)
 
 	spec := &ViewSpec{
 		Name:           raw.Name,
@@ -95,6 +97,8 @@ func ParseDefinition(def []byte, engine fhirpath.Engine) (*ViewSpec, error) {
 		Metadata:       raw.Metadata,
 		Materialize:    materialize,
 		MaterializeKey: materializeKey,
+		SearchParams:   searchParams,
+		SearchMode:     searchMode,
 		Raw:            def,
 	}
 	if err := spec.compileSelectTree(engine); err != nil {
@@ -173,6 +177,8 @@ type ViewSpec struct {
 	// on the Executor. MaterializeKey names the output column used as the row key.
 	Materialize    bool
 	MaterializeKey string
+	SearchParams   url.Values
+	SearchMode     SearchMode
 	Raw            []byte
 
 	mu         sync.RWMutex

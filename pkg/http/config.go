@@ -80,6 +80,9 @@ type Config struct {
 	// BulkExportService handles FHIR Bulk Data export when configured.
 	BulkExportService BulkExportService
 
+	// ViewMaterializeService handles ViewDefinition/$materialize when configured.
+	ViewMaterializeService ViewMaterializeService
+
 	// PatientReferenceResolver resolves patient ownership for loaded resources when
 	// TenantContext.PatientScope is set. Required for patient-scoped read/search enforcement.
 	PatientReferenceResolver auth.ResourcePatientResolver

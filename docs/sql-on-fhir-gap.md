@@ -7,40 +7,36 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | SQL-on-FHIR concept | HAIStack status | Notes |
 |---------------------|-----------------|-------|
 | Single resource `select` | Supported | One root resource type per view |
-| Flat column projections | Supported | FHIRPath expressions → typed columns |
-| `where` filters | Supported | FHIRPath boolean filters |
+| Flat and nested column projections | Supported | FHIRPath expressions with `forEach`, nested `select`, `unionAll` |
+| `where` filters | Supported | FHIRPath boolean filters (residual when search prefilter is used) |
+| `forEach` / `forEachOrNull` | Supported | Row expansion with `%i` focus evaluation for relative paths |
+| Nested `select` / `unionAll` | Supported | Cross join and concatenation semantics |
+| Reference joins | Supported | Typed `ResourceType/id` via resource store; FHIRPath `resolve()` when engine configured |
 | View name + version | Supported | Registry key `name\|version` |
-| Packaged built-in views | Supported | `patient_summary_view`, `appointment_view`, `observation_view` |
-| `forEach` / `forEachOrNull` | Supported | Expands nested collections; relative column paths use `%i` focus evaluation |
-| Nested `select` (cross join) | Supported | Parent columns preserved via row merge |
-| Multiple root `select` entries | Supported | Treated as cross-join siblings |
-| `unionAll` | Supported | Branches must declare identical column names |
-| Reference joins | Partial | Typed relative references resolved via `store.ResourceStore.Read`; no `resolve()` in FHIRPath |
-| Materialized view persistence | Partial | Opt-in via view `metadata.materialize` + `Executor.MaterializedViews`; not the FHIR `$materialize` operation |
-| Incremental refresh (`_since`) | Partial | `LastUpdated` filter on resource envelope; not full SQL-on-FHIR watermark spec |
-| IG ViewDefinition install | Partial | `packages.Installer` registers conformant views when analytics is wired |
+| Packaged built-in views | Supported | Built-ins include `metadata.searchParams` where indexable |
+| Search-driven candidate resolution | Supported | `metadata.searchParams` + optional `metadata.searchMode` (`auto`, `index`, `scan`) |
+| FHIR `$materialize` operation | Supported | `POST /fhir/ViewDefinition/$materialize` with async polling at `$materialize/status/{jobId}` |
+| Materialized view persistence | Supported | `metadata.materialize` + `Executor.MaterializedViews` / `$materialize` operation |
+| FHIRPath `memberOf()` | Supported | When engine configured with terminology validator |
+| Incremental refresh (`_since`) | Partial | Search `_lastUpdated=gt...` or envelope `LastUpdated` on scan fallback |
+| IG ViewDefinition install | Partial | `packages.Installer` registers views when analytics is wired |
 
 ## Not supported (deferred)
 
 | SQL-on-FHIR concept | HAIStack status | Priority |
 |---------------------|-----------------|----------|
-| FHIR `$materialize` operation | Out of scope | P2 — HAIStack uses in-process materialization hooks instead |
-| Arbitrary SQL backend | Out of scope | By design — HAIStack executes views in-process |
-| `resolve()` in FHIRPath | Out of scope | Joins use view-engine reference resolution instead |
-| Partitioned output / lakehouse sinks | Stub interfaces only | P3 — `ParquetWarehouseAdapter` seam for cloud mode |
-| Full SQL-on-FHIR watermark / change detection | Partial | Analytics CDC uses outbox cursors, not IG watermark spec |
+| Arbitrary SQL backend | Out of scope | By design — in-process execution |
+| Absolute URL / URN reference resolution in `resolve()` | Partial | Typed relative refs only in v2 |
+| FHIRPath `resolve()` without configured resolver | Rejected | Configure engine `Resolve` or use view-engine reference joins |
+| Partitioned output / lakehouse sinks | Stub interfaces only | P3 — `ParquetWarehouseAdapter` seam |
+| Full SQL-on-FHIR watermark / change detection | Partial | Analytics CDC uses outbox cursors |
 
 ## Portability story
 
-1. **Today:** Ship views as JSON ViewDefinition resources in FHIR NPM packages; `packages.Installer` + `view.RegisterViewDefinition` loads views with flat or nested selects.
-2. **Joins:** Use `forEach` on reference collections and nested selects; the executor resolves `ResourceType/id` references from the resource store.
-3. **Materialization:** Set `metadata.materialize=true` and wire `Executor.Config.MaterializedViews` to persist rows keyed by `metadata.materializeKey` (defaults to `id`).
-
-## Validation strategy
-
-- Reject structurally invalid constructs at `ParseDefinition` time (fail fast).
-- `unionAll` branches must expose identical column names in the same order.
-- Keep analytics execution on read replica when configured to reduce OLTP impact.
+1. Ship views as JSON ViewDefinition resources in FHIR NPM packages.
+2. Add `metadata.searchParams` for index-backed prefilters when search is enabled.
+3. Enable materialization with `metadata.materialize=true` or `POST ViewDefinition/$materialize`.
+4. Use `forEach` + nested selects or FHIRPath `resolve()` for cross-resource joins.
 
 ## References
 

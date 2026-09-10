@@ -41,6 +41,10 @@ type ServiceContainer struct {
 	AnalyticsRunner *analytics.Runner
 	// ViewRegistry holds registered ViewDefinitions for analytics execution.
 	ViewRegistry *view.Registry
+	// ViewExecutor runs registered ViewDefinitions.
+	ViewExecutor *view.Executor
+	// MaterializeService handles ViewDefinition/$materialize operations.
+	MaterializeService *view.MaterializeService
 	// AnalyticsCDC consumes outbox events and schedules refresh jobs.
 	AnalyticsCDC *analytics.CDCProcessor
 }

@@ -128,9 +128,37 @@ res, err := exec.Execute(ctx, view.ExecuteRequest{
 
 Still unsupported:
 
-- FHIR `$materialize` server operation (use executor materialization hooks instead).
-- `resolve()` and terminology functions in FHIRPath.
-- Search-driven execution (views scan via `ListIDs` / `Read`).
+- Arbitrary SQL backend (in-process execution only).
+- Absolute URL / URN reference resolution in `resolve()`.
+- Search-driven execution when search is not configured (`searchMode=index` fails without index).
+
+## Search-driven execution
+
+Views can declare index-backed prefilters:
+
+```json
+"metadata": {
+  "searchParams": "status=final",
+  "searchMode": "auto"
+}
+```
+
+When `Executor.Config.Search` is wired, candidate IDs come from the search index. FHIRPath `where` filters still apply as a residual check. `_since` on execute adds `_lastUpdated=gt...` to the search query.
+
+## FHIR `$materialize` operation
+
+```
+POST /fhir/ViewDefinition/$materialize
+Prefer: respond-async
+
+GET /fhir/ViewDefinition/$materialize/status/{jobId}
+```
+
+Requires `ViewMaterializeService` and `MaterializedViews` on the executor (wired in Postgres analytics mode).
+
+## FHIRPath `resolve()` and `memberOf()`
+
+Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring does this automatically when resource store / terminology service are available).
 
 ## Row encoding
 

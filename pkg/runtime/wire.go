@@ -277,7 +277,25 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	engine := b.fhirPathEngine
 	if engine == nil {
-		engine, err = sdc.NewSDCFHIRPathEngine(fhirpath.Config{})
+		fpCfg := fhirpath.Config{}
+		fpCfg.Resolve = fhirpath.ResourceStoreResolver(func(ctx context.Context, resourceType, id string) (any, error) {
+			return pc.resources.Read(ctx, resourceType, id)
+		})
+		if state.services.TerminologyService != nil {
+			termSvc := state.services.TerminologyService
+			fpCfg.Terminology = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+				result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
+					ScopeID: termScope,
+					URL:     valueSetURL,
+					Coding:  terminology.Coding{System: system, Code: code},
+				})
+				if err != nil {
+					return false, err
+				}
+				return result != nil && result.Status == terminology.Valid, nil
+			})
+		}
+		engine, err = fhirpath.NewEngine(fpCfg)
 		if err != nil {
 			return fmt.Errorf("runtime: fhirpath engine: %w", err)
 		}
@@ -377,6 +395,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	state.services.ResourceService = coreSvc
 
+	var searchExecutor search.Executor
 	if b.searchEnabled {
 		executorBackend, ok := pc.searchStore.(store.SearchQueryExecutor)
 		if !ok {
@@ -385,10 +404,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if b.externalSearch != nil && b.externalSearch.SearchExecutor() != nil {
 			executorBackend = b.externalSearch.SearchExecutor()
 		}
-		executor := search.NewStoreExecutor(executorBackend, pc.resources)
+		searchExecutor = search.NewStoreExecutor(executorBackend, pc.resources)
 		searchSvc, err := search.NewService(search.ServiceConfig{
 			Registry:  searchRegistry,
-			Executor:  executor,
+			Executor:  searchExecutor,
 			Resources: pc.resources,
 			BaseURL:   "/fhir",
 		})
@@ -454,13 +473,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			EnableTypes: true,
 		}
 		if err := b.wireAnalytics(ctx, state, wireAnalyticsContext{
-			engine:       engine,
-			resources:    pc.resources,
-			jobStore:     pc.jobStore,
-			outboxEvents: pc.outboxEvents,
-			cursors:      pc.syncCursors,
-			runner:       runner,
+			engine:           engine,
+			resources:        pc.resources,
+			jobStore:         pc.jobStore,
+			outboxEvents:     pc.outboxEvents,
+			cursors:          pc.syncCursors,
+			runner:           runner,
 			packageInstaller: packageInstaller,
+			searchExecutor:   searchExecutor,
+			searchRegistry:   searchRegistry,
 		}); err != nil {
 			return fmt.Errorf("runtime: analytics: %w", err)
 		}
@@ -540,6 +561,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		PrincipalResolver:        b.httpPrincipalResolver,
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
+		ViewMaterializeService:   state.services.MaterializeService,
 		RateLimit:                b.httpRateLimit,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
@@ -571,6 +593,8 @@ type wireAnalyticsContext struct {
 	cursors          store.CursorStore
 	runner           *jobs.Runner
 	packageInstaller *packages.Installer
+	searchExecutor   search.Executor
+	searchRegistry   search.Registry
 }
 
 func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAnalyticsContext) error {
@@ -591,11 +615,19 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 	if state.services.TenantDB != nil {
 		readResources = state.services.TenantDB.ReadOnlyResourceStore()
 	}
-	viewExec, err := view.NewExecutor(view.Config{
+	viewCfg := view.Config{
 		Resources: readResources,
 		Engine:    ac.engine,
 		Registry:  viewReg,
-	})
+	}
+	if state.services.TenantDB != nil {
+		viewCfg.MaterializedViews = state.services.TenantDB.MaterializedViewStore()
+	}
+	if ac.searchExecutor != nil && ac.searchRegistry != nil {
+		viewCfg.Search = ac.searchExecutor
+		viewCfg.SearchRegistry = ac.searchRegistry
+	}
+	viewExec, err := view.NewExecutor(viewCfg)
 	if err != nil {
 		return err
 	}
@@ -604,7 +636,27 @@ func (b *Builder) wireAnalytics(ctx context.Context, state *wireState, ac wireAn
 		return err
 	}
 	state.services.ViewRegistry = viewReg
+	state.services.ViewExecutor = viewExec
 	state.services.AnalyticsRunner = analyticsRunner
+
+	if ac.jobStore != nil {
+		matJobs := view.NewInMemoryMaterializeJobStore()
+		matSvc, err := view.NewMaterializeService(view.MaterializeServiceConfig{
+			Jobs:     matJobs,
+			Executor: viewExec,
+			JobQueue: ac.jobStore,
+			BasePath: "/fhir",
+		})
+		if err != nil {
+			return err
+		}
+		state.services.MaterializeService = matSvc
+		if ac.runner != nil {
+			if err := ac.runner.Register(view.TypeViewMaterialize, matSvc.JobHandler()); err != nil {
+				return err
+			}
+		}
+	}
 
 	reportingStore := b.resolveReportingStore(state)
 	if reportingStore == nil {

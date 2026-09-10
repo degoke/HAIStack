@@ -17,6 +17,9 @@ type engine struct {
 	defaultTimeout   time.Duration
 	maxExpressionLen int
 	maxResultItems   int
+	resolve          ResolveFunc
+	terminology      TerminologyValidator
+	enableExperimental bool
 }
 
 type compiledExpression struct {
@@ -60,12 +63,15 @@ func NewEngine(cfg Config) (Engine, error) {
 	}
 
 	return &engine{
-		codec:            cfg.ProtoCodec,
-		customFunctions:  customFunctions,
-		cache:            newExprCache(cfg.CacheSize),
-		defaultTimeout:   cfg.DefaultTimeout,
-		maxExpressionLen: cfg.MaxExpressionLen,
-		maxResultItems:   cfg.MaxResultItems,
+		codec:              cfg.ProtoCodec,
+		customFunctions:    customFunctions,
+		cache:              newExprCache(cfg.CacheSize),
+		defaultTimeout:     cfg.DefaultTimeout,
+		maxExpressionLen:   cfg.MaxExpressionLen,
+		maxResultItems:     cfg.MaxResultItems,
+		resolve:            cfg.Resolve,
+		terminology:        cfg.Terminology,
+		enableExperimental: cfg.Terminology != nil,
 	}, nil
 }
 
@@ -76,7 +82,7 @@ func (e *engine) Compile(expr string) (CompiledExpression, error) {
 	if compiled, ok := e.cache.get(expr); ok {
 		return compiled, nil
 	}
-	inner, err := verily.Compile(expr, e.customFunctions)
+	inner, err := verily.Compile(expr, e.customFunctions, e.enableExperimental)
 	if err != nil {
 		return nil, mapVerilyError(err)
 	}
@@ -191,17 +197,28 @@ func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledE
 	go func() {
 		fhirResource, err := verily.ResourceFromInput(resource, e.codec)
 		if err != nil {
-			done <- evalResult{err: mapVerilyError(err)}
+			done <- evalResult{err: mapVerilyErrorWithConfig(err, e.resolve != nil, e.terminology != nil)}
 			return
 		}
-		evalOpts, err := verily.EvalOptionsFromEnv(env, e.codec)
+		var term verily.TerminologyValidator
+		if e.terminology != nil {
+			term = terminologyBridge{inner: e.terminology}
+		}
+		var resolve verily.ResolveFunc
+		if e.resolve != nil {
+			fn := e.resolve
+			resolve = func(ctx context.Context, ref string) (any, error) {
+				return fn(ctx, ref)
+			}
+		}
+		evalOpts, err := verily.EvalOptions(ctx, env, e.codec, resolve, term)
 		if err != nil {
 			done <- evalResult{err: err}
 			return
 		}
 		collection, err := compiled.Evaluate(fhirResource, evalOpts...)
 		if err != nil {
-			done <- evalResult{err: mapVerilyError(err)}
+			done <- evalResult{err: mapVerilyErrorWithConfig(err, e.resolve != nil, e.terminology != nil)}
 			return
 		}
 		done <- evalResult{items: collection}
@@ -215,7 +232,7 @@ func (e *engine) evalWithContext(ctx context.Context, compiled *verily.CompiledE
 		return nil, evalCtx.Err()
 	case result := <-done:
 		if result.err != nil {
-			return nil, mapVerilyError(result.err)
+			return nil, mapVerilyErrorWithConfig(result.err, e.resolve != nil, e.terminology != nil)
 		}
 		if len(result.items) > e.maxResultItems {
 			return nil, fmt.Errorf("%w: got %d items", ErrTooManyResults, len(result.items))
@@ -232,4 +249,12 @@ func (e *engine) evalContext(ctx context.Context) (context.Context, context.Canc
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, e.defaultTimeout)
+}
+
+type terminologyBridge struct {
+	inner TerminologyValidator
+}
+
+func (t terminologyBridge) MemberOf(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+	return t.inner.MemberOf(ctx, valueSetURL, system, code)
 }

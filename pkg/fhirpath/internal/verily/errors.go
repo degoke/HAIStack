@@ -11,4 +11,7 @@ var (
 
 	// ErrInvalidInput is returned when the evaluation root is not a supported type.
 	ErrInvalidInput = errors.New("fhirpath: invalid evaluation input")
+
+	// ErrUnconfiguredResolver is returned when resolve() is used without a resolver.
+	ErrUnconfiguredResolver = errors.New("fhirpath: resolve() requires a configured resolver")
 )

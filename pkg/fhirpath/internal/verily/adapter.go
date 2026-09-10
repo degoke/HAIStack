@@ -25,10 +25,8 @@ func (c *CompiledExpression) Evaluate(resource verilyfhirpath.Resource, options 
 }
 
 // Compile parses and compiles a FHIRPath expression with optional custom functions.
-// Each custom function value must satisfy a Verily signature of the form
-// func(system.Collection, ...any) (system.Collection, error) with a fixed arity.
-func Compile(expr string, functions map[string]any) (*CompiledExpression, error) {
-	opts, err := compileOptions(functions)
+func Compile(expr string, functions map[string]any, enableExperimental bool) (*CompiledExpression, error) {
+	opts, err := compileOptions(functions, enableExperimental)
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +51,14 @@ func ValidateCustomFunctions(functions map[string]any) error {
 	return nil
 }
 
-func compileOptions(functions map[string]any) ([]verilyfhirpath.CompileOption, error) {
-	if len(functions) == 0 {
-		return nil, nil
+func compileOptions(functions map[string]any, enableExperimental bool) ([]verilyfhirpath.CompileOption, error) {
+	var opts []verilyfhirpath.CompileOption
+	if enableExperimental {
+		opts = append(opts, compopts.WithExperimentalFuncs())
 	}
-	opts := make([]verilyfhirpath.CompileOption, 0, len(functions))
+	if len(functions) == 0 {
+		return opts, nil
+	}
 	for name, fn := range functions {
 		opts = append(opts, compopts.AddFunction(name, fn))
 	}

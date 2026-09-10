@@ -470,6 +470,45 @@ func TestNotSupportedResolve(t *testing.T) {
 	}
 }
 
+func TestResolveWithResourceStore(t *testing.T) {
+	ctx := context.Background()
+	codec := proto.NewGoogleR4Codec()
+	otherPatient := &ppb.Patient{Id: &dtpb.Id{Value: "other"}}
+	otherEnv, err := codec.ProtoToEnvelope("Patient", otherPatient)
+	if err != nil {
+		t.Fatalf("ProtoToEnvelope other: %v", err)
+	}
+	eng := newEngine(t, fhirpath.Config{
+		Resolve: fhirpath.ResourceStoreResolver(func(_ context.Context, resourceType, id string) (any, error) {
+			if resourceType == "Patient" && id == "other" {
+				return otherEnv, nil
+			}
+			return nil, errors.New("not found")
+		}),
+	})
+	root := &ppb.Patient{
+		Id: &dtpb.Id{Value: "pat-1"},
+		GeneralPractitioner: []*dtpb.Reference{{
+			Reference: &dtpb.Reference_PatientId{PatientId: &dtpb.ReferenceId{Value: "other"}},
+		}},
+	}
+	env, err := codec.ProtoToEnvelope("Patient", root)
+	if err != nil {
+		t.Fatalf("ProtoToEnvelope root: %v", err)
+	}
+	values, err := eng.Eval(ctx, "Patient.generalPractitioner.resolve().id", env)
+	if err != nil {
+		t.Fatalf("Eval resolve: %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("len(values) = %d, want 1", len(values))
+	}
+	s, err := values[0].String()
+	if err != nil || s != "other" {
+		t.Fatalf("resolved id = %q, %v, want other", s, err)
+	}
+}
+
 func TestNotSupportedTerminology(t *testing.T) {
 	eng := defaultEngine(t)
 	ctx := context.Background()
@@ -486,6 +525,18 @@ func TestNotSupportedTerminology(t *testing.T) {
 	_, err = eng.Eval(ctx, `Observation.code.coding.memberOf('http://hl7.org/fhir/ValueSet/observation-codes')`, obs)
 	if err == nil || !errors.Is(err, fhirpath.ErrNotSupported) {
 		t.Fatalf("Eval memberOf: err = %v, want ErrNotSupported", err)
+	}
+}
+
+func TestMemberOfWithTerminology(t *testing.T) {
+	eng := newEngine(t, fhirpath.Config{
+		Terminology: fhirpath.TerminologyServiceAdapter(func(_ context.Context, valueSetURL, system, code string) (bool, error) {
+			return valueSetURL == "http://example.com/vs/obs" && system == "http://loinc.org" && code == "8867-4", nil
+		}),
+	})
+	_, err := eng.Compile(`Observation.code.coding.memberOf('http://example.com/vs/obs')`)
+	if err != nil {
+		t.Fatalf("Compile memberOf: %v", err)
 	}
 }
 

@@ -27,6 +27,7 @@ const (
 	routeSystemOperation
 	routeBulkExportStatus
 	routeBulkExportFile
+	routeMaterializeStatus
 )
 
 type parsedRoute struct {
@@ -73,6 +74,12 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 			}
 			return parsedRoute{kind: routeBulkExportFile, jobID: parts[2], filename: parts[3]}, nil
 		}
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$materialize" && parts[2] == "status" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeMaterializeStatus, jobID: parts[3]}, nil
 	}
 	switch len(parts) {
 	case 1:

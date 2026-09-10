@@ -73,6 +73,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$materialize" && route.resourceType == "ViewDefinition" {
+			h.handleViewMaterialize(w, r, route)
+			return
+		}
 		if route.operation == "$validate" && !isSDCResourceOperation(route.operation, route.resourceType) {
 			h.handleValidateOperation(w, r, route)
 			return
@@ -114,6 +118,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBulkExportStatus(w, r, route.jobID)
 	case routeBulkExportFile:
 		h.handleBulkExportFile(w, r, route.jobID, route.filename)
+	case routeMaterializeStatus:
+		h.handleViewMaterializeStatus(w, r, route.jobID)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 	}

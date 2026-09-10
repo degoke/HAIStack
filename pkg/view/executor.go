@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -21,6 +22,9 @@ type Config struct {
 	Audit             AuditLogger
 	Registry          *Registry
 	MaterializedViews store.MaterializedViewStore
+	Search            search.Executor
+	SearchRegistry    search.Registry
+	SearchPlanner     search.Planner
 	Now               func() time.Time
 }
 
@@ -177,30 +181,15 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*Result, er
 }
 
 func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offset int, since time.Time) ([]map[string]any, int, int, error) {
-	var allIDs []string
-	pageSize := 100
-	if limit > 0 && limit > pageSize {
-		pageSize = limit * 2
-	}
-	if pageSize <= 0 {
-		pageSize = 100
-	}
-	for {
-		ids, err := e.cfg.Resources.ListIDs(ctx, spec.ResourceType, pageSize, len(allIDs))
-		if err != nil {
-			return nil, 0, 0, fmt.Errorf("list %s IDs: %w", spec.ResourceType, err)
-		}
-		if len(ids) == 0 {
-			break
-		}
-		allIDs = append(allIDs, ids...)
+	allIDs, err := e.resolveCandidateIDs(ctx, spec, since)
+	if err != nil {
+		return nil, 0, 0, err
 	}
 
-	scanned := 0
+	scanned := len(allIDs)
 	totalRows := 0
 	rows := make([]map[string]any, 0)
 	for _, id := range allIDs {
-		scanned++
 		env, err := e.cfg.Resources.Read(ctx, spec.ResourceType, id)
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("read %s/%s: %w", spec.ResourceType, id, err)
