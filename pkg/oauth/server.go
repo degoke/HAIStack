@@ -11,6 +11,7 @@ import (
 // Handler returns an http.Handler mounting OAuth and SMART metadata routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/launch", s.handleLaunch)
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("/oauth/token", s.handleToken)
 	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
@@ -23,7 +24,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/oauth/authorize", "/oauth/token", "/oauth/revoke", "/oauth/introspect",
+		case "/oauth/authorize", "/oauth/token", "/oauth/revoke", "/oauth/introspect", "/oauth/launch",
 			"/.well-known/smart-configuration", "/.well-known/openid-configuration",
 			"/oauth/jwks", "/.well-known/jwks.json":
 			mux.ServeHTTP(w, r)

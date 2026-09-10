@@ -17,6 +17,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/client"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
+	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
@@ -100,12 +101,18 @@ func run() error {
 		return err
 	}
 
-	oauthSrv, err := oauth.NewServer(oauth.Config{
+	oauthCfg := oauth.Config{
 		Issuer:      baseURL,
 		FHIRBaseURL: fhirBase,
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "demo"},
 		Clients:     reg,
-	})
+	}
+	if err := oauthstore.ApplySQLiteStores(&oauthCfg, stack.DB.SQL()); err != nil {
+		return err
+	}
+	autoApprove := true
+	oauthCfg.AutoApprove = &autoApprove
+	oauthSrv, err := oauth.NewServer(oauthCfg)
 	if err != nil {
 		return err
 	}
@@ -124,7 +131,13 @@ func run() error {
 		ResourceService:   hahttp.CoreResourceService{Svc: stack.ResourceService},
 		SearchService:     hahttp.SearchServiceAdapter{Svc: stack.SearchService},
 		PrincipalResolver: wired.PrincipalResolver,
-		AuthChecker:       oauth.ScopePolicyAuthChecker{Engine: authEngine},
+		AuthChecker: oauth.ScopePolicyAuthChecker{
+			Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
+				DefaultTenantID:  "tenant-demo",
+				DefaultUserRoles: []string{"clinician"},
+			}),
+			Engine: authEngine,
+		},
 	})
 	if err != nil {
 		return err

@@ -22,6 +22,7 @@ func TestTokenIntrospection_ActiveAccessToken(t *testing.T) {
 	values := url.Values{}
 	values.Set("token", tokenResp.AccessToken)
 	values.Set("token_type_hint", "access_token")
+	values.Set("client_id", "standalone-app")
 	resp, err := http.Post(ts.URL+"/oauth/introspect", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +54,23 @@ func TestTokenIntrospection_RevokedInactive(t *testing.T) {
 	doc := srv.IntrospectToken(tokenResp.AccessToken, "access_token")
 	if doc.Active {
 		t.Fatalf("doc = %#v", doc)
+	}
+}
+
+func TestIntrospectionRequiresClientAuth(t *testing.T) {
+	_, srv, ts := newTestServer(t, testServerOpts{})
+	defer ts.Close()
+	tokenResp := exchangeAuthCode(t, ts.URL, srv, "patient/Patient.read")
+
+	values := url.Values{}
+	values.Set("token", tokenResp.AccessToken)
+	resp, err := http.Post(ts.URL+"/oauth/introspect", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
 	}
 }
 

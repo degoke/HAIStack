@@ -25,6 +25,7 @@ type AuthCode struct {
 	CodeChallengeMethod string
 	State               string
 	Patient             string
+	Encounter           string
 	User                string
 	TenantHint          string
 	ExpiresAt           time.Time

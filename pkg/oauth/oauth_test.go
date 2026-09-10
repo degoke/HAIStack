@@ -68,6 +68,7 @@ func TestAuthCodeFlow_PKCE(t *testing.T) {
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
 		Clients:     reg,
 		TokenTTL:    time.Hour,
+		AutoApprove: demoAutoApprove(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +225,7 @@ func TestRedirectURI_ExactMatch(t *testing.T) {
 		FHIRBaseURL: "https://example.com/fhir",
 		Signer:      oauth.RS256Signer{PrivateKey: key},
 		Clients:     reg,
+		AutoApprove: demoAutoApprove(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +270,11 @@ func TestPolicyDenyOverridesScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	checker := oauth.ScopePolicyAuthChecker{Engine: engine}
-	decision, err := checker.AuthorizeRead(context.Background(), auth.Principal{ID: "u1", Kind: auth.KindUser}, auth.TenantContext{TenantID: "t1"}, "Patient", "x")
+	decision, err := checker.AuthorizeRead(context.Background(), auth.Principal{
+		ID:         "u1",
+		Kind:       auth.KindUser,
+		Attributes: map[string]string{"smart.scope": "patient/Patient.read"},
+	}, auth.TenantContext{TenantID: "t1"}, "Patient", "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,6 +291,7 @@ func TestSmartConfiguration(t *testing.T) {
 		FHIRBaseURL: "https://example.com/fhir",
 		Signer:      oauth.RS256Signer{PrivateKey: key},
 		Clients:     reg,
+		AutoApprove: demoAutoApprove(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +418,8 @@ func TestOpenIDConfiguration(t *testing.T) {
 }
 
 type testServerOpts struct {
-	scopes []string
+	scopes      []string
+	autoApprove *bool
 }
 
 func newTestServer(t *testing.T, opts testServerOpts) (*rsa.PrivateKey, *oauth.Server, *httptest.Server) {
@@ -442,11 +450,16 @@ func newTestServer(t *testing.T, opts testServerOpts) (*rsa.PrivateKey, *oauth.S
 		t.Fatal(err)
 	}
 	issuer := "http://" + listener.Addr().String()
+	autoApprove := demoAutoApprove()
+	if opts.autoApprove != nil {
+		autoApprove = opts.autoApprove
+	}
 	srv, err := oauth.NewServer(oauth.Config{
 		Issuer:      issuer,
 		FHIRBaseURL: issuer + "/fhir",
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
 		Clients:     reg,
+		AutoApprove: autoApprove,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -506,4 +519,114 @@ func mustExchange(t *testing.T, smartClient *client.Client, tokenEndpoint, code 
 		t.Fatal(err)
 	}
 	return tokenResp
+}
+
+func demoAutoApprove() *bool {
+	v := true
+	return &v
+}
+
+func TestScopePolicyDeniesMissingScopes(t *testing.T) {
+	engine, err := auth.NewEngine(auth.Config{
+		Roles: []auth.Role{{
+			Name:        "clinician",
+			Permissions: []auth.Permission{"Patient.read"},
+		}},
+		PolicyBytes: []byte(`{
+  "version": "1",
+  "rules": [{
+    "name": "allow-patient-read",
+    "effect": "allow",
+    "match": { "actions": ["read"], "resourceTypes": ["Patient"], "anyPermissions": ["Patient.read"] },
+    "reason": "allow"
+  }]
+}`),
+		PolicyFormat: auth.PolicyFormatJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := oauth.ScopePolicyAuthChecker{Engine: engine}
+	decision, err := checker.AuthorizeRead(context.Background(), auth.Principal{ID: "u1", Kind: auth.KindUser}, auth.TenantContext{TenantID: "t1"}, "Patient", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Allowed {
+		t.Fatal("expected SMART scope deny")
+	}
+}
+
+func TestConsentRequiredWhenAutoApproveDisabled(t *testing.T) {
+	autoApprove := false
+	_, _, ts := newTestServer(t, testServerOpts{autoApprove: &autoApprove})
+	defer ts.Close()
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authURL := ts.URL + "/oauth/authorize?response_type=code&client_id=standalone-app&redirect_uri=https://app.example/callback&scope=patient/Patient.read&code_challenge=" + pkce.Challenge + "&code_challenge_method=S256"
+	resp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "Authorize application") {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestEHRLaunchFlow(t *testing.T) {
+	_, srv, ts := newTestServer(t, testServerOpts{})
+	defer ts.Close()
+
+	values := url.Values{}
+	values.Set("client_id", "standalone-app")
+	values.Set("patient", "launch-patient-42")
+	resp, err := http.Post(ts.URL+"/oauth/launch", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var launchDoc map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&launchDoc); err != nil {
+		t.Fatal(err)
+	}
+	launchToken := launchDoc["launch"]
+	if launchToken == "" {
+		t.Fatalf("launchDoc = %#v", launchDoc)
+	}
+
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authURL := ts.URL + "/oauth/authorize?response_type=code&client_id=standalone-app&redirect_uri=https://app.example/callback&scope=patient/Patient.read%20launch/patient&launch=" + url.QueryEscape(launchToken) + "&aud=" + url.QueryEscape(srv.FHIRBaseURL()) + "&code_challenge=" + pkce.Challenge + "&code_challenge_method=S256"
+	resp, err = noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	loc := resp.Header.Get("Location")
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smartClient, err := client.New(client.Config{BaseURL: ts.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenResp := mustExchange(t, smartClient, srv.TokenEndpoint(), u.Query().Get("code"), pkce)
+	if tokenResp.Patient != "launch-patient-42" {
+		t.Fatalf("patient = %q", tokenResp.Patient)
+	}
 }

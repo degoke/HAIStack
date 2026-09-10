@@ -14,6 +14,7 @@ type SQLiteStores struct {
 	Codes      oauth.AuthorizationCodeStore
 	Refresh    oauth.RefreshTokenStore
 	Revocation oauth.TokenRevocationStore
+	Launch     oauth.LaunchStore
 }
 
 // NewSQLiteStores returns OAuth stores backed by the given database.
@@ -26,6 +27,7 @@ func NewSQLiteStores(db *sql.DB) (*SQLiteStores, error) {
 		Codes:      &SQLiteCodeStore{DB: db},
 		Refresh:    &SQLiteRefreshStore{DB: db},
 		Revocation: &SQLiteRevocationStore{DB: db},
+		Launch:     &SQLiteLaunchStore{DB: db},
 	}, nil
 }
 
@@ -67,10 +69,10 @@ func (s *SQLiteCodeStore) Issue(entry oauth.AuthCode) (string, error) {
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_auth_code (
 			code, client_id, redirect_uri, scope, code_challenge, code_challenge_method,
-			state, patient, user_id, tenant_hint, expires_at, used
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+			state, patient, encounter, user_id, tenant_hint, expires_at, used
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		code, entry.ClientID, entry.RedirectURI, entry.Scope, entry.CodeChallenge,
-		entry.CodeChallengeMethod, entry.State, entry.Patient, entry.User, entry.TenantHint,
+		entry.CodeChallengeMethod, entry.State, entry.Patient, entry.Encounter, entry.User, entry.TenantHint,
 		formatTime(entry.ExpiresAt),
 	)
 	return code, err
@@ -85,14 +87,14 @@ func (s *SQLiteCodeStore) Exchange(code, clientID, redirectURI, codeVerifier str
 
 	row := tx.QueryRowContext(context.Background(), `
 		SELECT client_id, redirect_uri, scope, code_challenge, code_challenge_method,
-		       state, patient, user_id, tenant_hint, expires_at, used
+		       state, patient, encounter, user_id, tenant_hint, expires_at, used
 		FROM hai_oauth_auth_code WHERE code = ?`, code)
 	var entry oauth.AuthCode
 	var expiresRaw string
 	var used int
 	entry.Code = code
 	if err := row.Scan(&entry.ClientID, &entry.RedirectURI, &entry.Scope, &entry.CodeChallenge,
-		&entry.CodeChallengeMethod, &entry.State, &entry.Patient, &entry.User, &entry.TenantHint,
+		&entry.CodeChallengeMethod, &entry.State, &entry.Patient, &entry.Encounter, &entry.User, &entry.TenantHint,
 		&expiresRaw, &used); err != nil {
 		return nil, fmt.Errorf("%w: unknown or used code", oauth.ErrInvalidGrant)
 	}
@@ -275,4 +277,67 @@ func randomToken() (string, error) {
 
 func verifyPKCE(challenge, method, verifier string) error {
 	return oauth.VerifyPKCE(challenge, method, verifier)
+}
+
+// SQLiteLaunchStore persists SMART launch tokens in SQLite.
+type SQLiteLaunchStore struct {
+	DB  *sql.DB
+	Now func() time.Time
+}
+
+func (s *SQLiteLaunchStore) now() time.Time {
+	if s != nil && s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+func (s *SQLiteLaunchStore) Issue(record oauth.LaunchContextRecord) (string, error) {
+	token, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	if record.ExpiresAt.IsZero() {
+		record.ExpiresAt = s.now().Add(5 * time.Minute)
+	}
+	_, err = s.DB.ExecContext(context.Background(), `
+		INSERT INTO hai_oauth_launch_token (
+			token, patient, encounter, user_id, tenant_hint, expires_at, used
+		) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+		token, record.PatientID, record.EncounterID, record.UserID, record.TenantHint,
+		formatTime(record.ExpiresAt),
+	)
+	return token, err
+}
+
+func (s *SQLiteLaunchStore) Consume(token string) (oauth.LaunchContextRecord, error) {
+	tx, err := s.DB.BeginTx(context.Background(), nil)
+	if err != nil {
+		return oauth.LaunchContextRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(context.Background(), `
+		SELECT patient, encounter, user_id, tenant_hint, expires_at, used
+		FROM hai_oauth_launch_token WHERE token = ?`, token)
+	var record oauth.LaunchContextRecord
+	var expiresRaw string
+	var used int
+	if err := row.Scan(&record.PatientID, &record.EncounterID, &record.UserID, &record.TenantHint, &expiresRaw, &used); err != nil {
+		return oauth.LaunchContextRecord{}, fmt.Errorf("%w: unknown or used launch token", oauth.ErrInvalidGrant)
+	}
+	record.ExpiresAt, _ = parseTime(expiresRaw)
+	if used != 0 {
+		return oauth.LaunchContextRecord{}, fmt.Errorf("%w: unknown or used launch token", oauth.ErrInvalidGrant)
+	}
+	if s.now().After(record.ExpiresAt) {
+		return oauth.LaunchContextRecord{}, fmt.Errorf("%w: launch token expired", oauth.ErrInvalidGrant)
+	}
+	if _, err := tx.ExecContext(context.Background(), `UPDATE hai_oauth_launch_token SET used = 1 WHERE token = ?`, token); err != nil {
+		return oauth.LaunchContextRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return oauth.LaunchContextRecord{}, err
+	}
+	return record, nil
 }

@@ -90,8 +90,9 @@ func BearerPrincipalResolver(server *Server, adapter *smart.AuthAdapter, opts sm
 	}
 }
 
-// ScopePolicyAuthChecker combines SMART-derived permissions with pkg/auth policy.
+// ScopePolicyAuthChecker enforces SMART scopes via AuthAdapter and then pkg/auth policy.
 // Policy deny wins when the engine returns ErrDenied or Allowed=false.
+// When Engine is nil, access is denied after SMART scope checks pass.
 type ScopePolicyAuthChecker struct {
 	Adapter *smart.AuthAdapter
 	Engine  auth.PolicyEngine
@@ -110,8 +111,28 @@ func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal a
 }
 
 func (c ScopePolicyAuthChecker) authorize(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, action, resourceType, id string) (auth.Decision, error) {
+	adapter := c.Adapter
+	if adapter == nil {
+		adapter = smart.NewAuthAdapter(smart.AuthAdapterConfig{})
+	}
+	scopeRaw := ""
+	if principal.Attributes != nil {
+		scopeRaw = principal.Attributes["smart.scope"]
+	}
+	scopes, err := smart.ParseScopes(scopeRaw)
+	if err != nil || scopes.Empty() {
+		return auth.Decision{Allowed: false, Reason: "missing SMART scopes"}, nil
+	}
+	bundle := smart.AuthBundle{Principal: principal, Tenant: tenant, Scopes: scopes}
+	verb := smart.VerbRead
+	if action != "read" && action != "search" {
+		verb = smart.VerbWrite
+	}
+	if !adapter.ScopeImplies(bundle, resourceType, verb) {
+		return auth.Decision{Allowed: false, Reason: "SMART scope does not authorize " + action + " on " + resourceType}, nil
+	}
 	if c.Engine == nil {
-		return auth.Decision{Allowed: true}, nil
+		return auth.Decision{Allowed: false, Reason: "authorization policy engine not configured"}, nil
 	}
 	switch action {
 	case "read", "search":

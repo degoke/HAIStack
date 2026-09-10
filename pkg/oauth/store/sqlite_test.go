@@ -94,5 +94,20 @@ func TestSQLiteStores_AuthCodeAndRefresh(t *testing.T) {
 	if err != nil || !revoked {
 		t.Fatalf("revoked = %v err = %v", revoked, err)
 	}
+
+	launchToken, err := stores.Launch.Issue(oauth.LaunchContextRecord{
+		PatientID: "pat-1",
+		UserID:    "Practitioner/demo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchCtx, err := stores.Launch.Consume(launchToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launchCtx.PatientID != "pat-1" {
+		t.Fatalf("launch = %#v", launchCtx)
+	}
 	_ = srv
 }

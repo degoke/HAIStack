@@ -22,6 +22,8 @@ type Config struct {
 	Clients *ClientRegistry
 	// BackendAuth validates client_credentials assertions when configured.
 	BackendAuth *smart.BackendServiceAuth
+	// LaunchStore stores single-use EHR launch tokens. Defaults to in-memory when nil.
+	LaunchStore LaunchStore
 	// CodeStore stores authorization codes. Defaults to in-memory.
 	CodeStore AuthorizationCodeStore
 	// RefreshStore stores refresh tokens. Defaults to in-memory when nil.
@@ -30,8 +32,8 @@ type Config struct {
 	RevocationStore TokenRevocationStore
 	// RotateRefreshTokens rotates refresh tokens on each use. Defaults to true.
 	RotateRefreshTokens *bool
-	// AutoApprove enables silent authorization for registered clients (v1 demo default).
-	// When nil, defaults to true.
+	// AutoApprove skips interactive consent for registered clients (demo/tests only).
+	// When nil, defaults to false; production deployments should keep consent enabled.
 	AutoApprove *bool
 	// ScopesSupported is advertised in SMART configuration.
 	ScopesSupported []string
@@ -45,6 +47,7 @@ type Server struct {
 
 	clients       *ClientRegistry
 	codes         AuthorizationCodeStore
+	launches      LaunchStore
 	refresh       RefreshTokenStore
 	revocation    TokenRevocationStore
 	backendAuth   *smart.BackendServiceAuth
@@ -95,6 +98,13 @@ func NewServer(cfg Config) (*Server, error) {
 	if mem, ok := revocation.(*MemoryRevocationStore); ok && mem.Now == nil {
 		mem.Now = nowFn
 	}
+	launches := cfg.LaunchStore
+	if launches == nil {
+		launches = NewMemoryLaunchStore()
+	}
+	if mem, ok := launches.(*MemoryLaunchStore); ok && mem.Now == nil {
+		mem.Now = nowFn
+	}
 	ttl := cfg.TokenTTL
 	if ttl <= 0 {
 		ttl = defaultAccessTokenTTL
@@ -112,7 +122,7 @@ func NewServer(cfg Config) (*Server, error) {
 			"system/*.read", "system/*.write",
 		}
 	}
-	autoApprove := true
+	autoApprove := false
 	if cfg.AutoApprove != nil {
 		autoApprove = *cfg.AutoApprove
 	}
@@ -124,6 +134,7 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg:           cfg,
 		clients:       cfg.Clients,
 		codes:         codes,
+		launches:      launches,
 		refresh:       refresh,
 		revocation:    revocation,
 		backendAuth:   cfg.BackendAuth,

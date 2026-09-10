@@ -95,7 +95,7 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		Scope:      authCode.Scope,
 		Subject:    subject,
 		Patient:    authCode.Patient,
-		Encounter:  "",
+		Encounter:  authCode.Encounter,
 		FHIRUser:   fhirUser,
 		TenantHint: firstNonEmpty(authCode.TenantHint, client.TenantHint),
 	})

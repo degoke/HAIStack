@@ -22,18 +22,8 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "token is required")
 		return
 	}
-	clientID := strings.TrimSpace(r.Form.Get("client_id"))
-	clientSecret := strings.TrimSpace(r.Form.Get("client_secret"))
-	if clientID != "" {
-		client, err := s.clients.Lookup(clientID)
-		if err != nil {
-			writeOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client")
-			return
-		}
-		if client.Confidential && clientSecret != client.ClientSecret {
-			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication failed")
-			return
-		}
+	if _, ok := s.requireAuthenticatedClient(w, r); !ok {
+		return
 	}
 
 	hint := strings.TrimSpace(r.Form.Get("token_type_hint"))

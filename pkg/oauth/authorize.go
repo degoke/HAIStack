@@ -76,11 +76,31 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	patient := client.DefaultPatient
+	encounter := ""
 	user := client.DefaultUser
 	tenant := client.TenantHint
 	if launch != "" {
-		// v1: launch parameter accepted but not resolved to an EHR context.
-		_ = launch
+		if s.launches == nil {
+			s.redirectError(w, r, redirectURI, "invalid_request", "launch not supported", state)
+			return
+		}
+		launchCtx, err := s.launches.Consume(launch)
+		if err != nil {
+			s.redirectError(w, r, redirectURI, "invalid_request", "invalid launch token", state)
+			return
+		}
+		if launchCtx.PatientID != "" {
+			patient = launchCtx.PatientID
+		}
+		if launchCtx.EncounterID != "" {
+			encounter = launchCtx.EncounterID
+		}
+		if launchCtx.UserID != "" {
+			user = launchCtx.UserID
+		}
+		if launchCtx.TenantHint != "" {
+			tenant = launchCtx.TenantHint
+		}
 	}
 	if aud != "" && aud != s.fhirBase {
 		s.redirectError(w, r, redirectURI, "invalid_request", "aud must match FHIR base URL", state)
@@ -88,8 +108,15 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.autoApprove {
-		writeOAuthError(w, http.StatusNotImplemented, "access_denied", "interactive consent is not implemented; enable AutoApprove")
-		return
+		approved := strings.TrimSpace(q.Get("approved"))
+		if approved == "" {
+			s.renderConsent(w, r, q)
+			return
+		}
+		if approved != "yes" {
+			s.redirectError(w, r, redirectURI, "access_denied", "resource owner denied the request", state)
+			return
+		}
 	}
 
 	code, err := s.codes.Issue(AuthCode{
@@ -100,6 +127,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		CodeChallengeMethod: codeChallengeMethod,
 		State:               state,
 		Patient:             patient,
+		Encounter:           encounter,
 		User:                user,
 		TenantHint:          tenant,
 	})

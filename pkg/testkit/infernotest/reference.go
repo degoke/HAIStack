@@ -16,6 +16,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
+	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
@@ -184,12 +185,19 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 		return nil, ReferenceMeta{}, nil, err
 	}
 
-	oauthSrv, err := oauth.NewServer(oauth.Config{
+	oauthCfg := oauth.Config{
 		Issuer:      meta.BaseURL,
 		FHIRBaseURL: meta.FHIRBaseURL,
 		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "inferno"},
 		Clients:     reg,
-	})
+	}
+	if err := oauthstore.ApplySQLiteStores(&oauthCfg, db.SQL()); err != nil {
+		cleanup()
+		return nil, ReferenceMeta{}, nil, err
+	}
+	autoApprove := true
+	oauthCfg.AutoApprove = &autoApprove
+	oauthSrv, err := oauth.NewServer(oauthCfg)
 	if err != nil {
 		cleanup()
 		return nil, ReferenceMeta{}, nil, err
@@ -210,14 +218,20 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 		ResourceService:   hahttp.CoreResourceService{Svc: resourceService},
 		SearchService:     hahttp.SearchServiceAdapter{Svc: searchService},
 		PrincipalResolver: wired.PrincipalResolver,
-		AuthChecker:       oauth.ScopePolicyAuthChecker{Engine: authEngine},
+		AuthChecker: oauth.ScopePolicyAuthChecker{
+			Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
+				DefaultTenantID:  "tenant-inferno",
+				DefaultUserRoles: []string{"clinician"},
+			}),
+			Engine: authEngine,
+		},
 	})
 	if err != nil {
 		cleanup()
 		return nil, ReferenceMeta{}, nil, err
 	}
 
-	handler := mountInfernoRootHandler(fhirHandler, wired.OAuthHandler)
+	handler := oauth.MountRootHandler(fhirHandler, wired.OAuthHandler, nil, nil)
 	return handler, meta, cleanup, nil
 }
 
@@ -242,19 +256,6 @@ func StartReferenceServer(ctx context.Context, addr string) (*http.Server, Refer
 		cleanupStack()
 	}
 	return srv, meta, cleanup, nil
-}
-
-func mountInfernoRootHandler(fhir, oauthHandler http.Handler) http.Handler {
-	root := oauth.MountRootHandler(fhir, oauthHandler, nil, nil)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/fhir/.well-known/smart-configuration" {
-			req := r.Clone(r.Context())
-			req.URL.Path = "/.well-known/smart-configuration"
-			oauthHandler.ServeHTTP(w, req)
-			return
-		}
-		root.ServeHTTP(w, r)
-	})
 }
 
 func trimSlash(u string) string {
