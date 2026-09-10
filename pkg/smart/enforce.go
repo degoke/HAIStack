@@ -1,6 +1,7 @@
 package smart
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -125,10 +126,21 @@ func resourceMatchesScopeFilters(resourceType string, resource *types.ResourceEn
 	return true
 }
 
-// Scope filter matching is MVP: Observation.category uses FHIR coding semantics; other
-// parameters fall back to a top-level string field. Hosts with broader filter needs
-// should add registry-backed evaluators before production SMART 2.2 filter enforcement.
+// resourceMatchesSearchParam delegates to the configured ScopeFilterMatcher chain.
 func resourceMatchesSearchParam(resourceType string, resource *types.ResourceEnvelope, param string, want []string) bool {
+	matcher := scopeFilterMatcher
+	if matcher == nil {
+		matcher = mvpScopeFilterMatcher{}
+	}
+	matched, known := matcher.Match(context.Background(), resourceType, resource, param, want)
+	if known {
+		return matched
+	}
+	return mvpResourceMatchesSearchParam(resourceType, resource, param, want)
+}
+
+// mvpResourceMatchesSearchParam is the built-in fallback when no matcher claims a parameter.
+func mvpResourceMatchesSearchParam(resourceType string, resource *types.ResourceEnvelope, param string, want []string) bool {
 	switch {
 	case resourceType == "Observation" && param == "category":
 		return envelopeHasCodeInField(resource, "category", want)

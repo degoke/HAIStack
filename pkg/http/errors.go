@@ -27,8 +27,10 @@ func mapError(err error) (int, *types.OperationOutcome) {
 	if errors.Is(err, auth.ErrNoPatientSearchScope) {
 		return http.StatusForbidden, deniedOutcome(err.Error())
 	}
-	if errors.Is(err, errUnauthenticated) ||
-		errors.Is(err, smart.ErrUnauthorized) ||
+	if errors.Is(err, errUnauthenticated) {
+		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
+	}
+	if errors.Is(err, smart.ErrUnauthorized) ||
 		errors.Is(err, smart.ErrTokenExpired) ||
 		errors.Is(err, smart.ErrTokenNotYetValid) ||
 		errors.Is(err, smart.ErrReplay) ||
@@ -36,7 +38,7 @@ func mapError(err error) (int, *types.OperationOutcome) {
 		errors.Is(err, smart.ErrIssuerMismatch) ||
 		errors.Is(err, smart.ErrAudienceMismatch) ||
 		errors.Is(err, smart.ErrMissingScopes) {
-		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
+		return http.StatusUnauthorized, unauthorizedOutcome(smart.StableAuthDiagnostics(err))
 	}
 	var rateLimited *rateLimitError
 	if errors.As(err, &rateLimited) {

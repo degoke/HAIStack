@@ -57,6 +57,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	smart.InstallRegistryScopeFilterMatcher(stack.SearchRegistry, stack.FHIRPath)
 
 	searchAdapter := hahttp.SearchServiceAdapter{
 		Svc:                        stack.SearchService,

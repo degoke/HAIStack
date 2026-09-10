@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -41,10 +40,7 @@ func TestHTTPAuthz_BearerTokenExpired(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	outcome := decodeOutcome(t, rec.Body.Bytes())
-	golden.AssertOutcomeCode(t, outcome, "security")
-	if outcome.Issue[0].Diagnostics == "" || !strings.Contains(outcome.Issue[0].Diagnostics, "token expired") {
-		t.Fatalf("diagnostics = %q", outcome.Issue[0].Diagnostics)
-	}
+	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["security_token_expired"])
 }
 
 func TestHTTPAuthz_ScopeFilterReadDenied(t *testing.T) {

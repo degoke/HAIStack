@@ -99,10 +99,11 @@ Scope filters are enforced on search (query intersection), read/history (resourc
 check), and bundle post-filtering. Underlying `pkg/auth` policy may still narrow
 apparently valid scopes.
 
-**Filter matching (MVP):** `Observation.category` is evaluated against FHIR codings.
-Other search-parameter filters currently match a top-level JSON string field only.
-Hosts needing full SMART 2.2 filter semantics should plug in registry-backed
-search-parameter evaluators before production use.
+**Filter matching:** Install registry-backed evaluators with
+`smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)`.
+Registered SearchParameters use FHIRPath extraction and search index normalization.
+Unregistered parameters fall back to the MVP matcher (`Observation.category` codings;
+other params use top-level string fields).
 
 Also parsed as metadata: `launch`, `launch/patient`, `launch/encounter`, and
 specialty tokens such as `openid`, `fhirUser`, `offline_access`.

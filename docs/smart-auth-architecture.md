@@ -34,18 +34,28 @@ Policy deny always overrides an apparently valid SMART scope.
 
 ## Host wiring
 
-```go
-adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{...})
-bearer := smart.BearerAuthConfig{Validator: tv, Adapter: adapter, Options: opts}
+### Built-in authorization server (`pkg/oauth`)
 
+```go
+oauthServer, _ := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: fhirBaseURL})
+http.Handle("/", oauthServer.Handler()) // authorize, token, jwks, register, discovery
+
+adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{...})
+bearer := oauthServer.BearerAuthConfig(adapter)
+```
+
+### FHIR resource server
+
+```go
 handler, _ := hahttp.NewHandler(hahttp.Config{
     PrincipalResolver:  hahttp.SMARTBearerPrincipalResolver(bearer),
     AuthBundleResolver: hahttp.SMARTBearerBundleResolver(bearer),
     AuthChecker: smart.ScopePolicyAuthChecker{Engine: eng, Adapter: adapter, BundleFor: ...},
 })
+smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)
 ```
 
-Serve SMART metadata separately:
+Serve SMART metadata from the OAuth server or separately:
 
 ```go
 http.Handle("/.well-known/smart-configuration", smart.WellKnownHandler(smart.DefaultConfiguration(issuer)))
@@ -61,25 +71,33 @@ http.Handle("/.well-known/smart-configuration", smart.WellKnownHandler(smart.Def
 | Policy or compartment deny | 403 | `forbidden` |
 | Scope filter mismatch | 403 | `forbidden` |
 
-Golden shapes live in `pkg/testkit/golden/auth_outcomes.go`. Scenario catalog: `pkg/testkit/authztest`.
+Golden shapes live in `pkg/testkit/golden/auth_outcomes.go` and are asserted in HTTP
+authz tests via `smart.StableAuthDiagnostics`. Scenario catalog: `pkg/testkit/authztest`.
 
-## Scope filter matching (MVP)
+## Scope filter matching
 
-SMART 2.2 `?param=value` filters are enforced, but resource matching is intentionally
-narrow today:
+Registry-backed evaluators use compiled SearchParameter FHIRPath expressions (same
+pipeline as `pkg/search` indexing):
 
-- `Observation.category` — FHIR coding comparison
-- Other parameters — top-level string field fallback
+```go
+smart.InstallRegistryScopeFilterMatcher(searchRegistry, fhirpathEngine)
+```
+
+Unregistered parameters fall back to the built-in MVP matcher (`Observation.category`
+coding walk; other params use top-level string fields).
 
 Bundle `_include` / `_revinclude` entries accept scopes with either `r` or `s`.
-Hosts with complex filter matrices should extend `pkg/smart` with registry-backed
-parameter evaluators.
+
+## Conformance CI
+
+`.github/workflows/smart-authz.yml` runs HTTP authz E2E tests, the authz scenario
+catalog, `pkg/http` Inferno-style SMART-on-FHIR smoke (discovery + PKCE + FHIR read),
+and `pkg/oauth` authorization-server tests.
 
 ## Non-goals
 
-- OAuth2/OIDC authorization server
 - EHR launch UI orchestration
-- Full Inferno certification (see `.github/workflows/smart-authz.yml` smoke job)
+- Full third-party Inferno test-kit Docker runs (Go smoke tests cover core flows)
 
 ## References
 

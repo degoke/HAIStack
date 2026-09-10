@@ -1,8 +1,7 @@
 package smart
 
-// Configuration is the SMART App Launch metadata shape hosts may serve at
-// /.well-known/smart-configuration. HAIStack does not run an OAuth server; this
-// type documents the contract for pkg/http integrations.
+// Configuration is the SMART App Launch metadata shape served at
+// /.well-known/smart-configuration by pkg/oauth or host integrations.
 type Configuration struct {
 	Issuer                        string   `json:"issuer"`
 	JWKSURI                       string   `json:"jwks_uri,omitempty"`

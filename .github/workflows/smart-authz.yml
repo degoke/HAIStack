@@ -33,3 +33,15 @@ jobs:
 
       - name: SMART client scope helpers
         run: go test -race -count=1 ./pkg/client -run 'TestParseScopes|TestPatientObservation|TestJoinScopes' -timeout 5m
+
+      - name: Built-in OAuth authorization server
+        run: go test -race -count=1 ./pkg/oauth -timeout 5m
+
+      - name: Inferno-style SMART conformance smoke
+        run: go test -race -count=1 ./pkg/http -run TestInfernoStyleSMARTConformance -timeout 10m
+
+      - name: Golden auth outcome catalog
+        run: go test -race -count=1 ./pkg/testkit/golden -run TestAuthOutcomeCatalog -timeout 5m
+
+      - name: Registry-backed scope filter evaluators
+        run: go test -race -count=1 ./pkg/search -run TestMatchResourceParameter -timeout 5m
