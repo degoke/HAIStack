@@ -35,19 +35,19 @@ type Config struct {
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
 type Manager struct {
-	definitions           store.DefinitionStore
-	installs              store.RegistryInstallStore
-	fhirVersion           string
-	now                   func() time.Time
-	searchReindex         SearchReindexNotifier
-	terminology           store.TerminologyStore
-	terminologyScope      string
-	globalTerminology     store.TerminologyStore
-	terminologyInstalls   store.TerminologyInstallStore
-	terminologyCache      terminology.Invalidator
-	snapshot              *Snapshot
-	seedMu                sync.Mutex
-	seeded                bool
+	definitions         store.DefinitionStore
+	installs            store.RegistryInstallStore
+	fhirVersion         string
+	now                 func() time.Time
+	searchReindex       SearchReindexNotifier
+	terminology         store.TerminologyStore
+	terminologyScope    string
+	globalTerminology   store.TerminologyStore
+	terminologyInstalls store.TerminologyInstallStore
+	terminologyCache    terminology.Invalidator
+	snapshot            *Snapshot
+	seedMu              sync.Mutex
+	seeded              bool
 }
 
 // NewManager constructs a registry manager from persistence stores.

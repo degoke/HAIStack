@@ -120,22 +120,22 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 	}
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:      db.DefinitionStore(),
-		installs:         db.RegistryInstallStore(),
-		moduleStore:      db.ModuleStore(),
-		jobStore:         db.JobStore(),
-		resources:        db.ResourceStore(),
-		history:          db.HistoryStore(),
-		searchStore:      db.SearchStore(),
-		sessions:         db,
-		outboxEvents:     db.OutboxStore(),
-		syncTenantID:     syncTenantID,
-		terminologyScope: terminologyScope,
-		syncEvents:       db.OutboxStore(),
-		syncCursors:      db.CursorStore(),
-		syncInbox:        db.InboxStore(),
-		syncConflicts:    db.ConflictStore(),
-		syncAudit:        db.AuditStore(),
+		definitions:         db.DefinitionStore(),
+		installs:            db.RegistryInstallStore(),
+		moduleStore:         db.ModuleStore(),
+		jobStore:            db.JobStore(),
+		resources:           db.ResourceStore(),
+		history:             db.HistoryStore(),
+		searchStore:         db.SearchStore(),
+		sessions:            db,
+		outboxEvents:        db.OutboxStore(),
+		syncTenantID:        syncTenantID,
+		terminologyScope:    terminologyScope,
+		syncEvents:          db.OutboxStore(),
+		syncCursors:         db.CursorStore(),
+		syncInbox:           db.InboxStore(),
+		syncConflicts:       db.ConflictStore(),
+		syncAudit:           db.AuditStore(),
 		terminology:         db.TerminologyStore(),
 		globalTerminology:   db.GlobalTerminologyStore(),
 		terminologyInstalls: db.TerminologyInstallStore(syncTenantID),
@@ -165,22 +165,22 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 	state.services.TenantDB = tdb
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:      db.DefinitionStore(),
-		installs:         tdb.RegistryInstallStore(),
-		moduleStore:      tdb.ModuleStore(),
-		jobStore:         tdb.JobStore(),
-		resources:        tdb.ResourceStore(),
-		history:          tdb.HistoryStore(),
-		searchStore:      tdb.SearchStore(),
-		sessions:         tdb,
-		outboxEvents:     tdb.EventStore(),
-		syncTenantID:     b.tenantID,
-		terminologyScope: b.tenantID,
-		syncEvents:       tdb.EventStore(),
-		syncCursors:      tdb.CursorStore(),
-		syncInbox:        tdb.InboxStore(),
-		syncConflicts:    tdb.ConflictStore(),
-		syncAudit:        tdb.AuditStore(),
+		definitions:         db.DefinitionStore(),
+		installs:            tdb.RegistryInstallStore(),
+		moduleStore:         tdb.ModuleStore(),
+		jobStore:            tdb.JobStore(),
+		resources:           tdb.ResourceStore(),
+		history:             tdb.HistoryStore(),
+		searchStore:         tdb.SearchStore(),
+		sessions:            tdb,
+		outboxEvents:        tdb.EventStore(),
+		syncTenantID:        b.tenantID,
+		terminologyScope:    b.tenantID,
+		syncEvents:          tdb.EventStore(),
+		syncCursors:         tdb.CursorStore(),
+		syncInbox:           tdb.InboxStore(),
+		syncConflicts:       tdb.ConflictStore(),
+		syncAudit:           tdb.AuditStore(),
 		terminology:         tdb.TerminologyStore(),
 		globalTerminology:   db.GlobalTerminologyStore(),
 		terminologyInstalls: tdb.TerminologyInstallStore(),
@@ -189,21 +189,21 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 }
 
 type persistenceContext struct {
-	definitions      store.DefinitionStore
-	installs         store.RegistryInstallStore
-	moduleStore      store.ModuleStore
-	jobStore         store.JobStore
-	resources        store.ResourceStore
-	history          store.HistoryStore
-	searchStore      store.SearchStore
-	sessions         store.WriteSessionProvider
-	outboxEvents     store.EventStore
-	syncTenantID     string
-	syncEvents       store.EventStore
-	syncCursors      store.CursorStore
-	syncInbox        store.InboxStore
-	syncConflicts    store.ConflictStore
-	syncAudit        store.AuditStore
+	definitions         store.DefinitionStore
+	installs            store.RegistryInstallStore
+	moduleStore         store.ModuleStore
+	jobStore            store.JobStore
+	resources           store.ResourceStore
+	history             store.HistoryStore
+	searchStore         store.SearchStore
+	sessions            store.WriteSessionProvider
+	outboxEvents        store.EventStore
+	syncTenantID        string
+	syncEvents          store.EventStore
+	syncCursors         store.CursorStore
+	syncInbox           store.InboxStore
+	syncConflicts       store.ConflictStore
+	syncAudit           store.AuditStore
 	reindexJobs         bool
 	terminology         store.TerminologyStore
 	globalTerminology   store.TerminologyStore
@@ -378,13 +378,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
-		Resources:          pc.resources,
-		History:            pc.history,
-		Sessions:           pc.sessions,
-		IDPolicy:           core.DefaultIDPolicy{},
-		Validator:          validator,
-		Indexer:            indexer,
-		Outbox:             &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Resources:              pc.resources,
+		History:                pc.history,
+		Sessions:               pc.sessions,
+		IDPolicy:               core.DefaultIDPolicy{},
+		Validator:              validator,
+		Indexer:                indexer,
+		Outbox:                 &hasync.EventStoreOutbox{Events: pc.outboxEvents},
 		Terminology:            pc.terminology,
 		TerminologyScope:       termScope,
 		GlobalTerminologyScope: terminology.GlobalScopeID,
@@ -560,7 +560,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
 	rootCfg := hahttp.RootConfig{
-		FHIR:  handler,
+		FHIR: handler,
 		Admin: hahttp.NewAdminHandler(hahttp.AdminConfig{
 			PackageInstallService: packageService,
 			ModuleInstallService:  moduleService,

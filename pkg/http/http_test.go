@@ -958,10 +958,10 @@ type fakeJobStore struct {
 	job store.JobRecord
 }
 
-func (f *fakeJobStore) Enqueue(context.Context, store.JobRecord) error { return nil }
+func (f *fakeJobStore) Enqueue(context.Context, store.JobRecord) error              { return nil }
 func (f *fakeJobStore) ClaimNext(context.Context, string) (*store.JobRecord, error) { return nil, nil }
-func (f *fakeJobStore) Update(context.Context, store.JobRecord) error { return nil }
-func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error) { return &f.job, nil }
+func (f *fakeJobStore) Update(context.Context, store.JobRecord) error               { return nil }
+func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error)       { return &f.job, nil }
 
 func TestCodeSystemLookupHTTP(t *testing.T) {
 	ctx := context.Background()

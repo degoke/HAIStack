@@ -40,9 +40,9 @@ func parseModuleInstallParameters(body []byte) (path string, upgradeOnly bool) {
 	}
 	var params struct {
 		Parameter []struct {
-			Name          string `json:"name"`
-			ValueString   string `json:"valueString,omitempty"`
-			ValueBoolean  bool   `json:"valueBoolean,omitempty"`
+			Name         string `json:"name"`
+			ValueString  string `json:"valueString,omitempty"`
+			ValueBoolean bool   `json:"valueBoolean,omitempty"`
 		} `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
