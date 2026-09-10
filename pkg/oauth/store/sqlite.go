@@ -145,10 +145,10 @@ func (s *SQLiteRefreshStore) Issue(record oauth.RefreshRecord) (string, error) {
 	}
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_refresh_token (
-			token, client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, expires_at, revoked
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+			token, client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, issuer, expires_at, revoked
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		token, record.ClientID, record.Scope, record.Subject, record.Patient,
-		record.Encounter, record.FHIRUser, record.TenantHint, formatTime(record.ExpiresAt),
+		record.Encounter, record.FHIRUser, record.TenantHint, record.Issuer, formatTime(record.ExpiresAt),
 	)
 	return token, err
 }
@@ -182,10 +182,10 @@ func (s *SQLiteRefreshStore) Rotate(token, clientID string) (*oauth.RefreshRecor
 	}
 	if _, err := tx.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_refresh_token (
-			token, client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, expires_at, revoked
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+			token, client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, issuer, expires_at, revoked
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		newToken, record.ClientID, record.Scope, record.Subject, record.Patient,
-		record.Encounter, record.FHIRUser, record.TenantHint, formatTime(expires),
+		record.Encounter, record.FHIRUser, record.TenantHint, record.Issuer, formatTime(expires),
 	); err != nil {
 		return nil, "", err
 	}
@@ -206,14 +206,14 @@ func (s *SQLiteRefreshStore) Revoke(token string) error {
 
 func (s *SQLiteRefreshStore) scanRefresh(token string) (*oauth.RefreshRecord, error) {
 	row := s.DB.QueryRowContext(context.Background(), `
-		SELECT client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, expires_at, revoked
+		SELECT client_id, scope, subject, patient, encounter, fhir_user, tenant_hint, issuer, expires_at, revoked
 		FROM hai_oauth_refresh_token WHERE token = ?`, token)
 	var record oauth.RefreshRecord
 	var expiresRaw string
 	var revoked int
 	record.Token = token
 	if err := row.Scan(&record.ClientID, &record.Scope, &record.Subject, &record.Patient,
-		&record.Encounter, &record.FHIRUser, &record.TenantHint, &expiresRaw, &revoked); err != nil {
+		&record.Encounter, &record.FHIRUser, &record.TenantHint, &record.Issuer, &expiresRaw, &revoked); err != nil {
 		return nil, fmt.Errorf("%w: unknown refresh token", oauth.ErrInvalidGrant)
 	}
 	record.ExpiresAt, _ = parseTime(expiresRaw)

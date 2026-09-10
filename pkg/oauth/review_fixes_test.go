@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/client"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
@@ -368,6 +369,134 @@ func TestLaunchTokenIssuerMismatchRejected(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	if !strings.Contains(loc, "error=") {
 		t.Fatalf("location = %q", loc)
+	}
+}
+
+func TestRefreshTokenIssuerMismatchRejected(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := oauth.NewClientRegistry()
+	_ = reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID:     "app",
+			RedirectURIs: []string{"https://app/cb"},
+			Scopes:       []string{"patient/Patient.read", "offline_access"},
+		},
+	})
+	refreshStore := oauth.NewMemoryRefreshStore()
+	rotateRefresh := false
+	tenants := oauth.NewTenantRegistry()
+	_ = tenants.Register(oauth.TenantIssuerConfig{
+		TenantID:    "tenant-a",
+		Issuer:      "http://example.test/t/tenant-a",
+		FHIRBaseURL: "http://example.test/t/tenant-a/fhir",
+	})
+	_ = tenants.Register(oauth.TenantIssuerConfig{
+		TenantID:    "tenant-b",
+		Issuer:      "http://example.test/t/tenant-b",
+		FHIRBaseURL: "http://example.test/t/tenant-b/fhir",
+	})
+	mts, err := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
+		Base: oauth.Config{
+			Signer:              oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+			Clients:             reg,
+			RefreshStore:        refreshStore,
+			RotateRefreshTokens: &rotateRefresh,
+		},
+		Tenants: tenants,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvA, err := mts.ServerForTenant("tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshToken, err := refreshStore.Issue(oauth.RefreshRecord{
+		ClientID:  "app",
+		Scope:     "patient/Patient.read offline_access",
+		Subject:   "user-1",
+		Issuer:    srvA.Issuer(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(mts.Handler())
+	defer ts.Close()
+	values := url.Values{}
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", refreshToken)
+	values.Set("client_id", "app")
+	resp, err := http.PostForm(ts.URL+"/t/tenant-b/oauth/token", values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+}
+
+func TestRefreshTokenMissingIssuerRejected(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := oauth.NewClientRegistry()
+	_ = reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID:     "app",
+			RedirectURIs: []string{"https://app/cb"},
+			Scopes:       []string{"patient/Patient.read", "offline_access"},
+		},
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer := "http://" + listener.Addr().String()
+	refreshStore := oauth.NewMemoryRefreshStore()
+	rotateRefresh := false
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:              issuer,
+		FHIRBaseURL:         issuer + "/fhir",
+		Signer:              oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+		Clients:             reg,
+		RefreshStore:        refreshStore,
+		RotateRefreshTokens: &rotateRefresh,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshToken, err := refreshStore.Issue(oauth.RefreshRecord{
+		ClientID:  "app",
+		Scope:     "patient/Patient.read offline_access",
+		Subject:   "user-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(srv.Handler())
+	ts.Listener = listener
+	ts.Start()
+	defer ts.Close()
+	values := url.Values{}
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", refreshToken)
+	values.Set("client_id", "app")
+	resp, err := http.PostForm(ts.URL+"/oauth/token", values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
 	}
 }
 

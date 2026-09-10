@@ -30,7 +30,10 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	switch hint {
 	case "", "refresh_token":
 		if s.refresh != nil {
-			if err := s.refresh.Revoke(token); err == nil {
+			if record, err := s.refresh.Lookup(token); err == nil {
+				if record.Issuer == s.issuer {
+					_ = s.refresh.Revoke(token)
+				}
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -50,7 +53,9 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.refresh != nil {
-		_ = s.refresh.Revoke(token)
+		if record, err := s.refresh.Lookup(token); err == nil && record.Issuer == s.issuer {
+			_ = s.refresh.Revoke(token)
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }

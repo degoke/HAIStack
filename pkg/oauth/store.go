@@ -18,8 +18,10 @@ type RefreshRecord struct {
 	Encounter  string
 	FHIRUser   string
 	TenantHint string
-	ExpiresAt  time.Time
-	Revoked    bool
+	// Issuer is the OAuth issuer URL that issued this refresh token (multi-tenant isolation).
+	Issuer    string
+	ExpiresAt time.Time
+	Revoked   bool
 }
 
 // RefreshTokenStore persists refresh tokens with optional rotation.

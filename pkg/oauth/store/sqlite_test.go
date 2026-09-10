@@ -76,6 +76,7 @@ func TestSQLiteStores_AuthCodeAndRefresh(t *testing.T) {
 		ClientID:  "app",
 		Scope:     exchanged.Scope,
 		Subject:   "user-1",
+		Issuer:    "https://example.com",
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {

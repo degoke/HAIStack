@@ -182,6 +182,10 @@ func (s *Server) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client mismatch")
 		return
 	}
+	if record.Issuer != s.issuer {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token issuer mismatch")
+		return
+	}
 	resp, err := s.buildSessionResponse(*record, newRefresh)
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
@@ -199,6 +203,7 @@ func (s *Server) writeSessionTokens(w http.ResponseWriter, grant sessionGrant) {
 		Encounter:  grant.Encounter,
 		FHIRUser:   grant.FHIRUser,
 		TenantHint: grant.TenantHint,
+		Issuer:     s.issuer,
 	}, "")
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
@@ -247,6 +252,10 @@ func (s *Server) buildSessionResponse(record RefreshRecord, existingRefresh stri
 	if scopeAllowsOffline(record.Scope) && s.refresh != nil {
 		refreshToken := existingRefresh
 		if refreshToken == "" {
+			issuer := record.Issuer
+			if issuer == "" {
+				issuer = s.issuer
+			}
 			refreshToken, err = s.refresh.Issue(RefreshRecord{
 				ClientID:   record.ClientID,
 				Scope:      record.Scope,
@@ -255,6 +264,7 @@ func (s *Server) buildSessionResponse(record RefreshRecord, existingRefresh stri
 				Encounter:  record.Encounter,
 				FHIRUser:   record.FHIRUser,
 				TenantHint: record.TenantHint,
+				Issuer:     issuer,
 				ExpiresAt:  s.now().Add(s.refreshTTL),
 			})
 			if err != nil {

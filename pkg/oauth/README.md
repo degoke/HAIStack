@@ -155,7 +155,7 @@ wired, _ := oauth.WireMultiTenantHTTP(oauth.MultiTenantConfig{Base: base, Tenant
 // wired.OAuthHandler serves /t/tenant-a/oauth/* and discovery documents per tenant
 ```
 
-Multi-tenant servers **do not inherit** base `LaunchIssuerAuth` / `LaunchIssuers`; register launch credentials on each `TenantIssuerConfig` that needs EHR launch. Authorization codes and launch tokens are bound to the issuing tenant's OAuth issuer URL and cannot be consumed at another tenant's endpoints.
+Multi-tenant servers **do not inherit** base `LaunchIssuerAuth` / `LaunchIssuers`; register launch credentials on each `TenantIssuerConfig` that needs EHR launch. Authorization codes, launch tokens, and refresh tokens are bound to the issuing tenant's OAuth issuer URL and cannot be consumed at another tenant's endpoints.
 
 ## SQLite persistence
 
@@ -167,7 +167,7 @@ if oauth.UsesInMemoryStores(cfg) {
 }
 ```
 
-Run `pkg/sqlite` migrations `0012_oauth.sql`, `0013_oauth_launch.sql`, `0014_oauth_auth_code_issuer.sql`, and `0015_oauth_launch_issuer.sql`, then:
+Run `pkg/sqlite` migrations `0012_oauth.sql` through `0016_oauth_refresh_issuer.sql`, then:
 
 ```go
 cfg := oauth.Config{ /* issuer, signer, clients, ... */ }
@@ -180,7 +180,7 @@ srv, _ := oauth.NewServer(cfg)
 - `AutoApprove` defaults to **false**; production hosts should keep interactive consent enabled
 - PKCE required for public clients; `plain` is rejected
 - Redirect URIs must match exactly
-- Auth codes and launch tokens must match the issuing OAuth issuer at exchange/consume time
+- Auth codes, launch tokens, and refresh tokens must match the issuing OAuth issuer at exchange/consume/refresh time
 - Auth codes, launch tokens, and refresh tokens are short-lived and single-use (SQLite-backed when using `ApplySQLiteStores`; in-memory otherwise)
 - Consent sessions (CSRF state) are always in-memory and single-process
 - Refresh tokens rotate by default
