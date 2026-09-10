@@ -26,15 +26,6 @@ func (s *Server) authenticateClient(r *http.Request) (Client, error) {
 	return client, nil
 }
 
-func (s *Server) requireAuthenticatedClient(w http.ResponseWriter, r *http.Request) (Client, bool) {
-	client, err := s.authenticateClient(r)
-	if err != nil {
-		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "client authentication required")
-		return Client{}, false
-	}
-	return client, true
-}
-
 func (s *Server) requireConfidentialClient(w http.ResponseWriter, r *http.Request) (Client, bool) {
 	client, err := s.authenticateClient(r)
 	if err != nil || !client.Confidential {
