@@ -36,6 +36,7 @@ type Builder struct {
 	httpPrincipalResolver hahttp.PrincipalResolver
 	httpAuthChecker       hahttp.AuthChecker
 	httpRateLimit         hahttp.RateLimitConfig
+	oauthHandler          http.Handler
 	moduleAuthorizer      modules.InstallAuthorizer
 	moduleVerifier        modules.ModuleVerifier
 
@@ -156,6 +157,14 @@ func (b *Builder) WithHTTPMiddleware(middleware func(http.Handler) http.Handler)
 func (b *Builder) WithHTTPAuth(resolver hahttp.PrincipalResolver, checker hahttp.AuthChecker) *Builder {
 	b.httpPrincipalResolver = resolver
 	b.httpAuthChecker = checker
+	return b
+}
+
+// WithOAuth mounts an OAuth authorization server handler on the managed HTTP server.
+// Typical wiring uses oauth.WireHTTP and passes WireResult.OAuthHandler here while
+// also configuring WithHTTPAuth with WireResult.PrincipalResolver.
+func (b *Builder) WithOAuth(handler http.Handler) *Builder {
+	b.oauthHandler = handler
 	return b
 }
 

@@ -174,6 +174,11 @@ func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 		}
 		mux.Handle("/sync/", syncHandler)
 	}
+	if cfg.OAuth != nil {
+		mux.Handle("/oauth/", cfg.OAuth)
+		mux.Handle("/oauth", cfg.OAuth)
+		mux.Handle("/.well-known/", cfg.OAuth)
+	}
 	if cfg.FHIR == nil && cfg.Sync == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, unsupportedEndpoint(r.URL.Path))
@@ -192,6 +197,8 @@ type RootConfig struct {
 	// SyncMiddleware must enforce the caller's node/tenant authentication and
 	// authorization when sync routes are exposed.
 	SyncMiddleware func(http.Handler) http.Handler
+	// OAuth serves /.well-known/smart-configuration and /oauth/* when set.
+	OAuth http.Handler
 }
 
 // NotImplemented returns an error mapped to HTTP 501 by the HTTP adapter.

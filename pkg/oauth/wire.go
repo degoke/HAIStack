@@ -1,0 +1,146 @@
+package oauth
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/degoke/health-ai-stack/pkg/auth"
+	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	"github.com/degoke/health-ai-stack/pkg/smart"
+)
+
+// WireConfig configures HTTP integration between pkg/oauth and pkg/http.
+type WireConfig struct {
+	Server  *Server
+	Adapter *smart.AuthAdapter
+	// TokenValidateOptions configures inbound access token validation.
+	TokenValidateOptions smart.TokenValidateOptions
+}
+
+// WireResult holds handlers and resolvers produced by WireHTTP.
+type WireResult struct {
+	// OAuthHandler serves /oauth/* and /.well-known/* routes.
+	OAuthHandler http.Handler
+	// PrincipalResolver validates Bearer tokens issued by the server.
+	PrincipalResolver hahttp.PrincipalResolver
+}
+
+// WireHTTP builds OAuth routes and a PrincipalResolver for pkg/http.
+func WireHTTP(cfg WireConfig) (WireResult, error) {
+	if cfg.Server == nil {
+		return WireResult{}, fmt.Errorf("%w: server required", ErrInvalidConfig)
+	}
+	adapter := cfg.Adapter
+	if adapter == nil {
+		adapter = smart.NewAuthAdapter(smart.AuthAdapterConfig{})
+	}
+	opts := cfg.TokenValidateOptions
+	if opts.ExpectedIssuer == "" {
+		opts.ExpectedIssuer = cfg.Server.Issuer()
+	}
+	if opts.ExpectedAudience == "" {
+		opts.ExpectedAudience = cfg.Server.FHIRBaseURL()
+	}
+	resolver := BearerPrincipalResolver(cfg.Server, adapter, opts)
+	return WireResult{
+		OAuthHandler:      cfg.Server.Handler(),
+		PrincipalResolver: resolver,
+	}, nil
+}
+
+// BearerPrincipalResolver returns a PrincipalResolver that validates Bearer
+// tokens issued by the given OAuth server.
+func BearerPrincipalResolver(server *Server, adapter *smart.AuthAdapter, opts smart.TokenValidateOptions) hahttp.PrincipalResolver {
+	verifier := server.Verifier()
+	validator := smart.NewTokenValidator(verifier)
+	return func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+		token, err := bearerToken(r)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		claims, err := validator.ValidateToken(token, opts)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		launch := smart.ExtractLaunchContext(claims, smart.LaunchContextInput{})
+		bundle, err := adapter.ToAuthRequests(claims, launch)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		return bundle.Principal, bundle.Tenant, nil
+	}
+}
+
+// ScopePolicyAuthChecker combines SMART-derived permissions with pkg/auth policy.
+// Policy deny wins when the engine returns ErrDenied or Allowed=false.
+type ScopePolicyAuthChecker struct {
+	Adapter *smart.AuthAdapter
+	Engine  auth.PolicyEngine
+}
+
+func (c ScopePolicyAuthChecker) AuthorizeRead(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType, id string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, "read", resourceType, id)
+}
+
+func (c ScopePolicyAuthChecker) AuthorizeWrite(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, operation, resourceType, id string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, operation, resourceType, id)
+}
+
+func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, "search", resourceType, "")
+}
+
+func (c ScopePolicyAuthChecker) authorize(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, action, resourceType, id string) (auth.Decision, error) {
+	if c.Engine == nil {
+		return auth.Decision{Allowed: true}, nil
+	}
+	switch action {
+	case "read", "search":
+		decision, err := c.Engine.CanReadResource(ctx, auth.ReadRequest{
+			Principal:    principal,
+			Tenant:       tenant,
+			ResourceType: resourceType,
+			ID:           id,
+		})
+		if err != nil {
+			return auth.Decision{}, err
+		}
+		return decision, nil
+	default:
+		decision, err := c.Engine.CanWriteResource(ctx, auth.WriteRequest{
+			Principal:    principal,
+			Tenant:       tenant,
+			Operation:    action,
+			ResourceType: resourceType,
+			ID:           id,
+		})
+		if err != nil {
+			return auth.Decision{}, err
+		}
+		return decision, nil
+	}
+}
+
+func bearerToken(r *http.Request) (string, error) {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return "", fmt.Errorf("missing authorization header")
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(h, prefix) {
+		return "", fmt.Errorf("authorization header must use Bearer scheme")
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+	if token == "" {
+		return "", fmt.Errorf("empty bearer token")
+	}
+	return token, nil
+}
+
+// MountRootHandler combines FHIR, optional sync, and OAuth routes on one mux.
+func MountRootHandler(fhir http.Handler, oauth http.Handler, sync hahttp.SyncHubServer, syncMiddleware func(http.Handler) http.Handler) http.Handler {
+	cfg := hahttp.RootConfig{FHIR: fhir, Sync: sync, SyncMiddleware: syncMiddleware, OAuth: oauth}
+	return hahttp.NewRootHandlerFromConfig(cfg)
+}

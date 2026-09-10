@@ -511,6 +511,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		rootCfg.Sync = b.syncServer
 		rootCfg.SyncMiddleware = b.syncMiddleware
 	}
+	if b.oauthHandler != nil {
+		rootCfg.OAuth = b.oauthHandler
+	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil
 }
