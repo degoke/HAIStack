@@ -531,6 +531,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		SearchService:         httpSearchSvc,
 		SDCService:            sdcService,
 		PackageInstallService: packageService,
+		ModuleInstallService:  moduleService,
+		JobStatusService:      jobStatusService,
 		TerminologyService:    state.services.TerminologyService,
 		TerminologyScope:      termScope,
 		ConformanceRefresher:  conformanceRefresher,
@@ -559,15 +561,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
-	rootCfg := hahttp.RootConfig{
-		FHIR: handler,
-		Admin: hahttp.NewAdminHandler(hahttp.AdminConfig{
-			PackageInstallService: packageService,
-			ModuleInstallService:  moduleService,
-			JobStatusService:      jobStatusService,
-			ConformanceRefresher:  conformanceRefresher,
-		}),
-	}
+	rootCfg := hahttp.RootConfig{FHIR: handler}
 	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
 		rootCfg.Sync = hubServer
 		rootCfg.SyncMiddleware = b.syncMiddleware

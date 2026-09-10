@@ -56,7 +56,13 @@ type Config struct {
 	// TerminologyScope is the tenant scope passed to terminology operations.
 	TerminologyScope string
 
-	// ConformanceRefresher rebuilds live conformance state; used by admin routes.
+	// ModuleInstallService handles Basic/$install.
+	ModuleInstallService ModuleInstallService
+
+	// JobStatusService handles Basic/{id}/$status job polling.
+	JobStatusService JobStatusService
+
+	// ConformanceRefresher rebuilds live conformance state via CapabilityStatement/$refresh.
 	ConformanceRefresher ConformanceRefresher
 
 	// OperationService handles non-SDC custom operations such as

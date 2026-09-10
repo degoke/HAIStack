@@ -130,9 +130,9 @@ HTTP terminology operations are exposed when `TerminologyService` is wired:
 - `ValueSet/$expand`
 - `CodeSystem/$validate-code` and `ValueSet/$validate-code`
 
-Admin routes (when mounted on the root handler):
+Platform FHIR operations:
 
-- `POST /admin/packages/install`
-- `POST /admin/modules/install`
-- `GET /admin/jobs/{id}`
-- `POST /admin/conformance/refresh`
+- `POST /fhir/ImplementationGuide/$install` — async IG/package install
+- `POST /fhir/Basic/$install` — async local module install
+- `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
+- `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state

@@ -936,8 +936,9 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
-func TestAdminJobStatusHTTP(t *testing.T) {
-	handler := hahttp.NewAdminHandler(hahttp.AdminConfig{
+func TestBasicJobStatusHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
 		JobStatusService: hahttp.CoreJobStatusService{
 			JobStore: &fakeJobStore{job: store.JobRecord{
 				ID: "job-1", Type: "registry.package_install", Status: store.JobStatusCompleted,
@@ -945,7 +946,7 @@ func TestAdminJobStatusHTTP(t *testing.T) {
 			}},
 		},
 	})
-	rec := doRequest(t, handler, http.MethodGet, "/admin/jobs/job-1", nil)
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}

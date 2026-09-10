@@ -80,6 +80,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h.handleTerminologyOperation(w, r, route) {
 			return
 		}
+		if h.handlePlatformOperation(w, r, route) {
+			return
+		}
 		if route.resourceType == "ImplementationGuide" {
 			switch route.operation {
 			case "$install":
