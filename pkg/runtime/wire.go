@@ -15,7 +15,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/sdc"
+	"github.com/degoke/health-ai-stack/pkg/structuremap"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -212,7 +214,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		termScope = pc.syncTenantID
 	}
 	if pc.terminology != nil {
-		state.services.TerminologyService = &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+		termSvc := &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+		if b.remoteTerminologyURL != "" {
+			termSvc.RemoteTranslate = b.remoteTranslateClient()
+		}
+		state.services.TerminologyService = termSvc
 	}
 
 	var reindexNotifier registry.SearchReindexNotifier
@@ -473,8 +479,19 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
 			Provider:    exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
-			Extractor:   sdc.QuestionnaireExtractor{Expressions: fhirPath},
-			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
+			Extractor: sdc.QuestionnaireExtractor{
+				Expressions: exprProvider,
+				StructureMap: structuremap.NewExtractor(structuremap.Config{
+					Resolver: &structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+					Engine: structuremap.Engine{
+						FHIRPath:    engine,
+						Strict:      true,
+						Translator:  b.structureMapTranslator(pc, termScope),
+						Cardinality: &structuremap.StoreCardinalityResolver{Store: registry.DefinitionStoreWithEmbeddedBase(pc.definitions)},
+					},
+				}),
+			},
+			Elements: sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}
 	packageService := hahttp.CorePackageInstallService{
@@ -522,4 +539,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil
+}
+
+func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string) conceptmap.Translator {
+	translator := conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
+		&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+		&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
+	}}}
+	if b.remoteTerminologyURL != "" {
+		translator.Remote = b.remoteTranslateClient()
+	}
+	return translator
 }

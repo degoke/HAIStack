@@ -1,0 +1,62 @@
+package conceptmap
+
+import (
+	"context"
+	"errors"
+)
+
+// ChainResolver tries resolvers in order until one succeeds.
+type ChainResolver struct {
+	Resolvers []Resolver
+}
+
+func (c ChainResolver) Resolve(ctx context.Context, canonical string) (Map, error) {
+	var lastErr error
+	sawNotFound := false
+	tried := false
+	for _, resolver := range c.Resolvers {
+		if resolver == nil {
+			continue
+		}
+		tried = true
+		m, err := resolver.Resolve(ctx, canonical)
+		if err == nil {
+			return m, nil
+		}
+		if IsNotFound(err) {
+			sawNotFound = true
+			lastErr = err
+			continue
+		}
+		return Map{}, err
+	}
+	if !tried {
+		return Map{}, ErrNotFound(canonical)
+	}
+	if sawNotFound {
+		return Map{}, ErrNotFound(canonical)
+	}
+	if lastErr != nil {
+		return Map{}, lastErr
+	}
+	return Map{}, ErrNotFound(canonical)
+}
+
+// ErrNotFound reports a missing ConceptMap canonical URL.
+func ErrNotFound(canonical string) error {
+	return &notFoundError{canonical: canonical}
+}
+
+type notFoundError struct {
+	canonical string
+}
+
+func (e *notFoundError) Error() string {
+	return "ConceptMap not found: " + e.canonical
+}
+
+// IsNotFound reports whether err indicates the ConceptMap canonical URL was not found.
+func IsNotFound(err error) bool {
+	var nf *notFoundError
+	return errors.As(err, &nf)
+}
