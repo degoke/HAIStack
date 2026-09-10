@@ -86,12 +86,17 @@ func (s *Server) handleLaunchUI(w http.ResponseWriter, r *http.Request) {
 	if state == "" {
 		state = "launch-state"
 	}
-	authorizeURL := s.buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state)
+	challenge := strings.TrimSpace(r.URL.Query().Get("code_challenge"))
+	challengeMethod := strings.TrimSpace(r.URL.Query().Get("code_challenge_method"))
+	if challengeMethod == "" && challenge != "" {
+		challengeMethod = "S256"
+	}
+	authorizeURL := s.buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state, challenge, challengeMethod)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(renderLaunchPage(launch, iss, authorizeURL)))
 }
 
-func (s *Server) buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state string) string {
+func (s *Server) buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, state, challenge, challengeMethod string) string {
 	q := url.Values{
 		"response_type": {"code"},
 		"client_id":     {clientID},
@@ -101,12 +106,16 @@ func (s *Server) buildAuthorizeURL(launch, iss, clientID, redirectURI, scope, st
 		"launch":        {launch},
 		"aud":           {iss},
 	}
+	if challenge != "" {
+		q.Set("code_challenge", challenge)
+		q.Set("code_challenge_method", challengeMethod)
+	}
 	return fmt.Sprintf("%s/oauth/authorize?%s", s.cfg.Issuer, q.Encode())
 }
 
-func (s *Server) resolveLaunchPatient(ctx context.Context, launch, aud string, patient string) (string, error) {
+func (s *Server) applyLaunchContext(ctx context.Context, launch, aud string, req *AuthorizationRequest) error {
 	if strings.TrimSpace(launch) == "" || s.cfg.LaunchResolver == nil {
-		return patient, nil
+		return nil
 	}
 	iss := aud
 	if iss == "" {
@@ -114,12 +123,15 @@ func (s *Server) resolveLaunchPatient(ctx context.Context, launch, aud string, p
 	}
 	launchCtx, err := s.cfg.LaunchResolver.ResolveLaunch(ctx, launch, iss)
 	if err != nil {
-		return "", err
+		return err
 	}
-	if patient == "" {
-		patient = launchCtx.PatientID
+	if req.Patient == "" {
+		req.Patient = launchCtx.PatientID
 	}
-	return patient, nil
+	if req.Encounter == "" {
+		req.Encounter = launchCtx.Encounter
+	}
+	return nil
 }
 
 func renderLaunchPage(launch, iss, authorizeURL string) string {
@@ -150,14 +162,4 @@ func renderLaunchPage(launch, iss, authorizeURL string) string {
   </div>
 </body>
 </html>`, htmlEscape(launch), htmlEscape(iss), htmlEscape(authorizeURL))
-}
-
-func htmlEscape(s string) string {
-	return strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	).Replace(s)
 }

@@ -12,6 +12,7 @@ type AuthorizationRequest struct {
 	Scope               string
 	State               string
 	Patient             string
+	Encounter           string
 	Launch              string
 	CodeChallenge       string
 	CodeChallengeMethod string
@@ -41,24 +42,19 @@ func AutoApproveConsentHandler() ConsentHandler {
 	})
 }
 
-// HTMLConsentHandler serves a minimal approval form for SMART launches.
-func HTMLConsentHandler() ConsentHandler {
-	return ConsentHandlerFunc(func(_ context.Context, req AuthorizationRequest) (bool, error) {
-		_ = req
-		return true, nil
-	})
-}
-
 // ServeConsentPage writes a minimal HTML consent form for pending authorization requests.
-func ServeConsentPage(w http.ResponseWriter, req AuthorizationRequest) {
+func ServeConsentPage(w http.ResponseWriter, req AuthorizationRequest, csrfToken string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html><head><title>Authorize application</title></head>
 <body>
 <h1>Authorize access</h1>
-<p>Client <strong>` + req.ClientID + `</strong> requests access with scope:</p>
-<pre>` + req.Scope + `</pre>
-<form method="POST"><button name="approve" value="yes">Approve</button>
-<button name="approve" value="no">Deny</button></form>
+<p>Client <strong>` + htmlEscape(req.ClientID) + `</strong> requests access with scope:</p>
+<pre>` + htmlEscape(req.Scope) + `</pre>
+<form method="POST">
+<input type="hidden" name="csrf_token" value="` + htmlEscape(csrfToken) + `">
+<button name="approve" value="yes">Approve</button>
+<button name="approve" value="no">Deny</button>
+</form>
 </body></html>`))
 }

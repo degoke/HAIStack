@@ -27,6 +27,7 @@ type AuthorizationStore interface {
 // PendingAuthorization stores an in-progress authorize/consent/launch session.
 type PendingAuthorization struct {
 	Request   AuthorizationRequest `json:"request"`
+	CSRFToken string               `json:"csrfToken,omitempty"`
 	ExpiresAt time.Time            `json:"expiresAt"`
 }
 
@@ -36,6 +37,7 @@ type AuthorizationCode struct {
 	RedirectURI string    `json:"redirectUri"`
 	Scope       string    `json:"scope"`
 	Patient     string    `json:"patient,omitempty"`
+	Encounter   string    `json:"encounter,omitempty"`
 	Challenge   string    `json:"challenge,omitempty"`
 	Method      string    `json:"method,omitempty"`
 	ExpiresAt   time.Time `json:"expiresAt"`
@@ -46,6 +48,7 @@ type RefreshTokenEntry struct {
 	ClientID  string    `json:"clientId"`
 	Scope     string    `json:"scope"`
 	Patient   string    `json:"patient,omitempty"`
+	Encounter string    `json:"encounter,omitempty"`
 	Subject   string    `json:"subject"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }

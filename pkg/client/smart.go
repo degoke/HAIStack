@@ -227,13 +227,33 @@ func (s *SMARTClient) ExchangeClientAssertion(ctx context.Context, req ClientAss
 	return s.postToken(ctx, req.TokenEndpoint, values)
 }
 
+// RefreshTokenRequest refreshes an access token when the server supports it.
+type RefreshTokenRequest struct {
+	TokenEndpoint string
+	ClientID      string
+	ClientSecret  string
+	RefreshToken  string
+}
+
 // RefreshToken refreshes an access token when the server supports it.
-func (s *SMARTClient) RefreshToken(ctx context.Context, tokenEndpoint, clientID, refreshToken string) (*TokenResponse, error) {
+func (s *SMARTClient) RefreshToken(ctx context.Context, req RefreshTokenRequest) (*TokenResponse, error) {
+	if req.TokenEndpoint == "" {
+		return nil, fmt.Errorf("token endpoint is required")
+	}
+	if req.ClientID == "" {
+		return nil, fmt.Errorf("clientId is required")
+	}
+	if req.RefreshToken == "" {
+		return nil, fmt.Errorf("refresh token is required")
+	}
 	values := url.Values{}
 	values.Set("grant_type", "refresh_token")
-	values.Set("refresh_token", refreshToken)
-	values.Set("client_id", clientID)
-	return s.postToken(ctx, tokenEndpoint, values)
+	values.Set("refresh_token", req.RefreshToken)
+	values.Set("client_id", req.ClientID)
+	if req.ClientSecret != "" {
+		values.Set("client_secret", req.ClientSecret)
+	}
+	return s.postToken(ctx, req.TokenEndpoint, values)
 }
 
 // TokenProviderFromResponse returns a TokenProvider backed by a token response.

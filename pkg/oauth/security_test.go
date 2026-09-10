@@ -113,6 +113,48 @@ func TestOAuthServer_ConfidentialClientSecretPost(t *testing.T) {
 	}
 }
 
+func TestOAuthServer_ConsentCSRFRequired(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base := strings.TrimSuffix(srv.URL, "/")
+	server, err := oauth.NewServer(oauth.Config{
+		Issuer: base, FHIRAudience: base, RequireConsentForm: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.RegisterClient(oauth.Client{
+		ClientID: "csrf-client", RedirectURIs: []string{"https://localhost/callback"},
+		Scopes: []string{"patient/Patient.rs"},
+	})
+	mux.Handle("/", server.Handler())
+	httpClient, _ := client.New(client.Config{BaseURL: base})
+	cfg, _ := httpClient.SMART().Discover(context.Background(), base)
+	pkce, _ := client.NewPKCEChallenge()
+	authURL, _ := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
+		Config: cfg, ClientID: "csrf-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", PKCE: pkce,
+	})
+	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authResp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = authResp.Body.Close()
+	consentURL := authResp.Header.Get("Location")
+	badResp, err := noRedirect.Post(consentURL, "application/x-www-form-urlencoded", strings.NewReader("approve=yes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = badResp.Body.Close()
+	if badResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected csrf rejection, status=%d", badResp.StatusCode)
+	}
+}
+
 func TestFileAuthorizationStore_PersistsCodes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oauth-auth.json")
 	store, err := oauth.NewFileAuthorizationStore(path)

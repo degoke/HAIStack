@@ -23,7 +23,10 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 		Issuer:         base,
 		FHIRAudience:   base,
 		AutoApprove:    true,
-		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{PatientID: "pat-launch-1"}),
+		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
+			PatientID: "pat-launch-1",
+			Encounter: "enc-launch-1",
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -52,8 +55,13 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 		t.Fatalf("launch context = %v", launchJSON)
 	}
 
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
 	uiResp, err := http.Get(base + "/oauth/launch/ui?launch=tok-1&iss=" + base +
-		"&client_id=launch-client&redirect_uri=https://localhost/callback")
+		"&client_id=launch-client&redirect_uri=https://localhost/callback" +
+		"&code_challenge=" + pkce.Challenge + "&code_challenge_method=S256")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,10 +70,12 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 	if uiResp.StatusCode != http.StatusOK || !strings.Contains(string(uiBody), "SMART EHR Launch") {
 		t.Fatalf("launch ui status=%d", uiResp.StatusCode)
 	}
+	if !strings.Contains(string(uiBody), pkce.Challenge) {
+		t.Fatalf("launch ui missing pkce challenge in authorize link")
+	}
 
 	httpClient, _ := client.New(client.Config{BaseURL: base})
 	cfg, _ := httpClient.SMART().Discover(context.Background(), base)
-	pkce, _ := client.NewPKCEChallenge()
 	authURL, _ := httpClient.SMART().BuildAuthURL(client.AuthCodeRequest{
 		Config: cfg, ClientID: "launch-client", RedirectURI: "https://localhost/callback",
 		Scope: "patient/Patient.rs launch/patient", Launch: "tok-1", Aud: base, PKCE: pkce,
@@ -95,5 +105,8 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 	}
 	if tokenResp.Patient != "pat-launch-1" {
 		t.Fatalf("patient claim = %q", tokenResp.Patient)
+	}
+	if tokenResp.Encounter != "enc-launch-1" {
+		t.Fatalf("encounter claim = %q", tokenResp.Encounter)
 	}
 }

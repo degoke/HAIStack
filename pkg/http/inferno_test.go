@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -152,7 +153,11 @@ func TestInfernoStyleTokenRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refreshed, err := httpClient.SMART().RefreshToken(ctx, env.issuer+"/oauth/token", "inferno-client", tokenResp.RefreshToken)
+	refreshed, err := httpClient.SMART().RefreshToken(ctx, client.RefreshTokenRequest{
+		TokenEndpoint: env.issuer + "/oauth/token",
+		ClientID:      "inferno-client",
+		RefreshToken:  tokenResp.RefreshToken,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +257,9 @@ func TestInfernoStyleConsentFormEndToEnd(t *testing.T) {
 	if consentPage.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Authorize access") {
 		t.Fatalf("consent page status=%d", consentPage.StatusCode)
 	}
-	approveResp, err := noRedirect.Post(consentURL, "application/x-www-form-urlencoded", strings.NewReader("approve=yes"))
+	csrf := extractConsentCSRF(string(pageBody))
+	approveResp, err := noRedirect.Post(consentURL, "application/x-www-form-urlencoded",
+		strings.NewReader("approve=yes&csrf_token="+url.QueryEscape(csrf)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +281,20 @@ func TestInfernoStyleConsentFormEndToEnd(t *testing.T) {
 	if tokenResp.AccessToken == "" {
 		t.Fatal("missing access token after consent")
 	}
+}
+
+func extractConsentCSRF(html string) string {
+	const marker = `name="csrf_token" value="`
+	start := strings.Index(html, marker)
+	if start < 0 {
+		return ""
+	}
+	start += len(marker)
+	end := strings.Index(html[start:], `"`)
+	if end < 0 {
+		return ""
+	}
+	return html[start : start+end]
 }
 
 func TestInfernoStyleConsentRequiredWithoutAutoApprove(t *testing.T) {

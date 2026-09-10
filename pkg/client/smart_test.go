@@ -153,6 +153,34 @@ func TestAuthCodeTokenExchangeWithClientSecret(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenWithClientSecret(t *testing.T) {
+	var gotSecret string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotSecret = r.Form.Get("client_secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-refresh","token_type":"Bearer"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(Config{BaseURL: srv.URL})
+	resp, err := c.SMART().RefreshToken(context.Background(), RefreshTokenRequest{
+		TokenEndpoint: srv.URL,
+		ClientID:      "client-1",
+		ClientSecret:  "refresh-secret",
+		RefreshToken:  "refresh-abc",
+	})
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if gotSecret != "refresh-secret" {
+		t.Fatalf("client_secret = %q", gotSecret)
+	}
+	if resp.AccessToken != "tok-refresh" {
+		t.Fatalf("token: %s", resp.AccessToken)
+	}
+}
+
 func TestClientAssertionGeneration(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

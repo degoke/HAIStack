@@ -176,7 +176,15 @@ func followConsentAndAuthorize(client *http.Client, authURL string) (string, err
 	}
 	loc := resp.Header.Get("Location")
 	if strings.Contains(loc, "/oauth/consent") {
-		consentResp, err := client.Post(loc, "application/x-www-form-urlencoded", strings.NewReader("approve=yes"))
+		pageResp, err := client.Get(loc)
+		if err != nil {
+			return "", err
+		}
+		pageBody, _ := io.ReadAll(pageResp.Body)
+		pageResp.Body.Close()
+		csrf := extractConsentCSRF(string(pageBody))
+		consentResp, err := client.Post(loc, "application/x-www-form-urlencoded",
+			strings.NewReader("approve=yes&csrf_token="+url.QueryEscape(csrf)))
 		if err != nil {
 			return "", err
 		}
@@ -188,6 +196,20 @@ func followConsentAndAuthorize(client *http.Client, authURL string) (string, err
 		loc = consentResp.Header.Get("Location")
 	}
 	return loc, nil
+}
+
+func extractConsentCSRF(html string) string {
+	const marker = `name="csrf_token" value="`
+	start := strings.Index(html, marker)
+	if start < 0 {
+		return ""
+	}
+	start += len(marker)
+	end := strings.Index(html[start:], `"`)
+	if end < 0 {
+		return ""
+	}
+	return html[start : start+end]
 }
 
 func queryValue(rawURL, key string) string {

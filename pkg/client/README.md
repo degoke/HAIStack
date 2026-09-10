@@ -243,8 +243,14 @@ authURL, err := c.SMART().BuildAuthURL(client.AuthCodeRequest{
     Launch:      launchToken, // optional EHR launch context
 })
 // Redirect the user to authURL, capture the authorization code, then:
-tokens, err := c.SMART().ExchangeAuthCode(ctx, cfg.TokenEndpoint,
-    "my-app", "https://app.example/callback", code, pkce)
+tokens, err := c.SMART().ExchangeAuthCode(ctx, client.AuthCodeExchangeRequest{
+    TokenEndpoint: cfg.TokenEndpoint,
+    ClientID:      "my-app",
+    ClientSecret:  "optional-for-confidential-clients",
+    RedirectURI:   "https://app.example/callback",
+    Code:          code,
+    PKCE:          pkce,
+})
 
 // Attach token to FHIR requests
 c, _ = client.New(client.Config{
@@ -256,7 +262,12 @@ c, _ = client.New(client.Config{
 Refresh when supported:
 
 ```go
-refreshed, err := c.SMART().RefreshToken(ctx, cfg.TokenEndpoint, "my-app", tokens.RefreshToken)
+refreshed, err := c.SMART().RefreshToken(ctx, client.RefreshTokenRequest{
+    TokenEndpoint: cfg.TokenEndpoint,
+    ClientID:      "my-app",
+    ClientSecret:  "optional-for-confidential-clients",
+    RefreshToken:  tokens.RefreshToken,
+})
 ```
 
 ### SMART backend client assertion

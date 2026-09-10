@@ -64,12 +64,10 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		CodeChallenge:       q.Get("code_challenge"),
 		CodeChallengeMethod: q.Get("code_challenge_method"),
 	}
-	patient, err := s.resolveLaunchPatient(r.Context(), authReq.Launch, q.Get("aud"), authReq.Patient)
-	if err != nil {
+	if err := s.applyLaunchContext(r.Context(), authReq.Launch, q.Get("aud"), &authReq); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	authReq.Patient = patient
 	if err := validateRequestedScopes(client, authReq.Scope); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -78,6 +76,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		id := randomToken()
 		_ = s.authStore.SavePendingAuthorization(id, PendingAuthorization{
 			Request:   authReq,
+			CSRFToken: randomToken(),
 			ExpiresAt: s.cfg.Now().Add(s.cfg.AuthCodeTTL),
 		})
 		http.Redirect(w, r, s.cfg.Issuer+"/oauth/consent?id="+url.QueryEscape(id), http.StatusFound)
@@ -107,14 +106,27 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "consent session expired", http.StatusBadRequest)
 			return
 		}
-		ServeConsentPage(w, pending.Request)
+		ServeConsentPage(w, pending.Request, pending.CSRFToken)
 		return
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	pending, ok := s.authStore.ConsumePendingAuthorization(id)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	pending, ok := s.authStore.GetPendingAuthorization(id)
+	if !ok {
+		http.Error(w, "consent session expired", http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("csrf_token") != pending.CSRFToken {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	pending, ok = s.authStore.ConsumePendingAuthorization(id)
 	if !ok {
 		http.Error(w, "consent session expired", http.StatusBadRequest)
 		return
@@ -145,6 +157,7 @@ func (s *Server) issueAuthorizationRedirect(w http.ResponseWriter, r *http.Reque
 		RedirectURI: req.RedirectURI,
 		Scope:       req.Scope,
 		Patient:     req.Patient,
+		Encounter:   req.Encounter,
 		Challenge:   req.CodeChallenge,
 		Method:      req.CodeChallengeMethod,
 		ExpiresAt:   s.cfg.Now().Add(s.cfg.AuthCodeTTL),
@@ -228,7 +241,7 @@ func (s *Server) handleAuthorizationCode(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid_scope", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, clientID)
+	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, clientID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -262,7 +275,7 @@ func (s *Server) handleClientCredentials(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid_scope", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.issueTokens(claims.ClientID, scope, claims.Patient, claims.Subject)
+	resp, err := s.issueTokens(claims.ClientID, scope, claims.Patient, "", claims.Subject)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -291,7 +304,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid_grant", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Subject)
+	resp, err := s.issueTokens(clientID, entry.Scope, entry.Patient, entry.Encounter, entry.Subject)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -344,14 +357,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) issueTokens(clientID, scope, patient, subject string) (map[string]any, error) {
+func (s *Server) issueTokens(clientID, scope, patient, encounter, subject string) (map[string]any, error) {
 	now := s.cfg.Now()
 	exp := now.Add(s.cfg.AccessTokenTTL)
-	accessToken, err := buildJWT(map[string]string{
-		"alg": s.cfg.SigningKey.Algorithm,
-		"kid": s.cfg.SigningKey.KeyID,
-		"typ": "JWT",
-	}, map[string]any{
+	claims := map[string]any{
 		"iss":     s.cfg.Issuer,
 		"sub":     subject,
 		"aud":     s.cfg.FHIRAudience,
@@ -360,7 +369,15 @@ func (s *Server) issueTokens(clientID, scope, patient, subject string) (map[stri
 		"scope":   scope,
 		"patient": patient,
 		"jti":     randomToken(),
-	}, s.cfg.SigningKey.PrivateKey)
+	}
+	if encounter != "" {
+		claims["encounter"] = encounter
+	}
+	accessToken, err := buildJWT(map[string]string{
+		"alg": s.cfg.SigningKey.Algorithm,
+		"kid": s.cfg.SigningKey.KeyID,
+		"typ": "JWT",
+	}, claims, s.cfg.SigningKey.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -369,17 +386,22 @@ func (s *Server) issueTokens(clientID, scope, patient, subject string) (map[stri
 		ClientID:  clientID,
 		Scope:     scope,
 		Patient:   patient,
+		Encounter: encounter,
 		Subject:   subject,
 		ExpiresAt: now.Add(s.cfg.RefreshTokenTTL),
 	})
-	return map[string]any{
+	resp := map[string]any{
 		"access_token":  accessToken,
 		"token_type":    "Bearer",
 		"expires_in":    int(s.cfg.AccessTokenTTL.Seconds()),
 		"scope":         scope,
 		"refresh_token": refresh,
 		"patient":       patient,
-	}, nil
+	}
+	if encounter != "" {
+		resp["encounter"] = encounter
+	}
+	return resp, nil
 }
 
 func (s *Server) openIDConfiguration() map[string]any {
