@@ -37,6 +37,7 @@ type Builder struct {
 	httpAuthChecker       hahttp.AuthChecker
 	httpRateLimit         hahttp.RateLimitConfig
 	oauthHandler          http.Handler
+	builtinOAuth          *BuiltinOAuthConfig
 	moduleAuthorizer      modules.InstallAuthorizer
 	moduleVerifier        modules.ModuleVerifier
 
@@ -165,6 +166,14 @@ func (b *Builder) WithHTTPAuth(resolver hahttp.PrincipalResolver, checker hahttp
 // also configuring WithHTTPAuth with WireResult.PrincipalResolver.
 func (b *Builder) WithOAuth(handler http.Handler) *Builder {
 	b.oauthHandler = handler
+	return b
+}
+
+// WithBuiltinOAuth wires the built-in pkg/oauth authorization server during Build.
+// Requires SQLite storage and an HTTP listen address (WithHTTP).
+func (b *Builder) WithBuiltinOAuth(cfg BuiltinOAuthConfig) *Builder {
+	copy := cfg
+	b.builtinOAuth = &copy
 	return b
 }
 

@@ -105,6 +105,15 @@ func BuildRuntime(ctx context.Context, cfg config.Config, httpAddr string) (*run
 	if httpAddr != "" {
 		b.WithHTTP(httpAddr)
 	}
+	if httpAddr != "" && cfg.OAuthEnabled() && (cfg.Storage.Driver == config.DriverSQLite || cfg.Storage.Driver == "") {
+		b.WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			Production:              cfg.OAuthProduction(),
+			RegistrationAccessToken: cfg.OAuth.RegistrationAccessToken,
+			AutoApprove:             cfg.OAuth.AutoApprove,
+			IssuerURL:               cfg.OAuth.IssuerURL,
+			TenantID:                cfg.Storage.SQLiteTenantID,
+		})
+	}
 	return b.Build(ctx)
 }
 

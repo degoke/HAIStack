@@ -68,7 +68,7 @@ haistack serve
 | Command | Description |
 |---------|-------------|
 | `haistack init` | Write starter `haistack.yaml` and create `.haistack/`. Use `--force` to overwrite. |
-| `haistack serve` | Build `pkg/runtime`, start HTTP, print bound address. |
+| `haistack serve` | Build `pkg/runtime`, start HTTP with built-in SMART OAuth (SQLite), print bound address. |
 | `haistack validate <file>` | Structural validation via `validate.Engine`. Exits non-zero when invalid. |
 | `haistack import <file>` | Import one JSON resource; use `--create-only` or `--update-only` to control conflicts. |
 | `haistack read <ResourceType/id>` | Read one stored resource. |
@@ -107,6 +107,10 @@ runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
   modulePaths: []
+oauth:
+  enabled: true
+  production: false
+  registrationAccessToken: ""
 sync:
   hubURL: ""
   nodeID: runtime-node
@@ -138,6 +142,12 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_MODULE_PATHS` | `runtime.modulePaths` (comma-separated) |
 | `HAISTACK_SYNC_HUB_URL` | `sync.hubURL` |
 | `HAISTACK_SYNC_NODE_ID` | `sync.nodeID` |
+| `HAISTACK_OAUTH_ENABLED` | `oauth.enabled` |
+| `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` (also `HAISTACK_PRODUCTION=1`) |
+| `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+
+See [`pkg/oauth/OPERATIONS.md`](../../pkg/oauth/OPERATIONS.md) for Inferno reference vs production OAuth settings.
 
 ### Persistent flags
 

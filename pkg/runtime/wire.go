@@ -471,6 +471,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	packageService := hahttp.CorePackageInstallService{
 		JobStore: pc.jobStore,
 	}
+	if b.builtinOAuth != nil {
+		if err := b.wireBuiltinOAuth(ctx, state); err != nil {
+			return err
+		}
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:         httpSearchSvc,

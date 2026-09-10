@@ -80,6 +80,27 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 }
 
+func TestOAuthEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, config.StarterYAML(), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HAISTACK_OAUTH_PRODUCTION", "true")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.OAuthProduction() {
+		t.Fatal("expected oauth production from env")
+	}
+	if cfg.OAuth.RegistrationAccessToken != "register-token" {
+		t.Fatalf("registration token = %q", cfg.OAuth.RegistrationAccessToken)
+	}
+}
+
 func TestLoadUsesDefaultsWhenDefaultFileIsMissing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

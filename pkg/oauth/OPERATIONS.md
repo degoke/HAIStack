@@ -63,6 +63,26 @@ if err != nil {
 }
 ```
 
+### haistack serve
+
+`haistack serve` enables the built-in OAuth server by default on SQLite deployments. Set production defaults via config or environment:
+
+```yaml
+oauth:
+  enabled: true
+  production: true
+  registrationAccessToken: "" # prefer OAUTH_REGISTRATION_TOKEN env
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `HAISTACK_OAUTH_ENABLED` | Set `false` to disable builtin OAuth on serve |
+| `HAISTACK_OAUTH_PRODUCTION` | Set `true` to call `ApplyProductionDefaults` |
+| `HAISTACK_PRODUCTION=1` | Same as `oauth.production: true` |
+| `OAUTH_REGISTRATION_TOKEN` | Bearer token for dynamic client registration |
+
+When OAuth is enabled, FHIR endpoints require SMART Bearer tokens; discovery remains public at `/fhir/.well-known/smart-configuration`.
+
 Environment variables (example):
 
 | Variable | Purpose |

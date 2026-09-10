@@ -45,8 +45,16 @@ func TestServeBuildsAndStartsSQLite(t *testing.T) {
 		t.Fatalf("GET metadata: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("metadata status = %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("metadata status = %d, want 401 when builtin OAuth auth is enabled", resp.StatusCode)
+	}
+	smartResp, err := http.Get("http://" + rt.HTTPAddr().String() + "/fhir/.well-known/smart-configuration")
+	if err != nil {
+		t.Fatalf("GET smart-configuration: %v", err)
+	}
+	defer func() { _ = smartResp.Body.Close() }()
+	if smartResp.StatusCode != http.StatusOK {
+		t.Fatalf("smart-configuration status = %d", smartResp.StatusCode)
 	}
 	for _, path := range []string{"/healthz", "/readyz"} {
 		probe, err := http.Get("http://" + rt.HTTPAddr().String() + path)
