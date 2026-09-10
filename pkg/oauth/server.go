@@ -14,6 +14,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("/oauth/token", s.handleToken)
 	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
+	mux.HandleFunc("/oauth/introspect", s.handleIntrospect)
 	mux.HandleFunc("/.well-known/smart-configuration", s.handleSmartConfiguration)
 	mux.HandleFunc("/.well-known/openid-configuration", s.handleOpenIDConfiguration)
 	if jwks := s.jwksHandler(); jwks != nil {
@@ -22,7 +23,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/oauth/authorize", "/oauth/token", "/oauth/revoke",
+		case "/oauth/authorize", "/oauth/token", "/oauth/revoke", "/oauth/introspect",
 			"/.well-known/smart-configuration", "/.well-known/openid-configuration",
 			"/oauth/jwks", "/.well-known/jwks.json":
 			mux.ServeHTTP(w, r)

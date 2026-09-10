@@ -10,6 +10,7 @@ type smartConfiguration struct {
 	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
 	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
+	IntrospectionEndpoint             string   `json:"introspection_endpoint,omitempty"`
 	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
 	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
 	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
@@ -33,6 +34,7 @@ func (s *Server) smartConfiguration() smartConfiguration {
 		AuthorizationEndpoint:         s.AuthorizationEndpoint(),
 		TokenEndpoint:                 s.TokenEndpoint(),
 		RevocationEndpoint:            s.RevocationEndpoint(),
+		IntrospectionEndpoint:         s.IntrospectionEndpoint(),
 		ScopesSupported:               append([]string(nil), s.scopes...),
 		ResponseTypesSupported:        []string{"code"},
 		GrantTypesSupported:           s.grantTypesSupported(),

@@ -21,6 +21,7 @@ External IdPs (Keycloak, Auth0, Epic, Cerner) remain fully supported — omit th
 | `GET/POST /oauth/authorize` | Authorization code + PKCE (`S256`) |
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, `client_credentials` |
 | `POST /oauth/revoke` | Revoke access or refresh tokens |
+| `POST /oauth/introspect` | RFC 7662 token introspection |
 | `GET /.well-known/smart-configuration` | SMART discovery |
 | `GET /.well-known/openid-configuration` | OIDC subset discovery |
 | `GET /.well-known/jwks.json` | JWKS (RS256 signers) |
@@ -55,6 +56,29 @@ wired, _ := oauth.WireHTTP(oauth.WireConfig{
 })
 
 // Mount wired.OAuthHandler alongside FHIR; use wired.PrincipalResolver with pkg/http.
+```
+
+## Multi-tenant issuers
+
+Register per-tenant issuer settings and mount tenant-scoped routes under `/t/{tenantId}/`:
+
+```go
+tenants := oauth.NewTenantRegistry()
+_ = tenants.Register(oauth.TenantIssuerConfig{
+    TenantID:    "tenant-a",
+    Issuer:      "https://fhir.example.com/t/tenant-a",
+    FHIRBaseURL: "https://fhir.example.com/t/tenant-a/fhir",
+})
+
+mts, _ := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
+    Base: oauth.Config{
+        Signer:  oauth.RS256Signer{PrivateKey: key, Kid: "server-1"},
+        Clients: reg,
+    },
+    Tenants: tenants,
+})
+wired, _ := oauth.WireMultiTenantHTTP(oauth.MultiTenantConfig{Base: base, Tenants: tenants}, adapter)
+// wired.OAuthHandler serves /t/tenant-a/oauth/* and discovery documents per tenant
 ```
 
 ## SQLite persistence

@@ -7,7 +7,8 @@
 // Features:
 //   - Static client registry (authorization code + PKCE, optional client credentials)
 //   - Refresh tokens with rotation (offline_access scope)
-//   - Token revocation endpoint (RFC 7009-style)
+//   - Token revocation and RFC 7662 introspection endpoints
+//   - Multi-tenant issuer registry with /t/{tenantId}/ route prefix
 //   - JWT access tokens and OIDC id_tokens (RS256 or HS256)
 //   - SMART /.well-known/smart-configuration and OIDC /.well-known/openid-configuration
 //   - WireHTTP for PrincipalResolver integration with pkg/http

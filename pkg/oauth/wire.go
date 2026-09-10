@@ -171,3 +171,47 @@ func MountRootHandler(fhir http.Handler, oauth http.Handler, sync hahttp.SyncHub
 	cfg := hahttp.RootConfig{FHIR: fhir, Sync: sync, SyncMiddleware: syncMiddleware, OAuth: oauth}
 	return hahttp.NewRootHandlerFromConfig(cfg)
 }
+
+// WireMultiTenantHTTP builds a tenant-scoped OAuth handler and issuer-aware resolver.
+func WireMultiTenantHTTP(cfg MultiTenantConfig, adapter *smart.AuthAdapter) (WireResult, error) {
+	mts, err := NewMultiTenantServer(cfg)
+	if err != nil {
+		return WireResult{}, err
+	}
+	if adapter == nil {
+		adapter = smart.NewAuthAdapter(smart.AuthAdapterConfig{})
+	}
+	resolver := BearerPrincipalResolverMultiTenant(mts, adapter)
+	return WireResult{
+		OAuthHandler:      mts.Handler(),
+		PrincipalResolver: resolver,
+	}, nil
+}
+
+// BearerPrincipalResolverMultiTenant validates Bearer tokens against the matching tenant issuer.
+func BearerPrincipalResolverMultiTenant(mts *MultiTenantServer, adapter *smart.AuthAdapter) hahttp.PrincipalResolver {
+	return func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+		token, err := bearerToken(r)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		unverified, err := smart.ParseTokenUnverified(token)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		tenantCfg, err := mts.LookupByIssuer(unverified.Issuer)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		srv, err := mts.ServerForTenant(tenantCfg.TenantID)
+		if err != nil {
+			return auth.Principal{}, auth.TenantContext{}, err
+		}
+		opts := smart.TokenValidateOptions{
+			ExpectedIssuer:   tenantCfg.Issuer,
+			ExpectedAudience: tenantCfg.FHIRBaseURL,
+		}
+		resolver := BearerPrincipalResolver(srv, adapter, opts, srv.RevocationStore())
+		return resolver(ctx, r)
+	}
+}

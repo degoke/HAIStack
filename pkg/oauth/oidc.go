@@ -10,6 +10,7 @@ type openIDConfiguration struct {
 	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
 	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
+	IntrospectionEndpoint             string   `json:"introspection_endpoint,omitempty"`
 	JWKSURI                           string   `json:"jwks_uri,omitempty"`
 	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
 	SubjectTypesSupported             []string `json:"subject_types_supported,omitempty"`
@@ -36,6 +37,7 @@ func (s *Server) openIDConfiguration() openIDConfiguration {
 		AuthorizationEndpoint:             s.AuthorizationEndpoint(),
 		TokenEndpoint:                     s.TokenEndpoint(),
 		RevocationEndpoint:                s.RevocationEndpoint(),
+		IntrospectionEndpoint:             s.IntrospectionEndpoint(),
 		ResponseTypesSupported:            []string{"code"},
 		SubjectTypesSupported:             []string{"public"},
 		IDTokenSigningAlgValuesSupported: []string{s.signer.Algorithm()},
