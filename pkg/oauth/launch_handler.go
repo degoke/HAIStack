@@ -32,6 +32,7 @@ func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 		EncounterID: encounter,
 		UserID:      user,
 		TenantHint:  tenant,
+		Issuer:      s.issuer,
 	})
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue launch token")

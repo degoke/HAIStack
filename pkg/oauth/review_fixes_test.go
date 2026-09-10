@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -222,6 +223,154 @@ func TestAuthCodeIssuerMismatchRejected(t *testing.T) {
 	}
 }
 
+func TestAuthCodeMissingIssuerRejected(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := oauth.NewClientRegistry()
+	_ = reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID:     "app",
+			RedirectURIs: []string{"https://app/cb"},
+			Scopes:       []string{"patient/Patient.read"},
+		},
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer := "http://" + listener.Addr().String()
+	codes := oauth.NewCodeStore()
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:      issuer,
+		FHIRBaseURL: issuer + "/fhir",
+		Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+		Clients:     reg,
+		CodeStore:   codes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := codes.Issue(oauth.AuthCode{
+		ClientID:    "app",
+		RedirectURI: "https://app/cb",
+		Scope:       "patient/Patient.read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(srv.Handler())
+	ts.Listener = listener
+	ts.Start()
+	defer ts.Close()
+	values := url.Values{}
+	values.Set("grant_type", "authorization_code")
+	values.Set("code", code)
+	values.Set("client_id", "app")
+	values.Set("redirect_uri", "https://app/cb")
+	resp, err := http.PostForm(ts.URL+"/oauth/token", values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+}
+
+func TestLaunchTokenIssuerMismatchRejected(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := oauth.NewClientRegistry()
+	_ = reg.Register(oauth.Client{
+		ClientRegistration: smart.ClientRegistration{
+			ClientID:     "app",
+			RedirectURIs: []string{"https://app/cb"},
+			Scopes:       []string{"patient/Patient.read", "launch"},
+		},
+		DefaultPatient: "patient-default",
+	})
+	launchReg := oauth.NewLaunchIssuerRegistry()
+	if err := launchReg.Register("ehr-launcher", "ehr-secret"); err != nil {
+		t.Fatal(err)
+	}
+	launches := oauth.NewMemoryLaunchStore()
+	autoApprove := true
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + listener.Addr().String()
+	tenants := oauth.NewTenantRegistry()
+	_ = tenants.Register(oauth.TenantIssuerConfig{
+		TenantID:      "tenant-a",
+		Issuer:        base + "/t/tenant-a",
+		FHIRBaseURL:   base + "/t/tenant-a/fhir",
+		LaunchIssuers: launchReg,
+		AutoApprove:   &autoApprove,
+	})
+	_ = tenants.Register(oauth.TenantIssuerConfig{
+		TenantID:    "tenant-b",
+		Issuer:      base + "/t/tenant-b",
+		FHIRBaseURL: base + "/t/tenant-b/fhir",
+		AutoApprove: &autoApprove,
+	})
+	mts, err := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
+		Base: oauth.Config{
+			Signer:      oauth.RS256Signer{PrivateKey: key, Kid: "test"},
+			Clients:     reg,
+			LaunchStore: launches,
+		},
+		Tenants: tenants,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(mts.Handler())
+	ts.Listener = listener
+	ts.Start()
+	defer ts.Close()
+
+	values := url.Values{}
+	values.Set("launch_issuer_id", "ehr-launcher")
+	values.Set("launch_issuer_secret", "ehr-secret")
+	values.Set("patient", "launch-patient")
+	resp, err := http.Post(ts.URL+"/t/tenant-a/oauth/launch", "application/x-www-form-urlencoded", strings.NewReader(values.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("launch status = %d body = %s", resp.StatusCode, body)
+	}
+	launchToken := extractJSONField(string(body), "launch")
+	if launchToken == "" {
+		t.Fatalf("launch body = %s", body)
+	}
+
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authURL := ts.URL + "/t/tenant-b/oauth/authorize?response_type=code&client_id=app&redirect_uri=https://app/cb&scope=patient/Patient.read&launch=" + url.QueryEscape(launchToken)
+	resp, err = noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "error=") {
+		t.Fatalf("location = %q", loc)
+	}
+}
+
 func TestConsentLogoURLRejectsUnsafeScheme(t *testing.T) {
 	autoApprove := false
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -268,4 +417,12 @@ func parseQueryParam(rawURL, key string) string {
 		return ""
 	}
 	return u.Query().Get(key)
+}
+
+func extractJSONField(body, key string) string {
+	var doc map[string]string
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return ""
+	}
+	return doc[key]
 }

@@ -302,9 +302,9 @@ func (s *SQLiteLaunchStore) Issue(record oauth.LaunchContextRecord) (string, err
 	}
 	_, err = s.DB.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_launch_token (
-			token, patient, encounter, user_id, tenant_hint, expires_at, used
-		) VALUES (?, ?, ?, ?, ?, ?, 0)`,
-		token, record.PatientID, record.EncounterID, record.UserID, record.TenantHint,
+			token, patient, encounter, user_id, tenant_hint, issuer, expires_at, used
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+		token, record.PatientID, record.EncounterID, record.UserID, record.TenantHint, record.Issuer,
 		formatTime(record.ExpiresAt),
 	)
 	return token, err
@@ -318,12 +318,13 @@ func (s *SQLiteLaunchStore) Consume(token string) (oauth.LaunchContextRecord, er
 	defer func() { _ = tx.Rollback() }()
 
 	row := tx.QueryRowContext(context.Background(), `
-		SELECT patient, encounter, user_id, tenant_hint, expires_at, used
+		SELECT patient, encounter, user_id, tenant_hint, issuer, expires_at, used
 		FROM hai_oauth_launch_token WHERE token = ?`, token)
 	var record oauth.LaunchContextRecord
 	var expiresRaw string
 	var used int
-	if err := row.Scan(&record.PatientID, &record.EncounterID, &record.UserID, &record.TenantHint, &expiresRaw, &used); err != nil {
+	if err := row.Scan(&record.PatientID, &record.EncounterID, &record.UserID, &record.TenantHint,
+		&record.Issuer, &expiresRaw, &used); err != nil {
 		return oauth.LaunchContextRecord{}, fmt.Errorf("%w: unknown or used launch token", oauth.ErrInvalidGrant)
 	}
 	record.ExpiresAt, _ = parseTime(expiresRaw)

@@ -14,7 +14,9 @@ type LaunchContextRecord struct {
 	EncounterID string
 	UserID      string
 	TenantHint  string
-	ExpiresAt   time.Time
+	// Issuer is the OAuth issuer URL that issued this launch token (multi-tenant isolation).
+	Issuer    string
+	ExpiresAt time.Time
 }
 
 // LaunchStore persists single-use SMART launch tokens issued by an EHR context.

@@ -50,6 +50,8 @@ type consentSession struct {
 	ExpiresAt time.Time
 }
 
+// consentSessionStore holds short-lived OAuth authorize state in memory only.
+// Consent sessions are not persisted to SQLite and do not survive process restarts.
 type consentSessionStore struct {
 	mu       sync.Mutex
 	sessions map[string]consentSession

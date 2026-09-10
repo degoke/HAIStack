@@ -9,6 +9,8 @@ import (
 )
 
 // TenantIssuerConfig describes OAuth issuer settings for one tenant namespace.
+// Multi-tenant servers merge Base with each tenant entry in ServerForTenant.
+// Fields below replace (not inherit) the corresponding Base settings for that tenant.
 type TenantIssuerConfig struct {
 	// TenantID is the stable tenant identifier used in routes and token tenant hints.
 	TenantID string
@@ -16,23 +18,23 @@ type TenantIssuerConfig struct {
 	Issuer string
 	// FHIRBaseURL is the access token audience / SMART FHIR base for this tenant.
 	FHIRBaseURL string
-	// Signer optionally overrides the base signer for this tenant.
+	// Signer replaces the base signer for this tenant when non-nil.
 	Signer TokenSigner
-	// Clients optionally overrides the base client registry for this tenant.
+	// Clients replaces the base client registry for this tenant when non-nil.
 	Clients *ClientRegistry
-	// ScopesSupported optionally overrides advertised scopes for this tenant.
+	// ScopesSupported replaces advertised scopes for this tenant when non-empty.
 	ScopesSupported []string
-	// ConsentUI optionally overrides base consent branding for this tenant.
+	// ConsentUI replaces base consent branding for this tenant when non-nil.
 	ConsentUI *ConsentUIConfig
-	// ConsentLogin optionally overrides base login handler for this tenant.
+	// ConsentLogin replaces the base consent login handler for this tenant when non-nil.
 	ConsentLogin ConsentLoginHandler
-	// AutoApprove optionally overrides base auto-approve for this tenant.
+	// AutoApprove replaces the base auto-approve setting for this tenant when non-nil.
 	AutoApprove *bool
-	// LaunchIssuerAuth optionally overrides base launch issuer credentials for this tenant.
+	// LaunchIssuerAuth is the only launch credential source for this tenant (base creds are not inherited).
 	LaunchIssuerAuth *LaunchIssuerAuth
-	// LaunchIssuers optionally overrides base launch issuer registry for this tenant.
+	// LaunchIssuers is the only launch credential registry for this tenant (base registries are not inherited).
 	LaunchIssuers *LaunchIssuerRegistry
-	// LaunchIssuerMTLS optionally overrides base launch mTLS settings for this tenant.
+	// LaunchIssuerMTLS is the only launch mTLS configuration for this tenant (base settings are not inherited).
 	LaunchIssuerMTLS *LaunchIssuerMTLSConfig
 }
 

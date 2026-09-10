@@ -102,6 +102,10 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			s.redirectError(w, r, redirectURI, "invalid_request", "invalid launch token", state)
 			return
 		}
+		if launchCtx.Issuer != s.issuer {
+			s.redirectError(w, r, redirectURI, "invalid_request", "invalid launch token", state)
+			return
+		}
 		if launchCtx.PatientID != "" {
 			patient = launchCtx.PatientID
 		}

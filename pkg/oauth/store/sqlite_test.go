@@ -99,6 +99,7 @@ func TestSQLiteStores_AuthCodeAndRefresh(t *testing.T) {
 	launchToken, err := stores.Launch.Issue(oauth.LaunchContextRecord{
 		PatientID: "pat-1",
 		UserID:    "Practitioner/demo",
+		Issuer:    "https://example.com",
 	})
 	if err != nil {
 		t.Fatal(err)

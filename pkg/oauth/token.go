@@ -81,7 +81,7 @@ func (s *Server) handleAuthorizationCodeGrant(w http.ResponseWriter, r *http.Req
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
 		return
 	}
-	if authCode.Issuer != "" && authCode.Issuer != s.issuer {
+	if authCode.Issuer != s.issuer {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code issuer mismatch")
 		return
 	}
