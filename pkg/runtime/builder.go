@@ -27,6 +27,7 @@ type Builder struct {
 	sdcService     hahttp.SDCService
 	searchEnabled  bool
 
+	remoteTerminologyURL  string
 	syncHubURL            string
 	syncHub               hasync.Hub
 	syncServer            hasync.HubServer
@@ -115,6 +116,13 @@ func (b *Builder) WithSDC(service hahttp.SDCService) *Builder { b.sdcService = s
 // On SQLite this wires embedded/basic search; advanced search remains Postgres-first.
 func (b *Builder) WithSearch() *Builder {
 	b.searchEnabled = true
+	return b
+}
+
+// WithRemoteTerminologyTranslate sets a FHIR server base URL used for ConceptMap/$translate
+// when local ConceptMaps are unavailable.
+func (b *Builder) WithRemoteTerminologyTranslate(baseURL string) *Builder {
+	b.remoteTerminologyURL = baseURL
 	return b
 }
 

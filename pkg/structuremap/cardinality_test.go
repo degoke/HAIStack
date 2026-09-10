@@ -270,6 +270,131 @@ func TestMapCardinalityResolverMergesProfileWithBase(t *testing.T) {
 	}
 }
 
+func TestMapCardinalityResolverFirstRepeatingProfileWins(t *testing.T) {
+	firstRepeating, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/first-repeating",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "2"},
+			},
+		},
+	})
+	secondRepeating, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/second-repeating",
+		"type":         "Observation",
+		"derivation":   "constraint",
+		"differential": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation":        baseSD,
+		"http://example.org/StructureDefinition/first-repeating":    firstRepeating,
+		"http://example.org/StructureDefinition/second-repeating":   secondRepeating,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	obs := map[string]any{
+		"resourceType": "Observation",
+		"meta": map[string]any{
+			"profile": []any{
+				"http://example.org/StructureDefinition/first-repeating",
+				"http://example.org/StructureDefinition/second-repeating",
+			},
+		},
+	}
+	repeating, ok := resolver.IsRepeatingFor(context.Background(), obs, "Observation.component")
+	if !ok || !repeating {
+		t.Fatalf("expected first repeating profile to win over base singular, got ok=%v repeating=%v", ok, repeating)
+	}
+}
+
+func TestMapCardinalityResolverSnapshotProfileDoesNotMergeBase(t *testing.T) {
+	baseSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"type":         "Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation.code", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "*"},
+			},
+		},
+	})
+	profileSD, _ := json.Marshal(map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://example.org/StructureDefinition/snapshot-only",
+		"type":         "Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{"path": "Observation", "max": "1"},
+				map[string]any{"path": "Observation.component", "max": "1"},
+			},
+		},
+	})
+	store := memDefinitionStore{records: map[string][]byte{
+		"http://hl7.org/fhir/StructureDefinition/Observation": baseSD,
+		"http://example.org/StructureDefinition/snapshot-only": profileSD,
+	}}
+	resolver := newMapCardinalityResolver(store, Map{})
+	index, err := resolver.loadIndex(context.Background(), "http://example.org/StructureDefinition/snapshot-only", "Observation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := index["Observation.code"]; ok {
+		t.Fatalf("snapshot-only profile must not inherit base paths: %#v", index)
+	}
+	if index["Observation.component"] != "1" {
+		t.Fatalf("expected snapshot component max 1, got %#v", index["Observation.component"])
+	}
+}
+
+func TestMapCardinalityResolverIndexesChoiceTypes(t *testing.T) {
+	sd := map[string]any{
+		"resourceType": "StructureDefinition",
+		"url":          "http://hl7.org/fhir/StructureDefinition/Observation",
+		"snapshot": map[string]any{
+			"element": []any{
+				map[string]any{
+					"path": "Observation.value[x]",
+					"max":  "1",
+					"type": []any{
+						map[string]any{"code": "Quantity"},
+						map[string]any{"code": "string"},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := newMapCardinalityResolver(memDefinitionStore{
+		records: map[string][]byte{
+			"http://hl7.org/fhir/StructureDefinition/Observation": raw,
+		},
+	}, Map{})
+	singular, ok := resolver.IsRepeating(context.Background(), "Observation.valueQuantity")
+	if !ok || singular {
+		t.Fatalf("expected Observation.valueQuantity to be singular, got ok=%v repeating=%v", ok, singular)
+	}
+}
+
 func TestMapCardinalityResolverPrefersSingularProfile(t *testing.T) {
 	repeatingProfile, _ := json.Marshal(map[string]any{
 		"resourceType": "StructureDefinition",

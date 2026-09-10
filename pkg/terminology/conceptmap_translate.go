@@ -12,11 +12,8 @@ type ConceptMapTranslateRequest struct {
 	Coding                     Coding
 }
 
-// Translate performs ConceptMap translation using ConceptMaps stored in the terminology projection.
+// Translate performs ConceptMap translation using local projections, with optional remote fallback.
 func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateRequest) ([]Coding, error) {
-	if s == nil || s.Store == nil {
-		return nil, conceptmap.ErrNotFound(req.URL)
-	}
 	source := map[string]any{"code": req.Coding.Code}
 	if req.Coding.System != "" {
 		source["system"] = req.Coding.System
@@ -28,8 +25,13 @@ func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateReq
 	if req.Version != "" {
 		canonical = req.URL + "|" + req.Version
 	}
-	resolver := &conceptmap.TerminologyStoreResolver{Store: s.Store, ScopeID: s.ScopeID}
-	translator := conceptmap.Translator{Resolver: resolver}
+	translator := conceptmap.Translator{Remote: s.RemoteTranslate}
+	if s != nil && s.Store != nil {
+		translator.Resolver = &conceptmap.TerminologyStoreResolver{Store: s.Store, ScopeID: s.ScopeID}
+	}
+	if translator.Resolver == nil && translator.Remote == nil {
+		return nil, conceptmap.ErrNotFound(req.URL)
+	}
 	codings, err := translator.Translate(ctx, conceptmap.TranslateRequest{
 		MapCanonical: canonical,
 		Source:       source,

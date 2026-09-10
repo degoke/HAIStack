@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -72,7 +73,6 @@ func (r *mapCardinalityResolver) IsRepeatingFor(ctx context.Context, root map[st
 		return false, false
 	}
 	profileURLs := profileURLsFromResource(root, r.profiles[resourceType])
-	foundRepeating := false
 	for _, profileURL := range profileURLs {
 		repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
 		if err != nil || !resolved {
@@ -81,10 +81,15 @@ func (r *mapCardinalityResolver) IsRepeatingFor(ctx context.Context, root map[st
 		if !repeating {
 			return false, true
 		}
-		foundRepeating = true
 	}
-	if foundRepeating {
-		return true, true
+	for _, profileURL := range profileURLs {
+		repeating, resolved, err := r.lookupResolved(ctx, profileURL, fhirPath)
+		if err != nil || !resolved {
+			continue
+		}
+		if repeating {
+			return true, true
+		}
 	}
 	return r.lookup(ctx, "", fhirPath)
 }
@@ -178,13 +183,28 @@ func (r *mapCardinalityResolver) buildIndex(ctx context.Context, canonicalURL, r
 		sdType = resourceType
 	}
 	baseCanonical := baseStructureDefinitionURL(sdType)
-	if canonicalURL != baseCanonical {
+	if canonicalURL != baseCanonical && profileUsesDifferentialOverlay(sd) {
 		baseIndex, err := r.loadIndex(ctx, baseCanonical, sdType)
 		if err == nil {
 			index = mergeElementIndexes(baseIndex, index)
 		}
 	}
 	return index, nil
+}
+
+func profileUsesDifferentialOverlay(sd map[string]any) bool {
+	derivation, _ := sd["derivation"].(string)
+	if derivation != "constraint" {
+		return false
+	}
+	differential, _ := sd["differential"].(map[string]any)
+	diffElements, _ := differential["element"].([]any)
+	if len(diffElements) == 0 {
+		return false
+	}
+	snapshot, _ := sd["snapshot"].(map[string]any)
+	snapElements, _ := snapshot["element"].([]any)
+	return len(snapElements) == 0
 }
 
 func elementIndexFromDefinition(sd map[string]any, resourceType string) map[string]string {
@@ -204,8 +224,57 @@ func elementIndexFromDefinition(sd map[string]any, resourceType string) map[stri
 		}
 		max, _ := element["max"].(string)
 		index[path] = max
+		if strings.Contains(path, "[x]") {
+			parent, child := splitElementPath(path)
+			if parent != "" && child != "" {
+				types := elementTypes(element)
+				for _, key := range choiceJSONKeys(child, types) {
+					index[parent+"."+key] = max
+				}
+			}
+		}
 	}
 	return index
+}
+
+func elementTypes(element map[string]any) []string {
+	raw, _ := element["type"].([]any)
+	types := make([]string, 0, len(raw))
+	for _, item := range raw {
+		typed, _ := item.(map[string]any)
+		if typed == nil {
+			continue
+		}
+		if code, _ := typed["code"].(string); code != "" {
+			types = append(types, code)
+		}
+	}
+	return types
+}
+
+func splitElementPath(path string) (parent, child string) {
+	i := strings.LastIndex(path, ".")
+	if i < 0 {
+		return path, ""
+	}
+	return path[:i], path[i+1:]
+}
+
+func choiceJSONKeys(choiceName string, types []string) []string {
+	base := strings.TrimSuffix(choiceName, "[x]")
+	if base == "" || len(types) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(types))
+	for _, typ := range types {
+		if typ == "" {
+			continue
+		}
+		runes := []rune(typ)
+		runes[0] = unicode.ToUpper(runes[0])
+		out = append(out, base+string(runes))
+	}
+	return out
 }
 
 func mergeElementIndexes(base, overlay map[string]string) map[string]string {

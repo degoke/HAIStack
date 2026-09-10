@@ -214,7 +214,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		termScope = pc.syncTenantID
 	}
 	if pc.terminology != nil {
-		state.services.TerminologyService = &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+		termSvc := &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+		if b.remoteTerminologyURL != "" {
+			termSvc.RemoteTranslate = conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+		}
+		state.services.TerminologyService = termSvc
 	}
 
 	var reindexNotifier registry.SearchReindexNotifier
@@ -473,10 +477,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 					Engine: structuremap.Engine{
 						FHIRPath:    engine,
 						Strict:      true,
-						Translator: conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
-							&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
-							&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
-						}}},
+						Translator: b.structureMapTranslator(pc, termScope),
 						Cardinality: &structuremap.StoreCardinalityResolver{Store: pc.definitions},
 					},
 				}),
@@ -529,4 +530,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil
+}
+
+func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string) conceptmap.Translator {
+	translator := conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
+		&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+		&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
+	}}}
+	if b.remoteTerminologyURL != "" {
+		translator.Remote = conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+	}
+	return translator
 }

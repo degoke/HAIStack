@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
+	"strings"
 	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -16,9 +18,9 @@ func EmbeddedDefinitionStore() store.DefinitionStore {
 var embeddedDefinitionStoreInst = &embeddedDefinitionStore{}
 
 type embeddedDefinitionStore struct {
-	mu      sync.Mutex
-	byURL   map[string][]byte
-	loaded  bool
+	mu     sync.Mutex
+	byURL  map[string][]byte
+	loaded map[string]bool
 }
 
 func (s *embeddedDefinitionStore) Upsert(context.Context, store.DefinitionResourceRecord, []store.DefinitionTargetRecord) error {
@@ -34,8 +36,7 @@ func (s *embeddedDefinitionStore) List(context.Context, store.DefinitionFilter) 
 }
 
 func (s *embeddedDefinitionStore) Get(_ context.Context, canonicalURL, _ string) (*store.DefinitionResourceRecord, error) {
-	s.ensureLoaded()
-	raw, ok := s.byURL[canonicalURL]
+	raw, ok := s.load(canonicalURL)
 	if !ok || len(raw) == 0 {
 		return nil, context.Canceled
 	}
@@ -45,28 +46,63 @@ func (s *embeddedDefinitionStore) Get(_ context.Context, canonicalURL, _ string)
 	}, nil
 }
 
-func (s *embeddedDefinitionStore) ensureLoaded() {
+func (s *embeddedDefinitionStore) load(canonicalURL string) ([]byte, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.loaded {
-		return
+	if s.byURL == nil {
+		s.byURL = map[string][]byte{}
+		s.loaded = map[string]bool{}
 	}
-	s.byURL = map[string][]byte{}
-	rawResources, err := loadR4Bundle()
-	if err == nil {
-		for _, raw := range rawResources {
-			var peek struct {
-				ResourceType string `json:"resourceType"`
-				URL          string `json:"url"`
-			}
-			if err := json.Unmarshal(raw, &peek); err != nil {
-				continue
-			}
-			if peek.ResourceType != "StructureDefinition" || peek.URL == "" {
-				continue
-			}
-			s.byURL[peek.URL] = raw
-		}
+	if raw, ok := s.byURL[canonicalURL]; ok {
+		s.mu.Unlock()
+		return raw, true
 	}
-	s.loaded = true
+	if s.loaded[canonicalURL] {
+		s.mu.Unlock()
+		return nil, false
+	}
+	s.mu.Unlock()
+
+	raw, ok := readEmbeddedStructureDefinition(canonicalURL)
+
+	s.mu.Lock()
+	s.loaded[canonicalURL] = true
+	if ok {
+		s.byURL[canonicalURL] = raw
+	}
+	s.mu.Unlock()
+	return raw, ok
+}
+
+func readEmbeddedStructureDefinition(canonicalURL string) ([]byte, bool) {
+	path, ok := embeddedStructureDefinitionPath(canonicalURL)
+	if !ok {
+		return nil, false
+	}
+	raw, err := fs.ReadFile(r4BundleFS, path)
+	if err != nil {
+		return nil, false
+	}
+	var peek struct {
+		ResourceType string `json:"resourceType"`
+		URL          string `json:"url"`
+	}
+	if err := json.Unmarshal(raw, &peek); err != nil {
+		return nil, false
+	}
+	if peek.ResourceType != "StructureDefinition" || peek.URL != canonicalURL {
+		return nil, false
+	}
+	return raw, true
+}
+
+func embeddedStructureDefinitionPath(canonicalURL string) (string, bool) {
+	const prefix = "http://hl7.org/fhir/StructureDefinition/"
+	if !strings.HasPrefix(canonicalURL, prefix) {
+		return "", false
+	}
+	id := strings.TrimPrefix(canonicalURL, prefix)
+	if id == "" || strings.Contains(id, "/") {
+		return "", false
+	}
+	return "internal/bundles/r4/structure-definitions/" + id + ".json", true
 }

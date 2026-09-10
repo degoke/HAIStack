@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -101,12 +102,13 @@ type Invalidator interface {
 
 // LocalService uses compiled projections and deterministic canonical resolution.
 type LocalService struct {
-	Store        store.TerminologyStore
-	ScopeID      string
-	MaxExpansion int
-	mu           sync.RWMutex
-	lookupCache  map[string]*LookupResult
-	expandCache  map[string]*Expansion
+	Store           store.TerminologyStore
+	ScopeID         string
+	MaxExpansion    int
+	RemoteTranslate conceptmap.RemoteTranslateClient
+	mu              sync.RWMutex
+	lookupCache     map[string]*LookupResult
+	expandCache     map[string]*Expansion
 }
 
 // LocalServiceOption configures NewLocalService.

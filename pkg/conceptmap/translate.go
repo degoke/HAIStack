@@ -6,9 +6,15 @@ import (
 	"strings"
 )
 
+// RemoteTranslateClient performs ConceptMap translation against an external terminology server.
+type RemoteTranslateClient interface {
+	Translate(ctx context.Context, req TranslateRequest) ([]map[string]any, error)
+}
+
 // Translator translates source codings using ConceptMap resources.
 type Translator struct {
 	Resolver Resolver
+	Remote   RemoteTranslateClient
 }
 
 // TranslateRequest identifies a source coding and ConceptMap to apply.
@@ -20,12 +26,25 @@ type TranslateRequest struct {
 
 // Translate returns target codings for a source coding.
 func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[string]any, error) {
-	if t.Resolver == nil {
-		return nil, fmt.Errorf("ConceptMap resolver is unavailable")
-	}
 	if req.MapCanonical == "" {
 		return nil, fmt.Errorf("ConceptMap canonical URL is required")
 	}
+	if t.Resolver != nil {
+		codings, err := t.translateLocal(ctx, req)
+		if err == nil {
+			return codings, nil
+		}
+		if t.Remote == nil {
+			return nil, err
+		}
+	}
+	if t.Remote == nil {
+		return nil, fmt.Errorf("ConceptMap resolver is unavailable")
+	}
+	return t.Remote.Translate(ctx, req)
+}
+
+func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([]map[string]any, error) {
 	m, err := t.Resolver.Resolve(ctx, req.MapCanonical)
 	if err != nil {
 		return nil, err
