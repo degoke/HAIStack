@@ -65,6 +65,9 @@ type Config struct {
 	// TerminologyInstallService handles Basic/$terminology-install.
 	TerminologyInstallService TerminologyInstallService
 
+	// TerminologyEnableService handles Basic/$terminology-enable.
+	TerminologyEnableService TerminologyEnableService
+
 	// ModuleInstallService handles Basic/$install.
 	ModuleInstallService ModuleInstallService
 

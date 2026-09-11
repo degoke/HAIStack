@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
@@ -89,12 +90,76 @@ func parseTerminologyInstallParameters(body []byte) (scopeID string, preExpand b
 	return scopeID, preExpand
 }
 
-func terminologyInstallJobParameters(jobID, scopeID string) *types.ResourceEnvelope {
+func terminologyEnableRecordFromRequest(r *http.Request) store.TerminologyInstallRecord {
+	enabled := true
+	if v := strings.TrimSpace(r.URL.Query().Get("enabled")); v != "" {
+		enabled = strings.EqualFold(v, "true")
+	}
+	return store.TerminologyInstallRecord{
+		CanonicalURL: strings.TrimSpace(r.URL.Query().Get("canonicalUrl")),
+		Version:      strings.TrimSpace(r.URL.Query().Get("version")),
+		ResourceType: strings.TrimSpace(r.URL.Query().Get("resourceType")),
+		PackName:     strings.TrimSpace(r.URL.Query().Get("packName")),
+		PackVersion:  strings.TrimSpace(r.URL.Query().Get("packVersion")),
+		Enabled:      enabled,
+	}
+}
+
+func parseTerminologyEnableParameters(body []byte, defaults store.TerminologyInstallRecord) store.TerminologyInstallRecord {
+	if len(body) == 0 {
+		return defaults
+	}
+	var params struct {
+		Parameter []struct {
+			Name          string `json:"name"`
+			ValueString   string `json:"valueString,omitempty"`
+			ValueBoolean  bool   `json:"valueBoolean,omitempty"`
+		} `json:"parameter"`
+	}
+	if err := json.Unmarshal(body, &params); err != nil {
+		return defaults
+	}
+	record := defaults
+	for _, p := range params.Parameter {
+		switch p.Name {
+		case "canonicalUrl":
+			record.CanonicalURL = strings.TrimSpace(p.ValueString)
+		case "version":
+			record.Version = strings.TrimSpace(p.ValueString)
+		case "resourceType":
+			record.ResourceType = strings.TrimSpace(p.ValueString)
+		case "packName":
+			record.PackName = strings.TrimSpace(p.ValueString)
+		case "packVersion":
+			record.PackVersion = strings.TrimSpace(p.ValueString)
+		case "enabled":
+			record.Enabled = p.ValueBoolean
+		}
+	}
+	return record
+}
+
+func terminologyEnableParameters(record store.TerminologyInstallRecord) *types.ResourceEnvelope {
+	payload := map[string]any{
+		"resourceType": "Parameters",
+		"parameter": []map[string]any{
+			{"name": "canonicalUrl", "valueString": record.CanonicalURL},
+			{"name": "version", "valueString": record.Version},
+			{"name": "resourceType", "valueString": record.ResourceType},
+			{"name": "enabled", "valueBoolean": record.Enabled},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return &types.ResourceEnvelope{ResourceType: "Parameters", JSON: raw}
+}
+
+func terminologyInstallJobParameters(jobID, scopeID string, preExpand bool) *types.ResourceEnvelope {
 	payload := map[string]any{
 		"resourceType": "Parameters",
 		"parameter": []map[string]any{
 			{"name": "jobId", "valueString": jobID},
 			{"name": "scopeId", "valueString": scopeID},
+			{"name": "preExpandValueSets", "valueBoolean": preExpand},
 			{"name": "status", "valueString": "accepted"},
 		},
 	}

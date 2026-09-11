@@ -18,6 +18,7 @@ const (
 	SkipAlreadyExpanded     PreExpandSkipReason = "already-expanded"
 	SkipTooCostly           PreExpandSkipReason = "too-costly"
 	SkipMissingCodeSystem   PreExpandSkipReason = "missing-code-system"
+	SkipMissingValueSet     PreExpandSkipReason = "missing-valueset"
 	SkipOptInRequired       PreExpandSkipReason = "opt-in-required"
 	SkipNoCompose           PreExpandSkipReason = "no-compose"
 )
@@ -48,15 +49,47 @@ func StoreForScope(tenant store.TerminologyStore, tenantScope string, installs s
 	return layered
 }
 
-// PreExpandScope expands ValueSets in a scope, optionally filtering to specific URLs.
-func PreExpandScope(ctx context.Context, st store.TerminologyStore, scopeID string, urls []string, opts PreExpandOptions) ([]PreExpandResult, error) {
-	if st == nil {
+// ShouldEnqueuePreExpand reports whether a ValueSet is worth enqueueing for pre-expand.
+// Full CodeSystem inclusions without explicit concepts are treated as potentially unbounded.
+func ShouldEnqueuePreExpand(raw []byte) bool {
+	var r map[string]any
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return false
+	}
+	if hasServerExpansion(r) {
+		return false
+	}
+	compose, ok := r["compose"].(map[string]any)
+	if !ok {
+		return false
+	}
+	includes, ok := compose["include"].([]any)
+	if !ok || len(includes) == 0 {
+		return false
+	}
+	for _, iv := range includes {
+		m, _ := iv.(map[string]any)
+		sys, _ := m["system"].(string)
+		if sys != "" && m["concept"] == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// PreExpandScope expands ValueSets stored in scopeID using listStore for enumeration
+// and composeStore for dependency resolution during composition.
+func PreExpandScope(ctx context.Context, listStore, composeStore store.TerminologyStore, scopeID string, urls []string, opts PreExpandOptions) ([]PreExpandResult, error) {
+	if listStore == nil {
 		return nil, fmt.Errorf("terminology store is required")
 	}
 	if scopeID == "" {
 		return nil, fmt.Errorf("scope is required")
 	}
-	resources, err := st.ListResources(ctx, scopeID, "ValueSet")
+	if composeStore == nil {
+		composeStore = listStore
+	}
+	resources, err := listStore.ListResources(ctx, scopeID, "ValueSet")
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +101,13 @@ func PreExpandScope(ctx context.Context, st store.TerminologyStore, scopeID stri
 	}
 	var results []PreExpandResult
 	for _, r := range resources {
+		if r.ScopeID != "" && r.ScopeID != scopeID {
+			continue
+		}
 		if len(filter) > 0 && !filter[r.CanonicalURL] {
 			continue
 		}
-		res, err := PreExpandValueSet(ctx, st, scopeID, r.CanonicalURL, r.Version, r.ResourceJSON, opts)
+		res, err := PreExpandValueSet(ctx, listStore, composeStore, scopeID, r.CanonicalURL, r.Version, r.ResourceJSON, opts)
 		if err != nil {
 			return results, err
 		}
@@ -81,15 +117,21 @@ func PreExpandScope(ctx context.Context, st store.TerminologyStore, scopeID stri
 }
 
 // PreExpandValueSet composes and persists expansion members for one ValueSet.
-func PreExpandValueSet(ctx context.Context, st store.TerminologyStore, scopeID, url, version string, canonicalJSON []byte, opts PreExpandOptions) (PreExpandResult, error) {
+func PreExpandValueSet(ctx context.Context, store, composeStore store.TerminologyStore, scopeID, url, version string, canonicalJSON []byte, opts PreExpandOptions) (PreExpandResult, error) {
 	result := PreExpandResult{URL: url, Version: version}
+	if store == nil {
+		return result, fmt.Errorf("terminology store is required")
+	}
+	if composeStore == nil {
+		composeStore = store
+	}
 	if url == "" {
 		result.Skipped = true
 		result.Reason = SkipNotFound
 		return result, nil
 	}
 	if len(canonicalJSON) == 0 {
-		rec, err := st.FindResource(ctx, scopeID, "ValueSet", url, version)
+		rec, err := store.FindResource(ctx, scopeID, "ValueSet", url, version)
 		if err != nil {
 			return result, err
 		}
@@ -105,11 +147,24 @@ func PreExpandValueSet(ctx context.Context, st store.TerminologyStore, scopeID, 
 		return result, err
 	}
 	if hasServerExpansion(raw) {
-		result.Skipped = true
-		result.Reason = SkipServerExpansion
+		members, err := store.ListValueSetMembers(ctx, scopeID, url, version)
+		if err != nil {
+			return result, err
+		}
+		if len(members) > 0 {
+			result.Skipped = true
+			result.Reason = SkipServerExpansion
+			result.Members = len(members)
+			return result, nil
+		}
+		persisted, err := persistServerExpansion(ctx, store, scopeID, url, version, raw)
+		if err != nil {
+			return result, err
+		}
+		result.Members = persisted
 		return result, nil
 	}
-	vs, err := st.GetValueSet(ctx, scopeID, url, version)
+	vs, err := store.GetValueSet(ctx, scopeID, url, version)
 	if err != nil {
 		return result, err
 	}
@@ -118,7 +173,7 @@ func PreExpandValueSet(ctx context.Context, st store.TerminologyStore, scopeID, 
 		result.Reason = SkipNoCompose
 		return result, nil
 	}
-	members, err := st.ListValueSetMembers(ctx, scopeID, url, version)
+	members, err := store.ListValueSetMembers(ctx, scopeID, url, version)
 	if err != nil {
 		return result, err
 	}
@@ -129,12 +184,12 @@ func PreExpandValueSet(ctx context.Context, st store.TerminologyStore, scopeID, 
 		result.Members = len(members)
 		return result, nil
 	}
-	if reason := composeDependenciesBlocked(ctx, st, opts.Installs, scopeID, vs.ComposeJSON); reason != "" {
+	if reason := composeDependenciesBlocked(ctx, composeStore, opts.Installs, scopeID, vs.ComposeJSON); reason != "" {
 		result.Skipped = true
 		result.Reason = reason
 		return result, nil
 	}
-	composed, err := composeMembers(ctx, st, scopeID, vs.ComposeJSON, map[string]bool{url + "|" + version: true})
+	composed, err := composeMembers(ctx, composeStore, scopeID, vs.ComposeJSON, map[string]bool{url + "|" + version: true})
 	if err != nil {
 		return result, err
 	}
@@ -155,11 +210,31 @@ func PreExpandValueSet(ctx context.Context, st store.TerminologyStore, scopeID, 
 	record := *vs
 	record.ExpansionFingerprint = fp
 	record.ExpansionTimestamp = time.Now().UTC().Format(time.RFC3339)
-	if err := st.ReplaceValueSet(ctx, record, composed); err != nil {
+	if err := store.ReplaceValueSet(ctx, record, composed); err != nil {
 		return result, err
 	}
 	result.Members = len(composed)
 	return result, nil
+}
+
+func persistServerExpansion(ctx context.Context, st store.TerminologyStore, scopeID, url, version string, raw map[string]any) (int, error) {
+	vs, err := st.GetValueSet(ctx, scopeID, url, version)
+	if err != nil {
+		return 0, err
+	}
+	if vs == nil {
+		return 0, nil
+	}
+	members := membersFromFHIRExpansion(scopeID, url, version, raw)
+	if len(members) == 0 {
+		return 0, nil
+	}
+	record := *vs
+	record.ExpansionTimestamp = time.Now().UTC().Format(time.RFC3339)
+	if err := st.ReplaceValueSet(ctx, record, members); err != nil {
+		return 0, err
+	}
+	return len(members), nil
 }
 
 func hasServerExpansion(r map[string]any) bool {
@@ -179,43 +254,94 @@ func composeDependenciesBlocked(ctx context.Context, st store.TerminologyStore, 
 	inc, _ := c["include"].([]any)
 	for _, iv := range inc {
 		m, _ := iv.(map[string]any)
-		sys, _ := m["system"].(string)
-		if sys == "" {
+		if reason := includeDependencyBlocked(ctx, st, installs, scopeID, m); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func includeDependencyBlocked(ctx context.Context, st store.TerminologyStore, installs store.TerminologyInstallStore, scopeID string, include map[string]any) PreExpandSkipReason {
+	sys, _ := include["system"].(string)
+	if sys != "" {
+		if reason := codeSystemDependencyBlocked(ctx, st, installs, scopeID, sys); reason != "" {
+			return reason
+		}
+	}
+	vals, _ := include["valueSet"].([]any)
+	for _, vv := range vals {
+		u, _ := vv.(string)
+		if u == "" {
 			continue
 		}
-		if scopeID == GlobalScopeID {
-			if !codeSystemExistsInScope(ctx, st, GlobalScopeID, sys) {
-				return SkipMissingCodeSystem
-			}
-			continue
+		if reason := valueSetDependencyBlocked(ctx, st, installs, scopeID, u); reason != "" {
+			return reason
 		}
-		local, err := st.FindResource(ctx, scopeID, "CodeSystem", sys, "")
-		if err != nil {
-			return ""
-		}
-		if local != nil {
-			continue
-		}
-		global, err := st.FindResource(ctx, GlobalScopeID, "CodeSystem", sys, "")
-		if err != nil {
-			return ""
-		}
-		if global == nil {
+	}
+	return ""
+}
+
+func codeSystemDependencyBlocked(ctx context.Context, st store.TerminologyStore, installs store.TerminologyInstallStore, scopeID, url string) PreExpandSkipReason {
+	if scopeID == GlobalScopeID {
+		if !codeSystemExistsInScope(ctx, st, GlobalScopeID, url) {
 			return SkipMissingCodeSystem
 		}
-		if installs == nil {
-			return SkipOptInRequired
+		return ""
+	}
+	if codeSystemExistsInScope(ctx, st, scopeID, url) {
+		return ""
+	}
+	if !codeSystemExistsInScope(ctx, st, GlobalScopeID, url) {
+		return SkipMissingCodeSystem
+	}
+	if installs == nil {
+		return SkipOptInRequired
+	}
+	layered := &LayeredStore{Store: st, TenantScopeID: scopeID, GlobalScopeID: GlobalScopeID, Installs: installs}
+	if !layered.globalAllowed(ctx, url, "", "CodeSystem") {
+		return SkipOptInRequired
+	}
+	return ""
+}
+
+func valueSetDependencyBlocked(ctx context.Context, st store.TerminologyStore, installs store.TerminologyInstallStore, scopeID, url string) PreExpandSkipReason {
+	if scopeID == GlobalScopeID {
+		if !valueSetExistsInScope(ctx, st, GlobalScopeID, url) {
+			return SkipMissingValueSet
 		}
-		layered := &LayeredStore{Store: st, TenantScopeID: scopeID, GlobalScopeID: GlobalScopeID, Installs: installs}
-		if !layered.globalAllowed(ctx, sys, "", "CodeSystem") {
-			return SkipOptInRequired
-		}
+		return ""
+	}
+	if valueSetExistsInScope(ctx, st, scopeID, url) {
+		return ""
+	}
+	if !valueSetExistsInScope(ctx, st, GlobalScopeID, url) {
+		return SkipMissingValueSet
+	}
+	if installs == nil {
+		return SkipOptInRequired
+	}
+	layered := &LayeredStore{Store: st, TenantScopeID: scopeID, GlobalScopeID: GlobalScopeID, Installs: installs}
+	if !layered.globalAllowed(ctx, url, "", "ValueSet") {
+		return SkipOptInRequired
 	}
 	return ""
 }
 
 func codeSystemExistsInScope(ctx context.Context, st store.TerminologyStore, scopeID, url string) bool {
 	resources, err := st.ListResources(ctx, scopeID, "CodeSystem")
+	if err != nil {
+		return false
+	}
+	for _, rec := range resources {
+		if rec.CanonicalURL == url {
+			return true
+		}
+	}
+	return false
+}
+
+func valueSetExistsInScope(ctx context.Context, st store.TerminologyStore, scopeID, url string) bool {
+	resources, err := st.ListResources(ctx, scopeID, "ValueSet")
 	if err != nil {
 		return false
 	}

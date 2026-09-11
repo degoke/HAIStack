@@ -571,9 +571,10 @@ func membersFromFHIRExpansion(scopeID, vsURL, vsVersion string, r map[string]any
 		}
 		display, _ := m["display"].(string)
 		version, _ := m["version"].(string)
+		inactive, _ := m["inactive"].(bool)
 		out = append(out, store.TerminologyExpansionMemberRecord{
 			ScopeID: scopeID, ValueSetURL: vsURL, ValueSetVersion: vsVersion,
-			SystemURL: sys, SystemVersion: version, Code: code, Display: display,
+			SystemURL: sys, SystemVersion: version, Code: code, Display: display, Inactive: inactive,
 		})
 	}
 	return out

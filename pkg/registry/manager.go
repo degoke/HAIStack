@@ -239,7 +239,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				return err
 			}
 		}
-		if parsed.FHIRResourceType == "ValueSet" && m.preExpandValueSets && m.jobStore != nil {
+		if parsed.FHIRResourceType == "ValueSet" && m.preExpandValueSets && m.jobStore != nil && terminology.ShouldEnqueuePreExpand(jsonData) {
 			if _, err := jobs.Enqueue(ctx, m.jobStore, jobs.TypeTerminologyPreExpand, jobs.TerminologyPreExpandPayload{
 				ScopeID: termScope,
 				URL:     parsed.CanonicalURL,

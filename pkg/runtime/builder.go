@@ -45,6 +45,7 @@ type Builder struct {
 
 	remoteTerminologyURL string
 	preExpandValueSets   bool
+	maxExpansion         int
 }
 
 // New returns a new runtime builder.
@@ -83,6 +84,13 @@ func (b *Builder) WithRemoteTerminology(baseURL string) *Builder {
 // packages install finite global ValueSets.
 func (b *Builder) WithPreExpandValueSets(enabled bool) *Builder {
 	b.preExpandValueSets = enabled
+	return b
+}
+
+// WithMaxExpansion sets the maximum ValueSet expansion size for terminology
+// services and pre-expand workers. Zero uses the default of 10000.
+func (b *Builder) WithMaxExpansion(max int) *Builder {
+	b.maxExpansion = max
 	return b
 }
 

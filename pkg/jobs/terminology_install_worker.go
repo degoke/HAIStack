@@ -40,8 +40,8 @@ func (w *TerminologyInstallWorker) HandleJob(ctx context.Context, job store.JobR
 	}
 	if payload.PreExpandValueSets {
 		_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Message: scope})
-		st := terminology.StoreForScope(w.Terminology, w.ScopeID, w.Installs, scope)
-		results, err := terminology.PreExpandScope(ctx, st, scope, nil, terminology.PreExpandOptions{
+		composeStore := terminology.StoreForScope(w.Terminology, w.ScopeID, w.Installs, scope)
+		results, err := terminology.PreExpandScope(ctx, w.Terminology, composeStore, scope, nil, terminology.PreExpandOptions{
 			MaxExpansion: w.MaxExpansion,
 			Installs:     w.Installs,
 		})

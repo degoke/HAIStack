@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -44,6 +45,32 @@ type JobStatusService interface {
 // CoreJobStatusService implements JobStatusService using store.JobStore.
 type CoreJobStatusService struct {
 	JobStore store.JobStore
+}
+
+// TerminologyEnableService enables or disables tenant opt-in to global catalog entries.
+type TerminologyEnableService interface {
+	SetEnabled(ctx context.Context, record store.TerminologyInstallRecord) error
+}
+
+// CoreTerminologyEnableService implements terminology catalog opt-in.
+type CoreTerminologyEnableService struct {
+	Installs store.TerminologyInstallStore
+}
+
+func (s CoreTerminologyEnableService) SetEnabled(ctx context.Context, record store.TerminologyInstallRecord) error {
+	if s.Installs == nil {
+		return notConfigured("terminology install store")
+	}
+	if record.CanonicalURL == "" {
+		return invalidRequest("canonicalUrl is required for terminology enable", nil)
+	}
+	if record.ResourceType == "" {
+		record.ResourceType = "CodeSystem"
+	}
+	if record.InstalledAt.IsZero() {
+		record.InstalledAt = time.Now().UTC()
+	}
+	return s.Installs.SetEnabled(ctx, record)
 }
 
 func (s CoreJobStatusService) GetJob(ctx context.Context, id string) (*store.JobRecord, error) {

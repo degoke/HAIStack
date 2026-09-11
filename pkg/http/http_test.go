@@ -1229,3 +1229,37 @@ func TestBasicTerminologyInstallHTTP(t *testing.T) {
 		t.Fatalf("expected job id, got %s", rec.Body.String())
 	}
 }
+
+func TestBasicTerminologyInstallPreExpandHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyInstallService: hahttp.CoreTerminologyInstallService{
+			JobStore:     &fakeJobStore{},
+			DefaultScope: "tenant-a",
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-install?preExpandValueSets=true", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "preExpandValueSets") {
+		t.Fatalf("expected preExpandValueSets parameter, got %s", rec.Body.String())
+	}
+}
+
+func TestBasicTerminologyEnableHTTP(t *testing.T) {
+	installs := &fakeTerminologyInstallStore{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
+			Installs: installs,
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=http://hl7.org/fhir/ValueSet/administrative-gender&resourceType=ValueSet&version=4.0.1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(installs.enabled) != 1 || !installs.enabled[0].Enabled {
+		t.Fatalf("installs=%+v", installs.enabled)
+	}
+}

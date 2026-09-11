@@ -138,6 +138,7 @@ Platform FHIR operations:
 - `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
 - `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state
 - `POST /fhir/Basic/$terminology-install` — rebuild projections; optional `preExpandValueSets=true`
+- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet
 
 ## Optional ValueSet pre-expansion
 

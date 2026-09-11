@@ -25,32 +25,36 @@ func TestPreExpandSkipsAlreadyExpanded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	res1, err := PreExpandValueSet(ctx, m, GlobalScopeID, "urn:vs", "1", nil, PreExpandOptions{})
+	res1, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:vs", "1", nil, PreExpandOptions{})
 	if err != nil || res1.Skipped || res1.Members != 1 {
 		t.Fatalf("first expand=%+v err=%v", res1, err)
 	}
-	res2, err := PreExpandValueSet(ctx, m, GlobalScopeID, "urn:vs", "1", nil, PreExpandOptions{})
+	res2, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:vs", "1", nil, PreExpandOptions{})
 	if err != nil || !res2.Skipped || res2.Reason != SkipAlreadyExpanded {
 		t.Fatalf("second expand=%+v err=%v", res2, err)
 	}
 }
 
-func TestPreExpandSkipsServerExpansion(t *testing.T) {
+func TestPreExpandPersistsLegacyServerExpansion(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()
 	vsJSON := []byte(`{"resourceType":"ValueSet","url":"urn:vs","version":"1","compose":{"include":[{"system":"urn:cs"}]},"expansion":{"contains":[{"system":"urn:cs","code":"a","display":"A"}]}}`)
-	if err := Install(ctx, m, store.TerminologyResourceRecord{
-		ScopeID: GlobalScopeID, ResourceType: "ValueSet", CanonicalURL: "urn:vs", Version: "1", ResourceJSON: vsJSON,
-	}); err != nil {
+	compose := `{"include":[{"system":"urn:cs"}]}`
+	if err := m.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{
+		ScopeID: GlobalScopeID, CanonicalURL: "urn:vs", Version: "1", ComposeJSON: compose, ExpansionFingerprint: ComposeFingerprint(compose),
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	res, err := PreExpandValueSet(ctx, m, GlobalScopeID, "urn:vs", "1", vsJSON, PreExpandOptions{})
-	if err != nil || !res.Skipped || res.Reason != SkipServerExpansion {
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "ValueSet", CanonicalURL: "urn:vs", Version: "1", ResourceJSON: vsJSON,
+	})
+	res, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:vs", "1", vsJSON, PreExpandOptions{})
+	if err != nil || res.Skipped || res.Members != 1 {
 		t.Fatalf("expand=%+v err=%v", res, err)
 	}
-	members, err := m.ListValueSetMembers(ctx, GlobalScopeID, "urn:vs", "1")
-	if err != nil || len(members) != 1 {
-		t.Fatalf("members=%d err=%v", len(members), err)
+	res2, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:vs", "1", vsJSON, PreExpandOptions{})
+	if err != nil || !res2.Skipped || res2.Reason != SkipServerExpansion {
+		t.Fatalf("second expand=%+v err=%v", res2, err)
 	}
 }
 
@@ -76,7 +80,7 @@ func TestPreExpandSkipsTooCostly(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := PreExpandValueSet(ctx, m, GlobalScopeID, "urn:big-vs", "1", nil, PreExpandOptions{MaxExpansion: 2})
+	res, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:big-vs", "1", nil, PreExpandOptions{MaxExpansion: 2})
 	if err != nil || !res.Skipped || res.Reason != SkipTooCostly {
 		t.Fatalf("expand=%+v err=%v", res, err)
 	}
@@ -98,7 +102,7 @@ func TestLayeredStoreGlobalValueSetFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PreExpandValueSet(ctx, m, GlobalScopeID, "urn:global-vs", "1", nil, PreExpandOptions{})
+	_, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:global-vs", "1", nil, PreExpandOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,5 +116,98 @@ func TestLayeredStoreGlobalValueSetFallback(t *testing.T) {
 	ex, err := svc.Expand(ctx, ExpandRequest{URL: "urn:global-vs"})
 	if err != nil || len(ex.Contains) != 1 || ex.Contains[0].Code != "x" {
 		t.Fatalf("expand=%+v err=%v", ex, err)
+	}
+}
+
+func TestLayeredStoreOverlayValueSetDoesNotUseGlobalMembers(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"g"},{"code":"t"}]}`)
+	if err := Compile(ctx, m, GlobalScopeID, "", cs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", ResourceJSON: cs,
+	})
+	globalVS := []byte(`{"resourceType":"ValueSet","url":"urn:shared","version":"1","compose":{"include":[{"system":"urn:cs","concept":[{"code":"g"}]}]}}`)
+	if err := Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "ValueSet", CanonicalURL: "urn:shared", Version: "1",
+		ResourceJSON: globalVS,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:shared", "1", nil, PreExpandOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantVS := []byte(`{"resourceType":"ValueSet","url":"urn:shared","version":"1","compose":{"include":[{"system":"urn:cs","concept":[{"code":"t"}]}]}}`)
+	if err := Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "ValueSet", CanonicalURL: "urn:shared", Version: "1",
+		ResourceJSON: tenantVS,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	installs := &memTerminologyInstallStore{rows: []store.TerminologyInstallRecord{
+		{ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", Enabled: true},
+		{ResourceType: "ValueSet", CanonicalURL: "urn:shared", Version: "1", Enabled: true},
+	}}
+	layered := NewLayeredStore(m, "tenant-a")
+	layered.Installs = installs
+	svc := NewLocalService(layered, "tenant-a")
+	ex, err := svc.Expand(ctx, ExpandRequest{URL: "urn:shared"})
+	if err != nil || len(ex.Contains) != 1 || ex.Contains[0].Code != "t" {
+		t.Fatalf("expand=%+v err=%v", ex, err)
+	}
+}
+
+func TestShouldEnqueuePreExpand(t *testing.T) {
+	finite := []byte(`{"resourceType":"ValueSet","url":"urn:vs","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]}}`)
+	if !ShouldEnqueuePreExpand(finite) {
+		t.Fatal("expected finite compose to enqueue")
+	}
+	fullCS := []byte(`{"resourceType":"ValueSet","url":"urn:vs","compose":{"include":[{"system":"urn:cs"}]}}`)
+	if ShouldEnqueuePreExpand(fullCS) {
+		t.Fatal("expected full CodeSystem include to skip enqueue")
+	}
+	withExpansion := []byte(`{"resourceType":"ValueSet","url":"urn:vs","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]},"expansion":{"contains":[{"system":"urn:cs","code":"a"}]}}`)
+	if ShouldEnqueuePreExpand(withExpansion) {
+		t.Fatal("expected server expansion to skip enqueue")
+	}
+}
+
+func TestPreExpandScopeListsScopeOnly(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	globalVS := []byte(`{"resourceType":"ValueSet","url":"urn:global-only","version":"1","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]}}`)
+	if err := Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "ValueSet", CanonicalURL: "urn:global-only", Version: "1", ResourceJSON: globalVS,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"a"}]}`)
+	if err := Compile(ctx, m, GlobalScopeID, "", cs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", ResourceJSON: cs,
+	})
+	_, err := PreExpandValueSet(ctx, m, m, GlobalScopeID, "urn:global-only", "1", nil, PreExpandOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installs := &memTerminologyInstallStore{rows: []store.TerminologyInstallRecord{
+		{ResourceType: "ValueSet", CanonicalURL: "urn:global-only", Version: "1", Enabled: true},
+	}}
+	composeStore := StoreForScope(m, "tenant-a", installs, "tenant-a")
+	results, err := PreExpandScope(ctx, m, composeStore, "tenant-a", nil, PreExpandOptions{Installs: installs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("tenant scope should not list global VS, got %+v", results)
+	}
+	members, err := m.ListValueSetMembers(ctx, "tenant-a", "urn:global-only", "1")
+	if err != nil || len(members) != 0 {
+		t.Fatalf("tenant should not get global expansion copy: members=%d err=%v", len(members), err)
 	}
 }

@@ -8,9 +8,9 @@ import (
 )
 
 // LayeredStore composes a tenant terminology overlay with a global canonical
-// catalog. ValueSets and tenant-local CodeSystems live in the tenant scope;
-// global CodeSystem projections are consulted as a fallback for lookups and
-// composition when the tenant has opted in via TerminologyInstallStore.
+// catalog. Tenant-custom ValueSets and CodeSystems live in the tenant scope;
+// packaged global CodeSystems and ValueSets are consulted as a fallback when
+// the tenant has opted in via TerminologyInstallStore.
 type LayeredStore struct {
 	Store         store.TerminologyStore
 	TenantScopeID string
@@ -112,9 +112,13 @@ func (l *LayeredStore) GetValueSet(ctx context.Context, scope, url, ver string) 
 }
 
 func (l *LayeredStore) ListValueSetMembers(ctx context.Context, scope, url, ver string) ([]store.TerminologyExpansionMemberRecord, error) {
-	ms, err := l.Store.ListValueSetMembers(ctx, l.tenantScope(scope), url, ver)
-	if err != nil || len(ms) > 0 {
-		return ms, err
+	tenantScope := l.tenantScope(scope)
+	vs, err := l.Store.GetValueSet(ctx, tenantScope, url, ver)
+	if err != nil {
+		return nil, err
+	}
+	if vs != nil {
+		return l.Store.ListValueSetMembers(ctx, tenantScope, url, ver)
 	}
 	if !l.globalAllowed(ctx, url, ver, "ValueSet") {
 		return nil, nil

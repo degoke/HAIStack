@@ -37,6 +37,12 @@ func (h *handler) handlePlatformOperation(w http.ResponseWriter, r *http.Request
 			}
 			h.handleBasicTerminologyInstall(w, r, route)
 			return true
+		case "$terminology-enable":
+			if route.id != "" {
+				return false
+			}
+			h.handleBasicTerminologyEnable(w, r, route)
+			return true
 		}
 	case "CapabilityStatement":
 		if route.operation == "$refresh" && route.id == "" {
@@ -184,5 +190,38 @@ func (h *handler) handleBasicTerminologyInstall(w http.ResponseWriter, r *http.R
 		writeError(w, err)
 		return
 	}
-	writeEnvelope(w, http.StatusAccepted, terminologyInstallJobParameters(job.ID, scopeID), nil)
+	writeEnvelope(w, http.StatusAccepted, terminologyInstallJobParameters(job.ID, scopeID, preExpand), nil)
+}
+
+func (h *handler) handleBasicTerminologyEnable(w http.ResponseWriter, r *http.Request, route parsedRoute) {
+	if h.cfg.TerminologyEnableService == nil {
+		writeError(w, notConfigured("terminology enable service"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, r.Method, http.MethodPost)
+		return
+	}
+	if err := h.authorizeOperation(r.Context(), route.resourceType, route.operation, route.id); err != nil {
+		writeError(w, err)
+		return
+	}
+	record := terminologyEnableRecordFromRequest(r)
+	body, err := readBodyAllowEmpty(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if record.CanonicalURL == "" {
+		record = parseTerminologyEnableParameters(body, record)
+	}
+	if record.CanonicalURL == "" {
+		writeError(w, invalidRequest("canonicalUrl is required for $terminology-enable", nil))
+		return
+	}
+	if err := h.cfg.TerminologyEnableService.SetEnabled(r.Context(), record); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, terminologyEnableParameters(record), nil)
 }

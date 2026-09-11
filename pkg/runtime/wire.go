@@ -221,10 +221,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var tenantLocal *terminology.LocalService
 	var globalLocal *terminology.LocalService
 	var invalidators []terminology.Invalidator
+	maxExpansion := b.maxExpansion
+	if maxExpansion <= 0 {
+		maxExpansion = 10000
+	}
 	if tenantTerminology != nil {
 		layered := terminology.NewLayeredStore(tenantTerminology, termScope)
 		layered.Installs = pc.terminologyInstalls
 		tenantLocal = terminology.NewLocalService(layered, termScope)
+		tenantLocal.MaxExpansion = maxExpansion
 		invalidators = append(invalidators, tenantLocal)
 	}
 	if pc.globalTerminology != nil {
@@ -496,7 +501,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			termWorker := &jobs.TerminologyInstallWorker{
 				Terminology:  pc.terminology,
 				ScopeID:      termScope,
-				MaxExpansion: 10000,
+				MaxExpansion: maxExpansion,
 				Installs:     pc.terminologyInstalls,
 				JobStore:     pc.jobStore,
 			}
@@ -506,7 +511,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			preExpandWorker := &jobs.TerminologyPreExpandWorker{
 				Terminology:  pc.terminology,
 				TenantScope:  termScope,
-				MaxExpansion: 10000,
+				MaxExpansion: maxExpansion,
 				Installs:     pc.terminologyInstalls,
 				JobStore:     pc.jobStore,
 			}
@@ -548,6 +553,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		JobStore:     pc.jobStore,
 		DefaultScope: termScope,
 	}
+	terminologyEnableService := hahttp.CoreTerminologyEnableService{
+		Installs: pc.terminologyInstalls,
+	}
 	jobStatusService := hahttp.CoreJobStatusService{
 		JobStore: pc.jobStore,
 	}
@@ -567,6 +575,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		TerminologyService:        state.services.TerminologyService,
 		TerminologyScope:          termScope,
 		TerminologyInstallService: terminologyInstallService,
+		TerminologyEnableService:  terminologyEnableService,
 		ConformanceRefresher:      conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
