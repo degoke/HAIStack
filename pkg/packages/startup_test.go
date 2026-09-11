@@ -9,6 +9,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
 type memDefinitionStore struct {
@@ -54,6 +55,31 @@ func (s *memInstallStore) ListInstalled(context.Context, store.RegistryInstallFi
 }
 func (s *memInstallStore) Delete(context.Context, store.RegistryInstallFilter) error { return nil }
 
+type memTerminologyInstallStore struct {
+	rows []store.TerminologyInstallRecord
+}
+
+func (s *memTerminologyInstallStore) SetEnabled(_ context.Context, record store.TerminologyInstallRecord) error {
+	s.rows = append(s.rows, record)
+	return nil
+}
+func (s *memTerminologyInstallStore) UpsertInstall(ctx context.Context, record store.TerminologyInstallRecord) error {
+	return s.SetEnabled(ctx, record)
+}
+func (s *memTerminologyInstallStore) ListEnabled(_ context.Context) ([]store.TerminologyInstallRecord, error) {
+	var out []store.TerminologyInstallRecord
+	for _, row := range s.rows {
+		if row.Enabled {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+func (s *memTerminologyInstallStore) ListInstalled(_ context.Context, _ store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
+	return append([]store.TerminologyInstallRecord(nil), s.rows...), nil
+}
+func (s *memTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error { return nil }
+
 func TestInstallIfNeededSkipsInstalledPackageVersion(t *testing.T) {
 	ctx := context.Background()
 	defs := &memDefinitionStore{}
@@ -78,5 +104,37 @@ func TestInstallIfNeededSkipsInstalledPackageVersion(t *testing.T) {
 	}
 	if len(defs.rows) != 1 {
 		t.Fatalf("definitions=%d want no second install", len(defs.rows))
+	}
+}
+
+func TestInstallIfNeededOptsInWhenPackageAlreadyInstalled(t *testing.T) {
+	ctx := context.Background()
+	defs := &memDefinitionStore{}
+	global := terminology.NewMemoryStore()
+	installs := &memTerminologyInstallStore{}
+	mgr := registry.NewManager(registry.Config{
+		Definitions:         defs,
+		Installs:            &memInstallStore{},
+		GlobalTerminology:   global,
+		TerminologyInstalls: installs,
+	})
+	vsJSON := []byte(`{"resourceType":"ValueSet","url":"urn:vs","version":"1","status":"active"}`)
+	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL: "urn:vs", Version: "1", FHIRResourceType: "ValueSet",
+		PackageName: "local.ig", PackageVersion: "1.0.0",
+	}, nil)
+	_ = global.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "ValueSet",
+		CanonicalURL: "urn:vs", Version: "1", ResourceJSON: vsJSON,
+	})
+	installer := &packages.Installer{Registry: mgr}
+	_, skipped, err := installer.InstallIfNeeded(ctx, packages.InstallSpec{
+		PackageID: "local.ig", Version: "1.0.0", Path: t.TempDir(),
+	})
+	if err != nil || !skipped {
+		t.Fatalf("skipped=%v err=%v", skipped, err)
+	}
+	if len(installs.rows) != 1 || !installs.rows[0].Enabled {
+		t.Fatalf("install rows=%+v", installs.rows)
 	}
 }

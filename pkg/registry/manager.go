@@ -167,7 +167,7 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 	if err != nil {
 		return err
 	}
-	if m.terminology != nil && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
+	if (m.terminology != nil || m.globalTerminology != nil) && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
 		termStore, termScope := m.terminologyTarget(r.FHIRResourceType)
 		if err := termStore.DeleteProjections(ctx, termScope, r.FHIRResourceType, canonicalURL, version); err != nil {
 			return err
@@ -224,7 +224,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 	if err := m.definitions.Upsert(ctx, record, targets); err != nil {
 		return err
 	}
-	if m.terminology != nil && (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") {
+	if (m.terminology != nil || m.globalTerminology != nil) && (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") {
 		var meta struct {
 			ID string `json:"id"`
 		}
@@ -233,18 +233,28 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		}
 		termStore, termScope := m.terminologyTarget(parsed.FHIRResourceType)
 		tr := store.TerminologyResourceRecord{ScopeID: termScope, ResourceType: parsed.FHIRResourceType, ResourceID: meta.ID, CanonicalURL: parsed.CanonicalURL, Version: parsed.Version, Status: parsed.Status, ResourceJSON: append([]byte(nil), jsonData...), SourceModule: provenance.SourceModule}
-		if err := terminology.Install(ctx, termStore, tr); err != nil {
-			return fmt.Errorf("compile terminology: %w", err)
+		existing, err := termStore.FindResource(ctx, termScope, parsed.FHIRResourceType, parsed.CanonicalURL, parsed.Version)
+		if err != nil {
+			return fmt.Errorf("check terminology resource %s: %w", parsed.CanonicalURL, err)
 		}
-		if (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") && m.terminologyInstalls != nil {
+		if existing == nil {
+			if err := terminology.Install(ctx, termStore, tr); err != nil {
+				return fmt.Errorf("compile terminology: %w", err)
+			}
+		}
+		if m.terminologyInstalls != nil {
+			sourceModule := provenance.SourceModule
+			if sourceModule == "" {
+				sourceModule = provenance.PackageName
+			}
 			if err := m.terminologyInstalls.UpsertInstall(ctx, store.TerminologyInstallRecord{
 				PackName:     provenance.PackageName,
 				PackVersion:  provenance.PackageVersion,
 				ResourceType: parsed.FHIRResourceType,
 				CanonicalURL: parsed.CanonicalURL,
 				Version:      parsed.Version,
-				Enabled:      false,
-				SourceModule: provenance.SourceModule,
+				Enabled:      true,
+				SourceModule: sourceModule,
 				InstalledAt:  m.now().UTC(),
 			}); err != nil {
 				return err

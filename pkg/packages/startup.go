@@ -42,6 +42,10 @@ func (i *Installer) InstallIfNeeded(ctx context.Context, spec InstallSpec) (*Ins
 		return nil, false, err
 	}
 	if installed {
+		sourceModule := spec.PackageID
+		if err := i.Registry.EnsureTerminologyPackEnabled(ctx, spec.PackageID, spec.Version, sourceModule); err != nil {
+			return nil, true, err
+		}
 		return &InstallResult{PackageID: spec.PackageID, Version: spec.Version}, true, nil
 	}
 	if spec.Path != "" {

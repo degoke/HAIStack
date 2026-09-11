@@ -110,19 +110,18 @@ provider supports FHIR R4 `$lookup`, `$expand`, and `$validate-code` with
 in-memory caching, request throttling, and a simple circuit breaker.
 
 Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
-`RegistryInstallStore`). Registry installs record available catalog entries but
-do not auto-enable them; each tenant opts in explicitly via
+`RegistryInstallStore`). The **installing tenant** is auto-opted-in when a
+package or module installs terminology (`Enabled: true`; `sourceModule` records
+the package or module). Other tenants must still call
 `POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
+At server startup, configured installs use the default/sync tenant (SQLite
+`sqliteTenantID`, Postgres tenant DB).
 
 Server startup can install local modules and FHIR packages declaratively via
 `haistack.yaml` (`runtime.modulePaths`, `runtime.packages`). Installs are
-idempotent: the same module version or package version is not re-installed.
-
-**Breaking change (registry installs):** IG/package install no longer opts the
-installing tenant into global terminology automatically. After install, call
-`Basic/$terminology-enable` once per catalog entry or once per pack
-(`packName` / optional `packVersion`). Existing single-tenant flows that relied
-on implicit enable must add this step.
+idempotent: the same module or package version is not re-installed; global
+terminology is not re-compiled when the resource already exists in `__global__`.
+Re-installing an existing package version only opts in the installing tenant.
 
 Pack-level enable validates every entry against the global catalog. Entries
 missing from `__global__` are skipped and returned as `warning` parameters;
