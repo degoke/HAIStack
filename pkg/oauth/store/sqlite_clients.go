@@ -13,7 +13,7 @@ import (
 
 // SQLiteConsentSessionStore persists consent sessions in SQLite.
 type SQLiteConsentSessionStore struct {
-	DB  *sql.DB
+	DB  SQLDB
 	Now func() time.Time
 }
 
@@ -101,7 +101,7 @@ func (s *SQLiteConsentSessionStore) PurgeExpired(ctx context.Context) (int64, er
 
 // SQLiteClientStore persists OAuth clients in SQLite.
 type SQLiteClientStore struct {
-	DB  *sql.DB
+	DB  SQLDB
 	Now func() time.Time
 }
 

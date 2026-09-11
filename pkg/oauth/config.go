@@ -74,6 +74,8 @@ type Config struct {
 	JWKSSigners []TokenSigner
 	// RateLimit configures OAuth endpoint rate limits.
 	RateLimit RateLimitConfig
+	// RateLimitStore persists endpoint counters across processes. Defaults to in-memory when nil.
+	RateLimitStore RateLimitStore
 	// Now overrides time.Now for tests.
 	Now func() time.Time
 }
@@ -93,8 +95,8 @@ type Server struct {
 	signer               TokenSigner
 	jwksSigners          []TokenSigner
 	requirePKCEForAll    bool
-	tokenLimiter         *oauthRateLimiter
-	registerLimiter      *oauthRateLimiter
+	tokenLimiter         RateLimitStore
+	registerLimiter      RateLimitStore
 	issuer               string
 	fhirBase             string
 	tokenTTL             time.Duration
@@ -226,6 +228,10 @@ func NewServer(cfg Config) (*Server, error) {
 		launchIssuerAuthID:   launchAuthID,
 	}
 	applyRateLimitConfig(srv, cfg.RateLimit)
+	if cfg.RateLimitStore != nil {
+		srv.tokenLimiter = cfg.RateLimitStore
+		srv.registerLimiter = cfg.RateLimitStore
+	}
 	return srv, nil
 }
 

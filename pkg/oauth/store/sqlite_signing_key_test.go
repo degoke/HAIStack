@@ -18,7 +18,8 @@ func TestLoadOrCreateRS256SignerPersistsAcrossCalls(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	const issuer = "http://127.0.0.1:8080"
-	first, err := store.LoadOrCreateRS256Signer(db.SQL(), issuer, "haistack")
+	sqlDB := store.WrapSQLDB(db.SQL(), store.DialectSQLite)
+	first, err := store.LoadOrCreateRS256Signer(sqlDB, issuer, "haistack")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +27,7 @@ func TestLoadOrCreateRS256SignerPersistsAcrossCalls(t *testing.T) {
 		t.Fatalf("first signer = %#v", first)
 	}
 
-	second, err := store.LoadOrCreateRS256Signer(db.SQL(), issuer, "haistack")
+	second, err := store.LoadOrCreateRS256Signer(sqlDB, issuer, "haistack")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +47,12 @@ func TestLoadOrCreateRS256SignerIgnoresTrailingSlash(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	first, err := store.LoadOrCreateRS256Signer(db.SQL(), "http://host/", "haistack")
+	sqlDB := store.WrapSQLDB(db.SQL(), store.DialectSQLite)
+	first, err := store.LoadOrCreateRS256Signer(sqlDB, "http://host/", "haistack")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.LoadOrCreateRS256Signer(db.SQL(), "http://host", "haistack")
+	second, err := store.LoadOrCreateRS256Signer(sqlDB, "http://host", "haistack")
 	if err != nil {
 		t.Fatal(err)
 	}

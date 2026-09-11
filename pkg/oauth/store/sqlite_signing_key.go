@@ -21,6 +21,7 @@ type SigningKeyOptions struct {
 	ActiveKeyID      string
 	EncryptionSecret string
 	RotateOnStartup  bool
+	Dialect          Dialect
 }
 
 // SigningKeySet holds the active signer and all verification keys for JWKS.
@@ -30,13 +31,16 @@ type SigningKeySet struct {
 }
 
 // LoadOrCreateSigningKeySet loads or creates the active signing key set for issuer.
-func LoadOrCreateSigningKeySet(db *sql.DB, issuer string, opts SigningKeyOptions) (SigningKeySet, error) {
+func LoadOrCreateSigningKeySet(db SQLDB, issuer string, opts SigningKeyOptions) (SigningKeySet, error) {
 	if db == nil {
 		return SigningKeySet{}, fmt.Errorf("%w: db is nil", oauth.ErrInvalidConfig)
 	}
 	issuer = trimIssuer(issuer)
 	if issuer == "" {
 		return SigningKeySet{}, fmt.Errorf("%w: issuer required", oauth.ErrInvalidConfig)
+	}
+	if opts.Dialect == 0 {
+		opts.Dialect = DialectSQLite
 	}
 	keyID := strings.TrimSpace(opts.ActiveKeyID)
 	if keyID == "" {
@@ -47,7 +51,7 @@ func LoadOrCreateSigningKeySet(db *sql.DB, issuer string, opts SigningKeyOptions
 		secret = oauth.SigningKeyEncryptionSecret()
 	}
 	if opts.RotateOnStartup {
-		if _, err := rotateSigningKey(db, issuer, keyID, secret); err != nil {
+		if _, err := rotateSigningKey(db, issuer, keyID, secret, opts.Dialect); err != nil {
 			return SigningKeySet{}, err
 		}
 	}
@@ -58,14 +62,14 @@ func LoadOrCreateSigningKeySet(db *sql.DB, issuer string, opts SigningKeyOptions
 	if err != nil && err != sql.ErrNoRows {
 		return SigningKeySet{}, err
 	}
-	if err := insertSigningKey(db, issuer, keyID, secret, true); err != nil {
+	if err := insertSigningKey(db, issuer, keyID, secret, true, opts.Dialect); err != nil {
 		return SigningKeySet{}, err
 	}
 	return loadSigningKeySet(db, issuer, secret)
 }
 
 // LoadOrCreateRS256Signer loads the active RS256 signer for issuer.
-func LoadOrCreateRS256Signer(db *sql.DB, issuer, keyID string) (oauth.RS256Signer, error) {
+func LoadOrCreateRS256Signer(db SQLDB, issuer, keyID string) (oauth.RS256Signer, error) {
 	set, err := LoadOrCreateSigningKeySet(db, issuer, SigningKeyOptions{ActiveKeyID: keyID})
 	if err != nil {
 		return oauth.RS256Signer{}, err
@@ -73,7 +77,7 @@ func LoadOrCreateRS256Signer(db *sql.DB, issuer, keyID string) (oauth.RS256Signe
 	return set.Active, nil
 }
 
-func loadSigningKeySet(db *sql.DB, issuer, secret string) (SigningKeySet, error) {
+func loadSigningKeySet(db SQLDB, issuer, secret string) (SigningKeySet, error) {
 	rows, err := db.QueryContext(context.Background(), `
 		SELECT key_id, private_key_pem, encryption_nonce, active, retired_at
 		FROM hai_oauth_signing_key
@@ -113,7 +117,7 @@ func loadSigningKeySet(db *sql.DB, issuer, secret string) (SigningKeySet, error)
 	return set, nil
 }
 
-func rotateSigningKey(db *sql.DB, issuer, keyID, secret string) (oauth.RS256Signer, error) {
+func rotateSigningKey(db SQLDB, issuer, keyID, secret string, dialect Dialect) (oauth.RS256Signer, error) {
 	newID := keyID
 	if token, err := oauth.NewRandomToken(); err == nil && token != "" {
 		newID = keyID + "-" + token[:8]
@@ -151,7 +155,7 @@ func rotateSigningKey(db *sql.DB, issuer, keyID, secret string) (oauth.RS256Sign
 	return signer, nil
 }
 
-func insertSigningKey(db *sql.DB, issuer, keyID, secret string, active bool) error {
+func insertSigningKey(db SQLDB, issuer, keyID, secret string, active bool, dialect Dialect) error {
 	signer, err := generateStoredSigner(keyID)
 	if err != nil {
 		return err
@@ -164,11 +168,8 @@ func insertSigningKey(db *sql.DB, issuer, keyID, secret string, active bool) err
 	if active {
 		activeInt = 1
 	}
-	_, err = db.ExecContext(context.Background(), `
-		INSERT OR IGNORE INTO hai_oauth_signing_key (
-			issuer, key_id, private_key_pem, encryption_nonce, active, created_at, retired_at
-		) VALUES (?, ?, ?, ?, ?, ?, '')`,
-		issuer, signer.Kid, pemRaw, nonce, activeInt, formatTime(time.Now()),
+	_, err = db.ExecContext(context.Background(), insertIgnoreSigningKeyQuery(dialect),
+		issuer, signer.Kid, pemRaw, nonce, activeInt, formatTime(time.Now()), "",
 	)
 	return err
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // BuiltinOAuthConfig enables the built-in pkg/oauth authorization server during runtime wire.
@@ -52,8 +53,8 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	if b == nil || b.builtinOAuth == nil {
 		return nil
 	}
-	if state == nil || state.sqliteDB == nil {
-		return fmt.Errorf("runtime: builtin oauth requires sqlite storage")
+	if state == nil {
+		return fmt.Errorf("runtime: builtin oauth requires persistence")
 	}
 	cfg := b.builtinOAuth
 	if err := validateBuiltinOAuthConfig(*cfg); err != nil {
@@ -74,10 +75,30 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	issuer = strings.TrimRight(issuer, "/")
 	fhirBase := issuer + "/fhir"
 
-	keySet, err := oauthstore.LoadOrCreateSigningKeySet(state.sqliteDB.SQL(), issuer, oauthstore.SigningKeyOptions{
+	dialect := oauthstore.DialectSQLite
+	var sqlDB oauthstore.SQLDB
+	var applyStores func(*oauth.Config) error
+	switch {
+	case state.sqliteDB != nil:
+		sqlDB = oauthstore.WrapSQLDB(state.sqliteDB.SQL(), oauthstore.DialectSQLite)
+		applyStores = func(oauthCfg *oauth.Config) error {
+			return oauthstore.ApplySQLiteStores(oauthCfg, state.sqliteDB.SQL())
+		}
+	case state.postgresDB != nil:
+		dialect = oauthstore.DialectPostgres
+		sqlDB = oauthstore.WrapSQLDB(stdlib.OpenDBFromPool(state.postgresDB.Pool()), oauthstore.DialectPostgres)
+		applyStores = func(oauthCfg *oauth.Config) error {
+			return oauthstore.ApplyPostgresStores(oauthCfg, state.postgresDB.Pool())
+		}
+	default:
+		return fmt.Errorf("runtime: builtin oauth requires sqlite or postgres storage")
+	}
+
+	keySet, err := oauthstore.LoadOrCreateSigningKeySet(sqlDB, issuer, oauthstore.SigningKeyOptions{
 		ActiveKeyID:      "haistack",
 		EncryptionSecret: oauth.SigningKeyEncryptionSecret(),
 		RotateOnStartup:  strings.TrimSpace(os.Getenv("OAUTH_SIGNING_KEY_ROTATE")) == "1",
+		Dialect:          dialect,
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: oauth signing key: %w", err)
@@ -112,8 +133,8 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		JWKSSigners: jwksSigners,
 		Clients:     reg,
 	}
-	if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL()); err != nil {
-		return fmt.Errorf("runtime: oauth sqlite stores: %w", err)
+	if err := applyStores(&oauthCfg); err != nil {
+		return fmt.Errorf("runtime: oauth persistence stores: %w", err)
 	}
 	if token := strings.TrimSpace(cfg.RegistrationAccessToken); token != "" {
 		oauthCfg.RegistrationAccessToken = token

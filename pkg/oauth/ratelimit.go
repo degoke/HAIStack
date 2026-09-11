@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -13,6 +14,38 @@ const (
 	defaultOAuthRegisterRateLimit = 30
 	defaultOAuthRateLimitWindow   = time.Minute
 )
+
+type memoryRateLimiter struct {
+	limit  int
+	window time.Duration
+	inner  *oauthRateLimiter
+}
+
+func newMemoryRateLimiter(limit int, window time.Duration) *memoryRateLimiter {
+	return &memoryRateLimiter{
+		limit:  limit,
+		window: window,
+		inner:  newOAuthRateLimiter(limit, window),
+	}
+}
+
+func (l *memoryRateLimiter) Allow(_ context.Context, _, bucketKey string, limit int, window time.Duration, _ time.Time) (bool, error) {
+	if l == nil || l.inner == nil {
+		return true, nil
+	}
+	if limit <= 0 {
+		limit = l.limit
+	}
+	if window <= 0 {
+		window = l.window
+	}
+	if limit != l.limit || window != l.window {
+		l.inner = newOAuthRateLimiter(limit, window)
+		l.limit = limit
+		l.window = window
+	}
+	return l.inner.allow(bucketKey), nil
+}
 
 type oauthRateLimiter struct {
 	mu      sync.Mutex
@@ -80,34 +113,40 @@ func oauthClientIP(r *http.Request) string {
 	return strings.TrimSpace(r.RemoteAddr)
 }
 
-func (s *Server) rateLimitOAuth(w http.ResponseWriter, r *http.Request, limiter *oauthRateLimiter) bool {
-	if limiter == nil || !limiter.allow(oauthClientIP(r)) {
-		if limiter != nil {
-			writeOAuthError(w, http.StatusTooManyRequests, "slow_down", "rate limit exceeded")
-			return false
-		}
+func (s *Server) rateLimitOAuth(w http.ResponseWriter, r *http.Request, endpoint string, limiter RateLimitStore, limit int, window time.Duration) bool {
+	if limiter == nil {
+		return true
+	}
+	allowed, err := limiter.Allow(r.Context(), endpoint, oauthClientIP(r), limit, window, s.nowFn())
+	if err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "rate limit unavailable")
+		return false
+	}
+	if !allowed {
+		writeOAuthError(w, http.StatusTooManyRequests, "slow_down", "rate limit exceeded")
+		return false
 	}
 	return true
 }
 
-func (s *Server) tokenRateLimiter() *oauthRateLimiter {
+func (s *Server) tokenRateLimiter(limit int, window time.Duration) RateLimitStore {
 	if s == nil {
 		return nil
 	}
-	if s.tokenLimiter == nil {
-		s.tokenLimiter = newOAuthRateLimiter(defaultOAuthTokenRateLimit, defaultOAuthRateLimitWindow)
+	if s.tokenLimiter != nil {
+		return s.tokenLimiter
 	}
-	return s.tokenLimiter
+	return newMemoryRateLimiter(limit, window)
 }
 
-func (s *Server) registerRateLimiter() *oauthRateLimiter {
+func (s *Server) registerRateLimiter(limit int, window time.Duration) RateLimitStore {
 	if s == nil {
 		return nil
 	}
-	if s.registerLimiter == nil {
-		s.registerLimiter = newOAuthRateLimiter(defaultOAuthRegisterRateLimit, defaultOAuthRateLimitWindow)
+	if s.registerLimiter != nil {
+		return s.registerLimiter
 	}
-	return s.registerLimiter
+	return newMemoryRateLimiter(limit, window)
 }
 
 func rateLimitConfigFrom(cfg RateLimitConfig) (tokenLimit, registerLimit int, window time.Duration) {
@@ -138,6 +177,10 @@ func applyRateLimitConfig(s *Server, cfg RateLimitConfig) {
 		return
 	}
 	tokenLimit, registerLimit, window := rateLimitConfigFrom(cfg)
-	s.tokenLimiter = newOAuthRateLimiter(tokenLimit, window)
-	s.registerLimiter = newOAuthRateLimiter(registerLimit, window)
+	if s.tokenLimiter == nil {
+		s.tokenLimiter = newMemoryRateLimiter(tokenLimit, window)
+	}
+	if s.registerLimiter == nil {
+		s.registerLimiter = newMemoryRateLimiter(registerLimit, window)
+	}
 }

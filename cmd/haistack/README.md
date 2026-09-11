@@ -193,7 +193,7 @@ storage:
   tenantID: tenant-a
 ```
 
-Postgres mode uses tenant-scoped stores and supports background reindex workers inside `pkg/runtime`. CLI `reindex` still runs synchronously in phase 1.
+Postgres mode uses tenant-scoped stores and supports background reindex workers inside `pkg/runtime`. Built-in OAuth (`oauth.enabled`, default true on `serve`) persists authorization data and rate limits in Postgres when `driver: postgres` is configured. CLI `reindex` still runs synchronously in phase 1.
 
 ## Output contract
 

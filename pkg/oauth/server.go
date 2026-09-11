@@ -38,8 +38,9 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	tokenLimit, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.rateLimitOAuth(w, r, s.tokenRateLimiter()) {
+		if !s.rateLimitOAuth(w, r, "token", s.tokenRateLimiter(tokenLimit, window), tokenLimit, window) {
 			return
 		}
 		next(w, r)
@@ -47,8 +48,9 @@ func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) wrapRegisterRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	_, registerLimit, window := rateLimitConfigFrom(s.cfg.RateLimit)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.rateLimitOAuth(w, r, s.registerRateLimiter()) {
+		if !s.rateLimitOAuth(w, r, "register", s.registerRateLimiter(registerLimit, window), registerLimit, window) {
 			return
 		}
 		next(w, r)

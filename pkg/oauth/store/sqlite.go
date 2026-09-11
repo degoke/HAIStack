@@ -17,21 +17,27 @@ type SQLiteStores struct {
 	Launch     oauth.LaunchStore
 	Consent    oauth.ConsentSessionStore
 	Clients    oauth.ClientStore
+	RateLimit  oauth.RateLimitStore
 }
 
 // NewSQLiteStores returns OAuth stores backed by the given database.
 // Apply pkg/sqlite migration 0012_oauth.sql before use.
 func NewSQLiteStores(db *sql.DB) (*SQLiteStores, error) {
+	return NewSQLStores(wrapSQLDB(db, DialectSQLite), DialectSQLite)
+}
+
+func NewSQLStores(db SQLDB, dialect Dialect) (*SQLiteStores, error) {
 	if db == nil {
 		return nil, fmt.Errorf("%w: db is nil", oauth.ErrInvalidConfig)
 	}
 	return &SQLiteStores{
 		Codes:      &SQLiteCodeStore{DB: db},
 		Refresh:    &SQLiteRefreshStore{DB: db},
-		Revocation: &SQLiteRevocationStore{DB: db},
+		Revocation: &SQLiteRevocationStore{DB: db, Dialect: dialect},
 		Launch:     &SQLiteLaunchStore{DB: db},
 		Consent:    &SQLiteConsentSessionStore{DB: db},
 		Clients:    &SQLiteClientStore{DB: db},
+		RateLimit:  &SQLRateLimitStore{DB: db, Dialect: dialect},
 	}, nil
 }
 
@@ -51,7 +57,7 @@ func parseTime(raw string) (time.Time, error) {
 
 // SQLiteCodeStore persists authorization codes in SQLite.
 type SQLiteCodeStore struct {
-	DB  *sql.DB
+	DB  SQLDB
 	Now func() time.Time
 }
 
@@ -128,7 +134,7 @@ func (s *SQLiteCodeStore) Exchange(code, clientID, redirectURI, codeVerifier str
 
 // SQLiteRefreshStore persists refresh tokens in SQLite.
 type SQLiteRefreshStore struct {
-	DB  *sql.DB
+	DB  SQLDB
 	Now func() time.Time
 }
 
@@ -233,8 +239,9 @@ func (s *SQLiteRefreshStore) scanRefresh(token string) (*oauth.RefreshRecord, er
 
 // SQLiteRevocationStore persists revoked token JTIs in SQLite.
 type SQLiteRevocationStore struct {
-	DB  *sql.DB
-	Now func() time.Time
+	DB      SQLDB
+	Dialect Dialect
+	Now     func() time.Time
 }
 
 func (s *SQLiteRevocationStore) now() time.Time {
@@ -248,9 +255,8 @@ func (s *SQLiteRevocationStore) Revoke(tokenID, tokenType string, expiresAt time
 	if tokenID == "" {
 		return fmt.Errorf("%w: token id required", oauth.ErrInvalidRequest)
 	}
-	_, err := s.DB.ExecContext(context.Background(), `
-		INSERT OR REPLACE INTO hai_oauth_revoked_token (token_id, token_type, expires_at)
-		VALUES (?, ?, ?)`, tokenID, tokenType, formatTime(expiresAt))
+	_, err := s.DB.ExecContext(context.Background(), upsertRevokedTokenQuery(s.Dialect),
+		tokenID, tokenType, formatTime(expiresAt))
 	return err
 }
 
@@ -285,7 +291,7 @@ func verifyPKCE(challenge, method, verifier string) error {
 
 // SQLiteLaunchStore persists SMART launch tokens in SQLite.
 type SQLiteLaunchStore struct {
-	DB  *sql.DB
+	DB  SQLDB
 	Now func() time.Time
 }
 

@@ -7,8 +7,9 @@ This document describes how to run the built-in `pkg/oauth` authorization server
 | Setting | Inferno reference (`infernotest`, `cmd/inferno-reference`) | Production-like host |
 |---------|--------------------------------------------------------------|----------------------|
 | Purpose | Inferno STU2 discovery + standalone launch CI | Edge, demo, air-gapped, integration |
-| SQLite | Ephemeral temp DB per process | Persistent DB + migrations `0012`–`0018` |
-| `ApplySQLiteStores` | Yes | Yes (required) |
+| SQLite | Ephemeral temp DB per process | Persistent DB + migrations `0012`–`0021` |
+| Postgres | N/A | Persistent DB + migrations through `0015_oauth.sql` |
+| `ApplySQLiteStores` / `ApplyPostgresStores` | Yes (Inferno) | Yes (required) |
 | `ApplyProductionDefaults` | **No** — open DCR intentional | **Yes** — requires `RegistrationAccessToken` or disabled DCR |
 | `RegistrationAccessToken` | Unset (open `POST /oauth/register`) | Set from env/secret manager |
 | `AutoApprove` | `true` (silent authorize for tests) | `false` (interactive consent) |
@@ -53,6 +54,7 @@ cfg := oauth.Config{
 if err := store.ApplySQLiteStores(&cfg, db); err != nil {
     return err
 }
+// Postgres: store.ApplyPostgresStores(&cfg, pool) after pkg/postgres migrations through 0015_oauth.sql
 cfg.RegistrationAccessToken = os.Getenv("OAUTH_REGISTRATION_TOKEN")
 if err := oauth.ApplyProductionDefaults(&cfg); err != nil {
     return err
@@ -65,7 +67,7 @@ if err != nil {
 
 ### haistack serve
 
-`haistack serve` enables the built-in OAuth server by default on SQLite deployments. Set production defaults via config or environment:
+`haistack serve` enables the built-in OAuth server by default on SQLite and Postgres deployments. Set production defaults via config or environment:
 
 ```yaml
 oauth:
@@ -85,9 +87,11 @@ oauth:
 
 When OAuth is enabled, FHIR endpoints require SMART Bearer tokens; discovery remains public at `/fhir/.well-known/smart-configuration`.
 
-The RS256 signing key is persisted in SQLite (`hai_oauth_signing_key`) keyed by issuer URL. **Pin `oauth.issuerURL` to your public HTTPS base** before production deploys; changing the issuer (including deriving it from a different `runtime.httpAddr`) creates a new signing key and invalidates previously issued JWTs.
+The RS256 signing key is persisted in the active storage backend (`hai_oauth_signing_key` in SQLite or Postgres) keyed by issuer URL. **Pin `oauth.issuerURL` to your public HTTPS base** before production deploys; changing the issuer (including deriving it from a different `runtime.httpAddr`) creates a new signing key and invalidates previously issued JWTs.
 
-Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` in production so private keys are encrypted at rest in SQLite. Optional `OAUTH_SIGNING_KEY_ROTATE=1` rotates the active signing key on startup while retaining retired public keys in JWKS for token verification.
+Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` in production so private keys are encrypted at rest. Optional `OAUTH_SIGNING_KEY_ROTATE=1` rotates the active signing key on startup while retaining retired public keys in JWKS for token verification.
+
+OAuth endpoint rate limits (`/oauth/token`, `/oauth/register`) persist in `hai_oauth_rate_limit` when SQLite or Postgres stores are wired, so counters are shared across processes and restarts that use the same database. Without a `RateLimitStore`, limits fall back to per-process in-memory counters.
 
 Production mode (`ApplyProductionDefaults`) requires:
 
@@ -133,7 +137,7 @@ removed, err := cfg.ConsentSessionStore.PurgeExpired(ctx)
 
 ## Checklist before go-live
 
-1. `ApplySQLiteStores` wired; migrations applied (through `0019_oauth_signing_key.sql`)
+1. `ApplySQLiteStores` or `ApplyPostgresStores` wired; migrations applied (SQLite through `0021_oauth_rate_limit.sql`, Postgres through `0015_oauth.sql`)
 2. `ApplyProductionDefaults` passes (`https` issuer pinned, registration token or DCR disabled, `AutoApprove` false)
 3. `oauth.issuerURL` set to the public HTTPS base and kept stable across restarts
 4. Consent session cleanup goroutine running
