@@ -44,6 +44,7 @@ type Builder struct {
 	httpAddr    string
 
 	remoteTerminologyURL string
+	preExpandValueSets   bool
 }
 
 // New returns a new runtime builder.
@@ -75,6 +76,13 @@ func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
 // (for example https://tx.fhir.org/r4) as the final provider in the chain.
 func (b *Builder) WithRemoteTerminology(baseURL string) *Builder {
 	b.remoteTerminologyURL = strings.TrimSpace(baseURL)
+	return b
+}
+
+// WithPreExpandValueSets enqueues async ValueSet pre-expansion jobs when IG
+// packages install finite global ValueSets.
+func (b *Builder) WithPreExpandValueSets(enabled bool) *Builder {
+	b.preExpandValueSets = enabled
 	return b
 }
 

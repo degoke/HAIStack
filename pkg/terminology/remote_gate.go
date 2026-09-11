@@ -57,11 +57,11 @@ func (g *OptInRemoteGate) blocked(ctx context.Context, url, ver string) bool {
 		return false
 	}
 	layered := &LayeredStore{Store: g.Global, Installs: g.Installs, GlobalScopeID: GlobalScopeID}
-	return !layered.globalAllowed(ctx, url, ver)
+	return !layered.globalAllowed(ctx, url, ver, "CodeSystem")
 }
 
 func (g *OptInRemoteGate) expandBlocked(ctx context.Context, url, ver string) bool {
-	if g.blocked(ctx, url, ver) {
+	if g.blocked(ctx, url, ver) || g.valueSetBlocked(ctx, url, ver) {
 		return true
 	}
 	if g.Inner == nil || g.Global == nil || g.Installs == nil {
@@ -84,6 +84,18 @@ func (g *OptInRemoteGate) expandBlocked(ctx context.Context, url, ver string) bo
 		}
 	}
 	return false
+}
+
+func (g *OptInRemoteGate) valueSetBlocked(ctx context.Context, url, ver string) bool {
+	if g.Inner == nil || g.Global == nil || g.Installs == nil || url == "" {
+		return false
+	}
+	vs, err := g.Global.GetValueSet(ctx, GlobalScopeID, url, ver)
+	if err != nil || vs == nil {
+		return false
+	}
+	layered := &LayeredStore{Store: g.Global, Installs: g.Installs, GlobalScopeID: GlobalScopeID}
+	return !layered.globalAllowed(ctx, url, ver, "ValueSet")
 }
 
 func globalCodeSystemExists(ctx context.Context, st store.TerminologyStore, url, ver string) bool {

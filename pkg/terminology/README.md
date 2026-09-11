@@ -94,10 +94,11 @@ are warnings rather than invalid codes, and display mismatches are warnings.
 
 ## Global vs tenant scoping
 
-CodeSystems installed from IG packages or admin workflows are stored under
+CodeSystems and packaged ValueSets installed from IG packages are stored under
 `terminology.GlobalScopeID` (`__global__`) and shared across tenants.
-Tenant ValueSets compose against global CodeSystem projections via
-`LayeredStore` and `Chain` precedence:
+Tenant-custom ValueSets remain in the tenant scope. Tenants opt in to global
+catalog entries via `TerminologyInstallStore`. `LayeredStore` composes tenant
+overlays with opted-in global CodeSystems and ValueSets:
 
 ```text
 tenant LocalService → global LocalService → RemoteProvider (optional)
@@ -136,3 +137,14 @@ Platform FHIR operations:
 - `POST /fhir/Basic/$install` — async local module install
 - `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
 - `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state
+- `POST /fhir/Basic/$terminology-install` — rebuild projections; optional `preExpandValueSets=true`
+
+## Optional ValueSet pre-expansion
+
+Finite packaged ValueSets can be pre-expanded at install time (opt-in via
+`runtime.Builder.WithPreExpandValueSets(true)` or
+`Basic/$terminology-install?preExpandValueSets=true`). Pre-expand skips ValueSets
+that already ship `expansion.contains`, already have matching
+`ExpansionFingerprint` members, exceed `MaxExpansion`, or reference CodeSystems
+the tenant has not opted into. Runtime `$expand` prefers stored members and only
+composes when the projection is empty.

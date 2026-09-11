@@ -286,7 +286,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		return nil, err
 	}
 	if len(ms) == 0 && v.ComposeJSON != "" {
-		ms, err = s.compose(ctx, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
+		ms, err = composeMembers(ctx, s.Store, s.ScopeID, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
 		if err != nil {
 			return nil, err
 		}
@@ -322,7 +322,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 	s.mu.Unlock()
 	return out, nil
 }
-func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]bool) ([]store.TerminologyExpansionMemberRecord, error) {
+func composeMembers(ctx context.Context, st store.TerminologyStore, scopeID, raw string, seen map[string]bool) ([]store.TerminologyExpansionMemberRecord, error) {
 	var c map[string]any
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
 		return nil, err
@@ -339,7 +339,7 @@ func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]
 				if code == "" {
 					continue
 				}
-				x, _ := s.Store.LookupConcept(ctx, s.ScopeID, sys, "", code)
+				x, _ := st.LookupConcept(ctx, scopeID, sys, "", code)
 				display, _ := cm["display"].(string)
 				if x != nil && display == "" {
 					display = x.Display
@@ -348,13 +348,13 @@ func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]
 				if x != nil {
 					version = x.SystemVersion
 				}
-				out = append(out, store.TerminologyExpansionMemberRecord{ScopeID: s.ScopeID, SystemURL: sys, SystemVersion: version, Code: code, Display: display})
+				out = append(out, store.TerminologyExpansionMemberRecord{ScopeID: scopeID, SystemURL: sys, SystemVersion: version, Code: code, Display: display})
 			}
 		}
 		if vals, ok := m["valueSet"].([]any); ok {
 			for _, vv := range vals {
 				u, _ := vv.(string)
-				v, e := s.Store.GetValueSet(ctx, s.ScopeID, u, "")
+				v, e := st.GetValueSet(ctx, scopeID, u, "")
 				if e != nil {
 					return nil, e
 				}
@@ -366,7 +366,7 @@ func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]
 					continue
 				}
 				seen[k] = true
-				ms, e := s.compose(ctx, v.ComposeJSON, seen)
+				ms, e := composeMembers(ctx, st, scopeID, v.ComposeJSON, seen)
 				if e != nil {
 					return nil, e
 				}
@@ -374,7 +374,7 @@ func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]
 			}
 		}
 		if sys != "" && m["concept"] == nil { // finite local CodeSystem inclusion
-			cs, e := s.Store.ListResources(ctx, s.ScopeID, "CodeSystem")
+			cs, e := st.ListResources(ctx, scopeID, "CodeSystem")
 			if e != nil {
 				return nil, e
 			}
@@ -390,9 +390,9 @@ func (s *LocalService) compose(ctx context.Context, raw string, seen map[string]
 						z, _ := vv.(map[string]any)
 						code, _ := z["code"].(string)
 						if code != "" {
-							x, _ := s.Store.LookupConcept(ctx, s.ScopeID, sys, "", code)
+							x, _ := st.LookupConcept(ctx, scopeID, sys, "", code)
 							if x != nil {
-								out = append(out, store.TerminologyExpansionMemberRecord{ScopeID: s.ScopeID, SystemURL: sys, SystemVersion: x.SystemVersion, Code: code, Display: x.Display})
+								out = append(out, store.TerminologyExpansionMemberRecord{ScopeID: scopeID, SystemURL: sys, SystemVersion: x.SystemVersion, Code: code, Display: x.Display})
 							}
 						}
 						if sub, ok := z["concept"].([]any); ok {
@@ -541,6 +541,40 @@ func compileCS(ctx context.Context, st store.TerminologyStore, scope, url, ver s
 }
 func compileVS(ctx context.Context, st store.TerminologyStore, scope, url, ver, status string, r map[string]any) error {
 	b, _ := json.Marshal(r["compose"])
-	fp := sha256.Sum256(b)
-	return st.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{ScopeID: scope, CanonicalURL: url, Version: ver, Status: status, ComposeJSON: string(b), ExpansionFingerprint: hex.EncodeToString(fp[:])}, nil)
+	fp := ComposeFingerprint(string(b))
+	members := membersFromFHIRExpansion(scope, url, ver, r)
+	return st.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{ScopeID: scope, CanonicalURL: url, Version: ver, Status: status, ComposeJSON: string(b), ExpansionFingerprint: fp}, members)
+}
+
+// ComposeFingerprint returns a stable hash of a ValueSet compose definition.
+func ComposeFingerprint(composeJSON string) string {
+	fp := sha256.Sum256([]byte(composeJSON))
+	return hex.EncodeToString(fp[:])
+}
+
+func membersFromFHIRExpansion(scopeID, vsURL, vsVersion string, r map[string]any) []store.TerminologyExpansionMemberRecord {
+	exp, ok := r["expansion"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	contains, ok := exp["contains"].([]any)
+	if !ok || len(contains) == 0 {
+		return nil
+	}
+	out := make([]store.TerminologyExpansionMemberRecord, 0, len(contains))
+	for _, item := range contains {
+		m, _ := item.(map[string]any)
+		sys, _ := m["system"].(string)
+		code, _ := m["code"].(string)
+		if sys == "" || code == "" {
+			continue
+		}
+		display, _ := m["display"].(string)
+		version, _ := m["version"].(string)
+		out = append(out, store.TerminologyExpansionMemberRecord{
+			ScopeID: scopeID, ValueSetURL: vsURL, ValueSetVersion: vsVersion,
+			SystemURL: sys, SystemVersion: version, Code: code, Display: display,
+		})
+	}
+	return out
 }

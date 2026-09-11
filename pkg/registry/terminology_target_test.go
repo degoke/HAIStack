@@ -21,17 +21,17 @@ func TestTerminologyTargetRoutesCodeSystemToGlobal(t *testing.T) {
 	}
 }
 
-func TestTerminologyTargetRoutesValueSetToTenant(t *testing.T) {
+func TestTerminologyTargetRoutesValueSetToGlobal(t *testing.T) {
 	mgr := NewManager(Config{
 		Terminology:       terminology.NewMemoryStore(),
 		GlobalTerminology: terminology.NewMemoryStore(),
 		TerminologyScope:  "tenant-a",
 	})
 	store, scope := mgr.terminologyTarget("ValueSet")
-	if scope != "tenant-a" {
-		t.Fatalf("scope=%q want tenant-a", scope)
+	if scope != terminology.GlobalScopeID {
+		t.Fatalf("scope=%q want global", scope)
 	}
-	if store != mgr.terminology {
-		t.Fatal("expected tenant terminology store for ValueSet")
+	if store != mgr.globalTerminology {
+		t.Fatal("expected global terminology store for ValueSet")
 	}
 }

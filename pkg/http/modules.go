@@ -60,24 +60,33 @@ func parseModuleInstallParameters(body []byte) (path string, upgradeOnly bool) {
 }
 
 func parseTerminologyInstallScope(body []byte) string {
+	scope, _ := parseTerminologyInstallParameters(body)
+	return scope
+}
+
+func parseTerminologyInstallParameters(body []byte) (scopeID string, preExpand bool) {
 	if len(body) == 0 {
-		return ""
+		return "", false
 	}
 	var params struct {
 		Parameter []struct {
-			Name        string `json:"name"`
-			ValueString string `json:"valueString,omitempty"`
+			Name          string `json:"name"`
+			ValueString   string `json:"valueString,omitempty"`
+			ValueBoolean  bool   `json:"valueBoolean,omitempty"`
 		} `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return ""
+		return "", false
 	}
 	for _, p := range params.Parameter {
-		if p.Name == "scopeId" {
-			return strings.TrimSpace(p.ValueString)
+		switch p.Name {
+		case "scopeId":
+			scopeID = strings.TrimSpace(p.ValueString)
+		case "preExpandValueSets":
+			preExpand = p.ValueBoolean
 		}
 	}
-	return ""
+	return scopeID, preExpand
 }
 
 func terminologyInstallJobParameters(jobID, scopeID string) *types.ResourceEnvelope {

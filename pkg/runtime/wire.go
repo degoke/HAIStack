@@ -269,6 +269,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		GlobalTerminology:   pc.globalTerminology,
 		TerminologyInstalls: pc.terminologyInstalls,
 		TerminologyCache:    terminologyCache,
+		JobStore:            pc.jobStore,
+		PreExpandValueSets:  b.preExpandValueSets,
 	})
 	if err := regManager.SeedBundled(ctx); err != nil {
 		return fmt.Errorf("runtime: seed registry: %w", err)
@@ -492,12 +494,24 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 		if pc.terminology != nil {
 			termWorker := &jobs.TerminologyInstallWorker{
-				Terminology: pc.terminology,
-				ScopeID:     termScope,
-				JobStore:    pc.jobStore,
+				Terminology:  pc.terminology,
+				ScopeID:      termScope,
+				MaxExpansion: 10000,
+				Installs:     pc.terminologyInstalls,
+				JobStore:     pc.jobStore,
 			}
 			if err := runner.Register(jobs.TypeTerminologyInstall, jobs.HandlerFunc(termWorker.HandleJob)); err != nil {
 				return fmt.Errorf("runtime: register terminology install handler: %w", err)
+			}
+			preExpandWorker := &jobs.TerminologyPreExpandWorker{
+				Terminology:  pc.terminology,
+				TenantScope:  termScope,
+				MaxExpansion: 10000,
+				Installs:     pc.terminologyInstalls,
+				JobStore:     pc.jobStore,
+			}
+			if err := runner.Register(jobs.TypeTerminologyPreExpand, jobs.HandlerFunc(preExpandWorker.HandleJob)); err != nil {
+				return fmt.Errorf("runtime: register terminology pre-expand handler: %w", err)
 			}
 		}
 		state.jobRunner = runner

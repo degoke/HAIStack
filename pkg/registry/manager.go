@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
@@ -31,6 +32,8 @@ type Config struct {
 	GlobalTerminology   store.TerminologyStore
 	TerminologyInstalls store.TerminologyInstallStore
 	TerminologyCache    terminology.Invalidator
+	JobStore            store.JobStore
+	PreExpandValueSets  bool
 }
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
@@ -45,6 +48,8 @@ type Manager struct {
 	globalTerminology   store.TerminologyStore
 	terminologyInstalls store.TerminologyInstallStore
 	terminologyCache    terminology.Invalidator
+	jobStore            store.JobStore
+	preExpandValueSets  bool
 	snapshot            *Snapshot
 	seedMu              sync.Mutex
 	seeded              bool
@@ -71,11 +76,13 @@ func NewManager(cfg Config) *Manager {
 		globalTerminology:   cfg.GlobalTerminology,
 		terminologyInstalls: cfg.TerminologyInstalls,
 		terminologyCache:    cfg.TerminologyCache,
+		jobStore:            cfg.JobStore,
+		preExpandValueSets:  cfg.PreExpandValueSets,
 	}
 }
 
 func (m *Manager) terminologyTarget(resourceType string) (store.TerminologyStore, string) {
-	if resourceType == "CodeSystem" && m.globalTerminology != nil {
+	if m.globalTerminology != nil && (resourceType == "CodeSystem" || resourceType == "ValueSet") {
 		return m.globalTerminology, terminology.GlobalScopeID
 	}
 	return m.terminology, m.terminologyScope
@@ -165,9 +172,9 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 			}
 		}
 	}
-	if r.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
+	if (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") && m.terminologyInstalls != nil {
 		if err := m.terminologyInstalls.Delete(ctx, store.TerminologyInstallFilter{
-			ResourceType: "CodeSystem",
+			ResourceType: r.FHIRResourceType,
 			CanonicalURL: canonicalURL,
 			Version:      version,
 		}); err != nil {
@@ -218,7 +225,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		if err := terminology.Install(ctx, termStore, tr); err != nil {
 			return fmt.Errorf("compile terminology: %w", err)
 		}
-		if parsed.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
+		if (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") && m.terminologyInstalls != nil {
 			if err := m.terminologyInstalls.UpsertInstall(ctx, store.TerminologyInstallRecord{
 				PackName:     provenance.PackageName,
 				PackVersion:  provenance.PackageVersion,
@@ -230,6 +237,15 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				InstalledAt:  m.now().UTC(),
 			}); err != nil {
 				return err
+			}
+		}
+		if parsed.FHIRResourceType == "ValueSet" && m.preExpandValueSets && m.jobStore != nil {
+			if _, err := jobs.Enqueue(ctx, m.jobStore, jobs.TypeTerminologyPreExpand, jobs.TerminologyPreExpandPayload{
+				ScopeID: termScope,
+				URL:     parsed.CanonicalURL,
+				Version: parsed.Version,
+			}, jobs.EnqueueOptions{}); err != nil {
+				return fmt.Errorf("enqueue valueset pre-expand: %w", err)
 			}
 		}
 		if m.terminologyCache != nil {

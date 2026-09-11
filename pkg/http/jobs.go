@@ -11,7 +11,7 @@ import (
 
 // TerminologyInstallService enqueues async terminology projection rebuild jobs.
 type TerminologyInstallService interface {
-	EnqueueRebuild(ctx context.Context, scopeID string) (store.JobRecord, error)
+	EnqueueRebuild(ctx context.Context, scopeID string, preExpandValueSets bool) (store.JobRecord, error)
 }
 
 // CoreTerminologyInstallService implements terminology rebuild using jobs.
@@ -20,7 +20,7 @@ type CoreTerminologyInstallService struct {
 	DefaultScope string
 }
 
-func (s CoreTerminologyInstallService) EnqueueRebuild(ctx context.Context, scopeID string) (store.JobRecord, error) {
+func (s CoreTerminologyInstallService) EnqueueRebuild(ctx context.Context, scopeID string, preExpandValueSets bool) (store.JobRecord, error) {
 	if s.JobStore == nil {
 		return store.JobRecord{}, notConfigured("job store")
 	}
@@ -31,7 +31,8 @@ func (s CoreTerminologyInstallService) EnqueueRebuild(ctx context.Context, scope
 		return store.JobRecord{}, invalidRequest("scopeId is required for terminology install", nil)
 	}
 	return enqueueJob(ctx, s.JobStore, jobs.TypeTerminologyInstall, jobs.TerminologyInstallPayload{
-		ScopeID: scopeID,
+		ScopeID:            scopeID,
+		PreExpandValueSets: preExpandValueSets,
 	}, jobs.EnqueueOptions{})
 }
 

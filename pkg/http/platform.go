@@ -164,15 +164,22 @@ func (h *handler) handleBasicTerminologyInstall(w http.ResponseWriter, r *http.R
 		return
 	}
 	scopeID := strings.TrimSpace(r.URL.Query().Get("scopeId"))
+	preExpand := strings.EqualFold(r.URL.Query().Get("preExpandValueSets"), "true")
 	body, err := readBodyAllowEmpty(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if scopeID == "" {
-		scopeID = parseTerminologyInstallScope(body)
+	if scopeID == "" || !preExpand {
+		paramScope, paramPreExpand := parseTerminologyInstallParameters(body)
+		if scopeID == "" {
+			scopeID = paramScope
+		}
+		if paramPreExpand {
+			preExpand = true
+		}
 	}
-	job, err := h.cfg.TerminologyInstallService.EnqueueRebuild(r.Context(), scopeID)
+	job, err := h.cfg.TerminologyInstallService.EnqueueRebuild(r.Context(), scopeID, preExpand)
 	if err != nil {
 		writeError(w, err)
 		return
