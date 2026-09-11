@@ -37,6 +37,7 @@ type Config struct {
 	TerminologyInstalls store.TerminologyInstallStore
 	TerminologyCache    terminology.Invalidator
 	JobStore            store.JobStore
+	PackageInstalls     store.PackageInstallStore
 	PreExpandValueSets  bool
 }
 
@@ -53,6 +54,7 @@ type Manager struct {
 	terminologyInstalls store.TerminologyInstallStore
 	terminologyCache    terminology.Invalidator
 	jobStore            store.JobStore
+	packageInstalls     store.PackageInstallStore
 	preExpandValueSets  bool
 	snapshot            *Snapshot
 	seedMu              sync.Mutex
@@ -81,6 +83,7 @@ func NewManager(cfg Config) *Manager {
 		terminologyInstalls: cfg.TerminologyInstalls,
 		terminologyCache:    cfg.TerminologyCache,
 		jobStore:            cfg.JobStore,
+		packageInstalls:     cfg.PackageInstalls,
 		preExpandValueSets:  cfg.PreExpandValueSets,
 	}
 }
@@ -139,7 +142,7 @@ func (m *Manager) InstallDefinitionsFromFS(ctx context.Context, fsys fs.FS, root
 			return err
 		}
 	}
-	return m.enqueuePackPreExpand(ctx, provenance)
+	return m.CompletePackageInstall(ctx, provenance)
 }
 
 // InstallDefinitionsFromDir ingests every .json definition file under dir on the local filesystem.
@@ -153,9 +156,17 @@ func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, proven
 }
 
 // CompletePackageInstall enqueues one batched ValueSet pre-expand job for a package
-// after callers finish a loop of InstallDefinition calls.
+// after callers finish a loop of InstallDefinition calls and records completion.
 func (m *Manager) CompletePackageInstall(ctx context.Context, provenance InstallProvenance) error {
-	return m.enqueuePackPreExpand(ctx, provenance)
+	if err := m.enqueuePackPreExpand(ctx, provenance); err != nil {
+		return err
+	}
+	if m.packageInstalls != nil && provenance.PackageName != "" && provenance.PackageVersion != "" {
+		if err := m.packageInstalls.MarkComplete(ctx, provenance.PackageName, provenance.PackageVersion, m.now().UTC()); err != nil {
+			return fmt.Errorf("mark package install complete: %w", err)
+		}
+	}
+	return nil
 }
 
 // DeleteDefinition removes a catalog entry and its terminology projection.
@@ -247,7 +258,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 			if sourceModule == "" {
 				sourceModule = provenance.PackageName
 			}
-			if err := m.terminologyInstalls.UpsertInstall(ctx, store.TerminologyInstallRecord{
+			if err := terminology.EnsureInstallOptIn(ctx, m.terminologyInstalls, store.TerminologyInstallRecord{
 				PackName:     provenance.PackageName,
 				PackVersion:  provenance.PackageVersion,
 				ResourceType: parsed.FHIRResourceType,

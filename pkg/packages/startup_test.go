@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/registry"
@@ -80,18 +81,41 @@ func (s *memTerminologyInstallStore) ListInstalled(_ context.Context, _ store.Te
 }
 func (s *memTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error { return nil }
 
+type memPackageInstallStore struct {
+	complete map[string]struct{}
+}
+
+func (s *memPackageInstallStore) MarkComplete(_ context.Context, packageName, packageVersion string, _ time.Time) error {
+	if s.complete == nil {
+		s.complete = make(map[string]struct{})
+	}
+	s.complete[packageName+"@"+packageVersion] = struct{}{}
+	return nil
+}
+
+func (s *memPackageInstallStore) IsComplete(_ context.Context, packageName, packageVersion string) (bool, error) {
+	if s.complete == nil {
+		return false, nil
+	}
+	_, ok := s.complete[packageName+"@"+packageVersion]
+	return ok, nil
+}
+
 func TestInstallIfNeededSkipsInstalledPackageVersion(t *testing.T) {
 	ctx := context.Background()
 	defs := &memDefinitionStore{}
+	packageInstalls := &memPackageInstallStore{}
 	reg := registry.NewManager(registry.Config{
-		Definitions: defs,
-		Installs:    &memInstallStore{},
+		Definitions:     defs,
+		Installs:        &memInstallStore{},
+		PackageInstalls: packageInstalls,
 	})
 	installer := &packages.Installer{Registry: reg}
 	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{
 		CanonicalURL: "urn:vs", Version: "1", FHIRResourceType: "ValueSet",
 		PackageName: "local.ig", PackageVersion: "1.0.0",
 	}, nil)
+	_ = packageInstalls.MarkComplete(ctx, "local.ig", "1.0.0", time.Now().UTC())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "valueset.json"), []byte(`{"resourceType":"ValueSet","id":"vs","url":"urn:new","version":"1","status":"active"}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -112,9 +136,11 @@ func TestInstallIfNeededOptsInWhenPackageAlreadyInstalled(t *testing.T) {
 	defs := &memDefinitionStore{}
 	global := terminology.NewMemoryStore()
 	installs := &memTerminologyInstallStore{}
+	packageInstalls := &memPackageInstallStore{}
 	mgr := registry.NewManager(registry.Config{
 		Definitions:         defs,
 		Installs:            &memInstallStore{},
+		PackageInstalls:     packageInstalls,
 		GlobalTerminology:   global,
 		TerminologyInstalls: installs,
 	})
@@ -127,6 +153,7 @@ func TestInstallIfNeededOptsInWhenPackageAlreadyInstalled(t *testing.T) {
 		ScopeID: terminology.GlobalScopeID, ResourceType: "ValueSet",
 		CanonicalURL: "urn:vs", Version: "1", ResourceJSON: vsJSON,
 	})
+	_ = packageInstalls.MarkComplete(ctx, "local.ig", "1.0.0", time.Now().UTC())
 	installer := &packages.Installer{Registry: mgr}
 	_, skipped, err := installer.InstallIfNeeded(ctx, packages.InstallSpec{
 		PackageID: "local.ig", Version: "1.0.0", Path: t.TempDir(),

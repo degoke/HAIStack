@@ -111,6 +111,9 @@ func BuildRuntime(ctx context.Context, cfg config.Config, httpAddr string) (*run
 		}
 		b.WithPackageInstalls(specs...)
 	}
+	if cfg.Runtime.PreExpandValueSets {
+		b.WithPreExpandValueSets(true)
+	}
 	if cfg.Sync.HubURL != "" {
 		b.WithSync(cfg.Sync.HubURL).WithSyncNode(cfg.Sync.NodeID)
 	}

@@ -3,22 +3,41 @@ package registry_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
+type memPackageInstallStore struct {
+	complete map[string]time.Time
+}
+
+func (s *memPackageInstallStore) MarkComplete(_ context.Context, packageName, packageVersion string, completedAt time.Time) error {
+	if s.complete == nil {
+		s.complete = make(map[string]time.Time)
+	}
+	s.complete[packageName+"@"+packageVersion] = completedAt
+	return nil
+}
+
+func (s *memPackageInstallStore) IsComplete(_ context.Context, packageName, packageVersion string) (bool, error) {
+	if s.complete == nil {
+		return false, nil
+	}
+	_, ok := s.complete[packageName+"@"+packageVersion]
+	return ok, nil
+}
+
 func TestPackageVersionInstalled(t *testing.T) {
 	ctx := context.Background()
-	defs := newMemDefinitionStore()
+	packageInstalls := &memPackageInstallStore{}
 	mgr := registry.NewManager(registry.Config{
-		Definitions: defs,
-		Installs:    newMemInstallStore(),
+		Definitions:     newMemDefinitionStore(),
+		Installs:        newMemInstallStore(),
+		PackageInstalls: packageInstalls,
 	})
-	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{
-		CanonicalURL: "urn:vs", Version: "1", FHIRResourceType: "ValueSet",
-		PackageName: "test.ig", PackageVersion: "2.0.0",
-	}, nil)
+	_ = packageInstalls.MarkComplete(ctx, "test.ig", "2.0.0", time.Now().UTC())
 	ok, err := mgr.PackageVersionInstalled(ctx, "test.ig", "2.0.0")
 	if err != nil || !ok {
 		t.Fatalf("installed=%v err=%v", ok, err)
@@ -26,5 +45,23 @@ func TestPackageVersionInstalled(t *testing.T) {
 	ok, err = mgr.PackageVersionInstalled(ctx, "test.ig", "1.0.0")
 	if err != nil || ok {
 		t.Fatalf("other version installed=%v err=%v", ok, err)
+	}
+}
+
+func TestPackageVersionInstalledIgnoresPartialCatalogEntries(t *testing.T) {
+	ctx := context.Background()
+	defs := newMemDefinitionStore()
+	mgr := registry.NewManager(registry.Config{
+		Definitions:     defs,
+		Installs:        newMemInstallStore(),
+		PackageInstalls: &memPackageInstallStore{},
+	})
+	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL: "urn:vs", Version: "1", FHIRResourceType: "ValueSet",
+		PackageName: "test.ig", PackageVersion: "2.0.0",
+	}, nil)
+	ok, err := mgr.PackageVersionInstalled(ctx, "test.ig", "2.0.0")
+	if err != nil || ok {
+		t.Fatalf("partial install should not be complete: installed=%v err=%v", ok, err)
 	}
 }

@@ -121,6 +121,7 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 
 	return b.wireCommon(ctx, state, persistenceContext{
 		definitions:         db.DefinitionStore(),
+		packageInstalls:     db.PackageInstallStore(),
 		installs:            db.RegistryInstallStore(),
 		moduleStore:         db.ModuleStore(),
 		jobStore:            db.JobStore(),
@@ -166,6 +167,7 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 
 	return b.wireCommon(ctx, state, persistenceContext{
 		definitions:         db.DefinitionStore(),
+		packageInstalls:     db.PackageInstallStore(),
 		installs:            tdb.RegistryInstallStore(),
 		moduleStore:         tdb.ModuleStore(),
 		jobStore:            tdb.JobStore(),
@@ -190,6 +192,7 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 
 type persistenceContext struct {
 	definitions         store.DefinitionStore
+	packageInstalls     store.PackageInstallStore
 	installs            store.RegistryInstallStore
 	moduleStore         store.ModuleStore
 	jobStore            store.JobStore
@@ -266,6 +269,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	regManager := registry.NewManager(registry.Config{
 		Definitions:         pc.definitions,
+		PackageInstalls:     pc.packageInstalls,
 		Installs:            pc.installs,
 		Now:                 now,
 		SearchReindex:       reindexNotifier,

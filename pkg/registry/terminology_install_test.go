@@ -92,3 +92,29 @@ func TestDeleteDefinitionRemovesTerminologyInstallRecord(t *testing.T) {
 		t.Fatalf("install rows after delete=%v", installs.rows)
 	}
 }
+
+func TestInstallDefinitionRespectsExplicitOptOut(t *testing.T) {
+	ctx := context.Background()
+	defs := newMemDefinitionStore()
+	global := terminology.NewMemoryStore()
+	installs := &memTerminologyInstallStore{}
+	mgr := registry.NewManager(registry.Config{
+		Definitions:         defs,
+		Installs:            newMemInstallStore(),
+		GlobalTerminology:   global,
+		TerminologyInstalls: installs,
+		Now:                 func() time.Time { return time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC) },
+	})
+	cs := []byte(`{"resourceType":"CodeSystem","id":"cs1","url":"urn:shared","version":"1.0","concept":[{"code":"a"}]}`)
+	provenance := registry.InstallProvenance{PackageName: "pack-a", PackageVersion: "1.0", SourceModule: "pack-a"}
+	if err := mgr.InstallDefinition(ctx, cs, provenance); err != nil {
+		t.Fatal(err)
+	}
+	installs.rows[0].Enabled = false
+	if err := mgr.InstallDefinition(ctx, cs, provenance); err != nil {
+		t.Fatal(err)
+	}
+	if installs.rows[0].Enabled {
+		t.Fatal("re-install should preserve explicit opt-out")
+	}
+}

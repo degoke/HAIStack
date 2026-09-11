@@ -49,10 +49,11 @@ type PackageInstallConfig struct {
 
 // RuntimeConfig controls local runtime capabilities.
 type RuntimeConfig struct {
-	HTTPAddr     string                 `yaml:"httpAddr" json:"httpAddr"`
-	EnableSearch bool                   `yaml:"enableSearch" json:"enableSearch"`
-	ModulePaths  []string               `yaml:"modulePaths" json:"modulePaths"`
-	Packages     []PackageInstallConfig `yaml:"packages" json:"packages"`
+	HTTPAddr             string                 `yaml:"httpAddr" json:"httpAddr"`
+	EnableSearch         bool                   `yaml:"enableSearch" json:"enableSearch"`
+	PreExpandValueSets   bool                   `yaml:"preExpandValueSets" json:"preExpandValueSets"`
+	ModulePaths          []string               `yaml:"modulePaths" json:"modulePaths"`
+	Packages             []PackageInstallConfig `yaml:"packages" json:"packages"`
 }
 
 // SyncConfig configures device-to-hub synchronization.
@@ -233,6 +234,7 @@ runtime:
   enableSearch: true
   modulePaths: []
   packages: []
+  preExpandValueSets: false
 sync:
   hubURL: ""
   nodeID: runtime-node
@@ -267,6 +269,13 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("HAISTACK_ENABLE_SEARCH must be true or false: %w", err)
 		}
 		cfg.Runtime.EnableSearch = parsed
+	}
+	if v := os.Getenv("HAISTACK_PRE_EXPAND_VALUESETS"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_PRE_EXPAND_VALUESETS must be true or false: %w", err)
+		}
+		cfg.Runtime.PreExpandValueSets = parsed
 	}
 	if v := os.Getenv("HAISTACK_MODULE_PATHS"); v != "" {
 		cfg.Runtime.ModulePaths = splitList(v)

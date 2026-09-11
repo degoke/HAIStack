@@ -59,6 +59,28 @@ sync:
 	}
 }
 
+func TestPreExpandValueSetsFromFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, []byte(`
+storage:
+  driver: sqlite
+  sqlitePath: custom.db
+runtime:
+  preExpandValueSets: true
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Runtime.PreExpandValueSets {
+		t.Fatal("expected preExpandValueSets true")
+	}
+}
+
 func TestValidatePackageInstallConfig(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
