@@ -18,9 +18,9 @@ const defaultOAuthSigningKeyID = "haistack"
 
 // SigningKeyOptions configures persisted OAuth signing keys.
 type SigningKeyOptions struct {
-	ActiveKeyID        string
-	EncryptionSecret   string
-	RotateOnStartup    bool
+	ActiveKeyID      string
+	EncryptionSecret string
+	RotateOnStartup  bool
 }
 
 // SigningKeySet holds the active signer and all verification keys for JWKS.
