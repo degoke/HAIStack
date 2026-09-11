@@ -188,6 +188,9 @@ func resolveBuiltinOAuthIssuer(issuerURL, httpAddr string) (string, error) {
 	if port == "0" {
 		return "", fmt.Errorf("runtime: builtin oauth requires explicit IssuerURL when HTTP listen address uses port 0")
 	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
 	return strings.TrimRight("http://"+net.JoinHostPort(host, port), "/"), nil
 }
 
