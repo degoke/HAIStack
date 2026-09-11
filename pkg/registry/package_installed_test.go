@@ -17,7 +17,11 @@ func (s *memPackageInstallStore) MarkComplete(_ context.Context, packageName, pa
 	if s.complete == nil {
 		s.complete = make(map[string]time.Time)
 	}
-	s.complete[packageName+"@"+packageVersion] = completedAt
+	key := packageName + "@" + packageVersion
+	if _, exists := s.complete[key]; exists {
+		return nil
+	}
+	s.complete[key] = completedAt
 	return nil
 }
 
@@ -45,6 +49,18 @@ func TestPackageVersionInstalled(t *testing.T) {
 	ok, err = mgr.PackageVersionInstalled(ctx, "test.ig", "1.0.0")
 	if err != nil || ok {
 		t.Fatalf("other version installed=%v err=%v", ok, err)
+	}
+}
+
+func TestMemPackageInstallStorePreservesFirstCompletion(t *testing.T) {
+	ctx := context.Background()
+	store := &memPackageInstallStore{}
+	first := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	second := first.Add(48 * time.Hour)
+	_ = store.MarkComplete(ctx, "test.ig", "1.0.0", first)
+	_ = store.MarkComplete(ctx, "test.ig", "1.0.0", second)
+	if !store.complete["test.ig@1.0.0"].Equal(first) {
+		t.Fatalf("completedAt=%v want %v", store.complete["test.ig@1.0.0"], first)
 	}
 }
 

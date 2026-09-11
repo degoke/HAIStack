@@ -89,7 +89,11 @@ func (s *memPackageInstallStore) MarkComplete(_ context.Context, packageName, pa
 	if s.complete == nil {
 		s.complete = make(map[string]struct{})
 	}
-	s.complete[packageName+"@"+packageVersion] = struct{}{}
+	key := packageName + "@" + packageVersion
+	if _, exists := s.complete[key]; exists {
+		return nil
+	}
+	s.complete[key] = struct{}{}
 	return nil
 }
 

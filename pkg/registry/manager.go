@@ -24,6 +24,11 @@ const defaultFHIRVersion = DefaultFHIRVersion
 // SeedBundled intentionally does not enqueue ValueSet pre-expand for this pack.
 const BundledCorePackageName = "hl7.fhir.r4.core"
 
+// ModulesPackageName is the shared package id recorded for haistack module installs.
+// Completion is tracked as ModulesPackageName@moduleManifestVersion; module identity
+// remains in InstallProvenance.ModuleName and SourceModule.
+const ModulesPackageName = "haistack-modules"
+
 // Config configures a registry Manager.
 type Config struct {
 	Definitions         store.DefinitionStore

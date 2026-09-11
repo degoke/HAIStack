@@ -66,6 +66,15 @@ Definition paths must remain inside the module directory. The loader also
 validates manifest structure, rejects duplicate entries, and applies size and
 file-count limits.
 
+## Package install completion
+
+Module installs record completion in `PackageInstallStore` under the shared
+package id `registry.ModulesPackageName` (`haistack-modules`) and the module
+manifest `version`. `CompletePackageInstall` runs after all definitions are
+ingested. Module identity remains in registry provenance (`ModuleName`,
+`SourceModule`); completion keys are `haistack-modules@<manifestVersion>` only.
+Use distinct manifest versions when multiple modules may be installed.
+
 ## Lifecycle
 
 `Manager` is the runtime-facing API:

@@ -23,8 +23,7 @@ func (s *PackageInstallStore) MarkComplete(ctx context.Context, packageName, pac
 	_, err := s.exec.Exec(ctx, `
 		INSERT INTO hai_package_install (package_name, package_version, completed_at)
 		VALUES ($1, $2, $3)
-		ON CONFLICT (package_name, package_version) DO UPDATE SET
-			completed_at = EXCLUDED.completed_at`,
+		ON CONFLICT (package_name, package_version) DO NOTHING`,
 		packageName, packageVersion, completedAt,
 	)
 	if err != nil {

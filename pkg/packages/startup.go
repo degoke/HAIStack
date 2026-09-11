@@ -27,8 +27,8 @@ func InstallConfigured(ctx context.Context, installer *Installer, specs []Instal
 	return nil
 }
 
-// InstallIfNeeded installs one package when its version is not already in the catalog.
-// The returned skipped flag is true when the package version was already installed.
+// InstallIfNeeded installs one package when that version is not already complete.
+// The returned skipped flag is true when CompletePackageInstall already recorded the version.
 func (i *Installer) InstallIfNeeded(ctx context.Context, spec InstallSpec) (*InstallResult, bool, error) {
 	if i == nil || i.Registry == nil {
 		return nil, false, fmt.Errorf("package installer is not configured")
