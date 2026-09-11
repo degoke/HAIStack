@@ -24,6 +24,7 @@ var definitionResourceTypes = map[string]struct{}{
 // DefinitionIngestor installs FHIR definition resources into the registry catalog.
 type DefinitionIngestor interface {
 	InstallDefinition(ctx context.Context, jsonData []byte, provenance registry.InstallProvenance) error
+	CompletePackageInstall(ctx context.Context, provenance registry.InstallProvenance) error
 	DeleteDefinition(ctx context.Context, canonicalURL, version string) error
 }
 
@@ -79,7 +80,10 @@ func (s *ResourceService) ingestDefinitionResourceWithoutRefresh(ctx context.Con
 		ModuleName:     fhirAPIDefinitionModule,
 		SourceModule:   fhirAPIDefinitionModule,
 	}
-	return s.definitionIngestor.InstallDefinition(ctx, env.JSON, provenance)
+	if err := s.definitionIngestor.InstallDefinition(ctx, env.JSON, provenance); err != nil {
+		return err
+	}
+	return s.definitionIngestor.CompletePackageInstall(ctx, provenance)
 }
 
 func (s *ResourceService) removeDefinitionResourceWithoutRefresh(ctx context.Context, env *types.ResourceEnvelope) error {

@@ -245,6 +245,15 @@ func TestPreExpandScopeListsScopeOnly(t *testing.T) {
 	}
 }
 
+func TestEligiblePackPreExpandURLsRequiresPackVersion(t *testing.T) {
+	ctx := context.Background()
+	defs := &memDefinitionStore{}
+	_, err := EligiblePackPreExpandURLs(ctx, defs, NewMemoryStore(), GlobalScopeID, "pack-a", "")
+	if err == nil {
+		t.Fatal("expected packVersion required error")
+	}
+}
+
 func TestPreExpandPackFiltersEligibleValueSets(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()

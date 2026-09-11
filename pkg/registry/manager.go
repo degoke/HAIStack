@@ -20,6 +20,10 @@ const DefaultFHIRVersion = "4.0.1"
 
 const defaultFHIRVersion = DefaultFHIRVersion
 
+// BundledCorePackageName is the package id for embedded R4 base definitions.
+// SeedBundled intentionally does not enqueue ValueSet pre-expand for this pack.
+const BundledCorePackageName = "hl7.fhir.r4.core"
+
 // Config configures a registry Manager.
 type Config struct {
 	Definitions         store.DefinitionStore
@@ -89,6 +93,7 @@ func (m *Manager) terminologyTarget(resourceType string) (store.TerminologyStore
 }
 
 // SeedBundled loads embedded R4 base definitions into the catalog idempotently.
+// Bundled core definitions never enqueue ValueSet pre-expand jobs; see BundledCorePackageName.
 func (m *Manager) SeedBundled(ctx context.Context) error {
 	m.seedMu.Lock()
 	defer m.seedMu.Unlock()
@@ -113,7 +118,7 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 			return fmt.Errorf("check bundled definition %s: %w", parsed.CanonicalURL, err)
 		}
 		if err := m.ingestDefinition(ctx, raw, InstallProvenance{
-			PackageName:    "hl7.fhir.r4.core",
+			PackageName:    BundledCorePackageName,
 			PackageVersion: m.fhirVersion,
 		}, false); err != nil {
 			return err
@@ -393,19 +398,31 @@ func (m *Manager) scheduleSearchReindex(ctx context.Context, resourceTypes ...st
 }
 
 func (m *Manager) enqueuePackPreExpand(ctx context.Context, provenance InstallProvenance) error {
-	if !m.preExpandValueSets || m.jobStore == nil || provenance.PackageName == "" {
+	if !m.preExpandValueSets || m.jobStore == nil || provenance.PackageName == "" || provenance.PackageVersion == "" {
 		return nil
+	}
+	if provenance.PackageName == BundledCorePackageName {
+		return nil
+	}
+	listStore := m.terminology
+	if m.globalTerminology != nil {
+		listStore = m.globalTerminology
 	}
 	termScope := m.terminologyScope
 	if m.globalTerminology != nil {
 		termScope = terminology.GlobalScopeID
 	}
-	_, err := jobs.Enqueue(ctx, m.jobStore, jobs.TypeTerminologyPreExpand, jobs.TerminologyPreExpandPayload{
-		ScopeID:     termScope,
-		PackName:    provenance.PackageName,
-		PackVersion: provenance.PackageVersion,
-	}, jobs.EnqueueOptions{TenantID: m.terminologyScope, PrincipalID: jobs.RegistryPrincipalID})
+	if m.definitions == nil || listStore == nil {
+		return nil
+	}
+	urls, err := terminology.EligiblePackPreExpandURLs(ctx, m.definitions, listStore, termScope, provenance.PackageName, provenance.PackageVersion)
 	if err != nil {
+		return fmt.Errorf("check pack pre-expand eligibility: %w", err)
+	}
+	if len(urls) == 0 {
+		return nil
+	}
+	if err := jobs.EnqueuePackPreExpand(ctx, m.jobStore, termScope, provenance.PackageName, provenance.PackageVersion, m.terminologyScope, m.now); err != nil {
 		return fmt.Errorf("enqueue pack pre-expand: %w", err)
 	}
 	return nil

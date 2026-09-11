@@ -82,13 +82,17 @@ func ShouldEnqueuePreExpand(raw []byte) bool {
 	return true
 }
 
-// PreExpandPack pre-expands finite ValueSets from one installed package.
-func PreExpandPack(ctx context.Context, listStore, composeStore store.TerminologyStore, definitions store.DefinitionStore, scopeID, packName, packVersion string, opts PreExpandOptions) ([]PreExpandResult, error) {
+// EligiblePackPreExpandURLs lists ValueSet canonical URLs in a package version
+// that pass ShouldEnqueuePreExpand heuristics.
+func EligiblePackPreExpandURLs(ctx context.Context, definitions store.DefinitionStore, listStore store.TerminologyStore, scopeID, packName, packVersion string) ([]string, error) {
 	if definitions == nil {
 		return nil, fmt.Errorf("definition store is required")
 	}
 	if packName == "" {
 		return nil, fmt.Errorf("packName is required")
+	}
+	if packVersion == "" {
+		return nil, fmt.Errorf("packVersion is required")
 	}
 	defs, err := definitions.List(ctx, store.DefinitionFilter{PackageName: packName})
 	if err != nil {
@@ -96,7 +100,7 @@ func PreExpandPack(ctx context.Context, listStore, composeStore store.Terminolog
 	}
 	var urls []string
 	for _, def := range defs {
-		if packVersion != "" && def.PackageVersion != packVersion {
+		if def.PackageVersion != packVersion {
 			continue
 		}
 		if def.FHIRResourceType != "ValueSet" {
@@ -116,6 +120,15 @@ func PreExpandPack(ctx context.Context, listStore, composeStore store.Terminolog
 			continue
 		}
 		urls = append(urls, def.CanonicalURL)
+	}
+	return urls, nil
+}
+
+// PreExpandPack pre-expands finite ValueSets from one installed package.
+func PreExpandPack(ctx context.Context, listStore, composeStore store.TerminologyStore, definitions store.DefinitionStore, scopeID, packName, packVersion string, opts PreExpandOptions) ([]PreExpandResult, error) {
+	urls, err := EligiblePackPreExpandURLs(ctx, definitions, listStore, scopeID, packName, packVersion)
+	if err != nil {
+		return nil, err
 	}
 	if len(urls) == 0 {
 		return nil, nil

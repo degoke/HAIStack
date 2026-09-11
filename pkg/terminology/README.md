@@ -158,8 +158,11 @@ Platform FHIR operations:
 Finite packaged ValueSets can be pre-expanded at install time (opt-in via
 `runtime.Builder.WithPreExpandValueSets(true)` or
 `Basic/$terminology-install?preExpandValueSets=true`). Registry package install
-enqueues one `registry.terminology.pre_expand_valuesets` job per package (not
-per ValueSet); the worker expands all eligible ValueSets from that pack.
+enqueues one `registry.terminology.pre_expand_valuesets` job per package version
+(not per ValueSet) when at least one eligible ValueSet exists; bundled R4 core
+(`hl7.fhir.r4.core`) is excluded. REST definition writes via the FHIR API also
+call `CompletePackageInstall` after ingest. Re-install resets a completed pack
+job to pending; duplicate pending jobs are skipped.
 Pre-expand skips ValueSets that already ship `expansion.contains`, already have
 matching `ExpansionFingerprint` members, exceed `MaxExpansion`, use unbounded
 compose heuristics (`ShouldEnqueuePreExpand`), or reference CodeSystems the
