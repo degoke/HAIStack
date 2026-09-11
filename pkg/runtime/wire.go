@@ -287,6 +287,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		return fmt.Errorf("runtime: enable Subscription: %w", err)
 	}
 
+	if len(b.packageInstalls) > 0 {
+		pkgInstaller := &packages.Installer{
+			Registry:    regManager,
+			EnableTypes: true,
+		}
+		if err := packages.InstallConfigured(ctx, pkgInstaller, b.packageInstalls); err != nil {
+			return fmt.Errorf("runtime: install configured packages: %w", err)
+		}
+	}
+
 	modManager := modules.NewManager(modules.Config{
 		ModuleStore:          pc.moduleStore,
 		DefinitionStore:      pc.definitions,

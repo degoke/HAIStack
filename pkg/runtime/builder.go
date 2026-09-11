@@ -8,6 +8,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
@@ -40,8 +41,9 @@ type Builder struct {
 	moduleAuthorizer      modules.InstallAuthorizer
 	moduleVerifier        modules.ModuleVerifier
 
-	modulePaths []string
-	httpAddr    string
+	modulePaths    []string
+	packageInstalls []packages.InstallSpec
+	httpAddr        string
 
 	remoteTerminologyURL string
 	preExpandValueSets   bool
@@ -222,6 +224,13 @@ func (b *Builder) WithModules(paths ...string) *Builder {
 		}
 		b.modulePaths = append(b.modulePaths, path)
 	}
+	return b
+}
+
+// WithPackageInstalls installs FHIR NPM packages or local IG directories at build time.
+// Already-installed package versions are skipped idempotently.
+func (b *Builder) WithPackageInstalls(specs ...packages.InstallSpec) *Builder {
+	b.packageInstalls = append(b.packageInstalls, specs...)
 	return b
 }
 

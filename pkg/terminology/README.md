@@ -114,6 +114,10 @@ Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
 do not auto-enable them; each tenant opts in explicitly via
 `POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
 
+Server startup can install local modules and FHIR packages declaratively via
+`haistack.yaml` (`runtime.modulePaths`, `runtime.packages`). Installs are
+idempotent: the same module version or package version is not re-installed.
+
 **Breaking change (registry installs):** IG/package install no longer opts the
 installing tenant into global terminology automatically. After install, call
 `Basic/$terminology-enable` once per catalog entry or once per pack

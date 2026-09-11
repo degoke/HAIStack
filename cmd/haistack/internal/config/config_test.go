@@ -59,6 +59,25 @@ sync:
 	}
 }
 
+func TestValidatePackageInstallConfig(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Runtime.Packages = []config.PackageInstallConfig{
+		{PackageID: "hl7.fhir.us.core", Version: "5.0.1"},
+		{Path: "./igs/custom", Version: "1.0.0"},
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	bad := config.Defaults()
+	bad.Runtime.Packages = []config.PackageInstallConfig{{PackageID: "missing-version"}}
+	bad.Normalize()
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
 func TestEnvOverridesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "haistack.yaml")
