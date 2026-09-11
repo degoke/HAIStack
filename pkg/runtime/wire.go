@@ -554,7 +554,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		DefaultScope: termScope,
 	}
 	terminologyEnableService := hahttp.CoreTerminologyEnableService{
-		Installs: pc.terminologyInstalls,
+		Installs:    pc.terminologyInstalls,
+		Global:      pc.globalTerminology,
+		Definitions: pc.definitions,
 	}
 	jobStatusService := hahttp.CoreJobStatusService{
 		JobStore: pc.jobStore,

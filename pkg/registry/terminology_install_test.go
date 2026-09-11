@@ -79,6 +79,9 @@ func TestDeleteDefinitionRemovesTerminologyInstallRecord(t *testing.T) {
 	if len(installs.rows) != 1 {
 		t.Fatalf("install rows=%d want 1", len(installs.rows))
 	}
+	if installs.rows[0].Enabled {
+		t.Fatal("registry install should record catalog entry without auto-enabling tenant opt-in")
+	}
 	if err := mgr.DeleteDefinition(ctx, "urn:test-cs", "1.0"); err != nil {
 		t.Fatal(err)
 	}

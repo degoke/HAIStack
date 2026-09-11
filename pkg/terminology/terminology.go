@@ -285,6 +285,9 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 	if err != nil {
 		return nil, err
 	}
+	if len(ms) > 0 && v.ComposeJSON != "" && v.ExpansionFingerprint != ComposeFingerprint(v.ComposeJSON) {
+		ms = nil
+	}
 	if len(ms) == 0 && v.ComposeJSON != "" {
 		ms, err = composeMembers(ctx, s.Store, s.ScopeID, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
 		if err != nil {
@@ -541,9 +544,10 @@ func compileCS(ctx context.Context, st store.TerminologyStore, scope, url, ver s
 }
 func compileVS(ctx context.Context, st store.TerminologyStore, scope, url, ver, status string, r map[string]any) error {
 	b, _ := json.Marshal(r["compose"])
-	fp := ComposeFingerprint(string(b))
+	composeJSON := string(b)
+	fp := ComposeFingerprint(composeJSON)
 	members := membersFromFHIRExpansion(scope, url, ver, r)
-	return st.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{ScopeID: scope, CanonicalURL: url, Version: ver, Status: status, ComposeJSON: string(b), ExpansionFingerprint: fp}, members)
+	return st.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{ScopeID: scope, CanonicalURL: url, Version: ver, Status: status, ComposeJSON: composeJSON, ExpansionFingerprint: fp}, members)
 }
 
 // ComposeFingerprint returns a stable hash of a ValueSet compose definition.

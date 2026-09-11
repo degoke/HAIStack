@@ -212,16 +212,17 @@ func (h *handler) handleBasicTerminologyEnable(w http.ResponseWriter, r *http.Re
 		writeError(w, err)
 		return
 	}
-	if record.CanonicalURL == "" {
+	if record.CanonicalURL == "" && record.PackName == "" {
 		record = parseTerminologyEnableParameters(body, record)
 	}
-	if record.CanonicalURL == "" {
-		writeError(w, invalidRequest("canonicalUrl is required for $terminology-enable", nil))
+	if record.CanonicalURL == "" && record.PackName == "" {
+		writeError(w, invalidRequest("canonicalUrl or packName is required for $terminology-enable", nil))
 		return
 	}
-	if err := h.cfg.TerminologyEnableService.SetEnabled(r.Context(), record); err != nil {
+	result, err := h.cfg.TerminologyEnableService.Enable(r.Context(), record)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeEnvelope(w, http.StatusOK, terminologyEnableParameters(record), nil)
+	writeEnvelope(w, http.StatusOK, terminologyEnableParameters(record, result), nil)
 }

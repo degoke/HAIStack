@@ -8,6 +8,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -139,17 +140,28 @@ func parseTerminologyEnableParameters(body []byte, defaults store.TerminologyIns
 	return record
 }
 
-func terminologyEnableParameters(record store.TerminologyInstallRecord) *types.ResourceEnvelope {
-	payload := map[string]any{
-		"resourceType": "Parameters",
-		"parameter": []map[string]any{
-			{"name": "canonicalUrl", "valueString": record.CanonicalURL},
-			{"name": "version", "valueString": record.Version},
-			{"name": "resourceType", "valueString": record.ResourceType},
-			{"name": "enabled", "valueBoolean": record.Enabled},
-		},
+func terminologyEnableParameters(record store.TerminologyInstallRecord, result terminology.EnableResult) *types.ResourceEnvelope {
+	params := []map[string]any{
+		{"name": "enabled", "valueBoolean": record.Enabled},
+		{"name": "count", "valueInteger": result.Count},
 	}
-	raw, _ := json.Marshal(payload)
+	if record.CanonicalURL != "" {
+		params = append(params,
+			map[string]any{"name": "canonicalUrl", "valueString": record.CanonicalURL},
+			map[string]any{"name": "version", "valueString": record.Version},
+			map[string]any{"name": "resourceType", "valueString": record.ResourceType},
+		)
+	}
+	if record.PackName != "" {
+		params = append(params,
+			map[string]any{"name": "packName", "valueString": record.PackName},
+			map[string]any{"name": "packVersion", "valueString": record.PackVersion},
+		)
+	}
+	for _, warning := range result.Warnings {
+		params = append(params, map[string]any{"name": "warning", "valueString": warning})
+	}
+	raw, _ := json.Marshal(map[string]any{"resourceType": "Parameters", "parameter": params})
 	return &types.ResourceEnvelope{ResourceType: "Parameters", JSON: raw}
 }
 

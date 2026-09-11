@@ -1248,11 +1248,19 @@ func TestBasicTerminologyInstallPreExpandHTTP(t *testing.T) {
 }
 
 func TestBasicTerminologyEnableHTTP(t *testing.T) {
+	ctx := context.Background()
+	global := terminology.NewMemoryStore()
+	vs := []byte(`{"resourceType":"ValueSet","url":"http://hl7.org/fhir/ValueSet/administrative-gender","version":"4.0.1","compose":{"include":[{"system":"http://hl7.org/fhir/administrative-gender","concept":[{"code":"male"}]}]}}`)
+	_ = global.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "ValueSet",
+		CanonicalURL: "http://hl7.org/fhir/ValueSet/administrative-gender", Version: "4.0.1", ResourceJSON: vs,
+	})
 	installs := &fakeTerminologyInstallStore{}
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
 			Installs: installs,
+			Global:   global,
 		},
 	})
 	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=http://hl7.org/fhir/ValueSet/administrative-gender&resourceType=ValueSet&version=4.0.1", nil)
@@ -1261,5 +1269,19 @@ func TestBasicTerminologyEnableHTTP(t *testing.T) {
 	}
 	if len(installs.enabled) != 1 || !installs.enabled[0].Enabled {
 		t.Fatalf("installs=%+v", installs.enabled)
+	}
+}
+
+func TestBasicTerminologyEnableRejectsMissingCatalogEntry(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
+			Installs: &fakeTerminologyInstallStore{},
+			Global:   terminology.NewMemoryStore(),
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=urn:missing&resourceType=ValueSet&version=1", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

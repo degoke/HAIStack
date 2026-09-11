@@ -70,7 +70,12 @@ func ShouldEnqueuePreExpand(raw []byte) bool {
 	for _, iv := range includes {
 		m, _ := iv.(map[string]any)
 		sys, _ := m["system"].(string)
-		if sys != "" && m["concept"] == nil {
+		concepts, hasConcept := m["concept"].([]any)
+		vals, hasValueSet := m["valueSet"].([]any)
+		if sys != "" && (!hasConcept || len(concepts) == 0) {
+			return false
+		}
+		if hasValueSet && len(vals) > 0 && sys == "" && (!hasConcept || len(concepts) == 0) {
 			return false
 		}
 	}

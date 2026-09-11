@@ -232,7 +232,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				ResourceType: parsed.FHIRResourceType,
 				CanonicalURL: parsed.CanonicalURL,
 				Version:      parsed.Version,
-				Enabled:      true,
+				Enabled:      false,
 				SourceModule: provenance.SourceModule,
 				InstalledAt:  m.now().UTC(),
 			}); err != nil {
@@ -244,7 +244,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				ScopeID: termScope,
 				URL:     parsed.CanonicalURL,
 				Version: parsed.Version,
-			}, jobs.EnqueueOptions{}); err != nil {
+			}, jobs.EnqueueOptions{TenantID: m.terminologyScope, PrincipalID: "registry"}); err != nil {
 				return fmt.Errorf("enqueue valueset pre-expand: %w", err)
 			}
 		}

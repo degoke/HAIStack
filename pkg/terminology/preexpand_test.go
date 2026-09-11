@@ -169,9 +169,42 @@ func TestShouldEnqueuePreExpand(t *testing.T) {
 	if ShouldEnqueuePreExpand(fullCS) {
 		t.Fatal("expected full CodeSystem include to skip enqueue")
 	}
+	valueSetOnly := []byte(`{"resourceType":"ValueSet","url":"urn:vs","compose":{"include":[{"valueSet":["urn:other"]}]}}`)
+	if ShouldEnqueuePreExpand(valueSetOnly) {
+		t.Fatal("expected valueSet-only include to skip enqueue")
+	}
 	withExpansion := []byte(`{"resourceType":"ValueSet","url":"urn:vs","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]},"expansion":{"contains":[{"system":"urn:cs","code":"a"}]}}`)
 	if ShouldEnqueuePreExpand(withExpansion) {
 		t.Fatal("expected server expansion to skip enqueue")
+	}
+}
+
+func TestExpandIgnoresStaleMembersWhenComposeChanges(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"a"},{"code":"b"}]}`)
+	if err := Compile(ctx, m, "tenant-a", "", cs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", ResourceJSON: cs,
+	})
+	oldCompose := `{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]}`
+	if err := m.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{
+		ScopeID: "tenant-a", CanonicalURL: "urn:vs", Version: "1", ComposeJSON: oldCompose, ExpansionFingerprint: ComposeFingerprint(oldCompose),
+	}, []store.TerminologyExpansionMemberRecord{{ScopeID: "tenant-a", SystemURL: "urn:cs", Code: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	newCompose := `{"include":[{"system":"urn:cs","concept":[{"code":"b"}]}]}`
+	if err := m.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{
+		ScopeID: "tenant-a", CanonicalURL: "urn:vs", Version: "1", ComposeJSON: newCompose, ExpansionFingerprint: ComposeFingerprint(oldCompose),
+	}, []store.TerminologyExpansionMemberRecord{{ScopeID: "tenant-a", SystemURL: "urn:cs", Code: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewLocalService(m, "tenant-a")
+	ex, err := svc.Expand(ctx, ExpandRequest{URL: "urn:vs"})
+	if err != nil || len(ex.Contains) != 1 || ex.Contains[0].Code != "b" {
+		t.Fatalf("expand=%+v err=%v", ex, err)
 	}
 }
 

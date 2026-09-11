@@ -3,10 +3,12 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"time"
+	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -49,28 +51,51 @@ type CoreJobStatusService struct {
 
 // TerminologyEnableService enables or disables tenant opt-in to global catalog entries.
 type TerminologyEnableService interface {
-	SetEnabled(ctx context.Context, record store.TerminologyInstallRecord) error
+	Enable(ctx context.Context, record store.TerminologyInstallRecord) (terminology.EnableResult, error)
 }
 
 // CoreTerminologyEnableService implements terminology catalog opt-in.
 type CoreTerminologyEnableService struct {
-	Installs store.TerminologyInstallStore
+	Installs    store.TerminologyInstallStore
+	Global      store.TerminologyStore
+	Definitions store.DefinitionStore
 }
 
-func (s CoreTerminologyEnableService) SetEnabled(ctx context.Context, record store.TerminologyInstallRecord) error {
+func (s CoreTerminologyEnableService) Enable(ctx context.Context, record store.TerminologyInstallRecord) (terminology.EnableResult, error) {
 	if s.Installs == nil {
-		return notConfigured("terminology install store")
+		return terminology.EnableResult{}, notConfigured("terminology install store")
+	}
+	opts := terminology.CatalogEnableOptions{
+		Global:      s.Global,
+		Installs:    s.Installs,
+		Definitions: s.Definitions,
+	}
+	if record.PackName != "" && record.CanonicalURL == "" {
+		result, err := terminology.EnableCatalogPack(ctx, opts, record.PackName, record.PackVersion, record.Enabled)
+		if err != nil {
+			return terminology.EnableResult{}, mapTerminologyEnableError(err)
+		}
+		return result, nil
 	}
 	if record.CanonicalURL == "" {
-		return invalidRequest("canonicalUrl is required for terminology enable", nil)
+		return terminology.EnableResult{}, invalidRequest("canonicalUrl or packName is required for terminology enable", nil)
 	}
-	if record.ResourceType == "" {
-		record.ResourceType = "CodeSystem"
+	result, err := terminology.EnableCatalogEntry(ctx, opts, record)
+	if err != nil {
+		return terminology.EnableResult{}, mapTerminologyEnableError(err)
 	}
-	if record.InstalledAt.IsZero() {
-		record.InstalledAt = time.Now().UTC()
+	return result, nil
+}
+
+func mapTerminologyEnableError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return s.Installs.SetEnabled(ctx, record)
+	msg := err.Error()
+	if strings.Contains(msg, "not found in global scope") || strings.Contains(msg, "no terminology resources found") {
+		return &core.ServiceError{Kind: core.ErrorKindNotFound, Message: msg}
+	}
+	return invalidRequest(msg, err)
 }
 
 func (s CoreJobStatusService) GetJob(ctx context.Context, id string) (*store.JobRecord, error) {

@@ -110,7 +110,9 @@ provider supports FHIR R4 `$lookup`, `$expand`, and `$validate-code` with
 in-memory caching, request throttling, and a simple circuit breaker.
 
 Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
-`RegistryInstallStore`).
+`RegistryInstallStore`). Registry installs record available catalog entries but
+do not auto-enable them; each tenant opts in explicitly via
+`POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
 
 ## Scope and lifecycle
 
@@ -138,7 +140,7 @@ Platform FHIR operations:
 - `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
 - `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state
 - `POST /fhir/Basic/$terminology-install` — rebuild projections; optional `preExpandValueSets=true`
-- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet
+- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet, or a whole pack via `packName`/`packVersion` (validates global catalog)
 
 ## Optional ValueSet pre-expansion
 
