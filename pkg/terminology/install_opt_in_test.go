@@ -44,6 +44,21 @@ func TestEnsureInstallOptInPreservesInstalledAt(t *testing.T) {
 	}
 }
 
+func TestEnsureInstallOptInOptsInMultipleResources(t *testing.T) {
+	ctx := context.Background()
+	installs := &memTerminologyInstallStore{}
+	for _, url := range []string{"urn:vs1", "urn:vs2"} {
+		if err := EnsureInstallOptIn(ctx, installs, store.TerminologyInstallRecord{
+			ResourceType: "ValueSet", CanonicalURL: url, Version: "1", Enabled: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(installs.rows) != 2 {
+		t.Fatalf("rows=%d want 2", len(installs.rows))
+	}
+}
+
 func TestEnsureCatalogPackOptInRespectsOptOut(t *testing.T) {
 	ctx := context.Background()
 	global := NewMemoryStore()

@@ -201,7 +201,7 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 	}
 
 	moduleProvenance := registry.InstallProvenance{
-		PackageName:    registry.ModulesPackageName,
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
 		PackageVersion: mod.Manifest.Version,
 		ModuleName:     mod.Manifest.Name,
 		SourceModule:   mod.Manifest.Name,
@@ -308,7 +308,7 @@ func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 		oldDefKeys[ref.CanonicalURL+"|"+ref.Version] = struct{}{}
 	}
 	upgradeProvenance := registry.InstallProvenance{
-		PackageName:    registry.ModulesPackageName,
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
 		PackageVersion: mod.Manifest.Version,
 		ModuleName:     mod.Manifest.Name,
 		SourceModule:   mod.Manifest.Name,

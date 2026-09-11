@@ -30,8 +30,8 @@ func (s *memTerminologyInstallStore) ListEnabled(_ context.Context) ([]store.Ter
 	return out, nil
 }
 
-func (s *memTerminologyInstallStore) ListInstalled(_ context.Context, _ store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
-	return append([]store.TerminologyInstallRecord(nil), s.rows...), nil
+func (s *memTerminologyInstallStore) ListInstalled(_ context.Context, filter store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
+	return store.FilterTerminologyInstalls(s.rows, filter), nil
 }
 
 func (s *memTerminologyInstallStore) Delete(_ context.Context, filter store.TerminologyInstallFilter) error {

@@ -125,8 +125,7 @@ idempotent: completed package versions are tracked in `PackageInstallStore`
 (`CompletePackageInstall` records the first completion only; partial installs
 resume on restart). Databases upgraded before this table existed re-run install
 once on the next startup so `CompletePackageInstall` can record completion.
-Global
-terminology is not re-compiled when the resource already exists in `__global__`.
+Global terminology is not re-compiled when the resource already exists in `__global__`.
 Re-installing a completed package version only opts in absent terminology rows
 for the installing tenant.
 

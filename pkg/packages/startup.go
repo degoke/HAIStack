@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// InstallConfigured installs each spec idempotently. Already-installed package
+// InstallConfigured installs each spec idempotently. Already-complete package
 // versions are skipped without error.
 func InstallConfigured(ctx context.Context, installer *Installer, specs []InstallSpec) error {
 	if installer == nil {

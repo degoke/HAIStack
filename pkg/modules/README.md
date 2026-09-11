@@ -68,12 +68,11 @@ file-count limits.
 
 ## Package install completion
 
-Module installs record completion in `PackageInstallStore` under the shared
-package id `registry.ModulesPackageName` (`haistack-modules`) and the module
-manifest `version`. `CompletePackageInstall` runs after all definitions are
-ingested. Module identity remains in registry provenance (`ModuleName`,
-`SourceModule`); completion keys are `haistack-modules@<manifestVersion>` only.
-Use distinct manifest versions when multiple modules may be installed.
+Module installs record completion in `PackageInstallStore` under
+`registry.ModulesPackageID(<moduleName>)` (for example `haistack-modules/core`)
+and the manifest `version`. `CompletePackageInstall` runs after all definitions
+are ingested. Module identity also remains in registry provenance (`ModuleName`,
+`SourceModule`).
 
 ## Lifecycle
 
