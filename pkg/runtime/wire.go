@@ -139,8 +139,9 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		syncAudit:           db.AuditStore(),
 		terminology:         db.TerminologyStore(),
 		globalTerminology:   db.GlobalTerminologyStore(),
-		terminologyInstalls: db.TerminologyInstallStore(syncTenantID),
-		reindexJobs:         false,
+		terminologyInstalls:         db.TerminologyInstallStore(syncTenantID),
+		terminologyInstallFactory:   sqlite.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:                 false,
 	})
 }
 
@@ -185,8 +186,9 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		syncAudit:           tdb.AuditStore(),
 		terminology:         tdb.TerminologyStore(),
 		globalTerminology:   db.GlobalTerminologyStore(),
-		terminologyInstalls: tdb.TerminologyInstallStore(),
-		reindexJobs:         b.searchEnabled,
+		terminologyInstalls:         tdb.TerminologyInstallStore(),
+		terminologyInstallFactory:   postgres.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:                 b.searchEnabled,
 	})
 }
 
@@ -210,8 +212,9 @@ type persistenceContext struct {
 	reindexJobs         bool
 	terminology         store.TerminologyStore
 	globalTerminology   store.TerminologyStore
-	terminologyInstalls store.TerminologyInstallStore
-	terminologyScope    string
+	terminologyInstalls       store.TerminologyInstallStore
+	terminologyInstallFactory store.TerminologyInstallStoreFactory
+	terminologyScope          string
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
@@ -503,11 +506,21 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			},
 			EnableTypes: true,
 		}
-		packageWorker := &packages.InstallWorker{Installer: packageInstaller, Store: pc.jobStore}
+		packageWorker := &packages.InstallWorker{
+			Installer:                  packageInstaller,
+			Store:                      pc.jobStore,
+			TerminologyInstalls:        pc.terminologyInstallFactory,
+			DefaultTerminologyTenantID: pc.syncTenantID,
+		}
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
-		moduleWorker := &modules.InstallWorker{Manager: modManager, Store: pc.jobStore}
+		moduleWorker := &modules.InstallWorker{
+			Manager:                    modManager,
+			Store:                      pc.jobStore,
+			TerminologyInstalls:        pc.terminologyInstallFactory,
+			DefaultTerminologyTenantID: pc.syncTenantID,
+		}
 		if err := runner.Register(jobs.TypeModuleInstall, jobs.HandlerFunc(moduleWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register module install handler: %w", err)
 		}

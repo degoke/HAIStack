@@ -265,12 +265,16 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				return fmt.Errorf("compile terminology: %w", err)
 			}
 		}
-		if m.terminologyInstalls != nil {
+		installs := TerminologyInstallsFromContext(ctx)
+		if installs == nil {
+			installs = m.terminologyInstalls
+		}
+		if installs != nil {
 			sourceModule := provenance.SourceModule
 			if sourceModule == "" {
 				sourceModule = provenance.PackageName
 			}
-			if err := terminology.EnsureInstallOptIn(ctx, m.terminologyInstalls, store.TerminologyInstallRecord{
+			if err := terminology.EnsureInstallOptIn(ctx, installs, store.TerminologyInstallRecord{
 				PackName:     provenance.PackageName,
 				PackVersion:  provenance.PackageVersion,
 				ResourceType: parsed.FHIRResourceType,

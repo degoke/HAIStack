@@ -13,9 +13,13 @@ func (m *Manager) EnsureTerminologyPackEnabled(ctx context.Context, packName, pa
 	if m == nil {
 		return nil
 	}
+	installs := TerminologyInstallsFromContext(ctx)
+	if installs == nil {
+		installs = m.terminologyInstalls
+	}
 	return terminology.EnsureCatalogPackOptIn(ctx, terminology.CatalogEnableOptions{
 		Global:      m.globalTerminology,
-		Installs:    m.terminologyInstalls,
+		Installs:    installs,
 		Definitions: m.definitions,
 	}, packName, packVersion, sourceModule)
 }

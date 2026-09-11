@@ -5,13 +5,16 @@ import (
 	"fmt"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
 // InstallWorker handles modules.install jobs.
 type InstallWorker struct {
-	Manager *Manager
-	Store   store.JobStore
+	Manager                    *Manager
+	Store                      store.JobStore
+	TerminologyInstalls        store.TerminologyInstallStoreFactory
+	DefaultTerminologyTenantID string
 }
 
 // HandleJob installs a module from a local directory path.
@@ -25,6 +28,10 @@ func (w *InstallWorker) HandleJob(ctx context.Context, job store.JobRecord) erro
 	}
 	if payload.Path == "" {
 		return fmt.Errorf("module install path is required")
+	}
+	ctx, err := registry.ContextWithJobTerminologyInstalls(ctx, job, w.TerminologyInstalls, w.DefaultTerminologyTenantID)
+	if err != nil {
+		return err
 	}
 	reporter := jobs.NewReporter(w.Store, job)
 	progress := func(current, total int, message string) {

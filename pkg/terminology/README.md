@@ -117,7 +117,10 @@ and never override explicit opt-out (`enabled=false` from
 `$terminology-enable`). Other tenants must still call
 `POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
 At server startup, configured installs use the default/sync tenant (SQLite
-`sqliteTenantID`, Postgres tenant DB).
+`sqliteTenantID`, Postgres tenant DB). Async HTTP package and module install
+jobs stamp the request tenant on the job payload and opt in that tenant via
+`TerminologyInstallStoreFactory` (fallback: default/sync tenant when no owner is
+recorded).
 
 Server startup can install local modules and FHIR packages declaratively via
 `haistack.yaml` (`runtime.modulePaths`, `runtime.packages`). Installs are
