@@ -2,6 +2,7 @@ package terminology
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,47 @@ func TestEnableCatalogEntryEnablesExistingGlobalResource(t *testing.T) {
 	enabled, _ := installs.ListEnabled(ctx)
 	if len(enabled) != 1 || !enabled[0].Enabled {
 		t.Fatalf("enabled=%+v", enabled)
+	}
+}
+
+func TestEnableCatalogEntryRequiresGlobalStore(t *testing.T) {
+	ctx := context.Background()
+	installs := &memTerminologyInstallStore{}
+	_, err := EnableCatalogEntry(ctx, CatalogEnableOptions{Installs: installs}, store.TerminologyInstallRecord{
+		CanonicalURL: "urn:cs", Version: "1", ResourceType: "CodeSystem", Enabled: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "global terminology store is required") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestEnableCatalogPackRequiresGlobalStore(t *testing.T) {
+	ctx := context.Background()
+	installs := &memTerminologyInstallStore{}
+	defs := &memDefinitionStore{}
+	_, err := EnableCatalogPack(ctx, CatalogEnableOptions{Installs: installs, Definitions: defs}, "test-pack", "1.0", true)
+	if err == nil || !strings.Contains(err.Error(), "global terminology store is required") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestEnableCatalogPackAllMissingReturnsWarnings(t *testing.T) {
+	ctx := context.Background()
+	global := NewMemoryStore()
+	defs := &memDefinitionStore{}
+	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{
+		CanonicalURL: "urn:missing", Version: "1", FHIRResourceType: "ValueSet",
+		PackageName: "ghost-pack", PackageVersion: "1.0",
+	}, nil)
+	installs := &memTerminologyInstallStore{}
+	result, err := EnableCatalogPack(ctx, CatalogEnableOptions{
+		Global: global, Installs: installs, Definitions: defs,
+	}, "ghost-pack", "1.0", true)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if result.Count != 0 || len(result.Warnings) != 1 {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

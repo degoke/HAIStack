@@ -11,6 +11,7 @@ import (
 // TerminologyPreExpandWorker handles registry.terminology.pre_expand_valuesets jobs.
 type TerminologyPreExpandWorker struct {
 	Terminology  store.TerminologyStore
+	Definitions  store.DefinitionStore
 	TenantScope  string
 	MaxExpansion int
 	Installs     store.TerminologyInstallStore
@@ -40,6 +41,23 @@ func (w *TerminologyPreExpandWorker) HandleJob(ctx context.Context, job store.Jo
 	opts := terminology.PreExpandOptions{
 		MaxExpansion: w.MaxExpansion,
 		Installs:     w.Installs,
+	}
+	if payload.PackName != "" {
+		if w.Definitions == nil {
+			return fmt.Errorf("definition store is required for pack pre-expand")
+		}
+		results, err := terminology.PreExpandPack(ctx, w.Terminology, composeStore, w.Definitions, scope, payload.PackName, payload.PackVersion, opts)
+		if err != nil {
+			return err
+		}
+		expanded := 0
+		for _, r := range results {
+			if !r.Skipped {
+				expanded++
+			}
+		}
+		_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Current: expanded, Total: len(results), Message: payload.PackName})
+		return reporter.Complete(ctx, map[string]any{"expanded": expanded, "packName": payload.PackName, "results": results})
 	}
 	if payload.URL != "" {
 		res, err := terminology.PreExpandValueSet(ctx, w.Terminology, composeStore, scope, payload.URL, payload.Version, nil, opts)

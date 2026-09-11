@@ -244,3 +244,44 @@ func TestPreExpandScopeListsScopeOnly(t *testing.T) {
 		t.Fatalf("tenant should not get global expansion copy: members=%d err=%v", len(members), err)
 	}
 }
+
+func TestPreExpandPackFiltersEligibleValueSets(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	defs := &memDefinitionStore{}
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"a"}]}`)
+	finiteVS := []byte(`{"resourceType":"ValueSet","url":"urn:finite","version":"1","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]}}`)
+	fullCSVS := []byte(`{"resourceType":"ValueSet","url":"urn:full","version":"1","compose":{"include":[{"system":"urn:cs"}]}}`)
+	for _, raw := range [][]byte{cs, finiteVS, fullCSVS} {
+		if err := Install(ctx, m, store.TerminologyResourceRecord{
+			ScopeID: GlobalScopeID, ResourceType: resourceTypeFromJSON(raw), CanonicalURL: urlFromJSON(raw), Version: "1", ResourceJSON: raw,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{CanonicalURL: "urn:finite", Version: "1", FHIRResourceType: "ValueSet", PackageName: "pack-a", PackageVersion: "1.0", JSONData: finiteVS}, nil)
+	_ = defs.Upsert(ctx, store.DefinitionResourceRecord{CanonicalURL: "urn:full", Version: "1", FHIRResourceType: "ValueSet", PackageName: "pack-a", PackageVersion: "1.0", JSONData: fullCSVS}, nil)
+	results, err := PreExpandPack(ctx, m, m, defs, GlobalScopeID, "pack-a", "1.0", PreExpandOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].URL != "urn:finite" || results[0].Skipped {
+		t.Fatalf("results=%+v", results)
+	}
+}
+
+func resourceTypeFromJSON(raw []byte) string {
+	var r struct {
+		ResourceType string `json:"resourceType"`
+	}
+	_ = json.Unmarshal(raw, &r)
+	return r.ResourceType
+}
+
+func urlFromJSON(raw []byte) string {
+	var r struct {
+		URL string `json:"url"`
+	}
+	_ = json.Unmarshal(raw, &r)
+	return r.URL
+}

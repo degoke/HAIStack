@@ -157,6 +157,9 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 		}
 		result.Enabled = append(result.Enabled, resourceType)
 	}
+	if err := i.Registry.CompletePackageInstall(ctx, provenance); err != nil {
+		return nil, err
+	}
 	if i.Refresh != nil {
 		if err := i.Refresh(ctx); err != nil {
 			return result, fmt.Errorf("refresh conformance runtime: %w", err)

@@ -95,6 +95,9 @@ func mapTerminologyEnableError(err error) error {
 	if strings.Contains(msg, "not found in global scope") || strings.Contains(msg, "no terminology resources found") {
 		return &core.ServiceError{Kind: core.ErrorKindNotFound, Message: msg}
 	}
+	if strings.Contains(msg, "global terminology store is required") {
+		return notConfigured("global terminology store")
+	}
 	return invalidRequest(msg, err)
 }
 

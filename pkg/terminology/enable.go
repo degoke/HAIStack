@@ -26,13 +26,16 @@ func EnableCatalogEntry(ctx context.Context, opts CatalogEnableOptions, record s
 	if opts.Installs == nil {
 		return EnableResult{}, fmt.Errorf("terminology install store is required")
 	}
+	if opts.Global == nil {
+		return EnableResult{}, fmt.Errorf("global terminology store is required")
+	}
 	if record.CanonicalURL == "" {
 		return EnableResult{}, fmt.Errorf("canonicalUrl is required")
 	}
 	if record.ResourceType == "" {
 		record.ResourceType = "CodeSystem"
 	}
-	if opts.Global != nil && !catalogResourceExists(ctx, opts.Global, record.ResourceType, record.CanonicalURL, record.Version) {
+	if !catalogResourceExists(ctx, opts.Global, record.ResourceType, record.CanonicalURL, record.Version) {
 		return EnableResult{}, fmt.Errorf("terminology catalog entry %s|%s not found in global scope", record.CanonicalURL, record.Version)
 	}
 	if record.InstalledAt.IsZero() {
@@ -52,6 +55,9 @@ func EnableCatalogPack(ctx context.Context, opts CatalogEnableOptions, packName,
 	if packName == "" {
 		return EnableResult{}, fmt.Errorf("packName is required")
 	}
+	if opts.Global == nil {
+		return EnableResult{}, fmt.Errorf("global terminology store is required")
+	}
 	if opts.Definitions == nil {
 		return EnableResult{}, fmt.Errorf("definition store is required for pack-level enable")
 	}
@@ -68,7 +74,7 @@ func EnableCatalogPack(ctx context.Context, opts CatalogEnableOptions, packName,
 		if def.FHIRResourceType != "CodeSystem" && def.FHIRResourceType != "ValueSet" {
 			continue
 		}
-		if opts.Global != nil && !catalogResourceExists(ctx, opts.Global, def.FHIRResourceType, def.CanonicalURL, def.Version) {
+		if !catalogResourceExists(ctx, opts.Global, def.FHIRResourceType, def.CanonicalURL, def.Version) {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped %s|%s: not in global catalog", def.CanonicalURL, def.Version))
 			continue
 		}

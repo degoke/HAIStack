@@ -510,6 +510,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			}
 			preExpandWorker := &jobs.TerminologyPreExpandWorker{
 				Terminology:  pc.terminology,
+				Definitions:  pc.definitions,
 				TenantScope:  termScope,
 				MaxExpansion: maxExpansion,
 				Installs:     pc.terminologyInstalls,

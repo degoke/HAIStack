@@ -130,11 +130,11 @@ func (m *Manager) InstallDefinitionsFromFS(ctx context.Context, fsys fs.FS, root
 		return err
 	}
 	for _, raw := range resources {
-		if err := m.InstallDefinition(ctx, raw, provenance); err != nil {
+		if err := m.ingestDefinition(ctx, raw, provenance, true); err != nil {
 			return err
 		}
 	}
-	return nil
+	return m.enqueuePackPreExpand(ctx, provenance)
 }
 
 // InstallDefinitionsFromDir ingests every .json definition file under dir on the local filesystem.
@@ -145,6 +145,12 @@ func (m *Manager) InstallDefinitionsFromDir(ctx context.Context, dir string, pro
 // InstallDefinition ingests one additional definition resource with provenance.
 func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, provenance InstallProvenance) error {
 	return m.ingestDefinition(ctx, jsonData, provenance, true)
+}
+
+// CompletePackageInstall enqueues one batched ValueSet pre-expand job for a package
+// after callers finish a loop of InstallDefinition calls.
+func (m *Manager) CompletePackageInstall(ctx context.Context, provenance InstallProvenance) error {
+	return m.enqueuePackPreExpand(ctx, provenance)
 }
 
 // DeleteDefinition removes a catalog entry and its terminology projection.
@@ -237,15 +243,6 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 				InstalledAt:  m.now().UTC(),
 			}); err != nil {
 				return err
-			}
-		}
-		if parsed.FHIRResourceType == "ValueSet" && m.preExpandValueSets && m.jobStore != nil && terminology.ShouldEnqueuePreExpand(jsonData) {
-			if _, err := jobs.Enqueue(ctx, m.jobStore, jobs.TypeTerminologyPreExpand, jobs.TerminologyPreExpandPayload{
-				ScopeID: termScope,
-				URL:     parsed.CanonicalURL,
-				Version: parsed.Version,
-			}, jobs.EnqueueOptions{TenantID: m.terminologyScope, PrincipalID: "registry"}); err != nil {
-				return fmt.Errorf("enqueue valueset pre-expand: %w", err)
 			}
 		}
 		if m.terminologyCache != nil {
@@ -393,4 +390,23 @@ func (m *Manager) scheduleSearchReindex(ctx context.Context, resourceTypes ...st
 		return nil
 	}
 	return m.searchReindex.ScheduleReindex(ctx, resourceTypes...)
+}
+
+func (m *Manager) enqueuePackPreExpand(ctx context.Context, provenance InstallProvenance) error {
+	if !m.preExpandValueSets || m.jobStore == nil || provenance.PackageName == "" {
+		return nil
+	}
+	termScope := m.terminologyScope
+	if m.globalTerminology != nil {
+		termScope = terminology.GlobalScopeID
+	}
+	_, err := jobs.Enqueue(ctx, m.jobStore, jobs.TypeTerminologyPreExpand, jobs.TerminologyPreExpandPayload{
+		ScopeID:     termScope,
+		PackName:    provenance.PackageName,
+		PackVersion: provenance.PackageVersion,
+	}, jobs.EnqueueOptions{TenantID: m.terminologyScope, PrincipalID: jobs.RegistryPrincipalID})
+	if err != nil {
+		return fmt.Errorf("enqueue pack pre-expand: %w", err)
+	}
+	return nil
 }

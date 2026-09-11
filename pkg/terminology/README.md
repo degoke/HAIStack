@@ -114,6 +114,17 @@ Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
 do not auto-enable them; each tenant opts in explicitly via
 `POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
 
+**Breaking change (registry installs):** IG/package install no longer opts the
+installing tenant into global terminology automatically. After install, call
+`Basic/$terminology-enable` once per catalog entry or once per pack
+(`packName` / optional `packVersion`). Existing single-tenant flows that relied
+on implicit enable must add this step.
+
+Pack-level enable validates every entry against the global catalog. Entries
+missing from `__global__` are skipped and returned as `warning` parameters;
+check `count` and `warning` in the response — `count: 0` with warnings is
+success, not an error, when every pack entry is absent from the global catalog.
+
 ## Scope and lifecycle
 
 The canonical identity is:
@@ -137,17 +148,20 @@ Platform FHIR operations:
 
 - `POST /fhir/ImplementationGuide/$install` — async IG/package install
 - `POST /fhir/Basic/$install` — async local module install
-- `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
+- `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress; internal registry jobs stamp `principalId: "registry"` (synthetic owner, not a real user principal)
 - `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state
 - `POST /fhir/Basic/$terminology-install` — rebuild projections; optional `preExpandValueSets=true`
-- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet, or a whole pack via `packName`/`packVersion` (validates global catalog)
+- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet, or a whole pack via `packName`/`packVersion` (requires global terminology store; validates catalog entries)
 
 ## Optional ValueSet pre-expansion
 
 Finite packaged ValueSets can be pre-expanded at install time (opt-in via
 `runtime.Builder.WithPreExpandValueSets(true)` or
-`Basic/$terminology-install?preExpandValueSets=true`). Pre-expand skips ValueSets
-that already ship `expansion.contains`, already have matching
-`ExpansionFingerprint` members, exceed `MaxExpansion`, or reference CodeSystems
-the tenant has not opted into. Runtime `$expand` prefers stored members and only
+`Basic/$terminology-install?preExpandValueSets=true`). Registry package install
+enqueues one `registry.terminology.pre_expand_valuesets` job per package (not
+per ValueSet); the worker expands all eligible ValueSets from that pack.
+Pre-expand skips ValueSets that already ship `expansion.contains`, already have
+matching `ExpansionFingerprint` members, exceed `MaxExpansion`, use unbounded
+compose heuristics (`ShouldEnqueuePreExpand`), or reference CodeSystems the
+tenant has not opted into. Runtime `$expand` prefers stored members and only
 composes when the projection is empty.

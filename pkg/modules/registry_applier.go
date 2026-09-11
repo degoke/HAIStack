@@ -59,6 +59,14 @@ func (a *RegistryApplier) InstallDefinition(ctx context.Context, jsonData []byte
 	return nil
 }
 
+// CompletePackageInstall enqueues batched ValueSet pre-expand for a package install.
+func (a *RegistryApplier) CompletePackageInstall(ctx context.Context, provenance registry.InstallProvenance) error {
+	if err := a.registry.CompletePackageInstall(ctx, provenance); err != nil {
+		return fmt.Errorf("complete package install: %w", err)
+	}
+	return nil
+}
+
 // DeleteDefinition removes a definition catalog entry and its target mappings.
 func (a *RegistryApplier) DeleteDefinition(ctx context.Context, canonicalURL, version string) error {
 	if err := a.registry.DeleteDefinition(ctx, canonicalURL, version); err != nil {

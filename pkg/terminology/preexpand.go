@@ -82,6 +82,47 @@ func ShouldEnqueuePreExpand(raw []byte) bool {
 	return true
 }
 
+// PreExpandPack pre-expands finite ValueSets from one installed package.
+func PreExpandPack(ctx context.Context, listStore, composeStore store.TerminologyStore, definitions store.DefinitionStore, scopeID, packName, packVersion string, opts PreExpandOptions) ([]PreExpandResult, error) {
+	if definitions == nil {
+		return nil, fmt.Errorf("definition store is required")
+	}
+	if packName == "" {
+		return nil, fmt.Errorf("packName is required")
+	}
+	defs, err := definitions.List(ctx, store.DefinitionFilter{PackageName: packName})
+	if err != nil {
+		return nil, err
+	}
+	var urls []string
+	for _, def := range defs {
+		if packVersion != "" && def.PackageVersion != packVersion {
+			continue
+		}
+		if def.FHIRResourceType != "ValueSet" {
+			continue
+		}
+		var raw []byte
+		if listStore != nil {
+			rec, err := listStore.FindResource(ctx, scopeID, "ValueSet", def.CanonicalURL, def.Version)
+			if err == nil && rec != nil {
+				raw = rec.ResourceJSON
+			}
+		}
+		if len(raw) == 0 {
+			raw = def.JSONData
+		}
+		if !ShouldEnqueuePreExpand(raw) {
+			continue
+		}
+		urls = append(urls, def.CanonicalURL)
+	}
+	if len(urls) == 0 {
+		return nil, nil
+	}
+	return PreExpandScope(ctx, listStore, composeStore, scopeID, urls, opts)
+}
+
 // PreExpandScope expands ValueSets stored in scopeID using listStore for enumeration
 // and composeStore for dependency resolution during composition.
 func PreExpandScope(ctx context.Context, listStore, composeStore store.TerminologyStore, scopeID string, urls []string, opts PreExpandOptions) ([]PreExpandResult, error) {
