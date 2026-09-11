@@ -18,14 +18,20 @@ type TerminologyPreExpandWorker struct {
 	JobStore     store.JobStore
 }
 
-// HandleJob pre-expands one or more ValueSets in a scope.
+// HandleJob pre-expands eligible ValueSets from one installed package version.
 func (w *TerminologyPreExpandWorker) HandleJob(ctx context.Context, job store.JobRecord) error {
 	if w == nil || w.Terminology == nil {
 		return fmt.Errorf("terminology pre-expand worker is not configured")
 	}
+	if w.Definitions == nil {
+		return fmt.Errorf("definition store is required for pack pre-expand")
+	}
 	var payload TerminologyPreExpandPayload
 	if err := UnmarshalPayload(job.Payload, &payload); err != nil {
 		return err
+	}
+	if payload.PackName == "" || payload.PackVersion == "" {
+		return fmt.Errorf("packName and packVersion are required for terminology pre-expand")
 	}
 	scope := payload.ScopeID
 	if scope == "" {
@@ -36,38 +42,13 @@ func (w *TerminologyPreExpandWorker) HandleJob(ctx context.Context, job store.Jo
 	}
 	composeStore := terminology.StoreForScope(w.Terminology, w.TenantScope, w.Installs, scope)
 	reporter := NewReporter(w.JobStore, job)
-	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Message: scope})
+	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Message: payload.PackName})
 
 	opts := terminology.PreExpandOptions{
 		MaxExpansion: w.MaxExpansion,
 		Installs:     w.Installs,
 	}
-	if payload.PackName != "" {
-		if w.Definitions == nil {
-			return fmt.Errorf("definition store is required for pack pre-expand")
-		}
-		results, err := terminology.PreExpandPack(ctx, w.Terminology, composeStore, w.Definitions, scope, payload.PackName, payload.PackVersion, opts)
-		if err != nil {
-			return err
-		}
-		expanded := 0
-		for _, r := range results {
-			if !r.Skipped {
-				expanded++
-			}
-		}
-		_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Current: expanded, Total: len(results), Message: payload.PackName})
-		return reporter.Complete(ctx, map[string]any{"expanded": expanded, "packName": payload.PackName, "results": results})
-	}
-	if payload.URL != "" {
-		res, err := terminology.PreExpandValueSet(ctx, w.Terminology, composeStore, scope, payload.URL, payload.Version, nil, opts)
-		if err != nil {
-			return err
-		}
-		return reporter.Complete(ctx, map[string]any{"results": []terminology.PreExpandResult{res}})
-	}
-	urls := payload.URLs
-	results, err := terminology.PreExpandScope(ctx, w.Terminology, composeStore, scope, urls, opts)
+	results, err := terminology.PreExpandPack(ctx, w.Terminology, composeStore, w.Definitions, scope, payload.PackName, payload.PackVersion, opts)
 	if err != nil {
 		return err
 	}
@@ -77,6 +58,6 @@ func (w *TerminologyPreExpandWorker) HandleJob(ctx context.Context, job store.Jo
 			expanded++
 		}
 	}
-	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Current: expanded, Total: len(results), Message: scope})
-	return reporter.Complete(ctx, map[string]any{"expanded": expanded, "results": results})
+	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Current: expanded, Total: len(results), Message: payload.PackName})
+	return reporter.Complete(ctx, map[string]any{"expanded": expanded, "packName": payload.PackName, "results": results})
 }

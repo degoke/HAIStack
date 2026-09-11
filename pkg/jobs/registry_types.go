@@ -32,12 +32,9 @@ const RegistryPrincipalID = "registry"
 
 // TerminologyPreExpandPayload is the job payload for registry.terminology.pre_expand_valuesets.
 type TerminologyPreExpandPayload struct {
-	ScopeID     string   `json:"scopeId,omitempty"`
-	PackName    string   `json:"packName,omitempty"`
-	PackVersion string   `json:"packVersion,omitempty"`
-	URL         string   `json:"url,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	URLs        []string `json:"urls,omitempty"`
+	ScopeID     string `json:"scopeId,omitempty"`
+	PackName    string `json:"packName,omitempty"`
+	PackVersion string `json:"packVersion,omitempty"`
 }
 
 // PackageInstallPayload is the job payload for registry.package_install.
