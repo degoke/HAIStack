@@ -56,18 +56,27 @@ type TerminologyEnableService interface {
 
 // CoreTerminologyEnableService implements terminology catalog opt-in.
 type CoreTerminologyEnableService struct {
-	Installs    store.TerminologyInstallStore
-	Global      store.TerminologyStore
-	Definitions store.DefinitionStore
+	InstallFactory  store.TerminologyInstallStoreFactory
+	DefaultTenantID string
+	Global          store.TerminologyStore
+	Definitions     store.DefinitionStore
 }
 
 func (s CoreTerminologyEnableService) Enable(ctx context.Context, record store.TerminologyInstallRecord) (terminology.EnableResult, error) {
-	if s.Installs == nil {
+	installs := store.TerminologyInstallsFromContext(ctx)
+	if installs == nil && s.InstallFactory != nil && s.DefaultTenantID != "" {
+		resolved, err := s.InstallFactory.ForTenant(ctx, s.DefaultTenantID)
+		if err != nil {
+			return terminology.EnableResult{}, err
+		}
+		installs = resolved
+	}
+	if installs == nil {
 		return terminology.EnableResult{}, notConfigured("terminology install store")
 	}
 	opts := terminology.CatalogEnableOptions{
 		Global:      s.Global,
-		Installs:    s.Installs,
+		Installs:    installs,
 		Definitions: s.Definitions,
 	}
 	if record.PackName != "" && record.CanonicalURL == "" {

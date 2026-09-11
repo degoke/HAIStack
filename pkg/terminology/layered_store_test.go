@@ -145,6 +145,37 @@ func TestLayeredStoreDeleteDoesNotRemoveGlobal(t *testing.T) {
 	}
 }
 
+func TestLayeredStoreContextInstallsOverrideWired(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	globalCS := []byte(`{"resourceType":"CodeSystem","url":"urn:global","version":"1","concept":[{"code":"x","display":"Global"}]}`)
+	if err := Compile(ctx, m, GlobalScopeID, "", globalCS); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "CodeSystem", CanonicalURL: "urn:global", Version: "1", ResourceJSON: globalCS,
+	})
+
+	wired := &memTerminologyInstallStore{}
+	contextInstalls := &memTerminologyInstallStore{rows: []store.TerminologyInstallRecord{{
+		ResourceType: "CodeSystem", CanonicalURL: "urn:global", Version: "1", Enabled: true,
+	}}}
+	layered := NewLayeredStore(m, "tenant-a")
+	layered.Installs = wired
+	svc := NewLocalService(layered, "tenant-a")
+
+	got, err := svc.Lookup(ctx, LookupRequest{System: "urn:global", Code: "x"})
+	if err != nil || got.Found {
+		t.Fatalf("wired installs should block global, lookup=%+v err=%v", got, err)
+	}
+
+	ctx = store.ContextWithTerminologyInstalls(ctx, contextInstalls)
+	c, err := layered.LookupConcept(ctx, "tenant-a", "urn:global", "1", "x")
+	if err != nil || c == nil || c.Code != "x" {
+		t.Fatalf("context installs should allow global, concept=%+v err=%v", c, err)
+	}
+}
+
 func TestChainTenantUsesLayeredGlobalFallback(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()

@@ -582,9 +582,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		DefaultScope: termScope,
 	}
 	terminologyEnableService := hahttp.CoreTerminologyEnableService{
-		Installs:    pc.terminologyInstalls,
-		Global:      pc.globalTerminology,
-		Definitions: pc.definitions,
+		InstallFactory:  pc.terminologyInstallFactory,
+		DefaultTenantID: pc.syncTenantID,
+		Global:          pc.globalTerminology,
+		Definitions:     pc.definitions,
 	}
 	jobStatusService := hahttp.CoreJobStatusService{
 		JobStore: pc.jobStore,
@@ -602,9 +603,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		ModuleInstallService:      moduleService,
 		ModulePaths:               append([]string(nil), b.modulePaths...),
 		JobStatusService:          jobStatusService,
-		TerminologyService:        state.services.TerminologyService,
-		TerminologyScope:          termScope,
-		TerminologyInstallService: terminologyInstallService,
+		TerminologyService:           state.services.TerminologyService,
+		TerminologyScope:             termScope,
+		TerminologyInstallFactory:    pc.terminologyInstallFactory,
+		DefaultTerminologyTenantID:   pc.syncTenantID,
+		TerminologyInstallService:    terminologyInstallService,
 		TerminologyEnableService:  terminologyEnableService,
 		ConformanceRefresher:      conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{

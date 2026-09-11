@@ -150,6 +150,15 @@ ValueSets and `__global__` for shared CodeSystems. Historical or retired
 versions remain readable when explicitly requested, but retired versions are
 excluded from current-version resolution.
 
+**SQLite multi-tenant note:** terminology opt-in rows are keyed by
+`sqliteTenantID` (sync tenant, default `local`), while terminology overlays use
+`sqliteTerminologyScope` (default `default`). In single-tenant SQLite dev these
+are usually aligned via config; in a multi-tenant single-process SQLite
+deployment, set `sqliteTerminologyScope` to match how you partition tenant
+ValueSets, and ensure HTTP auth supplies the same tenant ID used for opt-in
+(`TerminologyInstallStoreFactory.ForTenant`). Mismatched scope vs tenant ID can
+cause install opt-in and `$expand` gating to disagree.
+
 HTTP terminology operations are exposed when `TerminologyService` is wired:
 
 - `CodeSystem/$lookup`

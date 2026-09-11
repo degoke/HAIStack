@@ -144,11 +144,18 @@ func (l *LayeredStore) writeScope(resourceType, scope string) string {
 	return l.tenantScope(scope)
 }
 
+func (l *LayeredStore) installsFor(ctx context.Context) store.TerminologyInstallStore {
+	if inst := store.TerminologyInstallsFromContext(ctx); inst != nil {
+		return inst
+	}
+	return l.Installs
+}
+
 func (l *LayeredStore) globalAllowed(ctx context.Context, url, ver, resourceType string) bool {
 	if l.GlobalScopeID == "" {
 		return false
 	}
-	if l.Installs == nil {
+	if l.installsFor(ctx) == nil {
 		return false
 	}
 	enabled, err := l.enabledKeys(ctx, resourceType)
@@ -168,10 +175,11 @@ func (l *LayeredStore) globalAllowed(ctx context.Context, url, ver, resourceType
 }
 
 func (l *LayeredStore) enabledKeys(ctx context.Context, resourceType string) (map[string]bool, error) {
-	if l.Installs == nil {
+	installs := l.installsFor(ctx)
+	if installs == nil {
 		return nil, nil
 	}
-	rows, err := l.Installs.ListEnabled(ctx)
+	rows, err := installs.ListEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}

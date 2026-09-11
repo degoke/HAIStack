@@ -7,23 +7,14 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-type terminologyInstallsContextKey struct{}
-
 // ContextWithTerminologyInstalls overrides the terminology opt-in store for one call tree.
 func ContextWithTerminologyInstalls(ctx context.Context, installs store.TerminologyInstallStore) context.Context {
-	if installs == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, terminologyInstallsContextKey{}, installs)
+	return store.ContextWithTerminologyInstalls(ctx, installs)
 }
 
 // TerminologyInstallsFromContext returns a per-request terminology opt-in store when set.
 func TerminologyInstallsFromContext(ctx context.Context) store.TerminologyInstallStore {
-	if ctx == nil {
-		return nil
-	}
-	installs, _ := ctx.Value(terminologyInstallsContextKey{}).(store.TerminologyInstallStore)
-	return installs
+	return store.TerminologyInstallsFromContext(ctx)
 }
 
 // ContextWithJobTerminologyInstalls opts the job owner's tenant into terminology installs.

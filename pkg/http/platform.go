@@ -219,7 +219,12 @@ func (h *handler) handleBasicTerminologyEnable(w http.ResponseWriter, r *http.Re
 		writeError(w, invalidRequest("canonicalUrl or packName is required for $terminology-enable", nil))
 		return
 	}
-	result, err := h.cfg.TerminologyEnableService.Enable(r.Context(), record)
+	ctx, err := h.withTerminologyInstalls(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := h.cfg.TerminologyEnableService.Enable(ctx, record)
 	if err != nil {
 		writeError(w, err)
 		return
