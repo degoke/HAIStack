@@ -139,7 +139,7 @@
 //
 //   - Bulk export implementation (routes return 501)
 //   - Full CapabilityStatement conformance testing
-//   - SMART metadata, built-in OAuth2/SMART token runtime
+//   - Built-in OAuth2/SMART token runtime (use optional pkg/oauth or external IdP)
 //   - gRPC or non-FHIR content types
 //
 // See README.md in this directory for endpoint tables, wiring examples, and test

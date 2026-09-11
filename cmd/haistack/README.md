@@ -68,7 +68,7 @@ haistack serve
 | Command | Description |
 |---------|-------------|
 | `haistack init` | Write starter `haistack.yaml` and create `.haistack/`. Use `--force` to overwrite. |
-| `haistack serve` | Build `pkg/runtime`, start HTTP, print bound address. |
+| `haistack serve` | Build `pkg/runtime`, start HTTP with built-in SMART OAuth (SQLite), print bound address. |
 | `haistack validate <file>` | Structural validation via `validate.Engine`. Exits non-zero when invalid. |
 | `haistack import <file>` | Import one JSON resource; use `--create-only` or `--update-only` to control conflicts. |
 | `haistack read <ResourceType/id>` | Read one stored resource. |
@@ -107,6 +107,11 @@ runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
   modulePaths: []
+oauth:
+  enabled: true
+  production: false
+  issuerURL: "" # required https URL when production: true; pin for signing key continuity
+  registrationAccessToken: ""
 sync:
   hubURL: ""
   nodeID: runtime-node
@@ -138,6 +143,16 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_MODULE_PATHS` | `runtime.modulePaths` (comma-separated) |
 | `HAISTACK_SYNC_HUB_URL` | `sync.hubURL` |
 | `HAISTACK_SYNC_NODE_ID` | `sync.nodeID` |
+| `HAISTACK_OAUTH_ENABLED` | `oauth.enabled` |
+| `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` (also `HAISTACK_PRODUCTION=1`) |
+| `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+| `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | encrypts persisted OAuth signing keys (required in production) |
+| `OAUTH_SIGNING_KEY_ROTATE` | set `1` to rotate active signing key on startup |
+
+When `oauth.production` is enabled, config validation requires an explicit `https` `oauth.issuerURL`, a registration token, signing key encryption secret, and `autoApprove: false`. Pin the issuer URL before go-live so the persisted signing key stays stable across restarts. `/fhir/metadata` remains public; other FHIR routes require SMART Bearer tokens.
+
+See [`pkg/oauth/OPERATIONS.md`](../../pkg/oauth/OPERATIONS.md) for Inferno reference vs production OAuth settings.
 
 ### Persistent flags
 
@@ -178,7 +193,7 @@ storage:
   tenantID: tenant-a
 ```
 
-Postgres mode uses tenant-scoped stores and supports background reindex workers inside `pkg/runtime`. CLI `reindex` still runs synchronously in phase 1.
+Postgres mode uses tenant-scoped stores and supports background reindex workers inside `pkg/runtime`. Built-in OAuth (`oauth.enabled`, default true on `serve`) persists authorization data and rate limits in Postgres when `driver: postgres` is configured. CLI `reindex` still runs synchronously in phase 1.
 
 ## Output contract
 

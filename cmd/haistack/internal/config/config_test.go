@@ -80,6 +80,56 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 }
 
+func TestOAuthEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, config.StarterYAML(), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HAISTACK_OAUTH_PRODUCTION", "true")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+	t.Setenv("HAISTACK_OAUTH_ISSUER_URL", "https://auth.example.test")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "test-signing-key-secret")
+
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.OAuthProduction() {
+		t.Fatal("expected oauth production from env")
+	}
+	if cfg.OAuth.RegistrationAccessToken != "register-token" {
+		t.Fatalf("registration token = %q", cfg.OAuth.RegistrationAccessToken)
+	}
+	if cfg.OAuth.IssuerURL != "https://auth.example.test" {
+		t.Fatalf("issuer url = %q", cfg.OAuth.IssuerURL)
+	}
+}
+
+func TestOAuthProductionRequiresIssuerAndToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, config.StarterYAML(), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HAISTACK_OAUTH_PRODUCTION", "true")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+
+	if _, err := config.Load(path, config.Overrides{}); err == nil {
+		t.Fatal("expected production config to require oauth.issuerURL")
+	}
+
+	t.Setenv("HAISTACK_OAUTH_ISSUER_URL", "http://auth.example.test")
+	if _, err := config.Load(path, config.Overrides{}); err == nil {
+		t.Fatal("expected production config to reject non-https issuer")
+	}
+
+	t.Setenv("HAISTACK_OAUTH_ISSUER_URL", "https://auth.example.test")
+	if _, err := config.Load(path, config.Overrides{}); err == nil {
+		t.Fatal("expected production config to require signing key encryption secret")
+	}
+}
+
 func TestLoadUsesDefaultsWhenDefaultFileIsMissing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

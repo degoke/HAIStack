@@ -23,7 +23,7 @@ It does **not**:
 - Open databases or manage tenants (`pkg/sqlite`, `pkg/postgres`)
 - Index resources or compile search plans (`pkg/search` write path)
 - Validate profiles or assign version IDs (`pkg/core`, `pkg/types`)
-- Issue or validate SMART/OAuth tokens (`pkg/smart`) — callers wire token resolution into `PrincipalResolver`
+- Issue or validate SMART/OAuth tokens (`pkg/smart`, optional `pkg/oauth`) — wire token resolution into `PrincipalResolver`
 
 ## Import alias
 
@@ -153,6 +153,7 @@ func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.
 | `AuthMiddleware` | no | nil | Custom outer middleware |
 | `PrincipalResolver` | no | nil | Identity extraction when auth enabled |
 | `AuthChecker` | no | nil | Read/write/search authorization |
+| `RootConfig.OAuth` | no | nil | Optional `pkg/oauth` routes (`/.well-known/*`, `/oauth/*`) |
 | `OperationService` | no | nil | Generic custom `$operation` execution |
 | `RateLimit` | no | disabled | Process-local fixed-window request limiter |
 
@@ -185,6 +186,22 @@ Path/body validation at the HTTP layer (malformed ids, id mismatch on update, no
 | `Last-Modified` | Read/update when `LastUpdated` present |
 
 ## Auth integration
+
+For self-contained deployments, use `pkg/oauth.WireHTTP` to obtain a
+`PrincipalResolver` and mount OAuth routes via `RootConfig.OAuth`:
+
+```go
+wired, _ := oauth.WireHTTP(oauth.WireConfig{Server: oauthSrv, Adapter: smartAdapter})
+handler, _ := hahttp.NewHandler(hahttp.Config{
+    ResourceService:   resources,
+    PrincipalResolver: wired.PrincipalResolver,
+    AuthChecker:       hahttp.PolicyAuthChecker{Engine: authEngine},
+})
+root := hahttp.NewRootHandlerFromConfig(hahttp.RootConfig{
+    FHIR:  handler,
+    OAuth: wired.OAuthHandler,
+})
+```
 
 `PolicyAuthChecker` delegates to `auth.PolicyEngine`:
 
@@ -226,5 +243,6 @@ go test ./pkg/http/... -count=1
 | `pkg/search` | Type-level search via `SearchService` |
 | `pkg/registry` | Capability snapshot for `/metadata` |
 | `pkg/auth` | Optional authorization via `AuthChecker` |
-| `pkg/smart` | Token/scope → principal (caller-wired, not built-in) |
+| `pkg/smart` | Token/scope → principal (caller-wired, or via `pkg/oauth.WireHTTP`) |
+| `pkg/oauth` | Optional built-in authorization server; mount on `RootConfig.OAuth` |
 | `pkg/types` | `ResourceEnvelope`, `ResourceCodec`, `OperationOutcome` |

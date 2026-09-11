@@ -3,6 +3,7 @@ package command_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,7 +30,14 @@ func TestServeBuildsAndStartsSQLite(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 	ctx := context.Background()
-	rt, err := app.BuildRuntime(ctx, cfg, "127.0.0.1:0")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	cfg.OAuth.IssuerURL = "http://" + addr
+	rt, err := app.BuildRuntime(ctx, cfg, addr)
 	if err != nil {
 		t.Fatalf("build runtime: %v", err)
 	}
@@ -46,7 +54,15 @@ func TestServeBuildsAndStartsSQLite(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("metadata status = %d", resp.StatusCode)
+		t.Fatalf("metadata status = %d, want 200 when metadata is public", resp.StatusCode)
+	}
+	smartResp, err := http.Get("http://" + rt.HTTPAddr().String() + "/fhir/.well-known/smart-configuration")
+	if err != nil {
+		t.Fatalf("GET smart-configuration: %v", err)
+	}
+	defer func() { _ = smartResp.Body.Close() }()
+	if smartResp.StatusCode != http.StatusOK {
+		t.Fatalf("smart-configuration status = %d", smartResp.StatusCode)
 	}
 	for _, path := range []string{"/healthz", "/readyz"} {
 		probe, err := http.Get("http://" + rt.HTTPAddr().String() + path)

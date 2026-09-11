@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 )
@@ -20,6 +21,10 @@ type requestIdentity struct {
 
 func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicFHIRPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		format, err := negotiateResponseFormat(r)
 		if err != nil {
 			writeError(w, err)
@@ -45,6 +50,11 @@ func identityFromContext(ctx context.Context) (auth.Principal, auth.TenantContex
 		return auth.Principal{}, auth.TenantContext{}, false
 	}
 	return value.Principal, value.Tenant, true
+}
+
+func isPublicFHIRPath(path string) bool {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(path), "/")
+	return strings.HasSuffix(trimmed, "/metadata")
 }
 
 func (h *handler) authorizeRead(ctx context.Context, resourceType, id string) error {

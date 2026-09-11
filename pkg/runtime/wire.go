@@ -480,6 +480,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	packageService := hahttp.CorePackageInstallService{
 		JobStore: pc.jobStore,
 	}
+	if b.builtinOAuth != nil {
+		if err := b.wireBuiltinOAuth(ctx, state); err != nil {
+			return err
+		}
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:         httpSearchSvc,
@@ -519,6 +524,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	} else if b.syncServer != nil {
 		rootCfg.Sync = b.syncServer
 		rootCfg.SyncMiddleware = b.syncMiddleware
+	}
+	if b.oauthHandler != nil {
+		rootCfg.OAuth = b.oauthHandler
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil

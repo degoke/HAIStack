@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,7 @@ const (
 type Config struct {
 	Storage StorageConfig `yaml:"storage" json:"storage"`
 	Runtime RuntimeConfig `yaml:"runtime" json:"runtime"`
+	OAuth   OAuthConfig   `yaml:"oauth" json:"oauth"`
 	Sync    SyncConfig    `yaml:"sync" json:"sync"`
 }
 
@@ -45,6 +47,20 @@ type RuntimeConfig struct {
 	HTTPAddr     string   `yaml:"httpAddr" json:"httpAddr"`
 	EnableSearch bool     `yaml:"enableSearch" json:"enableSearch"`
 	ModulePaths  []string `yaml:"modulePaths" json:"modulePaths"`
+}
+
+// OAuthConfig controls the built-in SMART authorization server for haistack serve.
+type OAuthConfig struct {
+	// Enabled mounts pkg/oauth on the managed HTTP server. Defaults to true.
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+	// Production applies oauth.ApplyProductionDefaults (requires registration token or disabled DCR).
+	Production *bool `yaml:"production" json:"production"`
+	// RegistrationAccessToken gates POST /oauth/register. Falls back to OAUTH_REGISTRATION_TOKEN.
+	RegistrationAccessToken string `yaml:"registrationAccessToken" json:"registrationAccessToken"`
+	// AutoApprove skips interactive consent. Defaults to true in non-production mode.
+	AutoApprove *bool `yaml:"autoApprove" json:"autoApprove"`
+	// IssuerURL overrides the OAuth issuer (defaults to http://{runtime.httpAddr}).
+	IssuerURL string `yaml:"issuerURL" json:"issuerURL"`
 }
 
 // SyncConfig configures device-to-hub synchronization.
@@ -66,6 +82,9 @@ func Defaults() Config {
 			HTTPAddr:     DefaultHTTPAddr,
 			EnableSearch: true,
 			ModulePaths:  []string{},
+		},
+		OAuth: OAuthConfig{
+			Enabled: boolPtr(true),
 		},
 		Sync: SyncConfig{
 			NodeID: DefaultSyncNodeID,
@@ -92,6 +111,33 @@ func (c Config) Validate() error {
 	}
 	if c.Sync.HubURL != "" && strings.TrimSpace(c.Sync.NodeID) == "" {
 		return fmt.Errorf("sync.nodeID is required when sync.hubURL is set")
+	}
+	if err := c.validateOAuthProduction(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c Config) validateOAuthProduction() error {
+	if !c.OAuthEnabled() || !c.OAuthProduction() {
+		return nil
+	}
+	token := strings.TrimSpace(c.OAuth.RegistrationAccessToken)
+	if token == "" {
+		return fmt.Errorf("oauth.production requires OAUTH_REGISTRATION_TOKEN or oauth.registrationAccessToken")
+	}
+	issuer := strings.TrimSpace(c.OAuth.IssuerURL)
+	if issuer == "" {
+		return fmt.Errorf("oauth.production requires oauth.issuerURL (https) pinned for signing key continuity")
+	}
+	if err := oauth.ValidateProductionIssuer(issuer); err != nil {
+		return fmt.Errorf("oauth.issuerURL: %w", err)
+	}
+	if err := oauth.RequireSigningKeyEncryptionSecret(); err != nil {
+		return fmt.Errorf("oauth.production: %w", err)
+	}
+	if c.OAuth.AutoApprove != nil && *c.OAuth.AutoApprove {
+		return fmt.Errorf("oauth.autoApprove must be false when oauth.production is enabled")
 	}
 	return nil
 }
@@ -196,6 +242,9 @@ runtime:
 sync:
   hubURL: ""
   nodeID: runtime-node
+oauth:
+  enabled: true
+  production: false
 `)
 }
 
@@ -236,6 +285,32 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("HAISTACK_SYNC_NODE_ID"); v != "" {
 		cfg.Sync.NodeID = v
+	}
+	if v := os.Getenv("HAISTACK_OAUTH_ENABLED"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_OAUTH_ENABLED must be true or false: %w", err)
+		}
+		cfg.OAuth.Enabled = &parsed
+	}
+	if v := os.Getenv("HAISTACK_OAUTH_PRODUCTION"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_OAUTH_PRODUCTION must be true or false: %w", err)
+		}
+		cfg.OAuth.Production = &parsed
+	}
+	if v := os.Getenv("OAUTH_REGISTRATION_TOKEN"); v != "" {
+		cfg.OAuth.RegistrationAccessToken = v
+	}
+	if v := os.Getenv("HAISTACK_OAUTH_REGISTRATION_TOKEN"); v != "" {
+		cfg.OAuth.RegistrationAccessToken = v
+	}
+	if v := os.Getenv("HAISTACK_OAUTH_ISSUER_URL"); v != "" {
+		cfg.OAuth.IssuerURL = v
+	}
+	if os.Getenv("HAISTACK_PRODUCTION") == "1" {
+		cfg.OAuth.Production = boolPtr(true)
 	}
 	return nil
 }
@@ -286,4 +361,24 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+// OAuthEnabled reports whether haistack serve should mount the built-in OAuth server.
+func (c Config) OAuthEnabled() bool {
+	if c.OAuth.Enabled == nil {
+		return true
+	}
+	return *c.OAuth.Enabled
+}
+
+// OAuthProduction reports whether production OAuth defaults should be applied.
+func (c Config) OAuthProduction() bool {
+	if c.OAuth.Production != nil {
+		return *c.OAuth.Production
+	}
+	return os.Getenv("HAISTACK_PRODUCTION") == "1"
 }
