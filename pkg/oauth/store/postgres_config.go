@@ -12,8 +12,15 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 	if pool == nil {
 		return oauth.ErrInvalidConfig
 	}
-	db := stdlib.OpenDBFromPool(pool)
-	return applySQLStores(cfg, wrapSQLDB(db, DialectPostgres), DialectPostgres)
+	return ApplyPostgresStoresDB(cfg, wrapSQLDB(stdlib.OpenDBFromPool(pool), DialectPostgres))
+}
+
+// ApplyPostgresStoresDB wires Postgres-backed OAuth persistence using an existing SQLDB handle.
+func ApplyPostgresStoresDB(cfg *oauth.Config, db SQLDB) error {
+	if db == nil {
+		return oauth.ErrInvalidConfig
+	}
+	return applySQLStores(cfg, db, DialectPostgres)
 }
 
 func applySQLStores(cfg *oauth.Config, db SQLDB, dialect Dialect) error {

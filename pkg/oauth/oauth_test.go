@@ -595,6 +595,32 @@ func TestConsentRequiredWhenAutoApproveDisabled(t *testing.T) {
 	}
 }
 
+func TestConsentBypassRejectedWithoutCSRFSession(t *testing.T) {
+	autoApprove := false
+	_, _, ts := newTestServer(t, testServerOpts{autoApprove: &autoApprove})
+	defer ts.Close()
+	pkce, err := client.NewPKCEChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	authURL := ts.URL + "/oauth/authorize?response_type=code&client_id=standalone-app&redirect_uri=https://app.example/callback&scope=patient/Patient.read&code_challenge=" + pkce.Challenge + "&code_challenge_method=S256&approved=yes"
+	resp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "csrf_token") {
+		t.Fatalf("expected consent page, body = %s", body)
+	}
+}
+
 func TestConsentApprovalIssuesCode(t *testing.T) {
 	autoApprove := false
 	_, _, ts := newTestServer(t, testServerOpts{autoApprove: &autoApprove})

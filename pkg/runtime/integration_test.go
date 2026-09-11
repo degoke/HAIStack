@@ -263,6 +263,48 @@ func TestSQLiteSyncWorkerStartsWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestPostgresBuiltinOAuthDiscovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration in short mode")
+	}
+	ctx := context.Background()
+	dsn, cleanup := openPostgresDSN(t)
+	defer cleanup()
+
+	tenantID := fmt.Sprintf("oauth-%d", time.Now().UnixNano())
+	rt, err := runtime.New().
+		WithPostgresAllInOne(dsn, tenantID).
+		WithHTTP("127.0.0.1:8080").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			IssuerURL: "http://127.0.0.1:8080",
+			TenantID:  tenantID,
+		}).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = rt.Shutdown(ctx) }()
+
+	ts := httptest.NewServer(rt.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/fhir/.well-known/smart-configuration")
+	if err != nil {
+		t.Fatalf("GET discovery: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("discovery status = %d", resp.StatusCode)
+	}
+	var doc map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["authorization_endpoint"] == "" || doc["token_endpoint"] == "" {
+		t.Fatalf("doc = %#v", doc)
+	}
+}
+
 func TestPostgresEdgeIntegrationBuildStartHTTPShutdown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres integration in short mode")

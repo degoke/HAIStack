@@ -18,9 +18,10 @@ func TestBuiltinOAuthWiresDiscovery(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "oauth-runtime.db")
 	rt, err := runtime.New().
 		WithSQLite(dbPath).
-		WithHTTP("127.0.0.1:0").
+		WithHTTP("127.0.0.1:8080").
 		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
-			TenantID: "local",
+			IssuerURL: "http://127.0.0.1:8080",
+			TenantID:  "local",
 		}).
 		Build(ctx)
 	if err != nil {
@@ -48,6 +49,24 @@ func TestBuiltinOAuthWiresDiscovery(t *testing.T) {
 	}
 	if doc["authorization_endpoint"] == "" || doc["token_endpoint"] == "" {
 		t.Fatalf("doc = %#v", doc)
+	}
+}
+
+func TestBuiltinOAuthRequiresIssuerWhenListenPortZero(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-port-zero.db")
+	_, err := runtime.New().
+		WithSQLite(dbPath).
+		WithHTTP("127.0.0.1:0").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			TenantID: "local",
+		}).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("expected port 0 without issuer URL to fail")
+	}
+	if !strings.Contains(err.Error(), "IssuerURL") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -60,19 +61,10 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	if err := validateBuiltinOAuthConfig(*cfg); err != nil {
 		return err
 	}
-	issuer := strings.TrimSpace(cfg.IssuerURL)
-	if issuer == "" {
-		addr := strings.TrimSpace(b.httpAddr)
-		if addr == "" {
-			addr = "127.0.0.1:8080"
-		}
-		if !strings.Contains(addr, "://") {
-			issuer = "http://" + addr
-		} else {
-			issuer = addr
-		}
+	issuer, err := resolveBuiltinOAuthIssuer(cfg.IssuerURL, b.httpAddr)
+	if err != nil {
+		return err
 	}
-	issuer = strings.TrimRight(issuer, "/")
 	fhirBase := issuer + "/fhir"
 
 	dialect := oauthstore.DialectSQLite
@@ -88,7 +80,7 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		dialect = oauthstore.DialectPostgres
 		sqlDB = oauthstore.WrapSQLDB(stdlib.OpenDBFromPool(state.postgresDB.Pool()), oauthstore.DialectPostgres)
 		applyStores = func(oauthCfg *oauth.Config) error {
-			return oauthstore.ApplyPostgresStores(oauthCfg, state.postgresDB.Pool())
+			return oauthstore.ApplyPostgresStoresDB(oauthCfg, sqlDB)
 		}
 	default:
 		return fmt.Errorf("runtime: builtin oauth requires sqlite or postgres storage")
@@ -175,6 +167,28 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	b.httpPrincipalResolver = wired.PrincipalResolver
 	b.httpAuthChecker = checker
 	return nil
+}
+
+func resolveBuiltinOAuthIssuer(issuerURL, httpAddr string) (string, error) {
+	issuer := strings.TrimSpace(issuerURL)
+	if issuer != "" {
+		return strings.TrimRight(issuer, "/"), nil
+	}
+	addr := strings.TrimSpace(httpAddr)
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	if strings.Contains(addr, "://") {
+		return strings.TrimRight(addr, "/"), nil
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("runtime: builtin oauth issuer from http addr %q: %w", addr, err)
+	}
+	if port == "0" {
+		return "", fmt.Errorf("runtime: builtin oauth requires explicit IssuerURL when HTTP listen address uses port 0")
+	}
+	return strings.TrimRight("http://"+net.JoinHostPort(host, port), "/"), nil
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -16,12 +16,18 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	consentSubject := ""
+	consentDecided := false
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form")
 			return
 		}
-		if csrf := strings.TrimSpace(r.Form.Get("csrf_token")); csrf != "" {
+		csrf := strings.TrimSpace(r.Form.Get("csrf_token"))
+		if !s.autoApprove {
+			if csrf == "" {
+				writeOAuthError(w, http.StatusBadRequest, "invalid_request", "csrf_token is required")
+				return
+			}
 			sessionParams, subject, err := s.loadConsentSession(r, csrf)
 			if err != nil {
 				writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid or expired consent session")
@@ -30,6 +36,17 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			consentSubject = subject
 			sessionParams.Set("approved", strings.TrimSpace(r.Form.Get("approved")))
 			q = sessionParams
+			consentDecided = true
+		} else if csrf != "" {
+			sessionParams, subject, err := s.loadConsentSession(r, csrf)
+			if err != nil {
+				writeOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid or expired consent session")
+				return
+			}
+			consentSubject = subject
+			sessionParams.Set("approved", strings.TrimSpace(r.Form.Get("approved")))
+			q = sessionParams
+			consentDecided = true
 		} else {
 			q = r.Form
 		}
@@ -129,8 +146,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.autoApprove {
-		approved := strings.TrimSpace(q.Get("approved"))
-		if approved == "" {
+		if !consentDecided {
 			subject, loggedIn := s.ensureConsentLogin(w, r)
 			if !loggedIn {
 				return
@@ -143,7 +159,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			s.renderConsent(w, r, q, csrf, client)
 			return
 		}
-		if approved != "yes" {
+		if strings.TrimSpace(q.Get("approved")) != "yes" {
 			s.redirectError(w, r, redirectURI, "access_denied", "resource owner denied the request", state)
 			return
 		}
