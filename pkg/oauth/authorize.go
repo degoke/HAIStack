@@ -63,7 +63,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		s.redirectError(w, r, redirectURI, "invalid_request", "redirect_uri mismatch", state)
 		return
 	}
-	if client.requiresPKCE() {
+	if s.pkceRequired(client) {
 		if codeChallenge == "" {
 			s.redirectError(w, r, redirectURI, "invalid_request", "code_challenge required for public clients", state)
 			return

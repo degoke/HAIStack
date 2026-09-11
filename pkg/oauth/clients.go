@@ -242,8 +242,14 @@ func (c Client) redirectAllowed(redirectURI string) bool {
 	return false
 }
 
+func (s *Server) pkceRequired(client Client) bool {
+	if s != nil && s.requirePKCEForAll {
+		return true
+	}
+	return client.requiresPKCE()
+}
+
 // requiresPKCE reports whether PKCE is mandatory for this client.
 func (c Client) requiresPKCE() bool {
-	// Public clients always require PKCE; confidential clients may omit it.
 	return !c.Confidential
 }

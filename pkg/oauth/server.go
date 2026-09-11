@@ -13,11 +13,11 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/launch", s.handleLaunch)
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
-	mux.HandleFunc("/oauth/token", s.handleToken)
+	mux.HandleFunc("/oauth/token", s.wrapTokenRateLimit(s.handleToken))
 	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
 	mux.HandleFunc("/oauth/introspect", s.handleIntrospect)
 	if s.dynamicClientRegistrationEnabled() {
-		mux.HandleFunc("/oauth/register", s.handleRegister)
+		mux.HandleFunc("/oauth/register", s.wrapRegisterRateLimit(s.handleRegister))
 	}
 	mux.HandleFunc("/.well-known/smart-configuration", s.handleSmartConfiguration)
 	mux.HandleFunc("/.well-known/openid-configuration", s.handleOpenIDConfiguration)
@@ -37,9 +37,30 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 
+func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.rateLimitOAuth(w, r, s.tokenRateLimiter()) {
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) wrapRegisterRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.rateLimitOAuth(w, r, s.registerRateLimiter()) {
+			return
+		}
+		next(w, r)
+	}
+}
+
 func (s *Server) jwksHandler() http.HandlerFunc {
-	pub, ok := s.signer.(interface{ PublicJWKS() ([]byte, error) })
-	if !ok {
+	signers := s.jwksSigners
+	if len(signers) == 0 && s.signer != nil {
+		signers = []TokenSigner{s.signer}
+	}
+	if len(signers) == 0 {
 		return nil
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +68,7 @@ func (s *Server) jwksHandler() http.HandlerFunc {
 			writeMethodNotAllowed(w, http.MethodGet)
 			return
 		}
-		body, err := pub.PublicJWKS()
+		body, err := MarshalJWKS(signers)
 		if err != nil {
 			writeOAuthError(w, http.StatusInternalServerError, "server_error", "jwks unavailable")
 			return
@@ -57,26 +78,30 @@ func (s *Server) jwksHandler() http.HandlerFunc {
 	}
 }
 
-// PublicJWKS returns JWKS JSON for RS256 signers.
+// PublicJWKS returns JWKS JSON for a single RS256 signer.
 func (s RS256Signer) PublicJWKS() ([]byte, error) {
+	key, err := rs256PublicJWK(s)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"keys": []any{key}})
+}
+
+func rs256PublicJWK(s RS256Signer) (map[string]any, error) {
 	if s.PrivateKey == nil {
 		return nil, ErrInvalidConfig
 	}
-	n := s.PrivateKey.N
-	e := s.PrivateKey.E
-	kid := s.Kid
 	key := map[string]any{
 		"kty": "RSA",
 		"use": "sig",
 		"alg": "RS256",
-		"n":   encodeBigInt(n),
-		"e":   encodeRSAExponent(e),
+		"n":   encodeBigInt(s.PrivateKey.N),
+		"e":   encodeRSAExponent(s.PrivateKey.E),
 	}
-	if kid != "" {
-		key["kid"] = kid
+	if s.Kid != "" {
+		key["kid"] = s.Kid
 	}
-	doc := map[string]any{"keys": []any{key}}
-	return json.Marshal(doc)
+	return key, nil
 }
 
 func encodeBigInt(n *big.Int) string {
@@ -88,4 +113,52 @@ func encodeRSAExponent(e int) string {
 		return "AQAB"
 	}
 	return strings.TrimRight(base64.RawURLEncoding.EncodeToString(big.NewInt(int64(e)).Bytes()), "=")
+}
+
+// MarshalJWKS returns JWKS JSON for the given signers.
+func MarshalJWKS(signers []TokenSigner) ([]byte, error) {
+	keys := make([]any, 0, len(signers))
+	seen := make(map[string]struct{})
+	for _, signer := range signers {
+		if rs, ok := signer.(RS256Signer); ok {
+			key, err := rs256PublicJWK(rs)
+			if err != nil {
+				return nil, err
+			}
+			kid, _ := key["kid"].(string)
+			if kid != "" {
+				if _, ok := seen[kid]; ok {
+					continue
+				}
+				seen[kid] = struct{}{}
+			}
+			keys = append(keys, key)
+			continue
+		}
+		pub, ok := signer.(interface{ PublicJWKS() ([]byte, error) })
+		if !ok {
+			continue
+		}
+		body, err := pub.PublicJWKS()
+		if err != nil {
+			return nil, err
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, err
+		}
+		rawKeys, _ := doc["keys"].([]any)
+		for _, raw := range rawKeys {
+			keyDoc, _ := raw.(map[string]any)
+			kid, _ := keyDoc["kid"].(string)
+			if kid != "" {
+				if _, ok := seen[kid]; ok {
+					continue
+				}
+				seen[kid] = struct{}{}
+			}
+			keys = append(keys, keyDoc)
+		}
+	}
+	return json.Marshal(map[string]any{"keys": keys})
 }

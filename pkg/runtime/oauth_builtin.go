@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/smart"
@@ -22,6 +21,33 @@ type BuiltinOAuthConfig struct {
 	TenantID                string
 }
 
+func validateBuiltinOAuthConfig(cfg BuiltinOAuthConfig) error {
+	if !cfg.Production {
+		return nil
+	}
+	issuer := strings.TrimSpace(cfg.IssuerURL)
+	if issuer == "" {
+		return fmt.Errorf("runtime: production builtin oauth requires issuer URL")
+	}
+	if err := oauth.ValidateProductionIssuer(issuer); err != nil {
+		return fmt.Errorf("runtime: %w", err)
+	}
+	token := strings.TrimSpace(cfg.RegistrationAccessToken)
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("OAUTH_REGISTRATION_TOKEN"))
+	}
+	if token == "" {
+		return fmt.Errorf("runtime: production builtin oauth requires OAUTH_REGISTRATION_TOKEN")
+	}
+	if err := oauth.RequireSigningKeyEncryptionSecret(); err != nil {
+		return fmt.Errorf("runtime: %w", err)
+	}
+	if cfg.AutoApprove != nil && *cfg.AutoApprove {
+		return fmt.Errorf("runtime: production builtin oauth requires AutoApprove false")
+	}
+	return nil
+}
+
 func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error {
 	if b == nil || b.builtinOAuth == nil {
 		return nil
@@ -30,6 +56,9 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		return fmt.Errorf("runtime: builtin oauth requires sqlite storage")
 	}
 	cfg := b.builtinOAuth
+	if err := validateBuiltinOAuthConfig(*cfg); err != nil {
+		return err
+	}
 	issuer := strings.TrimSpace(cfg.IssuerURL)
 	if issuer == "" {
 		addr := strings.TrimSpace(b.httpAddr)
@@ -45,9 +74,17 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	issuer = strings.TrimRight(issuer, "/")
 	fhirBase := issuer + "/fhir"
 
-	signer, err := oauthstore.LoadOrCreateRS256Signer(state.sqliteDB.SQL(), issuer, "haistack")
+	keySet, err := oauthstore.LoadOrCreateSigningKeySet(state.sqliteDB.SQL(), issuer, oauthstore.SigningKeyOptions{
+		ActiveKeyID:      "haistack",
+		EncryptionSecret: oauth.SigningKeyEncryptionSecret(),
+		RotateOnStartup:  strings.TrimSpace(os.Getenv("OAUTH_SIGNING_KEY_ROTATE")) == "1",
+	})
 	if err != nil {
 		return fmt.Errorf("runtime: oauth signing key: %w", err)
+	}
+	jwksSigners := make([]oauth.TokenSigner, 0, len(keySet.JWKS))
+	for _, signer := range keySet.JWKS {
+		jwksSigners = append(jwksSigners, signer)
 	}
 	reg := oauth.NewClientRegistry()
 	if err := reg.Register(oauth.Client{
@@ -71,7 +108,8 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	oauthCfg := oauth.Config{
 		Issuer:      issuer,
 		FHIRBaseURL: fhirBase,
-		Signer:      signer,
+		Signer:      keySet.Active,
+		JWKSSigners: jwksSigners,
 		Clients:     reg,
 	}
 	if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL()); err != nil {
@@ -101,47 +139,21 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		return fmt.Errorf("runtime: oauth server: %w", err)
 	}
 	tenantID := firstNonEmptyString(cfg.TenantID, "local")
+	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
+		DefaultTenantID: tenantID,
+	})
 	wired, err := oauth.WireHTTP(oauth.WireConfig{
-		Server: srv,
-		Adapter: smart.NewAuthAdapter(smart.AuthAdapterConfig{
-			DefaultTenantID:  tenantID,
-			DefaultUserRoles: []string{"clinician"},
-		}),
+		Server:  srv,
+		Adapter: adapter,
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: oauth wire: %w", err)
 	}
-	engine, err := defaultOAuthPolicyEngine()
-	if err != nil {
-		return fmt.Errorf("runtime: oauth policy: %w", err)
-	}
-	checker := wired.ScopePolicyAuthChecker(engine)
+	checker := wired.ScopeOnlyAuthChecker(adapter)
 	b.oauthHandler = wired.OAuthHandler
 	b.httpPrincipalResolver = wired.PrincipalResolver
 	b.httpAuthChecker = checker
 	return nil
-}
-
-func defaultOAuthPolicyEngine() (auth.PolicyEngine, error) {
-	return auth.NewEngine(auth.Config{
-		Roles: []auth.Role{{
-			Name:        "clinician",
-			Permissions: []auth.Permission{"Patient.read", "Patient.write", "Patient.search"},
-		}},
-		PolicyBytes: []byte(`{
-  "version": "1",
-  "rules": [{
-    "name": "allow-clinician-read-write-search",
-    "effect": "allow",
-    "match": {
-      "actions": ["read", "write", "search"],
-      "anyPermissions": ["Patient.read", "Patient.write", "Patient.search"]
-    },
-    "reason": "clinician SMART tokens may access patient resources"
-  }]
-}`),
-		PolicyFormat: auth.PolicyFormatJSON,
-	})
 }
 
 func firstNonEmptyString(values ...string) string {

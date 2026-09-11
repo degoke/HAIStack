@@ -18,6 +18,7 @@ func TestValidateRedirectURI(t *testing.T) {
 }
 
 func TestApplyProductionDefaults(t *testing.T) {
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "test-signing-key-secret")
 	cfg := Config{Issuer: "http://example.test"}
 	if err := ApplyProductionDefaults(&cfg); err == nil {
 		t.Fatal("expected production defaults to require https issuer")
@@ -28,6 +29,9 @@ func TestApplyProductionDefaults(t *testing.T) {
 	}
 	if err := ApplyProductionDefaults(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequirePKCEForAllClients == nil || !*cfg.RequirePKCEForAllClients {
+		t.Fatal("expected production to require PKCE for all clients")
 	}
 	autoApprove := true
 	cfg.AutoApprove = &autoApprove

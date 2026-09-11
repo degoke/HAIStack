@@ -68,6 +68,12 @@ type Config struct {
 	// RegisteredClientScopes caps dynamically registered client scopes. When empty,
 	// DefaultRegisteredClientScopes is used as both the default and maximum allow-list.
 	RegisteredClientScopes []string
+	// RequirePKCEForAllClients requires PKCE for confidential clients when true.
+	RequirePKCEForAllClients *bool
+	// JWKSSigners publishes additional verification keys in JWKS. Defaults to Signer only.
+	JWKSSigners []TokenSigner
+	// RateLimit configures OAuth endpoint rate limits.
+	RateLimit RateLimitConfig
 	// Now overrides time.Now for tests.
 	Now func() time.Time
 }
@@ -85,6 +91,10 @@ type Server struct {
 	consentLogin         ConsentLoginHandler
 	backendAuth          *smart.BackendServiceAuth
 	signer               TokenSigner
+	jwksSigners          []TokenSigner
+	requirePKCEForAll    bool
+	tokenLimiter         *oauthRateLimiter
+	registerLimiter      *oauthRateLimiter
 	issuer               string
 	fhirBase             string
 	tokenTTL             time.Duration
@@ -183,7 +193,15 @@ func NewServer(cfg Config) (*Server, error) {
 		launchAuthHash = hash
 		launchAuthID = strings.TrimSpace(cfg.LaunchIssuerAuth.ClientID)
 	}
-	return &Server{
+	requirePKCE := false
+	if cfg.RequirePKCEForAllClients != nil {
+		requirePKCE = *cfg.RequirePKCEForAllClients
+	}
+	jwksSigners := cfg.JWKSSigners
+	if len(jwksSigners) == 0 {
+		jwksSigners = []TokenSigner{cfg.Signer}
+	}
+	srv := &Server{
 		cfg:                  cfg,
 		clients:              clients,
 		codes:                codes,
@@ -194,6 +212,8 @@ func NewServer(cfg Config) (*Server, error) {
 		consentLogin:         cfg.ConsentLogin,
 		backendAuth:          cfg.BackendAuth,
 		signer:               cfg.Signer,
+		jwksSigners:          jwksSigners,
+		requirePKCEForAll:    requirePKCE,
 		issuer:               trimSlash(cfg.Issuer),
 		fhirBase:             trimSlash(cfg.FHIRBaseURL),
 		tokenTTL:             ttl,
@@ -204,7 +224,9 @@ func NewServer(cfg Config) (*Server, error) {
 		nowFn:                nowFn,
 		launchIssuerAuthHash: launchAuthHash,
 		launchIssuerAuthID:   launchAuthID,
-	}, nil
+	}
+	applyRateLimitConfig(srv, cfg.RateLimit)
+	return srv, nil
 }
 
 func (s *Server) Issuer() string      { return s.issuer }

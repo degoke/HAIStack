@@ -133,6 +133,9 @@ func (c Config) validateOAuthProduction() error {
 	if err := oauth.ValidateProductionIssuer(issuer); err != nil {
 		return fmt.Errorf("oauth.issuerURL: %w", err)
 	}
+	if err := oauth.RequireSigningKeyEncryptionSecret(); err != nil {
+		return fmt.Errorf("oauth.production: %w", err)
+	}
 	if c.OAuth.AutoApprove != nil && *c.OAuth.AutoApprove {
 		return fmt.Errorf("oauth.autoApprove must be false when oauth.production is enabled")
 	}
@@ -305,6 +308,9 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("HAISTACK_OAUTH_ISSUER_URL"); v != "" {
 		cfg.OAuth.IssuerURL = v
+	}
+	if os.Getenv("HAISTACK_PRODUCTION") == "1" {
+		cfg.OAuth.Production = boolPtr(true)
 	}
 	return nil
 }

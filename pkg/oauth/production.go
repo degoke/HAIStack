@@ -9,9 +9,9 @@ import (
 // ApplyProductionDefaults applies safer OAuth defaults for production-like hosts.
 // Call after ApplySQLiteStores and before NewServer.
 //
-// Production requires an https issuer, AutoApprove disabled, and when dynamic client
-// registration remains enabled, RegistrationAccessToken must be set.
-// Redirect URI validation always requires https except for loopback http hosts.
+// Production requires an https issuer, AutoApprove disabled, encrypted signing key
+// storage secret, PKCE for all clients, and when dynamic client registration remains
+// enabled, RegistrationAccessToken must be set.
 func ApplyProductionDefaults(cfg *Config) error {
 	if cfg == nil {
 		return ErrInvalidConfig
@@ -22,6 +22,11 @@ func ApplyProductionDefaults(cfg *Config) error {
 	if cfg.AutoApprove != nil && *cfg.AutoApprove {
 		return fmt.Errorf("%w: AutoApprove must be false for production", ErrInvalidConfig)
 	}
+	if err := RequireSigningKeyEncryptionSecret(); err != nil {
+		return err
+	}
+	requirePKCE := true
+	cfg.RequirePKCEForAllClients = &requirePKCE
 	dcrEnabled := cfg.DynamicClientRegistration == nil || *cfg.DynamicClientRegistration
 	if dcrEnabled && strings.TrimSpace(cfg.RegistrationAccessToken) == "" {
 		return fmt.Errorf("%w: set RegistrationAccessToken or disable dynamic client registration for production", ErrInvalidConfig)

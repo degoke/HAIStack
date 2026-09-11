@@ -36,6 +36,14 @@ func (r WireResult) ScopePolicyAuthChecker(engine auth.PolicyEngine) ScopePolicy
 	return ScopePolicyAuthChecker{Adapter: r.Adapter, Engine: engine}
 }
 
+// ScopeOnlyAuthChecker returns SMART scope enforcement without a secondary policy engine.
+func (r WireResult) ScopeOnlyAuthChecker(adapter *smart.AuthAdapter) ScopeOnlyAuthChecker {
+	if adapter == nil {
+		adapter = r.Adapter
+	}
+	return ScopeOnlyAuthChecker{Adapter: adapter}
+}
+
 // WireHTTP builds OAuth routes and a PrincipalResolver for pkg/http.
 func WireHTTP(cfg WireConfig) (WireResult, error) {
 	if cfg.Server == nil {
@@ -119,7 +127,31 @@ func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal a
 }
 
 func (c ScopePolicyAuthChecker) authorize(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, action, resourceType, id string) (auth.Decision, error) {
-	adapter := c.Adapter
+	return authorizeWithScopesAndPolicy(c.Adapter, c.Engine, ctx, principal, tenant, action, resourceType, id)
+}
+
+// ScopeOnlyAuthChecker enforces SMART scopes without a secondary policy engine.
+type ScopeOnlyAuthChecker struct {
+	Adapter *smart.AuthAdapter
+}
+
+func (c ScopeOnlyAuthChecker) AuthorizeRead(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType, id string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, "read", resourceType, id)
+}
+
+func (c ScopeOnlyAuthChecker) AuthorizeWrite(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, operation, resourceType, id string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, operation, resourceType, id)
+}
+
+func (c ScopeOnlyAuthChecker) AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error) {
+	return c.authorize(ctx, principal, tenant, "search", resourceType, "")
+}
+
+func (c ScopeOnlyAuthChecker) authorize(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, action, resourceType, id string) (auth.Decision, error) {
+	return authorizeWithScopesAndPolicy(c.Adapter, nil, ctx, principal, tenant, action, resourceType, id)
+}
+
+func authorizeWithScopesAndPolicy(adapter *smart.AuthAdapter, engine auth.PolicyEngine, ctx context.Context, principal auth.Principal, tenant auth.TenantContext, action, resourceType, id string) (auth.Decision, error) {
 	if adapter == nil {
 		adapter = smart.NewAuthAdapter(smart.AuthAdapterConfig{})
 	}
@@ -139,12 +171,12 @@ func (c ScopePolicyAuthChecker) authorize(ctx context.Context, principal auth.Pr
 	if !adapter.ScopeImplies(bundle, resourceType, verb) {
 		return auth.Decision{Allowed: false, Reason: "SMART scope does not authorize " + action + " on " + resourceType}, nil
 	}
-	if c.Engine == nil {
-		return auth.Decision{Allowed: false, Reason: "authorization policy engine not configured"}, nil
+	if engine == nil {
+		return auth.Decision{Allowed: true, Reason: "authorized by SMART scope"}, nil
 	}
 	switch action {
 	case "read", "search":
-		decision, err := c.Engine.CanReadResource(ctx, auth.ReadRequest{
+		decision, err := engine.CanReadResource(ctx, auth.ReadRequest{
 			Principal:    principal,
 			Tenant:       tenant,
 			ResourceType: resourceType,
@@ -155,7 +187,7 @@ func (c ScopePolicyAuthChecker) authorize(ctx context.Context, principal auth.Pr
 		}
 		return decision, nil
 	default:
-		decision, err := c.Engine.CanWriteResource(ctx, auth.WriteRequest{
+		decision, err := engine.CanWriteResource(ctx, auth.WriteRequest{
 			Principal:    principal,
 			Tenant:       tenant,
 			Operation:    action,

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/runtime"
@@ -53,16 +54,21 @@ func TestBuiltinOAuthWiresDiscovery(t *testing.T) {
 func TestBuiltinOAuthProductionRequiresRegistrationToken(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-prod.db")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "test-signing-key-secret")
 	_, err := runtime.New().
 		WithSQLite(dbPath).
 		WithHTTP("127.0.0.1:8080").
 		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
 			Production: true,
+			IssuerURL:  "https://auth.example.test",
 			TenantID:   "local",
 		}).
 		Build(ctx)
 	if err == nil {
 		t.Fatal("expected production defaults to require registration token")
+	}
+	if !strings.Contains(err.Error(), "OAUTH_REGISTRATION_TOKEN") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -109,5 +115,23 @@ func TestBuiltinOAuthPersistsSigningKey(t *testing.T) {
 	second := fetchJWKS()
 	if first == "" || first != second {
 		t.Fatalf("jwks changed across restarts:\nfirst=%q\nsecond=%q", first, second)
+	}
+}
+
+func TestBuiltinOAuthProductionRejectsHTTPDerivedIssuer(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-http-prod.db")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "test-signing-key-secret")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+	_, err := runtime.New().
+		WithSQLite(dbPath).
+		WithHTTP("127.0.0.1:8080").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			Production: true,
+			TenantID:   "local",
+		}).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("expected production without pinned issuer to fail")
 	}
 }

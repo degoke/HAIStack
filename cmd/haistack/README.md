@@ -147,8 +147,10 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` (also `HAISTACK_PRODUCTION=1`) |
 | `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
 | `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+| `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | encrypts persisted OAuth signing keys (required in production) |
+| `OAUTH_SIGNING_KEY_ROTATE` | set `1` to rotate active signing key on startup |
 
-When `oauth.production` is enabled, config validation requires an explicit `https` `oauth.issuerURL`, a registration token, and `autoApprove: false`. Pin the issuer URL before go-live so the persisted signing key stays stable across restarts.
+When `oauth.production` is enabled, config validation requires an explicit `https` `oauth.issuerURL`, a registration token, signing key encryption secret, and `autoApprove: false`. Pin the issuer URL before go-live so the persisted signing key stays stable across restarts. `/fhir/metadata` remains public; other FHIR routes require SMART Bearer tokens.
 
 See [`pkg/oauth/OPERATIONS.md`](../../pkg/oauth/OPERATIONS.md) for Inferno reference vs production OAuth settings.
 

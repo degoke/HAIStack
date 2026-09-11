@@ -87,12 +87,17 @@ When OAuth is enabled, FHIR endpoints require SMART Bearer tokens; discovery rem
 
 The RS256 signing key is persisted in SQLite (`hai_oauth_signing_key`) keyed by issuer URL. **Pin `oauth.issuerURL` to your public HTTPS base** before production deploys; changing the issuer (including deriving it from a different `runtime.httpAddr`) creates a new signing key and invalidates previously issued JWTs.
 
+Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` in production so private keys are encrypted at rest in SQLite. Optional `OAUTH_SIGNING_KEY_ROTATE=1` rotates the active signing key on startup while retaining retired public keys in JWKS for token verification.
+
 Production mode (`ApplyProductionDefaults`) requires:
 
 - `https` issuer URL
 - `AutoApprove` disabled
+- `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`
 - registration token when DCR is enabled
+- PKCE for all clients (including confidential)
 - DCR clients default to `DefaultRegisteredClientScopes()` and cannot request scopes outside that allow-list
+- rate limits on `/oauth/token` and `/oauth/register`
 
 Environment variables (example):
 
