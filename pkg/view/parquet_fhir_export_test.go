@@ -47,7 +47,7 @@ func TestWriteParquetFHIRExportNestedResources(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rowCount, err := view.WriteParquetFHIRExport(context.Background(), &buf, exec, view.ExecuteRequest{
+	rowCount, _, err := view.WriteParquetFHIRExport(context.Background(), &buf, exec, view.ExecuteRequest{
 		ViewName: "patient_summary_view",
 		Version:  "1.0.0",
 	})
@@ -82,7 +82,7 @@ func TestWriteParquetFHIRExportRequiresProfileCatalog(t *testing.T) {
 		t.Fatalf("executor: %v", err)
 	}
 	var buf bytes.Buffer
-	_, err = view.WriteParquetFHIRExport(context.Background(), &buf, exec, view.ExecuteRequest{
+	_, _, err = view.WriteParquetFHIRExport(context.Background(), &buf, exec, view.ExecuteRequest{
 		ViewName: "patient_summary_view",
 	})
 	if err == nil {

@@ -1,7 +1,6 @@
 package analytics
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -202,8 +201,22 @@ func writeLakehouseParquetBlob(
 	executor *view.Executor,
 	actor string,
 ) (string, int, error) {
-	var buf bytes.Buffer
-	rowCount, err := writeParquet(ctx, &buf, result, layout, executor, actor)
+	tmp, err := os.CreateTemp("", "lakehouse-*.parquet")
+	if err != nil {
+		return "", 0, fmt.Errorf("create lakehouse temp parquet file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	rowCount, err := writeParquet(ctx, tmp, result, layout, executor, actor)
+	if err != nil {
+		_ = tmp.Close()
+		return "", rowCount, err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", rowCount, err
+	}
+	data, err := os.ReadFile(tmpPath)
 	if err != nil {
 		return "", rowCount, err
 	}
@@ -211,8 +224,8 @@ func writeLakehouseParquetBlob(
 	if err := blob.Put(ctx, store.BlobObject{
 		Key:         key,
 		ContentType: view.ParquetContentType,
-		Size:        int64(buf.Len()),
-		Data:        buf.Bytes(),
+		Size:        int64(len(data)),
+		Data:        data,
 	}); err != nil {
 		return "", rowCount, fmt.Errorf("put lakehouse parquet blob: %w", err)
 	}

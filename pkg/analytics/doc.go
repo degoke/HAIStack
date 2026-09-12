@@ -122,7 +122,7 @@
 // Register handlers on a jobs.Runner:
 //
 //	runner.Register(analytics.TypeRefresh, analytics.RefreshHandler(analyticsRunner, target))
-//	runner.Register(analytics.TypeExport, analytics.ExportHandler(analyticsRunner, csvSink))
+//	runner.Register(analytics.TypeExport, analytics.ExportHandler(analyticsRunner, csvSink, watermarkStore))
 //
 // # Execution model
 //

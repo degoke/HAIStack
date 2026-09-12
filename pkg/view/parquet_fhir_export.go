@@ -10,6 +10,14 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
+// MatchingResourceStats summarizes FHIR resource matching for Parquet-on-FHIR export.
+type MatchingResourceStats struct {
+	Scanned            int
+	Filtered           int
+	Written            int
+	SourceResourceType string
+}
+
 // CollectMatchingResources returns full FHIR resources matching a view's filters.
 func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequest) ([]map[string]any, string, error) {
 	resources, resourceType, _, err := e.collectMatchingResources(ctx, req, 0, 0)
@@ -63,17 +71,17 @@ func (e *Executor) collectMatchingResources(ctx context.Context, req ExecuteRequ
 	if err != nil {
 		return nil, "", 0, err
 	}
-	resources, written, err := e.collectResourcesForPlan(ctx, plan)
+	resources, written, _, err := e.collectResourcesForPlan(ctx, plan)
 	return resources, plan.spec.ResourceType, written, err
 }
 
-func (e *Executor) collectResourcesForPlan(ctx context.Context, plan *matchingResourcePlan) ([]map[string]any, int, error) {
+func (e *Executor) collectResourcesForPlan(ctx context.Context, plan *matchingResourcePlan) ([]map[string]any, int, MatchingResourceStats, error) {
 	resources := make([]map[string]any, 0)
-	written, err := e.forEachMatchingResourcePlan(ctx, plan, func(raw map[string]any) error {
+	written, stats, err := e.forEachMatchingResourcePlan(ctx, plan, func(raw map[string]any) error {
 		resources = append(resources, raw)
 		return nil
 	})
-	return resources, written, err
+	return resources, written, stats, err
 }
 
 func (e *Executor) structureDefinitionFor(resourceType string) (*validate.StructureDefinition, error) {
@@ -84,27 +92,34 @@ func (e *Executor) structureDefinitionFor(resourceType string) (*validate.Struct
 }
 
 // WriteParquetFHIRExport writes Parquet-on-FHIR nested resources for one view.
-func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest) (int, error) {
+func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest) (int, MatchingResourceStats, error) {
 	if exec == nil {
-		return 0, fmt.Errorf("view: executor is required")
+		return 0, MatchingResourceStats{}, fmt.Errorf("view: executor is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return 0, MatchingResourceStats{}, err
 	}
 
 	plan, err := exec.prepareMatchingResourcePlan(ctx, req, req.Limit, req.Offset)
 	if err != nil {
-		return 0, err
+		return 0, MatchingResourceStats{}, err
 	}
 	sd, err := exec.structureDefinitionFor(plan.spec.ResourceType)
 	if err != nil {
-		return 0, err
+		return 0, MatchingResourceStats{}, err
 	}
 
-	return parquetfhir.WriteResourcesStreaming(ctx, w, sd, exec.cfg.ProfileCatalog, func(yield func(map[string]any) error) error {
-		_, err := exec.forEachMatchingResourcePlan(ctx, plan, yield)
-		return err
+	stats := MatchingResourceStats{SourceResourceType: plan.spec.ResourceType}
+	written, err := parquetfhir.WriteResourcesStreaming(ctx, w, sd, exec.cfg.ProfileCatalog, func(yield func(map[string]any) error) error {
+		var matchErr error
+		stats.Written, stats, matchErr = exec.forEachMatchingResourcePlan(ctx, plan, yield)
+		return matchErr
 	})
+	if err != nil {
+		return written, stats, err
+	}
+	stats.Written = written
+	return written, stats, nil
 }
 
 func (e *Executor) forEachMatchingResource(
@@ -112,10 +127,10 @@ func (e *Executor) forEachMatchingResource(
 	req ExecuteRequest,
 	limit, offset int,
 	fn func(map[string]any) error,
-) (int, error) {
+) (int, MatchingResourceStats, error) {
 	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
 	if err != nil {
-		return 0, err
+		return 0, MatchingResourceStats{}, err
 	}
 	return e.forEachMatchingResourcePlan(ctx, plan, fn)
 }
@@ -124,36 +139,43 @@ func (e *Executor) forEachMatchingResourcePlan(
 	ctx context.Context,
 	plan *matchingResourcePlan,
 	fn func(map[string]any) error,
-) (int, error) {
+) (int, MatchingResourceStats, error) {
+	stats := MatchingResourceStats{}
 	if e == nil || plan == nil || plan.spec == nil {
-		return 0, fmt.Errorf("view: executor is nil")
+		return 0, stats, fmt.Errorf("view: executor is nil")
 	}
+	stats.SourceResourceType = plan.spec.ResourceType
 
 	allIDs, err := e.resolveCandidateIDs(ctx, plan.spec, plan.execReq.Since)
 	if err != nil {
-		return 0, err
+		return 0, stats, err
 	}
+	stats.Scanned = len(allIDs)
 
 	matched := 0
 	written := 0
 	for _, id := range allIDs {
 		if err := ctx.Err(); err != nil {
-			return written, err
+			stats.Written = written
+			return written, stats, err
 		}
 		env, err := e.cfg.Resources.Read(ctx, plan.spec.ResourceType, id)
 		if err != nil {
-			return written, fmt.Errorf("read %s/%s: %w", plan.spec.ResourceType, id, err)
+			stats.Written = written
+			return written, stats, fmt.Errorf("read %s/%s: %w", plan.spec.ResourceType, id, err)
 		}
 		if !plan.execReq.Since.IsZero() && !env.LastUpdated.IsZero() && env.LastUpdated.Before(plan.execReq.Since) {
 			continue
 		}
 		match, err := e.evalFilters(ctx, plan.spec, env)
 		if err != nil {
-			return written, fmt.Errorf("filter %s/%s: %w", plan.spec.ResourceType, id, err)
+			stats.Written = written
+			return written, stats, fmt.Errorf("filter %s/%s: %w", plan.spec.ResourceType, id, err)
 		}
 		if !match {
 			continue
 		}
+		stats.Filtered++
 		if matched < plan.offset {
 			matched++
 			continue
@@ -163,13 +185,16 @@ func (e *Executor) forEachMatchingResourcePlan(
 		}
 		var raw map[string]any
 		if err := json.Unmarshal(env.JSON, &raw); err != nil {
-			return written, fmt.Errorf("decode %s/%s: %w", plan.spec.ResourceType, id, err)
+			stats.Written = written
+			return written, stats, fmt.Errorf("decode %s/%s: %w", plan.spec.ResourceType, id, err)
 		}
 		if err := fn(raw); err != nil {
-			return written, err
+			stats.Written = written
+			return written, stats, err
 		}
 		matched++
 		written++
 	}
-	return written, nil
+	stats.Written = written
+	return written, stats, nil
 }

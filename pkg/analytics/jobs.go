@@ -21,12 +21,14 @@ type RefreshPayload struct {
 
 // ExportPayload is the job payload for analytics export runs.
 type ExportPayload struct {
-	ViewName       string            `json:"viewName"`
-	Version        string            `json:"version"`
-	Actor          string            `json:"actor,omitempty"`
-	Subject        string            `json:"subject,omitempty"`
-	Format         ExportFormat      `json:"format,omitempty"`
-	ParquetLayout  view.ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName      string             `json:"viewName"`
+	Version       string             `json:"version"`
+	Actor         string             `json:"actor,omitempty"`
+	Subject       string             `json:"subject,omitempty"`
+	Since         time.Time          `json:"since,omitempty"`
+	Parameters    map[string]any     `json:"parameters,omitempty"`
+	Format        ExportFormat       `json:"format,omitempty"`
+	ParquetLayout view.ParquetLayout `json:"parquetLayout,omitempty"`
 }
 
 // Job type constants re-exported for analytics orchestration.
@@ -72,47 +74,24 @@ func RefreshHandler(runner *Runner, target reportingWriter, watermark *Watermark
 }
 
 // ExportHandler returns a jobs.Handler that runs export using the supplied sink.
-func ExportHandler(runner *Runner, sink RowSink) jobs.Handler {
+// When watermark is configured, an empty Since is filled from the watermark and
+// advanced after a successful export.
+func ExportHandler(runner *Runner, sink RowSink, watermark *WatermarkStore) jobs.Handler {
 	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
 		var payload ExportPayload
 		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 			return err
 		}
-		version := payload.Version
-		if version == "" {
-			version = "1.0.0"
-		}
-		if payload.Format == FormatParquet {
-			if typed, ok := sink.(*ParquetFileSink); ok {
-				if payload.ParquetLayout != "" {
-					typed.layout = payload.ParquetLayout
-				}
-			}
-		}
-		_, err := runner.Run(ctx, RunRequest{
-			ViewName: payload.ViewName,
-			Version:  version,
-			Mode:     ModeExport,
-			Destination: Destination{
-				Sink: sink,
-			},
-			Actor:   payload.Actor,
-			Subject: payload.Subject,
-		})
-		return err
+		return runExportJob(ctx, runner, sink, watermark, payload)
 	})
 }
 
 // ExportHandlerWithConfig returns a jobs.Handler that builds a sink per payload format.
-func ExportHandlerWithConfig(runner *Runner, cfg ExportHandlerConfig) jobs.Handler {
+func ExportHandlerWithConfig(runner *Runner, cfg ExportHandlerConfig, watermark *WatermarkStore) jobs.Handler {
 	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
 		var payload ExportPayload
 		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 			return err
-		}
-		version := payload.Version
-		if version == "" {
-			version = "1.0.0"
 		}
 		format := payload.Format
 		if format == "" {
@@ -122,18 +101,51 @@ func ExportHandlerWithConfig(runner *Runner, cfg ExportHandlerConfig) jobs.Handl
 		if err != nil {
 			return err
 		}
-		_, err = runner.Run(ctx, RunRequest{
-			ViewName: payload.ViewName,
-			Version:  version,
-			Mode:     ModeExport,
-			Destination: Destination{
-				Sink: sink,
-			},
-			Actor:   payload.Actor,
-			Subject: payload.Subject,
-		})
-		return err
+		return runExportJob(ctx, runner, sink, watermark, payload)
 	})
+}
+
+func runExportJob(ctx context.Context, runner *Runner, sink RowSink, watermark *WatermarkStore, payload ExportPayload) error {
+	version := payload.Version
+	if version == "" {
+		version = "1.0.0"
+	}
+	if payload.Format == FormatParquet {
+		if typed, ok := sink.(*ParquetFileSink); ok && payload.ParquetLayout != "" {
+			typed.layout = payload.ParquetLayout
+		}
+	}
+	since := payload.Since
+	if since.IsZero() && watermark != nil {
+		wmSince, err := watermark.Since(ctx, payload.ViewName, version)
+		if err != nil {
+			return err
+		}
+		since = wmSince
+	}
+	_, err := runner.Run(ctx, RunRequest{
+		ViewName: payload.ViewName,
+		Version:  version,
+		Mode:     ModeExport,
+		Destination: Destination{
+			Sink: sink,
+		},
+		Actor:      payload.Actor,
+		Subject:    payload.Subject,
+		Parameters: payload.Parameters,
+		Since:      since,
+	})
+	if err != nil {
+		return err
+	}
+	if watermark != nil {
+		refreshedAt := time.Now().UTC()
+		if runner != nil && runner.now != nil {
+			refreshedAt = runner.now().UTC()
+		}
+		return watermark.Advance(ctx, payload.ViewName, version, refreshedAt)
+	}
+	return nil
 }
 
 // ExportHandlerConfig configures dynamic export sinks for background jobs.

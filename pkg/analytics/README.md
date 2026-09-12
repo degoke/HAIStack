@@ -147,7 +147,7 @@ Runs are synchronous by default but integrate with `pkg/jobs`:
 ```go
 jobRunner := jobs.NewRunner(tdb.JobStore())
 jobRunner.Register(analytics.TypeRefresh, analytics.RefreshHandler(runner, target))
-jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink))
+jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink, watermarkStore))
 
 _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.RefreshPayload{
     ViewName: analytics.ViewPatientSummary,

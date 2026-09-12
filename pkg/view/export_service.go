@@ -35,6 +35,8 @@ type ViewExportRequest struct {
 	Format        OutputFormat       `json:"format"`
 	ParquetLayout ParquetLayout      `json:"parquetLayout,omitempty"`
 	Actor         string             `json:"actor,omitempty"`
+	Subject       string             `json:"subject,omitempty"`
+	Parameters    map[string]any     `json:"parameters,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
@@ -298,7 +300,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		var rowCount int
 		if job.Request.Format == FormatParquet {
-			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request.Actor, job.Request.ParquetLayout)
+			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout)
 			if execErr != nil {
 				return failJob(execErr)
 			}
@@ -373,7 +375,7 @@ func (s *ExportService) writeParquetExportFile(
 	jobID, filename string,
 	target ViewExportTarget,
 	since time.Time,
-	actor string,
+	req ViewExportRequest,
 	layout ParquetLayout,
 ) (int, error) {
 	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
@@ -384,14 +386,16 @@ func (s *ExportService) writeParquetExportFile(
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	execReq := ExecuteRequest{
-		ViewName: target.ViewName,
-		Version:  target.Version,
-		Actor:    actor,
-		Since:    since,
+		ViewName:   target.ViewName,
+		Version:    target.Version,
+		Actor:      req.Actor,
+		Subject:    req.Subject,
+		Parameters: req.Parameters,
+		Since:      since,
 	}
 	var rowCount int
 	if layout == ParquetLayoutFHIR {
-		rowCount, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		rowCount, _, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
 	} else {
 		rowCount, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
 	}
