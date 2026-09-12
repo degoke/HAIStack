@@ -86,6 +86,27 @@ func TestInteropSpecObservationExampleSchema(t *testing.T) {
 	assertColumnKind(t, schema, parquet.ByteArray, "__valueQuantity_canonical", "value")
 }
 
+func TestWriteResourcesSkipsInvalidAnnotationDuringExport(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "bad-anno",
+			"birthDate":    "not-a-date",
+			"extension": []any{
+				map[string]any{
+					"url":          "http://example.org/ext",
+					"valueDecimal": "not-a-decimal",
+				},
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "id")
+	assertColumn(t, schema, "birthDate")
+}
+
 func TestWriteResourcesNestedPatientParquet(t *testing.T) {
 	sd := bundledSD(t, "Patient")
 	resources := []map[string]any{

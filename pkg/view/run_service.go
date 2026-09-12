@@ -60,7 +60,7 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 			return nil, "", fmt.Errorf("view: Parquet-on-FHIR layout requires a registered view")
 		}
 		var buf bytes.Buffer
-		if _, err := WriteParquetFHIRExport(ctx, &buf, s.executor, execReq); err != nil {
+		if _, _, err := WriteParquetFHIRExport(ctx, &buf, s.executor, execReq); err != nil {
 			return nil, "", err
 		}
 		return buf.Bytes(), ParquetContentType, nil
