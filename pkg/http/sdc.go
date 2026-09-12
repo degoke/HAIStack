@@ -51,16 +51,16 @@ func (h *handler) handleSDCOperation(w http.ResponseWriter, r *http.Request, rou
 		}
 		req.QuestionnaireResponse = env
 	}
-	ctx, err := h.withTerminologyContext(r.Context())
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	var result *types.ResourceEnvelope
 	switch route.operation {
 	case "$populate":
-		result, err = h.cfg.SDCService.Populate(ctx, req)
+		result, err = h.cfg.SDCService.Populate(r.Context(), req)
 	case "$validate":
+		ctx, terr := h.withTerminologyContext(r.Context())
+		if terr != nil {
+			writeError(w, terr)
+			return
+		}
 		var outcome *types.OperationOutcome
 		outcome, err = h.cfg.SDCService.Validate(ctx, req)
 		if err == nil {
@@ -68,11 +68,11 @@ func (h *handler) handleSDCOperation(w http.ResponseWriter, r *http.Request, rou
 			return
 		}
 	case "$extract":
-		result, err = h.cfg.SDCService.Extract(ctx, req)
+		result, err = h.cfg.SDCService.Extract(r.Context(), req)
 	case "$assemble":
-		result, err = h.cfg.SDCService.Assemble(ctx, req)
+		result, err = h.cfg.SDCService.Assemble(r.Context(), req)
 	case "$next-question", "$next", "$answer":
-		result, err = h.cfg.SDCService.Adaptive(ctx, route.operation, req)
+		result, err = h.cfg.SDCService.Adaptive(r.Context(), route.operation, req)
 	default:
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 		return

@@ -347,7 +347,7 @@ func enabledForValidationOutcome(item Item, r QuestionnaireResponse, opts Valida
 		if opts.Expressions == nil {
 			return false, fmt.Errorf("enableWhen expression provider is unavailable")
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), *item.EnableWhenExpression, r)
+		values, err := opts.Expressions.Evaluate(validationContext(opts), *item.EnableWhenExpression, r)
 		if err != nil {
 			return false, err
 		}

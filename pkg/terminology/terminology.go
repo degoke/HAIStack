@@ -179,11 +179,31 @@ func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	x := *entry.result
 	return &x, true
 }
+func lookupCacheMatch(key, system, version string) bool {
+	if system == "" {
+		return false
+	}
+	if version != "" {
+		return strings.Contains(key, "|"+system+"|"+version+"|")
+	}
+	return strings.Contains(key, "|"+system+"|")
+}
+
+func expandCacheMatch(key, url, version string) bool {
+	if url == "" {
+		return false
+	}
+	if version != "" {
+		return strings.Contains(key, "|"+url+"|"+version+"|")
+	}
+	return strings.Contains(key, "|"+url+"|")
+}
+
 func (s *LocalService) InvalidateCodeSystem(system, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.lookupCache {
-		if strings.HasPrefix(k, system+"|") && (version == "" || strings.Contains(k, "|"+version+"|")) {
+		if lookupCacheMatch(k, system, version) {
 			delete(s.lookupCache, k)
 		}
 	}
@@ -192,8 +212,10 @@ func (s *LocalService) InvalidateCodeSystem(system, version string) {
 func (s *LocalService) InvalidateValueSet(url, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.expandCache != nil {
-		delete(s.expandCache, url+"|"+version)
+	for k := range s.expandCache {
+		if expandCacheMatch(k, url, version) {
+			delete(s.expandCache, k)
+		}
 	}
 }
 
