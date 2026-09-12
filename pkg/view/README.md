@@ -130,7 +130,7 @@ res, err := exec.Execute(ctx, view.ExecuteRequest{
 
 | Operation | Endpoint | Notes |
 |-----------|----------|-------|
-| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` or `POST /fhir/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Parquet-compatible JSON output |
+| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` or `POST /fhir/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Apache Parquet binary output |
 | `$viewdefinition-export` | `POST /fhir/ViewDefinition/$viewdefinition-export` or `POST /fhir/$viewdefinition-export` | Async export with watermark-aware `_since`; download at `$viewdefinition-export/files/{jobId}/{filename}` |
 | `$materialize` | `POST /fhir/ViewDefinition/$materialize` | Async materialized view refresh |
 | `$sqlquery-run` | `POST /fhir/Library/$sqlquery-run` or `POST /fhir/$sqlquery-run` | Read-only SQL over reporting tables (Postgres analytics mode) |
@@ -179,7 +179,7 @@ Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring d
 - Reference resolution supports typed, absolute URL, URN, and contained `#` references (including FHIRPath `resolve()` when the evaluation resource is in context).
 - `$sqlquery-run` executes read-only SQL against refreshed reporting tables (requires Postgres analytics wiring).
 - `$viewdefinition-run` and `$viewdefinition-export` are available on SQLite/edge runtimes when the view executor is wired; async export/materialize job metadata persists to `{dataDir}/jobs/*` when a runtime data directory is configured (see `runtime.WithDataDir`).
-- Parquet export format is a haistack-parquet-v1 JSON envelope, not Apache Parquet binary.
+- Parquet export writes flat ViewDefinition Apache Parquet binary (`application/vnd.apache.parquet`); nested Parquet-on-FHIR resource schemas are not generated.
 - Search-driven execution requires search wiring; `searchMode=index` fails without index.
 - `ExecuteRequest.Parameters` is passed to auth and audit only (no FHIRPath substitution yet).
 

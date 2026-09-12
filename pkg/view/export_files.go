@@ -202,7 +202,7 @@ func contentTypeForFormat(format OutputFormat) string {
 	case FormatCSV:
 		return "text/csv"
 	case FormatParquet:
-		return "application/octet-stream"
+		return ParquetContentType
 	case FormatJSON:
 		return "application/json"
 	default:

@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -276,6 +277,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 
 	var files []ExportFile
 	writer := NewFileExportWriter(s.files, jobID)
+	var execErr error
 	failJob := func(err error) error {
 		_ = s.files.DeleteJob(ctx, jobID)
 		job.Status = ExportError
@@ -287,29 +289,38 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		if job.Cancelled {
 			return nil
 		}
-		result, execErr := s.executor.Execute(ctx, ExecuteRequest{
-			ViewName: target.ViewName,
-			Version:  target.Version,
-			Actor:    job.Request.Actor,
-			Since:    since,
-		})
-		if execErr != nil {
-			return failJob(execErr)
-		}
 		outputName := target.OutputName
 		if outputName == "" {
 			outputName = target.ViewName
 		}
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
-		if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
-			return failJob(err)
+		var rowCount int
+		if job.Request.Format == FormatParquet {
+			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request.Actor)
+			if execErr != nil {
+				return failJob(execErr)
+			}
+		} else {
+			result, execErr := s.executor.Execute(ctx, ExecuteRequest{
+				ViewName: target.ViewName,
+				Version:  target.Version,
+				Actor:    job.Request.Actor,
+				Since:    since,
+			})
+			if execErr != nil {
+				return failJob(execErr)
+			}
+			rowCount = len(result.Rows)
+			if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
+				return failJob(err)
+			}
 		}
 		files = append(files, ExportFile{
 			ViewName:   target.ViewName,
 			Version:    target.Version,
 			OutputName: outputName,
 			Filename:   filename,
-			RowCount:   len(result.Rows),
+			RowCount:   rowCount,
 			Format:     string(job.Request.Format),
 		})
 		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
@@ -345,4 +356,41 @@ func exportFilename(outputName, version string, format OutputFormat) string {
 		ext = "json"
 	}
 	return fmt.Sprintf("%s-%s.%s", outputName, version, ext)
+}
+
+func (s *ExportService) writeParquetExportFile(
+	ctx context.Context,
+	jobID, filename string,
+	target ViewExportTarget,
+	since time.Time,
+	actor string,
+) (int, error) {
+	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
+	if err != nil {
+		return 0, fmt.Errorf("create temp parquet file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	rowCount, err := WriteParquetExport(ctx, tmp, s.executor, ExecuteRequest{
+		ViewName: target.ViewName,
+		Version:  target.Version,
+		Actor:    actor,
+		Since:    since,
+	}, DefaultParquetPageSize)
+	if err != nil {
+		_ = tmp.Close()
+		return rowCount, err
+	}
+	if err := tmp.Close(); err != nil {
+		return rowCount, err
+	}
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return rowCount, err
+	}
+	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
+		return rowCount, err
+	}
+	return rowCount, nil
 }

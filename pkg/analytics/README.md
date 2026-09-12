@@ -126,15 +126,13 @@ CSV rows are written directly to the supplied `io.Writer`, with no additional
 whole-export buffer. The view executor still materializes the complete result
 set in v1.
 
-### Deferred sinks (interface only)
+### Parquet and lakehouse sinks
 
-Constructors exist for wiring tests and future work; all return
-`ErrSinkNotImplemented`:
-
-- `NewParquetSink()`
-- `NewWarehouseSink()`
-- `NewLakehouseSink()`
-- `NewManifestExportSink()`
+- `NewParquetSink(w)` writes flat view Apache Parquet binary to `w`.
+- `NewLakehouseSink(LakehouseConfig{RootDir})` writes `{partition}/{view}-{version}.parquet` files on disk.
+- `NewLakehouseSink(LakehouseConfig{Blob, BlobPrefix})` stores parquet objects via `store.BlobStore`.
+- `NewManifestExportSink()` supports CSV, NDJSON, and Parquet output formats.
+- `NewWarehouseSink()` refreshes Postgres reporting tables.
 
 ## Background jobs
 
@@ -173,7 +171,7 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 - **Incremental refresh** uses a single `WatermarkStore` for `_since` cursors and export chaining; watermarks advance only after a successful refresh or export completes. Legacy `analytics.view.*` cursor names are migrated to `analytics.watermark.*` on first read.
 - **View export artifacts** persist on the local filesystem (`{sqlite-dir}/view-exports` or `view-exports/{tenantId}`) and roll back on multi-view failure.
 - **Three views** at the Runner allow-list layer.
-- **CSV** is the primary production cloud sink; warehouse/lake/Parquet sinks write haistack-parquet-v1 JSON envelopes and partition header lines (compatibility shims, not Apache Parquet binary or object-store paths).
+- **CSV** is the primary production cloud sink; warehouse/lake/Parquet sinks write flat view Apache Parquet binary files (`application/vnd.apache.parquet`).
 
 ## Errors
 

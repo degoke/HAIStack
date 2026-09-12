@@ -48,8 +48,7 @@ func (w PostgresReportingWarehouse) ReportingTables() store.ReportingTableStore 
 	return w.Store
 }
 
-// ParquetWarehouseAdapter routes analytics export rows to object storage as Parquet-compatible
-// columnar JSON. It satisfies WarehouseAdapter for cloud mode seam tests.
+// ParquetWarehouseAdapter routes analytics export rows to object storage as Apache Parquet.
 type ParquetWarehouseAdapter struct {
 	Name_ string
 	Sink  func() store.ReportingTableStore

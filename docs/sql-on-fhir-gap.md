@@ -16,7 +16,7 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | Packaged built-in views | Supported | Built-ins include `metadata.searchParams` where indexable |
 | Search-driven candidate resolution | Supported | `metadata.searchParams` + optional `metadata.searchMode` (`auto`, `index`, `scan`) |
 | FHIR `$materialize` operation | Supported | `POST /fhir/ViewDefinition/$materialize` with async polling at `$materialize/status/{jobId}` |
-| FHIR `$viewdefinition-run` operation | Supported | Sync run on type or system route; JSON, CSV, NDJSON, or Parquet-compatible JSON output |
+| FHIR `$viewdefinition-run` operation | Supported | Sync run on type or system route; JSON, CSV, NDJSON, or Apache Parquet binary output |
 | FHIR `$viewdefinition-export` operation | Supported | Async bulk export with watermark-aware `_since`; artifacts at `$viewdefinition-export/files/{jobId}/{filename}` |
 | FHIR `$sqlquery-run` operation | Supported | Read-only SQL over reporting tables via embedded SQLite engine (Library or system route) |
 | Materialized view persistence | Supported | `metadata.materialize` + `Executor.MaterializedViews` / `$materialize` operation |
@@ -25,7 +25,7 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | Incremental refresh (`_since`) | Supported | Search `_lastUpdated=gt...`, envelope `LastUpdated`, export watermarks advanced only after successful refresh/export |
 | IG ViewDefinition install | Supported | `packages.Installer` registers views; async via job queue when present, otherwise `DirectPackageInstallService` runs synchronously |
 | Arbitrary SQL backend | Supported | `$sqlquery-run` over reporting tables; in-process SQLite for ad hoc SELECT; requires a reporting store (Postgres analytics mode) |
-| Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; Parquet export uses haistack-parquet-v1 JSON envelope (not Apache Parquet binary); lakehouse partitioning writes a partition header line to the same writer |
+| Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; flat view Apache Parquet binary (`application/vnd.apache.parquet`); lakehouse writes `{partition}/{view}-{version}.parquet` to filesystem or blob store |
 | SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; legacy `analytics.view.*` cursors migrate to watermarks on first read; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
 
 ## Runtime availability
@@ -48,6 +48,8 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 ## Runtime data directory
 
 Configure durable view export artifacts and async job metadata with `runtime.Builder.WithDataDir()` or `WithViewExportDir()`. SQLite runtimes default to `{sqlite-dir}/view-exports`; Postgres runtimes default to `view-exports/{tenantId}`. Paths are resolved to absolute filesystem locations at wire time. Job records are stored under `{dataDir}/jobs/view-export` and `{dataDir}/jobs/materialize`.
+
+Parquet export uses flat ViewDefinition column schemas (not Parquet-on-FHIR nested resource layout). Export jobs stream executor pages into row groups via `WriteParquetExport`.
 
 ## References
 

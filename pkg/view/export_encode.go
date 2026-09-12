@@ -31,10 +31,10 @@ func encodeRunResult(result *Result, format OutputFormat, header bool) ([]byte, 
 		return buf.Bytes(), "application/fhir+ndjson", nil
 	case FormatParquet:
 		var buf bytes.Buffer
-		if err := writeParquetDocument(&buf, result); err != nil {
+		if err := WriteParquetResult(&buf, result); err != nil {
 			return nil, "", err
 		}
-		return buf.Bytes(), "application/octet-stream", nil
+		return buf.Bytes(), ParquetContentType, nil
 	default:
 		if header {
 			b, err := json.Marshal(result)
@@ -94,27 +94,12 @@ func encodeCSVCell(value any) string {
 	}
 }
 
-func writeParquetDocument(w interface{ Write([]byte) (int, error) }, result *Result) error {
-	doc := struct {
-		Format  string           `json:"format"`
-		Columns []ColumnInfo     `json:"columns"`
-		Rows    []map[string]any `json:"rows"`
-	}{
-		Format:  "haistack-parquet-v1",
-		Columns: append([]ColumnInfo(nil), result.Columns...),
-		Rows:    append([]map[string]any(nil), result.Rows...),
-	}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(doc)
-}
-
 func writeFormattedExport(ctx context.Context, w interface{ Write([]byte) (int, error) }, result *Result, format OutputFormat) error {
 	switch format {
 	case FormatCSV:
 		return writeCSV(w, result)
 	case FormatParquet:
-		return writeParquetDocument(w, result)
+		return WriteParquetResult(w, result)
 	default:
 		for _, row := range result.Rows {
 			if err := ctx.Err(); err != nil {
