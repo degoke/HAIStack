@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -30,6 +31,12 @@ type AuthChecker interface {
 	AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error)
 }
 
+// OperationAuthChecker optionally authorizes named FHIR operations such as
+// Basic/$status independently from resource read or write.
+type OperationAuthChecker interface {
+	AuthorizeOperation(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType, operation, id string) (auth.Decision, error)
+}
+
 // Config configures the FHIR HTTP handler.
 type Config struct {
 	// BasePath is the FHIR REST root path. Defaults to /fhir.
@@ -48,6 +55,39 @@ type Config struct {
 	// PackageInstallService handles ImplementationGuide/$install.
 	// When nil, POST /fhir/ImplementationGuide/$install returns not-supported.
 	PackageInstallService PackageInstallService
+
+	// TerminologyService handles CodeSystem/$lookup, ValueSet/$expand, and
+	// $validate-code when configured.
+	TerminologyService TerminologyService
+
+	// TerminologyScope is the tenant scope passed to terminology operations.
+	TerminologyScope string
+
+	// TerminologyInstallFactory resolves per-tenant opt-in stores for HTTP
+	// terminology operations. When nil, wired default installs are used.
+	TerminologyInstallFactory store.TerminologyInstallStoreFactory
+
+	// DefaultTerminologyTenantID is the sync/default tenant when the request has
+	// no authenticated tenant (single-tenant dev and startup installs).
+	DefaultTerminologyTenantID string
+
+	// TerminologyInstallService handles Basic/$terminology-install.
+	TerminologyInstallService TerminologyInstallService
+
+	// TerminologyEnableService handles Basic/$terminology-enable.
+	TerminologyEnableService TerminologyEnableService
+
+	// ModuleInstallService handles Basic/$install.
+	ModuleInstallService ModuleInstallService
+
+	// ModulePaths allowlists local directories accepted by Basic/$install.
+	ModulePaths []string
+
+	// JobStatusService handles Basic/{id}/$status job polling.
+	JobStatusService JobStatusService
+
+	// ConformanceRefresher rebuilds live conformance state via CapabilityStatement/$refresh.
+	ConformanceRefresher ConformanceRefresher
 
 	// OperationService handles non-SDC custom operations such as
 	// $everything or implementation-specific operations.

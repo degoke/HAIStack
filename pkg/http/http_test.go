@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,9 +18,11 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -932,5 +936,469 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if got := strings.TrimSpace(rec.Body.String()); got != `{"status":"ok"}` {
 		t.Fatalf("body = %s, want health response", got)
+	}
+}
+
+func TestBasicJobStatusHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "registry.package_install", Status: store.JobStatusCompleted,
+				Payload: []byte(`{"source":"registry","progress":{"current":3,"total":3,"phase":"install"}}`),
+			}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "completed") {
+		t.Fatalf("expected completed status, got %s", rec.Body.String())
+	}
+}
+
+type fakeJobStore struct {
+	job store.JobRecord
+}
+
+func (f *fakeJobStore) Enqueue(context.Context, store.JobRecord) error              { return nil }
+func (f *fakeJobStore) ClaimNext(context.Context, string) (*store.JobRecord, error) { return nil, nil }
+func (f *fakeJobStore) Update(context.Context, store.JobRecord) error               { return nil }
+func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error)       { return &f.job, nil }
+
+type fakeTerminologyInstallStore struct {
+	enabled []store.TerminologyInstallRecord
+}
+
+func (f *fakeTerminologyInstallStore) SetEnabled(_ context.Context, record store.TerminologyInstallRecord) error {
+	f.enabled = append(f.enabled, record)
+	return nil
+}
+func (f *fakeTerminologyInstallStore) UpsertInstall(ctx context.Context, record store.TerminologyInstallRecord) error {
+	return f.SetEnabled(ctx, record)
+}
+func (f *fakeTerminologyInstallStore) ListEnabled(_ context.Context) ([]store.TerminologyInstallRecord, error) {
+	return f.enabled, nil
+}
+func (f *fakeTerminologyInstallStore) ListInstalled(_ context.Context, _ store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
+	return f.enabled, nil
+}
+func (f *fakeTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error {
+	return nil
+}
+
+type fakeTerminologyInstallFactory struct {
+	stores map[string]*fakeTerminologyInstallStore
+	store  *fakeTerminologyInstallStore
+}
+
+func (f *fakeTerminologyInstallFactory) ForTenant(_ context.Context, tenantID string) (store.TerminologyInstallStore, error) {
+	if f.store != nil {
+		return f.store, nil
+	}
+	if f.stores == nil {
+		f.stores = make(map[string]*fakeTerminologyInstallStore)
+	}
+	if f.stores[tenantID] == nil {
+		f.stores[tenantID] = &fakeTerminologyInstallStore{}
+	}
+	return f.stores[tenantID], nil
+}
+
+func terminologyTestService(t *testing.T, tenantScope string) terminology.Service {
+	t.Helper()
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	vs := []byte(`{"resourceType":"ValueSet","url":"urn:vs","version":"2","compose":{"include":[{"system":"urn:test","concept":[{"code":"ok"}]}]}}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: tenantScope, ResourceType: "ValueSet",
+		CanonicalURL: "urn:vs", Version: "2", ResourceJSON: vs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, tenantScope)
+	layered.Installs = &fakeTerminologyInstallStore{enabled: []store.TerminologyInstallRecord{{
+		ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+	}}}
+	return terminology.NewLocalService(layered, tenantScope)
+}
+
+func TestCodeSystemLookupHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("expected lookup result true, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:vs&version=2", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"ok"`) {
+		t.Fatalf("expected expanded code, got %s", rec.Body.String())
+	}
+}
+
+func TestCodeSystemLookupHTTPSharedServiceCacheIsolatedPerTenant(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, "tenant-a")
+	svc := terminology.NewLocalService(layered, "tenant-a")
+	factory := &fakeTerminologyInstallFactory{}
+	factory.stores = map[string]*fakeTerminologyInstallStore{
+		"tenant-b": {enabled: []store.TerminologyInstallRecord{{
+			ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+		}}},
+	}
+	makeHandler := func(tenantID string) http.Handler {
+		return newTestHandler(t, hahttp.Config{
+			ResourceService:            &fakeResourceService{},
+			TerminologyService:         svc,
+			TerminologyScope:           "tenant-a",
+			TerminologyInstallFactory:  factory,
+			DefaultTerminologyTenantID: "tenant-a",
+			PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+				return auth.Principal{ID: "user-" + tenantID}, auth.TenantContext{TenantID: tenantID}, nil
+			},
+			AuthChecker: &recordingAuthChecker{allow: true},
+		})
+	}
+	rec := doRequest(t, makeHandler("tenant-b"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("tenant-b status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(t, makeHandler("tenant-a"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"valueBoolean":true`) {
+		t.Fatalf("tenant-a should not hit tenant-b cache, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCodeSystemLookupHTTPUsesRequestTenantOptIn(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, "tenant-a")
+	factory := &fakeTerminologyInstallFactory{}
+	factory.stores = map[string]*fakeTerminologyInstallStore{
+		"tenant-b": {enabled: []store.TerminologyInstallRecord{{
+			ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+		}}},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:            &fakeResourceService{},
+		TerminologyService:         terminology.NewLocalService(layered, "tenant-a"),
+		TerminologyScope:           "tenant-a",
+		TerminologyInstallFactory:  factory,
+		DefaultTerminologyTenantID: "tenant-a",
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-b"}, auth.TenantContext{TenantID: "tenant-b"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant-b status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("tenant-b expected lookup result true, got %s", rec.Body.String())
+	}
+
+	handlerNoOptIn := newTestHandler(t, hahttp.Config{
+		ResourceService:            &fakeResourceService{},
+		TerminologyService:         terminology.NewLocalService(layered, "tenant-a"),
+		TerminologyScope:           "tenant-a",
+		TerminologyInstallFactory:  factory,
+		DefaultTerminologyTenantID: "tenant-a",
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-a"}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+	rec = doRequest(t, handlerNoOptIn, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant-a status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"valueBoolean":true`) {
+		t.Fatalf("tenant-a should not resolve global catalog without opt-in, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTPNotFound(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:missing", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestValueSetValidateCodeUsesValueSetVersion(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminologyTestService(t, "tenant-a"),
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$validate-code?url=urn:vs&valueSetVersion=2&system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("expected valid result, got %s", rec.Body.String())
+	}
+}
+
+func TestCapabilityStatementAdvertisesPlatformOperationsWithoutEnabledTypes(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources: []registry.ResourceCapability{
+				{ResourceType: "Patient"},
+			},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"lookup", "expand", "validate-code", `"name":"install"`, `"name":"status"`, `"name":"refresh"`, "terminology-install"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metadata missing %q: %s", want, body)
+		}
+	}
+	var cap map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &cap); err != nil {
+		t.Fatal(err)
+	}
+	rest := cap["rest"].([]any)[0].(map[string]any)
+	for _, item := range rest["resource"].([]any) {
+		res := item.(map[string]any)
+		if res["type"] != "Basic" {
+			continue
+		}
+		if interactions, ok := res["interaction"].([]any); ok && len(interactions) > 0 {
+			t.Fatalf("injected Basic should not advertise CRUD interactions: %v", interactions)
+		}
+		if ops, ok := res["operation"].([]any); !ok || len(ops) == 0 {
+			t.Fatalf("injected Basic should advertise operations: %v", res["operation"])
+		}
+	}
+}
+
+func jobPayloadWithOwner(t *testing.T, body string, owner jobs.JobOwner) []byte {
+	t.Helper()
+	payload, err := jobs.StampOwner([]byte(body), owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func TestBasicJobStatusRequiresMatchingOwner(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		PrincipalResolver: func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted,
+				Payload: jobPayloadWithOwner(t, `{}`, jobs.JobOwner{PrincipalID: "user-1", TenantID: "tenant-a"}),
+			}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBasicJobStatusRejectsOtherOwner(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		PrincipalResolver: func(ctx context.Context, r *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-2"}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+		JobStatusService: hahttp.CoreJobStatusService{
+			JobStore: &fakeJobStore{job: store.JobRecord{
+				ID: "job-1", Type: "modules.install", Status: store.JobStatusCompleted,
+				Payload: jobPayloadWithOwner(t, `{}`, jobs.JobOwner{PrincipalID: "user-1", TenantID: "tenant-a"}),
+			}},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Basic/job-1/$status", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBasicModuleInstallHTTPRejectsPathOutsideAllowlist(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "mods")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:      &fakeResourceService{},
+		ModuleInstallService: hahttp.CoreModuleInstallService{JobStore: &fakeJobStore{}},
+		ModulePaths:          []string{allowed},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$install?path="+url.QueryEscape(outside), nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "allowed root") {
+		t.Fatalf("expected allowlist error, got %s", rec.Body.String())
+	}
+}
+
+func TestValueSetExpandHTTPTooCostly(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:big","version":"1","concept":[{"code":"a"},{"code":"b"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "CodeSystem",
+		CanonicalURL: "urn:big", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	vs := []byte(`{"resourceType":"ValueSet","url":"urn:big-vs","version":"1","compose":{"include":[{"system":"urn:big","concept":[{"code":"a"},{"code":"b"}]}]}}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "ValueSet",
+		CanonicalURL: "urn:big-vs", Version: "1", ResourceJSON: vs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := terminology.NewLocalService(m, "tenant-a", terminology.WithMaxExpansion(1))
+
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: svc,
+		TerminologyScope:   "tenant-a",
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/ValueSet/$expand?url=urn:big-vs", nil)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "too-costly") {
+		t.Fatalf("expected too-costly outcome, got %s", rec.Body.String())
+	}
+}
+
+func TestBasicTerminologyInstallHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyInstallService: hahttp.CoreTerminologyInstallService{
+			JobStore:     &fakeJobStore{},
+			DefaultScope: "tenant-a",
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-install", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "jobId") {
+		t.Fatalf("expected job id, got %s", rec.Body.String())
+	}
+}
+
+func TestBasicTerminologyInstallPreExpandHTTP(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyInstallService: hahttp.CoreTerminologyInstallService{
+			JobStore:     &fakeJobStore{},
+			DefaultScope: "tenant-a",
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-install?preExpandValueSets=true", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "preExpandValueSets") {
+		t.Fatalf("expected preExpandValueSets parameter, got %s", rec.Body.String())
+	}
+}
+
+func TestBasicTerminologyEnableHTTP(t *testing.T) {
+	ctx := context.Background()
+	global := terminology.NewMemoryStore()
+	vs := []byte(`{"resourceType":"ValueSet","url":"http://hl7.org/fhir/ValueSet/administrative-gender","version":"4.0.1","compose":{"include":[{"system":"http://hl7.org/fhir/administrative-gender","concept":[{"code":"male"}]}]}}`)
+	_ = global.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "ValueSet",
+		CanonicalURL: "http://hl7.org/fhir/ValueSet/administrative-gender", Version: "4.0.1", ResourceJSON: vs,
+	})
+	installs := &fakeTerminologyInstallStore{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
+			InstallFactory:  &fakeTerminologyInstallFactory{store: installs},
+			DefaultTenantID: "default",
+			Global:          global,
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=http://hl7.org/fhir/ValueSet/administrative-gender&resourceType=ValueSet&version=4.0.1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(installs.enabled) != 1 || !installs.enabled[0].Enabled {
+		t.Fatalf("installs=%+v", installs.enabled)
+	}
+}
+
+func TestBasicTerminologyEnableRejectsMissingCatalogEntry(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{},
+		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
+			InstallFactory:  &fakeTerminologyInstallFactory{store: &fakeTerminologyInstallStore{}},
+			DefaultTenantID: "default",
+			Global:          terminology.NewMemoryStore(),
+		},
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=urn:missing&resourceType=ValueSet&version=1", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

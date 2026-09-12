@@ -11,15 +11,19 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
+// ProgressFunc reports incremental module install progress.
+type ProgressFunc func(current, total int, message string)
+
 // Installer orchestrates install/upgrade/uninstall planning and execution.
 // It owns the registry applier and module store updates.
 type Installer struct {
-	modules   store.ModuleStore
-	applier   *RegistryApplier
-	installs  store.RegistryInstallStore
-	defs      store.DefinitionStore
-	resources store.ResourceStore
-	now       func() time.Time
+	modules    store.ModuleStore
+	applier    *RegistryApplier
+	installs   store.RegistryInstallStore
+	defs       store.DefinitionStore
+	resources  store.ResourceStore
+	now        func() time.Time
+	OnProgress ProgressFunc
 }
 
 // NewInstaller creates an installer from the same persistence pieces used by
@@ -179,41 +183,60 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 		Deferred: plan.Deferred,
 	}
 
+	totalSteps := len(plan.ResourcesToEnable) + len(mod.Definitions) + 2
+	step := 0
+	report := func(message string) {
+		if i.OnProgress != nil {
+			i.OnProgress(step, totalSteps, message)
+		}
+	}
+
 	for _, resourceType := range plan.ResourcesToEnable {
 		if err := i.applier.EnableResource(ctx, resourceType); err != nil {
 			return nil, err
 		}
+		step++
+		report("enable " + resourceType)
 		result.EnabledResources = append(result.EnabledResources, resourceType)
 	}
 
+	moduleProvenance := registry.InstallProvenance{
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
+		PackageVersion: mod.Manifest.Version,
+		ModuleName:     mod.Manifest.Name,
+		SourceModule:   mod.Manifest.Name,
+	}
 	for _, def := range mod.Definitions {
 		parsed, _, err := registry.ParseDefinition(def)
 		if err != nil {
 			return nil, fmt.Errorf("parse definition: %w", err)
 		}
-		provenance := registry.InstallProvenance{
-			PackageName:    "haistack-modules",
-			PackageVersion: mod.Manifest.Version,
-			ModuleName:     mod.Manifest.Name,
-			SourceModule:   mod.Manifest.Name,
-		}
-		if err := i.applier.InstallDefinition(ctx, def, provenance); err != nil {
+		if err := i.applier.InstallDefinition(ctx, def, moduleProvenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
 		}
+		step++
+		report(parsed.CanonicalURL)
 		result.InstalledDefinitions = append(result.InstalledDefinitions, DefinitionRef{
 			CanonicalURL: parsed.CanonicalURL,
 			Version:      parsed.Version,
 		})
 	}
+	if err := i.applier.CompletePackageInstall(ctx, moduleProvenance); err != nil {
+		return nil, err
+	}
 
 	if err := i.registerModule(ctx, mod); err != nil {
 		return nil, err
 	}
+	step++
+	report("register module")
 
 	snapshot, err := i.applier.RebuildSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
+	step++
+	report("rebuild snapshot")
 	result.Snapshot = snapshot
 
 	return result, nil
@@ -284,6 +307,12 @@ func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 	for _, ref := range oldDefs {
 		oldDefKeys[ref.CanonicalURL+"|"+ref.Version] = struct{}{}
 	}
+	upgradeProvenance := registry.InstallProvenance{
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
+		PackageVersion: mod.Manifest.Version,
+		ModuleName:     mod.Manifest.Name,
+		SourceModule:   mod.Manifest.Name,
+	}
 	for _, def := range mod.Definitions {
 		parsed, _, err := registry.ParseDefinition(def)
 		if err != nil {
@@ -293,19 +322,18 @@ func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 		if _, ok := oldDefKeys[key]; ok {
 			continue
 		}
-		provenance := registry.InstallProvenance{
-			PackageName:    "haistack-modules",
-			PackageVersion: mod.Manifest.Version,
-			ModuleName:     mod.Manifest.Name,
-			SourceModule:   mod.Manifest.Name,
-		}
-		if err := i.applier.InstallDefinition(ctx, def, provenance); err != nil {
+		if err := i.applier.InstallDefinition(ctx, def, upgradeProvenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
 		}
 		result.InstalledDefinitions = append(result.InstalledDefinitions, DefinitionRef{
 			CanonicalURL: parsed.CanonicalURL,
 			Version:      parsed.Version,
 		})
+	}
+	if len(result.InstalledDefinitions) > 0 {
+		if err := i.applier.CompletePackageInstall(ctx, upgradeProvenance); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := i.registerModule(ctx, mod); err != nil {

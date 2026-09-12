@@ -99,7 +99,7 @@ func validateAnswerOptionsEnabled(o *Outcome, item *Item, q Questionnaire, r Que
 	if len(item.AnswerOption) == 0 || opts.Expressions == nil {
 		return
 	}
-	options := effectiveAnswerOptions(context.Background(), q, *item, r, opts)
+	options := effectiveAnswerOptions(validationContext(opts), q, *item, r, opts)
 	disabled := map[int]bool{}
 	for i, option := range options {
 		if option.Disabled {

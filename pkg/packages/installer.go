@@ -18,6 +18,9 @@ import (
 
 const defaultRegistryBase = "https://packages.fhir.org"
 
+// ProgressFunc reports install progress for long-running package installs.
+type ProgressFunc func(current, total int, message string)
+
 // Installer ingests FHIR NPM packages into the registry catalog.
 type Installer struct {
 	Registry     *registry.Manager
@@ -26,6 +29,7 @@ type Installer struct {
 	HTTPClient   *http.Client
 	TempDir      string
 	EnableTypes  bool
+	OnProgress   ProgressFunc
 }
 
 // InstallResult summarizes a package install.
@@ -70,15 +74,29 @@ func (i *Installer) InstallFromRegistry(ctx context.Context, packageID, version 
 
 // InstallFromDirectory installs all JSON definitions from a local directory tree.
 func (i *Installer) InstallFromDirectory(ctx context.Context, dir string) (*InstallResult, error) {
+	return i.InstallFromDirectoryVersion(ctx, dir, "", "local")
+}
+
+// InstallFromDirectoryVersion installs a local package tree with explicit id and version.
+func (i *Installer) InstallFromDirectoryVersion(ctx context.Context, dir, packageID, version string) (*InstallResult, error) {
 	if i == nil || i.Registry == nil {
 		return nil, fmt.Errorf("package installer is not configured")
+	}
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return nil, fmt.Errorf("package directory is required")
+	}
+	if packageID == "" {
+		packageID = filepath.Base(dir)
+	}
+	if version == "" {
+		version = "local"
 	}
 	definitions, err := loadPackageDefinitions(dir)
 	if err != nil {
 		return nil, err
 	}
-	packageID := filepath.Base(dir)
-	return i.installDefinitions(ctx, packageID, "local", dir, definitions)
+	return i.installDefinitions(ctx, packageID, version, dir, definitions)
 }
 
 // InstallFromArchive extracts a FHIR NPM tarball and installs package resources.
@@ -125,10 +143,14 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 		ExtractedTo: sourceDir,
 	}
 	enabled := make(map[string]struct{})
-	for _, raw := range definitions {
+	total := len(definitions)
+	for idx, raw := range definitions {
 		parsed, _, err := registry.ParseDefinition(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse definition: %w", err)
+		}
+		if i.OnProgress != nil {
+			i.OnProgress(idx+1, total, parsed.CanonicalURL)
 		}
 		if err := i.Registry.InstallDefinition(ctx, raw, provenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
@@ -148,6 +170,9 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 			return nil, fmt.Errorf("enable resource type %s: %w", resourceType, err)
 		}
 		result.Enabled = append(result.Enabled, resourceType)
+	}
+	if err := i.Registry.CompletePackageInstall(ctx, provenance); err != nil {
+		return nil, err
 	}
 	if i.Refresh != nil {
 		if err := i.Refresh(ctx); err != nil {
