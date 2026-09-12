@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -9,17 +10,18 @@ import (
 
 // ViewRunRequest captures parameters for ViewDefinition/$viewdefinition-run.
 type ViewRunRequest struct {
-	ViewName   string
-	Version    string
-	InlineDef  []byte
-	Since      time.Time
-	Limit      int
-	Offset     int
-	Actor      string
-	Subject    string
-	Parameters map[string]any
-	Format     OutputFormat
-	Header     bool
+	ViewName      string
+	Version       string
+	InlineDef     []byte
+	Since         time.Time
+	Limit         int
+	Offset        int
+	Actor         string
+	Subject       string
+	Parameters    map[string]any
+	Format        OutputFormat
+	ParquetLayout ParquetLayout
+	Header        bool
 }
 
 // RunService executes synchronous ViewDefinition runs.
@@ -53,6 +55,17 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		Since:      req.Since,
 	}
 
+	if format == FormatParquet && req.ParquetLayout == ParquetLayoutFHIR {
+		if len(req.InlineDef) > 0 {
+			return nil, "", fmt.Errorf("view: Parquet-on-FHIR layout requires a registered view")
+		}
+		var buf bytes.Buffer
+		if _, err := WriteParquetFHIRExport(ctx, &buf, s.executor, execReq); err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), ParquetContentType, nil
+	}
+
 	var result *Result
 	var err error
 	if len(req.InlineDef) > 0 {
@@ -64,7 +77,7 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		return nil, "", err
 	}
 
-	body, contentType, err := encodeRunResult(result, format, req.Header)
+	body, contentType, err := encodeRunResult(ctx, result, format, req.Header, req.ParquetLayout, s.executor, execReq)
 	return body, contentType, err
 }
 
@@ -103,7 +116,7 @@ func (s *SQLQueryService) Execute(ctx context.Context, req SQLQueryRequest) ([]b
 		Rows:    result.Rows,
 		Total:   len(result.Rows),
 	}
-	body, contentType, err := encodeRunResult(viewResult, format, true)
+	body, contentType, err := encodeRunResult(ctx, viewResult, format, true, ParquetLayoutFlat, nil, ExecuteRequest{})
 	return body, contentType, err
 }
 

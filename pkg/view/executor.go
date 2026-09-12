@@ -10,6 +10,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 // Config configures an Executor. The resource store and FHIRPath engine are
@@ -27,6 +28,7 @@ type Config struct {
 	SearchPlanner     search.Planner
 	BaseURL           string
 	ResolveLogicalID  func(ctx context.Context, logicalID string) (resourceType, id string, ok bool)
+	ProfileCatalog    validate.ProfileCatalog
 	Now               func() time.Time
 }
 
@@ -60,13 +62,33 @@ type ExecuteRequest struct {
 
 // Result is the structured output of a view execution.
 type Result struct {
-	ViewName   string
-	Version    string
-	Columns    []ColumnInfo
-	Rows       []map[string]any
-	Total      int
-	Metadata   ResultMetadata
-	NextOffset *int
+	ViewName    string
+	Version     string
+	Columns     []ColumnInfo
+	Rows        []map[string]any
+	Total       int
+	Metadata    ResultMetadata
+	NextOffset  *int
+	ExecRequest *ExecuteRequest
+}
+
+// ExecRequestForExport returns the execute request used for Parquet-on-FHIR export.
+func ExecRequestForExport(result *Result, actor string) ExecuteRequest {
+	if result == nil {
+		return ExecuteRequest{Actor: actor}
+	}
+	if result.ExecRequest != nil {
+		req := *result.ExecRequest
+		if req.Actor == "" {
+			req.Actor = actor
+		}
+		return req
+	}
+	return ExecuteRequest{
+		ViewName: result.ViewName,
+		Version:  result.Version,
+		Actor:    actor,
+	}
 }
 
 // ResultMetadata captures execution-side metadata.

@@ -2,10 +2,13 @@ package analytics
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
 // RefreshPayload is the job payload for analytics reporting refresh runs.
@@ -16,12 +19,14 @@ type RefreshPayload struct {
 	Subject  string `json:"subject,omitempty"`
 }
 
-// ExportPayload is the job payload for CSV export runs.
+// ExportPayload is the job payload for analytics export runs.
 type ExportPayload struct {
-	ViewName string `json:"viewName"`
-	Version  string `json:"version"`
-	Actor    string `json:"actor,omitempty"`
-	Subject  string `json:"subject,omitempty"`
+	ViewName       string            `json:"viewName"`
+	Version        string            `json:"version"`
+	Actor          string            `json:"actor,omitempty"`
+	Subject        string            `json:"subject,omitempty"`
+	Format         ExportFormat      `json:"format,omitempty"`
+	ParquetLayout  view.ParquetLayout `json:"parquetLayout,omitempty"`
 }
 
 // Job type constants re-exported for analytics orchestration.
@@ -66,16 +71,27 @@ func RefreshHandler(runner *Runner, target reportingWriter, watermark *Watermark
 	})
 }
 
-// ExportHandler returns a jobs.Handler that runs CSV export using the supplied sink.
+// ExportHandler returns a jobs.Handler that runs export using the supplied sink.
 func ExportHandler(runner *Runner, sink RowSink) jobs.Handler {
 	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
 		var payload ExportPayload
 		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
 			return err
 		}
+		version := payload.Version
+		if version == "" {
+			version = "1.0.0"
+		}
+		if payload.Format == FormatParquet {
+			if typed, ok := sink.(*ParquetFileSink); ok {
+				if payload.ParquetLayout != "" {
+					typed.layout = payload.ParquetLayout
+				}
+			}
+		}
 		_, err := runner.Run(ctx, RunRequest{
 			ViewName: payload.ViewName,
-			Version:  payload.Version,
+			Version:  version,
 			Mode:     ModeExport,
 			Destination: Destination{
 				Sink: sink,
@@ -85,4 +101,66 @@ func ExportHandler(runner *Runner, sink RowSink) jobs.Handler {
 		})
 		return err
 	})
+}
+
+// ExportHandlerWithConfig returns a jobs.Handler that builds a sink per payload format.
+func ExportHandlerWithConfig(runner *Runner, cfg ExportHandlerConfig) jobs.Handler {
+	return jobs.HandlerFunc(func(ctx context.Context, job store.JobRecord) error {
+		var payload ExportPayload
+		if err := jobs.UnmarshalPayload(job.Payload, &payload); err != nil {
+			return err
+		}
+		version := payload.Version
+		if version == "" {
+			version = "1.0.0"
+		}
+		format := payload.Format
+		if format == "" {
+			format = FormatNDJSON
+		}
+		sink, err := cfg.buildSink(format, payload.ParquetLayout)
+		if err != nil {
+			return err
+		}
+		_, err = runner.Run(ctx, RunRequest{
+			ViewName: payload.ViewName,
+			Version:  version,
+			Mode:     ModeExport,
+			Destination: Destination{
+				Sink: sink,
+			},
+			Actor:   payload.Actor,
+			Subject: payload.Subject,
+		})
+		return err
+	})
+}
+
+// ExportHandlerConfig configures dynamic export sinks for background jobs.
+type ExportHandlerConfig struct {
+	Writer   io.Writer
+	Executor *view.Executor
+	Actor    string
+}
+
+func (cfg ExportHandlerConfig) buildSink(format ExportFormat, layout view.ParquetLayout) (RowSink, error) {
+	if cfg.Writer == nil {
+		return nil, fmt.Errorf("%w: export writer is required", ErrUnsupportedDestination)
+	}
+	switch format {
+	case FormatCSV:
+		return NewCSVSink(cfg.Writer), nil
+	case FormatParquet:
+		if layout == "" {
+			layout = view.ParquetLayoutFlat
+		}
+		return NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
+			Writer:   cfg.Writer,
+			Layout:   layout,
+			Executor: cfg.Executor,
+			Actor:    cfg.Actor,
+		}), nil
+	default:
+		return NewNDJSONSink(cfg.Writer), nil
+	}
 }

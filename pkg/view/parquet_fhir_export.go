@@ -1,0 +1,175 @@
+package view
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+
+	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
+	"github.com/degoke/health-ai-stack/pkg/validate"
+)
+
+// CollectMatchingResources returns full FHIR resources matching a view's filters.
+func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequest) ([]map[string]any, string, error) {
+	resources, resourceType, _, err := e.collectMatchingResources(ctx, req, 0, 0)
+	return resources, resourceType, err
+}
+
+type matchingResourcePlan struct {
+	spec     *ViewSpec
+	execReq  ExecuteRequest
+	limit    int
+	offset   int
+}
+
+func (e *Executor) prepareMatchingResourcePlan(ctx context.Context, req ExecuteRequest, limit, offset int) (*matchingResourcePlan, error) {
+	if e == nil {
+		return nil, fmt.Errorf("view: executor is nil")
+	}
+	spec, err := e.ResolveView(req.ViewName, req.Version)
+	if err != nil {
+		return nil, err
+	}
+	if e.cfg.Authorizer != nil && len(spec.Permissions) > 0 {
+		if err := e.cfg.Authorizer.AuthorizeView(ctx, AuthRequest{
+			ViewName:     spec.Name,
+			Version:      spec.Version,
+			ResourceType: spec.ResourceType,
+			Actor:        req.Actor,
+			Subject:      req.Subject,
+			Permissions:  spec.Permissions,
+			Parameters:   req.Parameters,
+		}); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrUnauthorized, err)
+		}
+	}
+	if err := spec.compile(e.cfg.Engine); err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return &matchingResourcePlan{
+		spec:    spec,
+		execReq: req,
+		limit:   limit,
+		offset:  offset,
+	}, nil
+}
+
+func (e *Executor) collectMatchingResources(ctx context.Context, req ExecuteRequest, limit, offset int) ([]map[string]any, string, int, error) {
+	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	resources, written, err := e.collectResourcesForPlan(ctx, plan)
+	return resources, plan.spec.ResourceType, written, err
+}
+
+func (e *Executor) collectResourcesForPlan(ctx context.Context, plan *matchingResourcePlan) ([]map[string]any, int, error) {
+	resources := make([]map[string]any, 0)
+	written, err := e.forEachMatchingResourcePlan(ctx, plan, func(raw map[string]any) error {
+		resources = append(resources, raw)
+		return nil
+	})
+	return resources, written, err
+}
+
+func (e *Executor) structureDefinitionFor(resourceType string) (*validate.StructureDefinition, error) {
+	if e.cfg.ProfileCatalog == nil {
+		return nil, fmt.Errorf("view: ProfileCatalog is required for Parquet-on-FHIR layout")
+	}
+	return parquetfhir.ResolveStructureDefinition(e.cfg.ProfileCatalog, resourceType)
+}
+
+// WriteParquetFHIRExport writes Parquet-on-FHIR nested resources for one view.
+func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest) (int, error) {
+	if exec == nil {
+		return 0, fmt.Errorf("view: executor is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	plan, err := exec.prepareMatchingResourcePlan(ctx, req, req.Limit, req.Offset)
+	if err != nil {
+		return 0, err
+	}
+	sd, err := exec.structureDefinitionFor(plan.spec.ResourceType)
+	if err != nil {
+		return 0, err
+	}
+
+	return parquetfhir.WriteResourcesStreaming(ctx, w, sd, exec.cfg.ProfileCatalog, func(yield func(map[string]any) error) error {
+		_, err := exec.forEachMatchingResourcePlan(ctx, plan, yield)
+		return err
+	})
+}
+
+func (e *Executor) forEachMatchingResource(
+	ctx context.Context,
+	req ExecuteRequest,
+	limit, offset int,
+	fn func(map[string]any) error,
+) (int, error) {
+	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
+	if err != nil {
+		return 0, err
+	}
+	return e.forEachMatchingResourcePlan(ctx, plan, fn)
+}
+
+func (e *Executor) forEachMatchingResourcePlan(
+	ctx context.Context,
+	plan *matchingResourcePlan,
+	fn func(map[string]any) error,
+) (int, error) {
+	if e == nil || plan == nil || plan.spec == nil {
+		return 0, fmt.Errorf("view: executor is nil")
+	}
+
+	allIDs, err := e.resolveCandidateIDs(ctx, plan.spec, plan.execReq.Since)
+	if err != nil {
+		return 0, err
+	}
+
+	matched := 0
+	written := 0
+	for _, id := range allIDs {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
+		env, err := e.cfg.Resources.Read(ctx, plan.spec.ResourceType, id)
+		if err != nil {
+			return written, fmt.Errorf("read %s/%s: %w", plan.spec.ResourceType, id, err)
+		}
+		if !plan.execReq.Since.IsZero() && !env.LastUpdated.IsZero() && env.LastUpdated.Before(plan.execReq.Since) {
+			continue
+		}
+		match, err := e.evalFilters(ctx, plan.spec, env)
+		if err != nil {
+			return written, fmt.Errorf("filter %s/%s: %w", plan.spec.ResourceType, id, err)
+		}
+		if !match {
+			continue
+		}
+		if matched < plan.offset {
+			matched++
+			continue
+		}
+		if plan.limit > 0 && written >= plan.limit {
+			break
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(env.JSON, &raw); err != nil {
+			return written, fmt.Errorf("decode %s/%s: %w", plan.spec.ResourceType, id, err)
+		}
+		if err := fn(raw); err != nil {
+			return written, err
+		}
+		matched++
+		written++
+	}
+	return written, nil
+}

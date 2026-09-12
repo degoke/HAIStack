@@ -181,6 +181,56 @@ func TestExportServiceRollsBackPartialFilesOnFailure(t *testing.T) {
 	}
 }
 
+func TestExportServiceWritesParquetBinary(t *testing.T) {
+	ctx := context.Background()
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	reg := view.NewRegistry()
+	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resources := newMemResourceStore()
+	resources.Seed(t, patientJane(t))
+	exec, err := view.NewExecutor(view.Config{
+		Resources: resources,
+		Engine:    engine,
+		Registry:  reg,
+	})
+	if err != nil {
+		t.Fatalf("executor: %v", err)
+	}
+	svc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:     view.NewInMemoryViewExportJobStore(),
+		Files:    view.NewInMemoryExportFileStore(),
+		Executor: exec,
+	})
+	if err != nil {
+		t.Fatalf("NewExportService: %v", err)
+	}
+	job, err := svc.Kickoff(ctx, view.ViewExportRequest{
+		Format: view.FormatParquet,
+		Views:  []view.ViewExportTarget{{ViewName: "patient_summary_view", Version: "1.0.0"}},
+	})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	if job.Status != view.ExportComplete {
+		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
+	}
+	data, contentType, err := svc.GetFile(ctx, job.ID, job.Files[0].Filename)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if contentType != view.ParquetContentType {
+		t.Fatalf("contentType=%q", contentType)
+	}
+	if !view.IsParquetFile(data) {
+		t.Fatal("expected parquet binary artifact")
+	}
+}
+
 func TestLocalExportFileStoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -203,5 +253,60 @@ func TestLocalExportFileStoreRoundTrip(t *testing.T) {
 	}
 	if _, _, err := store.Get(ctx, "job-1", "out.ndjson"); err == nil {
 		t.Fatal("expected deleted export file")
+	}
+}
+
+func TestExportServiceParquetFHIRRecordsLayoutMetadata(t *testing.T) {
+	ctx := context.Background()
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	reg := view.NewRegistry()
+	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resources := newMemResourceStore()
+	resources.Seed(t, patientJane(t), patientJohn(t))
+	exec, err := view.NewExecutor(view.Config{
+		Resources:      resources,
+		Engine:         engine,
+		Registry:       reg,
+		ProfileCatalog: bundledPatientCatalog(t),
+	})
+	if err != nil {
+		t.Fatalf("executor: %v", err)
+	}
+	svc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:     view.NewInMemoryViewExportJobStore(),
+		Files:    view.NewInMemoryExportFileStore(),
+		Executor: exec,
+	})
+	if err != nil {
+		t.Fatalf("NewExportService: %v", err)
+	}
+	job, err := svc.Kickoff(ctx, view.ViewExportRequest{
+		Views:         []view.ViewExportTarget{{ViewName: "patient_summary_view", Version: "1.0.0"}},
+		Format:        view.FormatParquet,
+		ParquetLayout: view.ParquetLayoutFHIR,
+	})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	if job.Status != view.ExportComplete {
+		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
+	}
+	if len(job.Files) != 1 {
+		t.Fatalf("files=%v", job.Files)
+	}
+	if job.Files[0].ParquetLayout != view.ParquetLayoutFHIR {
+		t.Fatalf("parquetLayout=%q", job.Files[0].ParquetLayout)
+	}
+	data, _, err := svc.GetFile(ctx, job.ID, job.Files[0].Filename)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !view.IsParquetFile(data) {
+		t.Fatal("expected parquet artifact")
 	}
 }

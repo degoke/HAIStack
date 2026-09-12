@@ -636,12 +636,17 @@ func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wir
 		},
 		fhirpath.DefaultLogicalIDResourceTypes,
 	)
+	var profileCatalog validate.ProfileCatalog
+	if state.services.ConformanceRuntime != nil {
+		profileCatalog = state.services.ConformanceRuntime.ProfileCatalog()
+	}
 	viewCfg := view.Config{
 		Resources:        readResources,
 		Engine:           ac.engine,
 		Registry:         viewReg,
 		BaseURL:          "/fhir",
 		ResolveLogicalID: resolveLogicalID,
+		ProfileCatalog:   profileCatalog,
 	}
 	if state.services.TenantDB != nil {
 		viewCfg.MaterializedViews = state.services.TenantDB.MaterializedViewStore()

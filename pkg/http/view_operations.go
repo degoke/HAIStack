@@ -226,6 +226,10 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 		ViewName: route.id,
 		Version:  strings.TrimSpace(r.URL.Query().Get("version")),
 		Format:   view.ParseOutputFormat(r.URL.Query().Get("_format")),
+		ParquetLayout: view.ParseParquetLayout(firstNonEmpty(
+			r.URL.Query().Get("_parquetLayout"),
+			r.URL.Query().Get("parquetLayout"),
+		)),
 		Header:   strings.EqualFold(r.URL.Query().Get("header"), "true"),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
@@ -330,6 +334,10 @@ func parseSQLQueryRequest(r *http.Request) (view.SQLQueryRequest, error) {
 func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExportRequest, error) {
 	req := view.ViewExportRequest{
 		Format: view.ParseOutputFormat(r.URL.Query().Get("_format")),
+		ParquetLayout: view.ParseParquetLayout(firstNonEmpty(
+			r.URL.Query().Get("_parquetLayout"),
+			r.URL.Query().Get("parquetLayout"),
+		)),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)

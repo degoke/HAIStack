@@ -107,21 +107,45 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			since = cursorSince
 		}
 	}
-	result, err := r.executor.Execute(ctx, view.ExecuteRequest{
-		ViewName:   req.ViewName,
-		Version:    req.Version,
-		Actor:      req.Actor,
-		Subject:    req.Subject,
-		Parameters: req.Parameters,
-		Since:      since,
-	})
-	if err != nil {
-		return nil, err
+
+	version := req.Version
+	if version == "" {
+		version = "1.0.0"
 	}
-	// Runner.Config.Now is the analytics clock. Keep the result metadata and
-	// refresh metadata on the same clock even when the underlying executor was
-	// constructed with a different clock.
-	result.Metadata.ExecutedAt = runAt
+
+	layout, hasLayout := sinkParquetLayout(req.Destination.Sink)
+	skipFlatExecute := req.Mode == ModeExport && hasLayout && layout == view.ParquetLayoutFHIR
+
+	var result *view.Result
+	var err error
+	if skipFlatExecute {
+		result = &view.Result{
+			ViewName: req.ViewName,
+			Version:  version,
+			Metadata: view.ResultMetadata{ExecutedAt: runAt},
+			ExecRequest: &view.ExecuteRequest{
+				ViewName:   req.ViewName,
+				Version:    version,
+				Actor:      req.Actor,
+				Subject:    req.Subject,
+				Parameters: req.Parameters,
+				Since:      since,
+			},
+		}
+	} else {
+		result, err = r.executor.Execute(ctx, view.ExecuteRequest{
+			ViewName:   req.ViewName,
+			Version:    version,
+			Actor:      req.Actor,
+			Subject:    req.Subject,
+			Parameters: req.Parameters,
+			Since:      since,
+		})
+		if err != nil {
+			return nil, err
+		}
+		result.Metadata.ExecutedAt = runAt
+	}
 
 	switch req.Mode {
 	case ModeRefresh:
@@ -140,11 +164,18 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		return nil, ErrUnsupportedMode
 	}
 
+	rowCount := len(result.Rows)
+	if req.Mode == ModeExport {
+		if count := lastExportRowCount(req.Destination.Sink); count > 0 {
+			rowCount = count
+		}
+	}
+
 	return &RunResult{
 		ViewName: result.ViewName,
 		Version:  result.Version,
 		Mode:     req.Mode,
-		RowCount: len(result.Rows),
+		RowCount: rowCount,
 		Metadata: result.Metadata,
 	}, nil
 }
