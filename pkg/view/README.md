@@ -179,7 +179,7 @@ Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring d
 - Reference resolution supports typed, absolute URL, URN, and contained `#` references (including FHIRPath `resolve()` when the evaluation resource is in context).
 - `$sqlquery-run` executes read-only SQL against refreshed reporting tables (requires Postgres analytics wiring).
 - `$viewdefinition-run` and `$viewdefinition-export` are available on SQLite/edge runtimes when the view executor is wired; async export/materialize job metadata persists to `{dataDir}/jobs/*` when a runtime data directory is configured (see `runtime.WithDataDir`).
-- Parquet export writes flat ViewDefinition Apache Parquet binary (`application/vnd.apache.parquet`); nested Parquet-on-FHIR resource schemas are not generated.
+- Parquet export writes Apache Parquet binary (`application/vnd.apache.parquet`). Default `_parquetLayout=flat` streams flat ViewDefinition columns; `_parquetLayout=fhir` writes Parquet-on-FHIR nested resource layouts from base StructureDefinitions via `pkg/parquetfhir`.
 - Search-driven execution requires search wiring; `searchMode=index` fails without index.
 - `ExecuteRequest.Parameters` is passed to auth and audit only (no FHIRPath substitution yet).
 

@@ -26,6 +26,7 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | IG ViewDefinition install | Supported | `packages.Installer` registers views; async via job queue when present, otherwise `DirectPackageInstallService` runs synchronously |
 | Arbitrary SQL backend | Supported | `$sqlquery-run` over reporting tables; in-process SQLite for ad hoc SELECT; requires a reporting store (Postgres analytics mode) |
 | Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; flat view Apache Parquet binary (`application/vnd.apache.parquet`); lakehouse writes `{partition}/{view}-{version}.parquet` to filesystem or blob store |
+| Parquet-on-FHIR nested resource export | Supported | `_parquetLayout=fhir` on `$viewdefinition-run` and `$viewdefinition-export`; schema derived from base StructureDefinition via `pkg/parquetfhir` |
 | SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; legacy `analytics.view.*` cursors migrate to watermarks on first read; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
 
 ## Runtime availability
@@ -49,7 +50,9 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 
 Configure durable view export artifacts and async job metadata with `runtime.Builder.WithDataDir()` or `WithViewExportDir()`. SQLite runtimes default to `{sqlite-dir}/view-exports`; Postgres runtimes default to `view-exports/{tenantId}`. Paths are resolved to absolute filesystem locations at wire time. Job records are stored under `{dataDir}/jobs/view-export` and `{dataDir}/jobs/materialize`.
 
-Parquet export uses flat ViewDefinition column schemas (not Parquet-on-FHIR nested resource layout). Export jobs stream executor pages into row groups via `WriteParquetExport`.
+Parquet export supports two layouts via `_parquetLayout`:
+- `flat` (default): ViewDefinition column schemas streamed through `WriteParquetExport`.
+- `fhir`: Parquet-on-FHIR nested resource layout derived from base StructureDefinitions (`pkg/parquetfhir`); exports full matching source resources, not flat view rows.
 
 ## References
 

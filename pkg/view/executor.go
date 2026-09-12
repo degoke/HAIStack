@@ -10,6 +10,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/validate"
 )
 
 // Config configures an Executor. The resource store and FHIRPath engine are
@@ -27,6 +28,7 @@ type Config struct {
 	SearchPlanner     search.Planner
 	BaseURL           string
 	ResolveLogicalID  func(ctx context.Context, logicalID string) (resourceType, id string, ok bool)
+	ProfileCatalog    validate.ProfileCatalog
 	Now               func() time.Time
 }
 

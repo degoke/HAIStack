@@ -9,17 +9,18 @@ import (
 
 // ViewRunRequest captures parameters for ViewDefinition/$viewdefinition-run.
 type ViewRunRequest struct {
-	ViewName   string
-	Version    string
-	InlineDef  []byte
-	Since      time.Time
-	Limit      int
-	Offset     int
-	Actor      string
-	Subject    string
-	Parameters map[string]any
-	Format     OutputFormat
-	Header     bool
+	ViewName      string
+	Version       string
+	InlineDef     []byte
+	Since         time.Time
+	Limit         int
+	Offset        int
+	Actor         string
+	Subject       string
+	Parameters    map[string]any
+	Format        OutputFormat
+	ParquetLayout ParquetLayout
+	Header        bool
 }
 
 // RunService executes synchronous ViewDefinition runs.
@@ -64,7 +65,7 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		return nil, "", err
 	}
 
-	body, contentType, err := encodeRunResult(result, format, req.Header)
+	body, contentType, err := encodeRunResult(result, format, req.Header, req.ParquetLayout, s.executor, execReq)
 	return body, contentType, err
 }
 
@@ -103,7 +104,7 @@ func (s *SQLQueryService) Execute(ctx context.Context, req SQLQueryRequest) ([]b
 		Rows:    result.Rows,
 		Total:   len(result.Rows),
 	}
-	body, contentType, err := encodeRunResult(viewResult, format, true)
+	body, contentType, err := encodeRunResult(viewResult, format, true, ParquetLayoutFlat, nil, ExecuteRequest{})
 	return body, contentType, err
 }
 

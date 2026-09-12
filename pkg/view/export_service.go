@@ -30,10 +30,11 @@ const (
 
 // ViewExportRequest captures one ViewDefinition export operation.
 type ViewExportRequest struct {
-	Views  []ViewExportTarget `json:"views"`
-	Since  time.Time          `json:"since"`
-	Format OutputFormat       `json:"format"`
-	Actor  string             `json:"actor,omitempty"`
+	Views         []ViewExportTarget `json:"views"`
+	Since         time.Time          `json:"since"`
+	Format        OutputFormat       `json:"format"`
+	ParquetLayout ParquetLayout      `json:"parquetLayout,omitempty"`
+	Actor         string             `json:"actor,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
@@ -296,7 +297,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		var rowCount int
 		if job.Request.Format == FormatParquet {
-			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request.Actor)
+			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request.Actor, job.Request.ParquetLayout)
 			if execErr != nil {
 				return failJob(execErr)
 			}
@@ -364,6 +365,7 @@ func (s *ExportService) writeParquetExportFile(
 	target ViewExportTarget,
 	since time.Time,
 	actor string,
+	layout ParquetLayout,
 ) (int, error) {
 	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
 	if err != nil {
@@ -372,12 +374,18 @@ func (s *ExportService) writeParquetExportFile(
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 
-	rowCount, err := WriteParquetExport(ctx, tmp, s.executor, ExecuteRequest{
+	execReq := ExecuteRequest{
 		ViewName: target.ViewName,
 		Version:  target.Version,
 		Actor:    actor,
 		Since:    since,
-	}, DefaultParquetPageSize)
+	}
+	var rowCount int
+	if layout == ParquetLayoutFHIR {
+		rowCount, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+	} else {
+		rowCount, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+	}
 	if err != nil {
 		_ = tmp.Close()
 		return rowCount, err
