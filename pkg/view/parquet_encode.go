@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 )
@@ -106,15 +107,16 @@ func (b bytesReader) ReadAt(p []byte, off int64) (int, error) {
 }
 
 // WriteParquetExport streams a view export through paginated executor calls.
-func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest, pageSize int) (int, error) {
+func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest, pageSize int) (int, time.Time, error) {
 	if exec == nil {
-		return 0, fmt.Errorf("view: executor is required")
+		return 0, time.Time{}, fmt.Errorf("view: executor is required")
 	}
 	if pageSize <= 0 {
 		pageSize = DefaultParquetPageSize
 	}
 
 	var writer *ParquetRowWriter
+	var maxUpdated time.Time
 	totalRows := 0
 	offset := req.Offset
 	if offset < 0 {
@@ -125,7 +127,7 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 			if writer != nil {
 				_ = writer.Close()
 			}
-			return totalRows, err
+			return totalRows, maxUpdated, err
 		}
 		pageReq := req
 		pageReq.Limit = pageSize
@@ -135,17 +137,18 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 			if writer != nil {
 				_ = writer.Close()
 			}
-			return totalRows, err
+			return totalRows, maxUpdated, err
 		}
+		maxUpdated = LatestTimestamp(maxUpdated, result.Metadata.MaxLastUpdated)
 		if writer == nil {
 			writer, err = NewParquetRowWriter(w, result)
 			if err != nil {
-				return totalRows, err
+				return totalRows, maxUpdated, err
 			}
 		}
 		if err := writer.WriteRows(result.Rows); err != nil {
 			_ = writer.Close()
-			return totalRows, err
+			return totalRows, maxUpdated, err
 		}
 		totalRows += len(result.Rows)
 		if result.NextOffset == nil {
@@ -157,7 +160,7 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 		// Empty export still produces a valid parquet file with schema from view metadata.
 		spec, err := exec.ResolveView(req.ViewName, req.Version)
 		if err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
 		empty := &Result{
 			ViewName: req.ViewName,
@@ -167,11 +170,11 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 		}
 		writer, err = NewParquetRowWriter(w, empty)
 		if err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return totalRows, err
+		return totalRows, maxUpdated, err
 	}
-	return totalRows, nil
+	return totalRows, maxUpdated, nil
 }

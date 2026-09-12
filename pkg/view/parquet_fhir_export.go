@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -16,9 +17,13 @@ type MatchingResourceStats struct {
 	Filtered           int
 	Written            int
 	SourceResourceType string
+	MaxLastUpdated     time.Time
 }
 
 // CollectMatchingResources returns full FHIR resources matching a view's filters.
+//
+// Deprecated: prefer WriteParquetFHIRExport for large exports. This helper materializes
+// every matching resource in memory and is not suitable for lakehouse-scale datasets.
 func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequest) ([]map[string]any, string, error) {
 	resources, resourceType, _, err := e.collectMatchingResources(ctx, req, 0, 0)
 	return resources, resourceType, err
@@ -191,6 +196,9 @@ func (e *Executor) forEachMatchingResourcePlan(
 		if err := fn(raw); err != nil {
 			stats.Written = written
 			return written, stats, err
+		}
+		if !env.LastUpdated.IsZero() && env.LastUpdated.After(stats.MaxLastUpdated) {
+			stats.MaxLastUpdated = env.LastUpdated
 		}
 		matched++
 		written++

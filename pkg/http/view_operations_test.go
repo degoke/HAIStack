@@ -32,6 +32,7 @@ func (f *fakeSQLQueryService) Execute(_ context.Context, req view.SQLQueryReques
 type fakeViewExportService struct {
 	jobs  map[string]*view.ViewExportJob
 	files map[string][]byte
+	last  view.ViewExportRequest
 }
 
 func newFakeViewExportService() *fakeViewExportService {
@@ -42,6 +43,7 @@ func newFakeViewExportService() *fakeViewExportService {
 }
 
 func (f *fakeViewExportService) Kickoff(_ context.Context, req view.ViewExportRequest) (*view.ViewExportJob, error) {
+	f.last = req
 	job := &view.ViewExportJob{
 		ID:     "export-job-1",
 		Status: view.ExportComplete,
@@ -204,5 +206,44 @@ func TestViewDefinitionExportSystemRoute(t *testing.T) {
 		nil, map[string]string{"Prefer": "respond-async"})
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestViewDefinitionExportParsesSubjectAndParameters(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+			{"name":"version","valueString":{"valueString":"1.0.0"}}
+		]},
+		{"name":"subject","valueString":{"valueString":"Patient/pat-jane"}},
+		{"name":"tenant","valueString":{"valueString":"demo"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Subject != "Patient/pat-jane" {
+		t.Fatalf("Subject=%q, want Patient/pat-jane", exportSvc.last.Subject)
+	}
+	if exportSvc.last.Parameters["tenant"] != "demo" {
+		t.Fatalf("Parameters=%v, want tenant=demo", exportSvc.last.Parameters)
+	}
+}
+
+func TestViewDefinitionExportParsesQuerySubject(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view&_subject=Patient%2Fquery-subject",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Subject != "Patient/query-subject" {
+		t.Fatalf("Subject=%q, want Patient/query-subject", exportSvc.last.Subject)
 	}
 }

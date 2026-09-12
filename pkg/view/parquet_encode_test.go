@@ -60,7 +60,7 @@ func TestWriteParquetExportStreamsPages(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rowCount, err := view.WriteParquetExport(context.Background(), &buf, exec, view.ExecuteRequest{
+	rowCount, _, err := view.WriteParquetExport(context.Background(), &buf, exec, view.ExecuteRequest{
 		ViewName: "patient_summary_view",
 		Version:  "1.0.0",
 	}, 1)

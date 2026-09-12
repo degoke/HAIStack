@@ -98,6 +98,10 @@ type ResultMetadata struct {
 	SourceResourceType string        `json:"sourceResourceType"`
 	Scanned            int           `json:"scanned"`
 	Filtered           int           `json:"filtered"`
+	// MaxLastUpdated is the latest resource LastUpdated among rows/resources included
+	// in the result. Flat Execute counts expanded view rows; FHIR export counts
+	// matching source resources written to parquet.
+	MaxLastUpdated     time.Time     `json:"maxLastUpdated,omitempty"`
 }
 
 // NewExecutor validates the configuration and returns an Executor.
@@ -164,7 +168,7 @@ func (e *Executor) executeSpec(ctx context.Context, req ExecuteRequest, spec *Vi
 		return nil, err
 	}
 
-	rows, scanned, filtered, err := e.executeScan(ctx, spec, req.Limit, req.Offset, req.Since)
+	rows, scanned, filtered, maxUpdated, err := e.executeScan(ctx, spec, req.Limit, req.Offset, req.Since)
 	if err != nil {
 		_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": err.Error()})
 		return nil, err
@@ -176,7 +180,7 @@ func (e *Executor) executeSpec(ctx context.Context, req ExecuteRequest, spec *Vi
 			_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": ErrMissingMaterializedViewStore.Error()})
 			return nil, ErrMissingMaterializedViewStore
 		}
-		allRows, _, _, scanErr := e.executeScan(ctx, spec, 0, 0, req.Since)
+		allRows, _, _, _, scanErr := e.executeScan(ctx, spec, 0, 0, req.Since)
 		if scanErr != nil {
 			_ = e.logAudit(ctx, req, spec, "error", map[string]string{"error": scanErr.Error()})
 			return nil, scanErr
@@ -193,6 +197,7 @@ func (e *Executor) executeSpec(ctx context.Context, req ExecuteRequest, spec *Vi
 		SourceResourceType: spec.ResourceType,
 		Scanned:            scanned,
 		Filtered:           filtered,
+		MaxLastUpdated:     maxUpdated,
 	}
 
 	var nextOffset *int
@@ -219,33 +224,34 @@ func (e *Executor) executeSpec(ctx context.Context, req ExecuteRequest, spec *Vi
 	return res, nil
 }
 
-func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offset int, since time.Time) ([]map[string]any, int, int, error) {
+func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offset int, since time.Time) ([]map[string]any, int, int, time.Time, error) {
 	allIDs, err := e.resolveCandidateIDs(ctx, spec, since)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, time.Time{}, err
 	}
 
 	scanned := len(allIDs)
 	totalRows := 0
+	var maxUpdated time.Time
 	rows := make([]map[string]any, 0)
 	for _, id := range allIDs {
 		env, err := e.cfg.Resources.Read(ctx, spec.ResourceType, id)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("read %s/%s: %w", spec.ResourceType, id, err)
+			return nil, 0, 0, time.Time{}, fmt.Errorf("read %s/%s: %w", spec.ResourceType, id, err)
 		}
 		if !since.IsZero() && !env.LastUpdated.IsZero() && env.LastUpdated.Before(since) {
 			continue
 		}
 		match, err := e.evalFilters(ctx, spec, env)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("filter %s/%s: %w", spec.ResourceType, id, err)
+			return nil, 0, 0, time.Time{}, fmt.Errorf("filter %s/%s: %w", spec.ResourceType, id, err)
 		}
 		if !match {
 			continue
 		}
 		expanded, err := e.expandView(ctx, spec, env)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("expand %s/%s: %w", spec.ResourceType, id, err)
+			return nil, 0, 0, time.Time{}, fmt.Errorf("expand %s/%s: %w", spec.ResourceType, id, err)
 		}
 		if len(expanded) == 0 {
 			continue
@@ -253,11 +259,14 @@ func (e *Executor) executeScan(ctx context.Context, spec *ViewSpec, limit, offse
 		for _, row := range expanded {
 			if totalRows >= offset && (limit <= 0 || len(rows) < limit) {
 				rows = append(rows, row)
+				if !env.LastUpdated.IsZero() && env.LastUpdated.After(maxUpdated) {
+					maxUpdated = env.LastUpdated
+				}
 			}
 			totalRows++
 		}
 	}
-	return rows, scanned, totalRows, nil
+	return rows, scanned, totalRows, maxUpdated, nil
 }
 
 func (e *Executor) evalFilters(ctx context.Context, spec *ViewSpec, resource any) (bool, error) {

@@ -34,4 +34,5 @@ func applyMatchingResourceStats(result *Result, stats MatchingResourceStats) {
 	}
 	result.Metadata.Scanned = stats.Scanned
 	result.Metadata.Filtered = stats.Filtered
+	result.Metadata.MaxLastUpdated = stats.MaxLastUpdated
 }
