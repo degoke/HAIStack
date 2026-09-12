@@ -23,7 +23,9 @@ func (s *trackingJobStore) Enqueue(_ context.Context, job store.JobRecord) error
 	return nil
 }
 
-func (s *trackingJobStore) ClaimNext(context.Context, string) (*store.JobRecord, error) { return nil, nil }
+func (s *trackingJobStore) ClaimNext(context.Context, string) (*store.JobRecord, error) {
+	return nil, nil
+}
 
 func (s *trackingJobStore) Update(_ context.Context, job store.JobRecord) error {
 	if s.jobs == nil {
