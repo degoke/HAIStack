@@ -96,8 +96,8 @@ type Provider interface {
 }
 type Service interface{ Provider }
 type Invalidator interface {
-	InvalidateCodeSystem(system, version string)
-	InvalidateValueSet(url, version string)
+	InvalidateCodeSystem(ctx context.Context, system, version string)
+	InvalidateValueSet(ctx context.Context, url, version string)
 }
 
 const defaultNegativeLookupTTL = 5 * time.Minute
@@ -260,31 +260,42 @@ func stringListField(raw any) []string {
 	}
 }
 
-func (s *LocalService) composeCodeSystemsForValueSet(ctx context.Context, url, version string) []composeSystemRef {
+func appendScopeUnique(scopes []string, scope string) []string {
+	if scope == "" {
+		return scopes
+	}
+	for _, existing := range scopes {
+		if existing == scope {
+			return scopes
+		}
+	}
+	return append(scopes, scope)
+}
+
+func (s *LocalService) composeCodeSystemsForValueSet(ctx context.Context, url, version string) ([]composeSystemRef, bool) {
 	systems := map[string]string{}
 	seenVS := map[string]bool{url + "|" + version: true}
-	scopes := []string{s.ScopeID}
-	if s.ScopeID != GlobalScopeID {
-		scopes = append(scopes, GlobalScopeID)
-	}
+	scopes := appendScopeUnique(nil, store.TerminologyScopeFromContext(ctx))
+	scopes = appendScopeUnique(scopes, s.ScopeID)
+	scopes = appendScopeUnique(scopes, GlobalScopeID)
 	for _, scope := range scopes {
 		vs, err := s.Store.GetValueSet(ctx, scope, url, version)
 		if err != nil || vs == nil || vs.ComposeJSON == "" {
 			continue
 		}
 		if err := collectComposeCodeSystems(ctx, s.Store, scope, vs.ComposeJSON, seenVS, systems); err != nil {
-			return nil
+			return nil, true
 		}
-		break
+		refs := make([]composeSystemRef, 0, len(systems))
+		for sys, ver := range systems {
+			refs = append(refs, composeSystemRef{System: sys, Version: ver})
+		}
+		return refs, false
 	}
-	refs := make([]composeSystemRef, 0, len(systems))
-	for sys, ver := range systems {
-		refs = append(refs, composeSystemRef{System: sys, Version: ver})
-	}
-	return refs
+	return nil, false
 }
 
-func (s *LocalService) InvalidateCodeSystem(system, version string) {
+func (s *LocalService) InvalidateCodeSystem(ctx context.Context, system, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.lookupCache {
@@ -294,14 +305,18 @@ func (s *LocalService) InvalidateCodeSystem(system, version string) {
 	}
 	s.expandCache = map[string]*Expansion{}
 }
-func (s *LocalService) InvalidateValueSet(url, version string) {
-	systems := s.composeCodeSystemsForValueSet(context.Background(), url, version)
+func (s *LocalService) InvalidateValueSet(ctx context.Context, url, version string) {
+	systems, clearAllLookups := s.composeCodeSystemsForValueSet(ctx, url, version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.expandCache {
 		if expandCacheMatch(k, url, version) {
 			delete(s.expandCache, k)
 		}
+	}
+	if clearAllLookups {
+		s.lookupCache = map[string]lookupCacheEntry{}
+		return
 	}
 	for _, sys := range systems {
 		for k := range s.lookupCache {

@@ -520,9 +520,9 @@ func (s *ResourceService) compileTerminology(ctx context.Context, session store.
 	}
 	if s.terminologyCache != nil {
 		if meta.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(meta.URL, meta.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, meta.URL, meta.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(meta.URL, meta.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, meta.URL, meta.Version)
 		}
 	}
 	return nil
@@ -548,9 +548,9 @@ func (s *ResourceService) removeTerminology(ctx context.Context, session store.W
 	}
 	if s.terminologyCache != nil {
 		if env.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(m.URL, m.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, m.URL, m.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(m.URL, m.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, m.URL, m.Version)
 		}
 	}
 	return ts.TerminologyStore().DeleteResource(ctx, scope, env.ResourceType, m.URL, m.Version)
@@ -587,9 +587,9 @@ func (s *ResourceService) removePreviousTerminology(ctx context.Context, session
 	}
 	if s.terminologyCache != nil {
 		if previous.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(oldMeta.URL, oldMeta.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, oldMeta.URL, oldMeta.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(oldMeta.URL, oldMeta.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, oldMeta.URL, oldMeta.Version)
 		}
 	}
 	return ts.TerminologyStore().DeleteResource(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version)

@@ -198,7 +198,7 @@ func TestLocalServiceInvalidateCodeSystemClearsScopedLookupCache(t *testing.T) {
 	if err != nil || got.Found {
 		t.Fatalf("expected negative cache entry, lookup=%+v err=%v", got, err)
 	}
-	svc.InvalidateCodeSystem("urn:global", "1")
+	svc.InvalidateCodeSystem(ctxB, "urn:global", "1")
 	got, err = svc.Lookup(ctxB, LookupRequest{System: "urn:global", Code: "x"})
 	if err != nil || !got.Found {
 		t.Fatalf("expected cache invalidation to allow fresh lookup, lookup=%+v err=%v", got, err)
@@ -238,7 +238,7 @@ func TestLocalServiceInvalidateValueSetClearsScopedExpandCache(t *testing.T) {
 	if err != nil || len(ex.Contains) != 1 || ex.Contains[0].Code != "a" {
 		t.Fatalf("expected cached expansion, expand=%+v err=%v", ex, err)
 	}
-	svc.InvalidateValueSet("urn:vs", "2")
+	svc.InvalidateValueSet(ctxA, "urn:vs", "2")
 	ex, err = svc.Expand(ctxA, ExpandRequest{URL: "urn:vs", Version: "2"})
 	if err != nil || len(ex.Contains) != 1 || ex.Contains[0].Code != "b" {
 		t.Fatalf("expected fresh expansion after invalidation, expand=%+v err=%v", ex, err)
@@ -278,10 +278,44 @@ func TestLocalServiceInvalidateValueSetClearsMemberLookupCache(t *testing.T) {
 	if err != nil || !got.Found || got.Concept.Display != "A" {
 		t.Fatalf("expected cached lookup display A, got=%+v err=%v", got, err)
 	}
-	svc.InvalidateValueSet("urn:vs", "2")
+	svc.InvalidateValueSet(ctxA, "urn:vs", "2")
 	got, err = svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
 	if err != nil || !got.Found || got.Concept.Display != "Alpha" {
 		t.Fatalf("expected lookup refresh after ValueSet invalidation, got=%+v err=%v", got, err)
+	}
+}
+
+func TestLocalServiceInvalidateValueSetClearsLookupOnComposeParseError(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"a","display":"A"}]}`)
+	if err := Compile(ctx, m, "tenant-a", "", cs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", ResourceJSON: cs,
+	})
+	if err := m.ReplaceValueSet(ctx, store.TerminologyValueSetRecord{
+		ScopeID: "tenant-a", CanonicalURL: "urn:vs", Version: "2", ComposeJSON: `{invalid`,
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewLocalService(m, "tenant-a")
+	ctxA := store.ContextWithTerminologyScope(ctx, "tenant-a")
+	got, err := svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
+	if err != nil || !got.Found || got.Concept.Display != "A" {
+		t.Fatalf("lookup=%+v err=%v", got, err)
+	}
+	if err := m.ReplaceCodeSystem(ctx, "tenant-a", "urn:cs", "1", []store.TerminologyConceptRecord{{
+		ScopeID: "tenant-a", SystemURL: "urn:cs", SystemVersion: "1", Code: "a", Display: "Alpha", Active: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	svc.InvalidateValueSet(ctxA, "urn:vs", "2")
+	got, err = svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
+	if err != nil || !got.Found || got.Concept.Display != "Alpha" {
+		t.Fatalf("expected full lookup cache clear on compose parse error, got=%+v err=%v", got, err)
 	}
 }
 

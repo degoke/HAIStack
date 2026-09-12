@@ -200,9 +200,9 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 		}
 		if m.terminologyCache != nil {
 			if r.FHIRResourceType == "CodeSystem" {
-				m.terminologyCache.InvalidateCodeSystem(canonicalURL, version)
+				m.terminologyCache.InvalidateCodeSystem(ctx, canonicalURL, version)
 			} else {
-				m.terminologyCache.InvalidateValueSet(canonicalURL, version)
+				m.terminologyCache.InvalidateValueSet(ctx, canonicalURL, version)
 			}
 		}
 	}
@@ -289,9 +289,9 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		}
 		if m.terminologyCache != nil {
 			if parsed.FHIRResourceType == "CodeSystem" {
-				m.terminologyCache.InvalidateCodeSystem(parsed.CanonicalURL, parsed.Version)
+				m.terminologyCache.InvalidateCodeSystem(ctx, parsed.CanonicalURL, parsed.Version)
 			} else {
-				m.terminologyCache.InvalidateValueSet(parsed.CanonicalURL, parsed.Version)
+				m.terminologyCache.InvalidateValueSet(ctx, parsed.CanonicalURL, parsed.Version)
 			}
 		}
 	}
