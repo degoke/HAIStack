@@ -12,10 +12,10 @@ import (
 
 // InstallWorker handles registry.package_install jobs.
 type InstallWorker struct {
-	Installer                   *Installer
-	Store                       store.JobStore
-	TerminologyInstalls         store.TerminologyInstallStoreFactory
-	DefaultTerminologyTenantID  string
+	Installer                  *Installer
+	Store                      store.JobStore
+	TerminologyInstalls        store.TerminologyInstallStoreFactory
+	DefaultTerminologyTenantID string
 }
 
 // HandleJob installs a package from the job payload.

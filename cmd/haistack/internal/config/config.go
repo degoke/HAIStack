@@ -49,11 +49,11 @@ type PackageInstallConfig struct {
 
 // RuntimeConfig controls local runtime capabilities.
 type RuntimeConfig struct {
-	HTTPAddr             string                 `yaml:"httpAddr" json:"httpAddr"`
-	EnableSearch         bool                   `yaml:"enableSearch" json:"enableSearch"`
-	PreExpandValueSets   bool                   `yaml:"preExpandValueSets" json:"preExpandValueSets"`
-	ModulePaths          []string               `yaml:"modulePaths" json:"modulePaths"`
-	Packages             []PackageInstallConfig `yaml:"packages" json:"packages"`
+	HTTPAddr           string                 `yaml:"httpAddr" json:"httpAddr"`
+	EnableSearch       bool                   `yaml:"enableSearch" json:"enableSearch"`
+	PreExpandValueSets bool                   `yaml:"preExpandValueSets" json:"preExpandValueSets"`
+	ModulePaths        []string               `yaml:"modulePaths" json:"modulePaths"`
+	Packages           []PackageInstallConfig `yaml:"packages" json:"packages"`
 }
 
 // SyncConfig configures device-to-hub synchronization.

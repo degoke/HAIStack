@@ -28,7 +28,9 @@ type stubTerminologyStore struct{}
 func (s *stubTerminologyStore) FindResource(context.Context, string, string, string, string) (*store.TerminologyResourceRecord, error) {
 	return nil, nil
 }
-func (s *stubTerminologyStore) PutResource(context.Context, store.TerminologyResourceRecord) error { return nil }
+func (s *stubTerminologyStore) PutResource(context.Context, store.TerminologyResourceRecord) error {
+	return nil
+}
 func (s *stubTerminologyStore) DeleteResource(context.Context, string, string, string, string) error {
 	return nil
 }

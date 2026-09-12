@@ -13,7 +13,7 @@ import (
 
 type ValidationOptions struct {
 	// Ctx carries request tenant terminology scope and opt-in when set.
-	Ctx context.Context
+	Ctx             context.Context
 	Terminology     TerminologyResolver
 	AllowIncomplete bool
 	Expressions     ExpressionProvider

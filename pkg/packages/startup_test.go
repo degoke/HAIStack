@@ -47,7 +47,9 @@ func (s *memDefinitionStore) Delete(_ context.Context, _, _ string) error { retu
 type memInstallStore struct{}
 
 func (s *memInstallStore) SetEnabled(context.Context, store.RegistryInstallRecord) error { return nil }
-func (s *memInstallStore) UpsertInstall(context.Context, store.RegistryInstallRecord) error { return nil }
+func (s *memInstallStore) UpsertInstall(context.Context, store.RegistryInstallRecord) error {
+	return nil
+}
 func (s *memInstallStore) ListEnabled(context.Context) ([]store.RegistryInstallRecord, error) {
 	return nil, nil
 }
@@ -79,7 +81,9 @@ func (s *memTerminologyInstallStore) ListEnabled(_ context.Context) ([]store.Ter
 func (s *memTerminologyInstallStore) ListInstalled(_ context.Context, filter store.TerminologyInstallFilter) ([]store.TerminologyInstallRecord, error) {
 	return store.FilterTerminologyInstalls(s.rows, filter), nil
 }
-func (s *memTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error { return nil }
+func (s *memTerminologyInstallStore) Delete(_ context.Context, _ store.TerminologyInstallFilter) error {
+	return nil
+}
 
 type memPackageInstallStore struct {
 	complete map[string]struct{}

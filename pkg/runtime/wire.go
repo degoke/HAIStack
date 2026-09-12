@@ -120,28 +120,28 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 	}
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:         db.DefinitionStore(),
-		packageInstalls:     db.PackageInstallStore(),
-		installs:            db.RegistryInstallStore(),
-		moduleStore:         db.ModuleStore(),
-		jobStore:            db.JobStore(),
-		resources:           db.ResourceStore(),
-		history:             db.HistoryStore(),
-		searchStore:         db.SearchStore(),
-		sessions:            db,
-		outboxEvents:        db.OutboxStore(),
-		syncTenantID:        syncTenantID,
-		terminologyScope:    terminologyScope,
-		syncEvents:          db.OutboxStore(),
-		syncCursors:         db.CursorStore(),
-		syncInbox:           db.InboxStore(),
-		syncConflicts:       db.ConflictStore(),
-		syncAudit:           db.AuditStore(),
-		terminology:         db.TerminologyStore(),
-		globalTerminology:   db.GlobalTerminologyStore(),
-		terminologyInstalls:         db.TerminologyInstallStore(syncTenantID),
-		terminologyInstallFactory:   sqlite.NewTerminologyInstallStoreFactory(db),
-		reindexJobs:                 false,
+		definitions:               db.DefinitionStore(),
+		packageInstalls:           db.PackageInstallStore(),
+		installs:                  db.RegistryInstallStore(),
+		moduleStore:               db.ModuleStore(),
+		jobStore:                  db.JobStore(),
+		resources:                 db.ResourceStore(),
+		history:                   db.HistoryStore(),
+		searchStore:               db.SearchStore(),
+		sessions:                  db,
+		outboxEvents:              db.OutboxStore(),
+		syncTenantID:              syncTenantID,
+		terminologyScope:          terminologyScope,
+		syncEvents:                db.OutboxStore(),
+		syncCursors:               db.CursorStore(),
+		syncInbox:                 db.InboxStore(),
+		syncConflicts:             db.ConflictStore(),
+		syncAudit:                 db.AuditStore(),
+		terminology:               db.TerminologyStore(),
+		globalTerminology:         db.GlobalTerminologyStore(),
+		terminologyInstalls:       db.TerminologyInstallStore(syncTenantID),
+		terminologyInstallFactory: sqlite.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:               false,
 	})
 }
 
@@ -167,51 +167,51 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 	state.services.TenantDB = tdb
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:         db.DefinitionStore(),
-		packageInstalls:     db.PackageInstallStore(),
-		installs:            tdb.RegistryInstallStore(),
-		moduleStore:         tdb.ModuleStore(),
-		jobStore:            tdb.JobStore(),
-		resources:           tdb.ResourceStore(),
-		history:             tdb.HistoryStore(),
-		searchStore:         tdb.SearchStore(),
-		sessions:            tdb,
-		outboxEvents:        tdb.EventStore(),
-		syncTenantID:        b.tenantID,
-		terminologyScope:    b.tenantID,
-		syncEvents:          tdb.EventStore(),
-		syncCursors:         tdb.CursorStore(),
-		syncInbox:           tdb.InboxStore(),
-		syncConflicts:       tdb.ConflictStore(),
-		syncAudit:           tdb.AuditStore(),
-		terminology:         tdb.TerminologyStore(),
-		globalTerminology:   db.GlobalTerminologyStore(),
-		terminologyInstalls:         tdb.TerminologyInstallStore(),
-		terminologyInstallFactory:   postgres.NewTerminologyInstallStoreFactory(db),
-		reindexJobs:                 b.searchEnabled,
+		definitions:               db.DefinitionStore(),
+		packageInstalls:           db.PackageInstallStore(),
+		installs:                  tdb.RegistryInstallStore(),
+		moduleStore:               tdb.ModuleStore(),
+		jobStore:                  tdb.JobStore(),
+		resources:                 tdb.ResourceStore(),
+		history:                   tdb.HistoryStore(),
+		searchStore:               tdb.SearchStore(),
+		sessions:                  tdb,
+		outboxEvents:              tdb.EventStore(),
+		syncTenantID:              b.tenantID,
+		terminologyScope:          b.tenantID,
+		syncEvents:                tdb.EventStore(),
+		syncCursors:               tdb.CursorStore(),
+		syncInbox:                 tdb.InboxStore(),
+		syncConflicts:             tdb.ConflictStore(),
+		syncAudit:                 tdb.AuditStore(),
+		terminology:               tdb.TerminologyStore(),
+		globalTerminology:         db.GlobalTerminologyStore(),
+		terminologyInstalls:       tdb.TerminologyInstallStore(),
+		terminologyInstallFactory: postgres.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:               b.searchEnabled,
 	})
 }
 
 type persistenceContext struct {
-	definitions         store.DefinitionStore
-	packageInstalls     store.PackageInstallStore
-	installs            store.RegistryInstallStore
-	moduleStore         store.ModuleStore
-	jobStore            store.JobStore
-	resources           store.ResourceStore
-	history             store.HistoryStore
-	searchStore         store.SearchStore
-	sessions            store.WriteSessionProvider
-	outboxEvents        store.EventStore
-	syncTenantID        string
-	syncEvents          store.EventStore
-	syncCursors         store.CursorStore
-	syncInbox           store.InboxStore
-	syncConflicts       store.ConflictStore
-	syncAudit           store.AuditStore
-	reindexJobs         bool
-	terminology         store.TerminologyStore
-	globalTerminology   store.TerminologyStore
+	definitions               store.DefinitionStore
+	packageInstalls           store.PackageInstallStore
+	installs                  store.RegistryInstallStore
+	moduleStore               store.ModuleStore
+	jobStore                  store.JobStore
+	resources                 store.ResourceStore
+	history                   store.HistoryStore
+	searchStore               store.SearchStore
+	sessions                  store.WriteSessionProvider
+	outboxEvents              store.EventStore
+	syncTenantID              string
+	syncEvents                store.EventStore
+	syncCursors               store.CursorStore
+	syncInbox                 store.InboxStore
+	syncConflicts             store.ConflictStore
+	syncAudit                 store.AuditStore
+	reindexJobs               bool
+	terminology               store.TerminologyStore
+	globalTerminology         store.TerminologyStore
 	terminologyInstalls       store.TerminologyInstallStore
 	terminologyInstallFactory store.TerminologyInstallStoreFactory
 	terminologyScope          string
@@ -596,20 +596,20 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	})
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:           hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:             httpSearchSvc,
-		SDCService:                sdcService,
-		PackageInstallService:     packageService,
-		ModuleInstallService:      moduleService,
-		ModulePaths:               append([]string(nil), b.modulePaths...),
-		JobStatusService:          jobStatusService,
-		TerminologyService:           state.services.TerminologyService,
-		TerminologyScope:             termScope,
-		TerminologyInstallFactory:    pc.terminologyInstallFactory,
-		DefaultTerminologyTenantID:   pc.syncTenantID,
-		TerminologyInstallService:    terminologyInstallService,
-		TerminologyEnableService:  terminologyEnableService,
-		ConformanceRefresher:      conformanceRefresher,
+		ResourceService:            hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:              httpSearchSvc,
+		SDCService:                 sdcService,
+		PackageInstallService:      packageService,
+		ModuleInstallService:       moduleService,
+		ModulePaths:                append([]string(nil), b.modulePaths...),
+		JobStatusService:           jobStatusService,
+		TerminologyService:         state.services.TerminologyService,
+		TerminologyScope:           termScope,
+		TerminologyInstallFactory:  pc.terminologyInstallFactory,
+		DefaultTerminologyTenantID: pc.syncTenantID,
+		TerminologyInstallService:  terminologyInstallService,
+		TerminologyEnableService:   terminologyEnableService,
+		ConformanceRefresher:       conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},

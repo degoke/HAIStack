@@ -13,14 +13,14 @@ import (
 type PreExpandSkipReason string
 
 const (
-	SkipNotFound            PreExpandSkipReason = "not-found"
-	SkipServerExpansion     PreExpandSkipReason = "server-expansion"
-	SkipAlreadyExpanded     PreExpandSkipReason = "already-expanded"
-	SkipTooCostly           PreExpandSkipReason = "too-costly"
-	SkipMissingCodeSystem   PreExpandSkipReason = "missing-code-system"
-	SkipMissingValueSet     PreExpandSkipReason = "missing-valueset"
-	SkipOptInRequired       PreExpandSkipReason = "opt-in-required"
-	SkipNoCompose           PreExpandSkipReason = "no-compose"
+	SkipNotFound          PreExpandSkipReason = "not-found"
+	SkipServerExpansion   PreExpandSkipReason = "server-expansion"
+	SkipAlreadyExpanded   PreExpandSkipReason = "already-expanded"
+	SkipTooCostly         PreExpandSkipReason = "too-costly"
+	SkipMissingCodeSystem PreExpandSkipReason = "missing-code-system"
+	SkipMissingValueSet   PreExpandSkipReason = "missing-valueset"
+	SkipOptInRequired     PreExpandSkipReason = "opt-in-required"
+	SkipNoCompose         PreExpandSkipReason = "no-compose"
 )
 
 // PreExpandResult reports the outcome of a single ValueSet pre-expand attempt.

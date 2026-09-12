@@ -41,7 +41,7 @@ type Builder struct {
 	moduleAuthorizer      modules.InstallAuthorizer
 	moduleVerifier        modules.ModuleVerifier
 
-	modulePaths    []string
+	modulePaths     []string
 	packageInstalls []packages.InstallSpec
 	httpAddr        string
 
