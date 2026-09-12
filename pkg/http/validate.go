@@ -25,7 +25,12 @@ func (h *handler) handleValidateOperation(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	outcome, err := h.cfg.ValidateService.Validate(r.Context(), ValidateRequest{
+	ctx, err := h.withTerminologyContext(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	outcome, err := h.cfg.ValidateService.Validate(ctx, ValidateRequest{
 		ResourceType: route.resourceType,
 		ID:           route.id,
 		ContentType:  r.Header.Get("Content-Type"),

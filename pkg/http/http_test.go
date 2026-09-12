@@ -988,6 +988,24 @@ func (f *fakeTerminologyInstallStore) Delete(_ context.Context, _ store.Terminol
 	return nil
 }
 
+type fakeTerminologyInstallFactory struct {
+	stores map[string]*fakeTerminologyInstallStore
+	store  *fakeTerminologyInstallStore
+}
+
+func (f *fakeTerminologyInstallFactory) ForTenant(_ context.Context, tenantID string) (store.TerminologyInstallStore, error) {
+	if f.store != nil {
+		return f.store, nil
+	}
+	if f.stores == nil {
+		f.stores = make(map[string]*fakeTerminologyInstallStore)
+	}
+	if f.stores[tenantID] == nil {
+		f.stores[tenantID] = &fakeTerminologyInstallStore{}
+	}
+	return f.stores[tenantID], nil
+}
+
 func terminologyTestService(t *testing.T, tenantScope string) terminology.Service {
 	t.Helper()
 	ctx := context.Background()
@@ -1040,6 +1058,103 @@ func TestValueSetExpandHTTP(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"code":"ok"`) {
 		t.Fatalf("expected expanded code, got %s", rec.Body.String())
+	}
+}
+
+func TestCodeSystemLookupHTTPSharedServiceCacheIsolatedPerTenant(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, "tenant-a")
+	svc := terminology.NewLocalService(layered, "tenant-a")
+	factory := &fakeTerminologyInstallFactory{}
+	factory.stores = map[string]*fakeTerminologyInstallStore{
+		"tenant-b": {enabled: []store.TerminologyInstallRecord{{
+			ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+		}}},
+	}
+	makeHandler := func(tenantID string) http.Handler {
+		return newTestHandler(t, hahttp.Config{
+			ResourceService:            &fakeResourceService{},
+			TerminologyService:         svc,
+			TerminologyScope:           "tenant-a",
+			TerminologyInstallFactory:  factory,
+			DefaultTerminologyTenantID: "tenant-a",
+			PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+				return auth.Principal{ID: "user-" + tenantID}, auth.TenantContext{TenantID: tenantID}, nil
+			},
+			AuthChecker: &recordingAuthChecker{allow: true},
+		})
+	}
+	rec := doRequest(t, makeHandler("tenant-b"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("tenant-b status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(t, makeHandler("tenant-a"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"valueBoolean":true`) {
+		t.Fatalf("tenant-a should not hit tenant-b cache, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCodeSystemLookupHTTPUsesRequestTenantOptIn(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, "tenant-a")
+	factory := &fakeTerminologyInstallFactory{}
+	factory.stores = map[string]*fakeTerminologyInstallStore{
+		"tenant-b": {enabled: []store.TerminologyInstallRecord{{
+			ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+		}}},
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:            &fakeResourceService{},
+		TerminologyService:         terminology.NewLocalService(layered, "tenant-a"),
+		TerminologyScope:           "tenant-a",
+		TerminologyInstallFactory:  factory,
+		DefaultTerminologyTenantID: "tenant-a",
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-b"}, auth.TenantContext{TenantID: "tenant-b"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant-b status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("tenant-b expected lookup result true, got %s", rec.Body.String())
+	}
+
+	handlerNoOptIn := newTestHandler(t, hahttp.Config{
+		ResourceService:            &fakeResourceService{},
+		TerminologyService:         terminology.NewLocalService(layered, "tenant-a"),
+		TerminologyScope:           "tenant-a",
+		TerminologyInstallFactory:  factory,
+		DefaultTerminologyTenantID: "tenant-a",
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-a"}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &recordingAuthChecker{allow: true},
+	})
+	rec = doRequest(t, handlerNoOptIn, http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant-a status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"valueBoolean":true`) {
+		t.Fatalf("tenant-a should not resolve global catalog without opt-in, got %s", rec.Body.String())
 	}
 }
 
@@ -1259,8 +1374,9 @@ func TestBasicTerminologyEnableHTTP(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
-			Installs: installs,
-			Global:   global,
+			InstallFactory:  &fakeTerminologyInstallFactory{store: installs},
+			DefaultTenantID: "default",
+			Global:          global,
 		},
 	})
 	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=http://hl7.org/fhir/ValueSet/administrative-gender&resourceType=ValueSet&version=4.0.1", nil)
@@ -1276,8 +1392,9 @@ func TestBasicTerminologyEnableRejectsMissingCatalogEntry(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{},
 		TerminologyEnableService: hahttp.CoreTerminologyEnableService{
-			Installs: &fakeTerminologyInstallStore{},
-			Global:   terminology.NewMemoryStore(),
+			InstallFactory:  &fakeTerminologyInstallFactory{store: &fakeTerminologyInstallStore{}},
+			DefaultTenantID: "default",
+			Global:          terminology.NewMemoryStore(),
 		},
 	})
 	rec := doRequest(t, handler, http.MethodPost, "/fhir/Basic/$terminology-enable?canonicalUrl=urn:missing&resourceType=ValueSet&version=1", nil)

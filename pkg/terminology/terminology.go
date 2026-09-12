@@ -96,8 +96,8 @@ type Provider interface {
 }
 type Service interface{ Provider }
 type Invalidator interface {
-	InvalidateCodeSystem(system, version string)
-	InvalidateValueSet(url, version string)
+	InvalidateCodeSystem(ctx context.Context, system, version string)
+	InvalidateValueSet(ctx context.Context, url, version string)
 }
 
 const defaultNegativeLookupTTL = 5 * time.Minute
@@ -148,6 +148,24 @@ func (s *LocalService) negativeLookupTTL() time.Duration {
 	return defaultNegativeLookupTTL
 }
 
+func (s *LocalService) effectiveScope(ctx context.Context, reqScope string) string {
+	if reqScope != "" {
+		return reqScope
+	}
+	if scope := store.TerminologyScopeFromContext(ctx); scope != "" {
+		return scope
+	}
+	return s.ScopeID
+}
+
+func (s *LocalService) cacheKey(ctx context.Context, reqScope string, parts ...string) string {
+	key := s.effectiveScope(ctx, reqScope)
+	for _, part := range parts {
+		key += "|" + part
+	}
+	return key
+}
+
 func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -161,21 +179,151 @@ func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	x := *entry.result
 	return &x, true
 }
-func (s *LocalService) InvalidateCodeSystem(system, version string) {
+func lookupCacheMatch(key, system, version string) bool {
+	if system == "" {
+		return false
+	}
+	if version != "" {
+		return strings.Contains(key, "|"+system+"|"+version+"|")
+	}
+	return strings.Contains(key, "|"+system+"|")
+}
+
+func expandCacheMatch(key, url, version string) bool {
+	if url == "" {
+		return false
+	}
+	if version != "" {
+		return strings.Contains(key, "|"+url+"|"+version+"|")
+	}
+	return strings.Contains(key, "|"+url+"|")
+}
+
+type composeSystemRef struct {
+	System  string
+	Version string
+}
+
+func collectComposeCodeSystems(ctx context.Context, st store.TerminologyStore, scope, composeJSON string, seenVS map[string]bool, out map[string]string) error {
+	if composeJSON == "" {
+		return nil
+	}
+	var c map[string]any
+	if err := json.Unmarshal([]byte(composeJSON), &c); err != nil {
+		return err
+	}
+	inc, _ := c["include"].([]any)
+	for _, iv := range inc {
+		m, _ := iv.(map[string]any)
+		sys, _ := m["system"].(string)
+		ver, _ := m["version"].(string)
+		if sys != "" {
+			out[sys] = ver
+		}
+		for _, vsURL := range stringListField(m["valueSet"]) {
+			if seenVS[vsURL] {
+				continue
+			}
+			seenVS[vsURL] = true
+			vs, err := st.GetValueSet(ctx, scope, vsURL, "")
+			if err != nil {
+				return err
+			}
+			if vs == nil {
+				continue
+			}
+			if err := collectComposeCodeSystems(ctx, st, scope, vs.ComposeJSON, seenVS, out); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func stringListField(raw any) []string {
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func appendScopeUnique(scopes []string, scope string) []string {
+	if scope == "" {
+		return scopes
+	}
+	for _, existing := range scopes {
+		if existing == scope {
+			return scopes
+		}
+	}
+	return append(scopes, scope)
+}
+
+func (s *LocalService) composeCodeSystemsForValueSet(ctx context.Context, url, version string) ([]composeSystemRef, bool) {
+	systems := map[string]string{}
+	seenVS := map[string]bool{url + "|" + version: true}
+	scopes := appendScopeUnique(nil, store.TerminologyScopeFromContext(ctx))
+	scopes = appendScopeUnique(scopes, s.ScopeID)
+	scopes = appendScopeUnique(scopes, GlobalScopeID)
+	for _, scope := range scopes {
+		vs, err := s.Store.GetValueSet(ctx, scope, url, version)
+		if err != nil || vs == nil || vs.ComposeJSON == "" {
+			continue
+		}
+		if err := collectComposeCodeSystems(ctx, s.Store, scope, vs.ComposeJSON, seenVS, systems); err != nil {
+			return nil, true
+		}
+		refs := make([]composeSystemRef, 0, len(systems))
+		for sys, ver := range systems {
+			refs = append(refs, composeSystemRef{System: sys, Version: ver})
+		}
+		return refs, false
+	}
+	return nil, false
+}
+
+func (s *LocalService) InvalidateCodeSystem(ctx context.Context, system, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.lookupCache {
-		if strings.HasPrefix(k, system+"|") && (version == "" || strings.Contains(k, "|"+version+"|")) {
+		if lookupCacheMatch(k, system, version) {
 			delete(s.lookupCache, k)
 		}
 	}
 	s.expandCache = map[string]*Expansion{}
 }
-func (s *LocalService) InvalidateValueSet(url, version string) {
+func (s *LocalService) InvalidateValueSet(ctx context.Context, url, version string) {
+	systems, clearAllLookups := s.composeCodeSystemsForValueSet(ctx, url, version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.expandCache != nil {
-		delete(s.expandCache, url+"|"+version)
+	for k := range s.expandCache {
+		if expandCacheMatch(k, url, version) {
+			delete(s.expandCache, k)
+		}
+	}
+	if clearAllLookups {
+		s.lookupCache = map[string]lookupCacheEntry{}
+		return
+	}
+	for _, sys := range systems {
+		for k := range s.lookupCache {
+			if lookupCacheMatch(k, sys.System, sys.Version) {
+				delete(s.lookupCache, k)
+			}
+		}
 	}
 }
 
@@ -183,11 +331,12 @@ func (s *LocalService) Lookup(ctx context.Context, r LookupRequest) (*LookupResu
 	if r.System == "" || r.Code == "" {
 		return nil, fmt.Errorf("system and code are required")
 	}
-	cacheKey := r.System + "|" + r.Version + "|" + r.Code
+	cacheKey := s.cacheKey(ctx, r.ScopeID, r.System, r.Version, r.Code)
 	if v, ok := s.cachedLookup(cacheKey); ok {
 		return v, nil
 	}
-	c, err := s.Store.LookupConcept(ctx, s.ScopeID, r.System, r.Version, r.Code)
+	scope := s.effectiveScope(ctx, r.ScopeID)
+	c, err := s.Store.LookupConcept(ctx, scope, r.System, r.Version, r.Code)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +364,9 @@ func (s *LocalService) Lookup(ctx context.Context, r LookupRequest) (*LookupResu
 	return v, nil
 }
 func (s *LocalService) ValidateCode(ctx context.Context, r ValidateCodeRequest) (*ValidationResult, error) {
+	scope := s.effectiveScope(ctx, r.ScopeID)
 	if r.URL != "" {
-		vs, err := s.Store.GetValueSet(ctx, s.ScopeID, r.URL, r.Version)
+		vs, err := s.Store.GetValueSet(ctx, scope, r.URL, r.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +383,7 @@ func (s *LocalService) ValidateCode(ctx context.Context, r ValidateCodeRequest) 
 			}
 			return &ValidationResult{Status: Valid, DisplayWarning: r.Coding.Display != "" && r.Coding.Display != got.Concept.Display, Message: displayMessage(r.Coding.Display, got.Concept.Display)}, nil
 		}
-		ex, err := s.Expand(ctx, ExpandRequest{ScopeID: r.ScopeID, URL: r.URL, Version: r.Version})
+		ex, err := s.Expand(ctx, ExpandRequest{ScopeID: scope, URL: r.URL, Version: r.Version})
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +413,8 @@ func displayMessage(got, want string) string {
 	return ""
 }
 func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion, error) {
-	cacheKey := r.URL + "|" + r.Version + fmt.Sprintf("|%d|%d", r.Offset, r.Count)
+	cacheKey := s.cacheKey(ctx, r.ScopeID, r.URL, r.Version, fmt.Sprintf("%d", r.Offset), fmt.Sprintf("%d", r.Count))
+	scope := s.effectiveScope(ctx, r.ScopeID)
 	s.mu.RLock()
 	if s.expandCache != nil {
 		if v, ok := s.expandCache[cacheKey]; ok {
@@ -274,14 +425,14 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		}
 	}
 	s.mu.RUnlock()
-	v, err := s.Store.GetValueSet(ctx, s.ScopeID, r.URL, r.Version)
+	v, err := s.Store.GetValueSet(ctx, scope, r.URL, r.Version)
 	if err != nil {
 		return nil, err
 	}
 	if v == nil {
 		return nil, ErrExpansionNotFound
 	}
-	ms, err := s.Store.ListValueSetMembers(ctx, s.ScopeID, v.CanonicalURL, v.Version)
+	ms, err := s.Store.ListValueSetMembers(ctx, scope, v.CanonicalURL, v.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +440,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		ms = nil
 	}
 	if len(ms) == 0 && v.ComposeJSON != "" {
-		ms, err = composeMembers(ctx, s.Store, s.ScopeID, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
+		ms, err = composeMembers(ctx, s.Store, scope, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
 		if err != nil {
 			return nil, err
 		}

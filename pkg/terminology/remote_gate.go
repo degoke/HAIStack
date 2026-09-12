@@ -49,14 +49,22 @@ func (g *OptInRemoteGate) ValidateCode(ctx context.Context, r ValidateCodeReques
 	return g.Inner.ValidateCode(ctx, r)
 }
 
+func (g *OptInRemoteGate) installsFor(ctx context.Context) store.TerminologyInstallStore {
+	if inst := store.TerminologyInstallsFromContext(ctx); inst != nil {
+		return inst
+	}
+	return g.Installs
+}
+
 func (g *OptInRemoteGate) blocked(ctx context.Context, url, ver string) bool {
-	if g.Inner == nil || g.Global == nil || g.Installs == nil || url == "" {
+	installs := g.installsFor(ctx)
+	if g.Inner == nil || g.Global == nil || installs == nil || url == "" {
 		return false
 	}
 	if !globalCodeSystemExists(ctx, g.Global, url, ver) {
 		return false
 	}
-	layered := &LayeredStore{Store: g.Global, Installs: g.Installs, GlobalScopeID: GlobalScopeID}
+	layered := &LayeredStore{Store: g.Global, Installs: installs, GlobalScopeID: GlobalScopeID}
 	return !layered.globalAllowed(ctx, url, ver, "CodeSystem")
 }
 
@@ -64,7 +72,8 @@ func (g *OptInRemoteGate) expandBlocked(ctx context.Context, url, ver string) bo
 	if g.blocked(ctx, url, ver) || g.valueSetBlocked(ctx, url, ver) {
 		return true
 	}
-	if g.Inner == nil || g.Global == nil || g.Installs == nil {
+	installs := g.installsFor(ctx)
+	if g.Inner == nil || g.Global == nil || installs == nil {
 		return false
 	}
 	vs, err := g.Global.GetValueSet(ctx, GlobalScopeID, url, ver)
@@ -87,14 +96,15 @@ func (g *OptInRemoteGate) expandBlocked(ctx context.Context, url, ver string) bo
 }
 
 func (g *OptInRemoteGate) valueSetBlocked(ctx context.Context, url, ver string) bool {
-	if g.Inner == nil || g.Global == nil || g.Installs == nil || url == "" {
+	installs := g.installsFor(ctx)
+	if g.Inner == nil || g.Global == nil || installs == nil || url == "" {
 		return false
 	}
 	vs, err := g.Global.GetValueSet(ctx, GlobalScopeID, url, ver)
 	if err != nil || vs == nil {
 		return false
 	}
-	layered := &LayeredStore{Store: g.Global, Installs: g.Installs, GlobalScopeID: GlobalScopeID}
+	layered := &LayeredStore{Store: g.Global, Installs: installs, GlobalScopeID: GlobalScopeID}
 	return !layered.globalAllowed(ctx, url, ver, "ValueSet")
 }
 

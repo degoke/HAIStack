@@ -61,19 +61,13 @@ func EnableCatalogPack(ctx context.Context, opts CatalogEnableOptions, packName,
 	if opts.Definitions == nil {
 		return EnableResult{}, fmt.Errorf("definition store is required for pack-level enable")
 	}
-	defs, err := opts.Definitions.List(ctx, store.DefinitionFilter{PackageName: packName})
+	defs, err := listPackTerminologyDefinitions(ctx, opts.Definitions, packName, packVersion)
 	if err != nil {
 		return EnableResult{}, err
 	}
 	result := EnableResult{}
 	now := time.Now().UTC()
 	for _, def := range defs {
-		if packVersion != "" && def.PackageVersion != packVersion {
-			continue
-		}
-		if def.FHIRResourceType != "CodeSystem" && def.FHIRResourceType != "ValueSet" {
-			continue
-		}
 		if !catalogResourceExists(ctx, opts.Global, def.FHIRResourceType, def.CanonicalURL, def.Version) {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped %s|%s: not in global catalog", def.CanonicalURL, def.Version))
 			continue

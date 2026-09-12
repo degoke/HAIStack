@@ -110,15 +110,27 @@ provider supports FHIR R4 `$lookup`, `$expand`, and `$validate-code` with
 in-memory caching, request throttling, and a simple circuit breaker.
 
 Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
-`RegistryInstallStore`). Registry installs record available catalog entries but
-do not auto-enable them; each tenant opts in explicitly via
+`RegistryInstallStore`). The **installing tenant** is auto-opted-in when a
+package or module installs terminology (`Enabled: true`; `sourceModule` records
+the package or module). Passive install/restart paths use `EnsureInstallOptIn`
+and never override explicit opt-out (`enabled=false` from
+`$terminology-enable`). Other tenants must still call
 `POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
+At server startup, configured installs use the default/sync tenant (SQLite
+`sqliteTenantID`, Postgres tenant DB). Async HTTP package and module install
+jobs stamp the request tenant on the job payload and opt in that tenant via
+`TerminologyInstallStoreFactory` (fallback: default/sync tenant when no owner is
+recorded).
 
-**Breaking change (registry installs):** IG/package install no longer opts the
-installing tenant into global terminology automatically. After install, call
-`Basic/$terminology-enable` once per catalog entry or once per pack
-(`packName` / optional `packVersion`). Existing single-tenant flows that relied
-on implicit enable must add this step.
+Server startup can install local modules and FHIR packages declaratively via
+`haistack.yaml` (`runtime.modulePaths`, `runtime.packages`). Installs are
+idempotent: completed package versions are tracked in `PackageInstallStore`
+(`CompletePackageInstall` records the first completion only; partial installs
+resume on restart). Databases upgraded before this table existed re-run install
+once on the next startup so `CompletePackageInstall` can record completion.
+Global terminology is not re-compiled when the resource already exists in `__global__`.
+Re-installing a completed package version only opts in absent terminology rows
+for the installing tenant.
 
 Pack-level enable validates every entry against the global catalog. Entries
 missing from `__global__` are skipped and returned as `warning` parameters;
@@ -138,6 +150,15 @@ ValueSets and `__global__` for shared CodeSystems. Historical or retired
 versions remain readable when explicitly requested, but retired versions are
 excluded from current-version resolution.
 
+**SQLite multi-tenant note:** terminology opt-in rows are keyed by
+`sqliteTenantID` (sync tenant, default `local`), while the wired terminology
+overlay scope defaults to `sqliteTerminologyScope` (`default`). Authenticated
+HTTP requests use the principal's `tenantID` for both opt-in
+(`TerminologyInstallStoreFactory.ForTenant`) and terminology overlay scope, so
+multi-tenant single-process mode stays consistent without matching those config
+keys. Unauthenticated requests keep the wired overlay scope and default/sync
+tenant opt-in store.
+
 HTTP terminology operations are exposed when `TerminologyService` is wired:
 
 - `CodeSystem/$lookup`
@@ -156,7 +177,7 @@ Platform FHIR operations:
 ## Optional ValueSet pre-expansion
 
 Finite packaged ValueSets can be pre-expanded at install time (opt-in via
-`runtime.Builder.WithPreExpandValueSets(true)` or
+`haistack.yaml` `runtime.preExpandValueSets`, `runtime.Builder.WithPreExpandValueSets(true)`, or
 `Basic/$terminology-install?preExpandValueSets=true`). Registry package install
 enqueues one `registry.terminology.pre_expand_valuesets` job per package version
 (not per ValueSet) when at least one eligible ValueSet exists; bundled R4 core

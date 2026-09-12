@@ -12,6 +12,8 @@ import (
 )
 
 type ValidationOptions struct {
+	// Ctx carries request tenant terminology scope and opt-in when set.
+	Ctx             context.Context
 	Terminology     TerminologyResolver
 	AllowIncomplete bool
 	Expressions     ExpressionProvider
@@ -170,9 +172,17 @@ func ValidateQuestionnaire(q Questionnaire, opts ValidationOptions) Outcome {
 	validateExtensions(q.Extension, "Questionnaire.extension")
 	return o
 }
+func validationContext(opts ValidationOptions) context.Context {
+	if opts.Ctx != nil {
+		return opts.Ctx
+	}
+	return context.Background()
+}
+
 func ValidateResponse(q Questionnaire, r QuestionnaireResponse, opts ValidationOptions) Outcome {
 	o := Outcome{ResourceType: "OperationOutcome"}
-	opts = validationOptionsWithContext(context.Background(), q, r, opts)
+	ctx := validationContext(opts)
+	opts = validationOptionsWithContext(ctx, q, r, opts)
 	validateLaunchContexts(q, opts, &o)
 	validateIsSubjectItems(&o, q.Item, r.Item, "")
 	validateQuestionnaireTargetConstraints(&o, q, r, opts)
@@ -337,7 +347,7 @@ func enabledForValidationOutcome(item Item, r QuestionnaireResponse, opts Valida
 		if opts.Expressions == nil {
 			return false, fmt.Errorf("enableWhen expression provider is unavailable")
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), *item.EnableWhenExpression, r)
+		values, err := opts.Expressions.Evaluate(validationContext(opts), *item.EnableWhenExpression, r)
 		if err != nil {
 			return false, err
 		}
@@ -912,9 +922,10 @@ func RenderWithOptions(q Questionnaire, r QuestionnaireResponse, opts Validation
 	if q.EntryMode != "" {
 		m.EntryMode = q.EntryMode
 	}
-	opts = validationOptionsWithContext(context.Background(), q, r, opts)
+	ctx := validationContext(opts)
+	opts = validationOptionsWithContext(ctx, q, r, opts)
+	opts.Ctx = ctx
 	validation := ValidateResponse(q, r, opts)
-	ctx := context.Background()
 	var walk func([]Item)
 	walk = func(items []Item) {
 		for _, it := range items {
