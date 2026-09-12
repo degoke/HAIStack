@@ -151,13 +151,13 @@ versions remain readable when explicitly requested, but retired versions are
 excluded from current-version resolution.
 
 **SQLite multi-tenant note:** terminology opt-in rows are keyed by
-`sqliteTenantID` (sync tenant, default `local`), while terminology overlays use
-`sqliteTerminologyScope` (default `default`). In single-tenant SQLite dev these
-are usually aligned via config; in a multi-tenant single-process SQLite
-deployment, set `sqliteTerminologyScope` to match how you partition tenant
-ValueSets, and ensure HTTP auth supplies the same tenant ID used for opt-in
-(`TerminologyInstallStoreFactory.ForTenant`). Mismatched scope vs tenant ID can
-cause install opt-in and `$expand` gating to disagree.
+`sqliteTenantID` (sync tenant, default `local`), while the wired terminology
+overlay scope defaults to `sqliteTerminologyScope` (`default`). Authenticated
+HTTP requests use the principal's `tenantID` for both opt-in
+(`TerminologyInstallStoreFactory.ForTenant`) and terminology overlay scope, so
+multi-tenant single-process mode stays consistent without matching those config
+keys. Unauthenticated requests keep the wired overlay scope and default/sync
+tenant opt-in store.
 
 HTTP terminology operations are exposed when `TerminologyService` is wired:
 

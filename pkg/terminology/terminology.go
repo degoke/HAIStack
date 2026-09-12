@@ -148,6 +148,24 @@ func (s *LocalService) negativeLookupTTL() time.Duration {
 	return defaultNegativeLookupTTL
 }
 
+func (s *LocalService) effectiveScope(ctx context.Context, reqScope string) string {
+	if reqScope != "" {
+		return reqScope
+	}
+	if scope := store.TerminologyScopeFromContext(ctx); scope != "" {
+		return scope
+	}
+	return s.ScopeID
+}
+
+func (s *LocalService) cacheKey(ctx context.Context, reqScope string, parts ...string) string {
+	key := s.effectiveScope(ctx, reqScope)
+	for _, part := range parts {
+		key += "|" + part
+	}
+	return key
+}
+
 func (s *LocalService) cachedLookup(key string) (*LookupResult, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -183,11 +201,12 @@ func (s *LocalService) Lookup(ctx context.Context, r LookupRequest) (*LookupResu
 	if r.System == "" || r.Code == "" {
 		return nil, fmt.Errorf("system and code are required")
 	}
-	cacheKey := r.System + "|" + r.Version + "|" + r.Code
+	cacheKey := s.cacheKey(ctx, r.ScopeID, r.System, r.Version, r.Code)
 	if v, ok := s.cachedLookup(cacheKey); ok {
 		return v, nil
 	}
-	c, err := s.Store.LookupConcept(ctx, s.ScopeID, r.System, r.Version, r.Code)
+	scope := s.effectiveScope(ctx, r.ScopeID)
+	c, err := s.Store.LookupConcept(ctx, scope, r.System, r.Version, r.Code)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +234,9 @@ func (s *LocalService) Lookup(ctx context.Context, r LookupRequest) (*LookupResu
 	return v, nil
 }
 func (s *LocalService) ValidateCode(ctx context.Context, r ValidateCodeRequest) (*ValidationResult, error) {
+	scope := s.effectiveScope(ctx, r.ScopeID)
 	if r.URL != "" {
-		vs, err := s.Store.GetValueSet(ctx, s.ScopeID, r.URL, r.Version)
+		vs, err := s.Store.GetValueSet(ctx, scope, r.URL, r.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +253,7 @@ func (s *LocalService) ValidateCode(ctx context.Context, r ValidateCodeRequest) 
 			}
 			return &ValidationResult{Status: Valid, DisplayWarning: r.Coding.Display != "" && r.Coding.Display != got.Concept.Display, Message: displayMessage(r.Coding.Display, got.Concept.Display)}, nil
 		}
-		ex, err := s.Expand(ctx, ExpandRequest{ScopeID: r.ScopeID, URL: r.URL, Version: r.Version})
+		ex, err := s.Expand(ctx, ExpandRequest{ScopeID: scope, URL: r.URL, Version: r.Version})
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +283,8 @@ func displayMessage(got, want string) string {
 	return ""
 }
 func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion, error) {
-	cacheKey := r.URL + "|" + r.Version + fmt.Sprintf("|%d|%d", r.Offset, r.Count)
+	cacheKey := s.cacheKey(ctx, r.ScopeID, r.URL, r.Version, fmt.Sprintf("%d", r.Offset), fmt.Sprintf("%d", r.Count))
+	scope := s.effectiveScope(ctx, r.ScopeID)
 	s.mu.RLock()
 	if s.expandCache != nil {
 		if v, ok := s.expandCache[cacheKey]; ok {
@@ -274,14 +295,14 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		}
 	}
 	s.mu.RUnlock()
-	v, err := s.Store.GetValueSet(ctx, s.ScopeID, r.URL, r.Version)
+	v, err := s.Store.GetValueSet(ctx, scope, r.URL, r.Version)
 	if err != nil {
 		return nil, err
 	}
 	if v == nil {
 		return nil, ErrExpansionNotFound
 	}
-	ms, err := s.Store.ListValueSetMembers(ctx, s.ScopeID, v.CanonicalURL, v.Version)
+	ms, err := s.Store.ListValueSetMembers(ctx, scope, v.CanonicalURL, v.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +310,7 @@ func (s *LocalService) Expand(ctx context.Context, r ExpandRequest) (*Expansion,
 		ms = nil
 	}
 	if len(ms) == 0 && v.ComposeJSON != "" {
-		ms, err = composeMembers(ctx, s.Store, s.ScopeID, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
+		ms, err = composeMembers(ctx, s.Store, scope, v.ComposeJSON, map[string]bool{v.CanonicalURL + "|" + v.Version: true})
 		if err != nil {
 			return nil, err
 		}

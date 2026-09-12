@@ -1061,6 +1061,47 @@ func TestValueSetExpandHTTP(t *testing.T) {
 	}
 }
 
+func TestCodeSystemLookupHTTPSharedServiceCacheIsolatedPerTenant(t *testing.T) {
+	ctx := context.Background()
+	m := terminology.NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:test","version":"1","concept":[{"code":"ok","display":"OK"}]}`)
+	if err := terminology.Install(ctx, m, store.TerminologyResourceRecord{
+		ScopeID: terminology.GlobalScopeID, ResourceType: "CodeSystem",
+		CanonicalURL: "urn:test", Version: "1", ResourceJSON: cs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	layered := terminology.NewLayeredStore(m, "tenant-a")
+	svc := terminology.NewLocalService(layered, "tenant-a")
+	factory := &fakeTerminologyInstallFactory{}
+	factory.stores = map[string]*fakeTerminologyInstallStore{
+		"tenant-b": {enabled: []store.TerminologyInstallRecord{{
+			ResourceType: "CodeSystem", CanonicalURL: "urn:test", Version: "1", Enabled: true,
+		}}},
+	}
+	makeHandler := func(tenantID string) http.Handler {
+		return newTestHandler(t, hahttp.Config{
+			ResourceService:            &fakeResourceService{},
+			TerminologyService:         svc,
+			TerminologyScope:           "tenant-a",
+			TerminologyInstallFactory:  factory,
+			DefaultTerminologyTenantID: "tenant-a",
+			PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+				return auth.Principal{ID: "user-" + tenantID}, auth.TenantContext{TenantID: tenantID}, nil
+			},
+			AuthChecker: &recordingAuthChecker{allow: true},
+		})
+	}
+	rec := doRequest(t, makeHandler("tenant-b"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "true") {
+		t.Fatalf("tenant-b status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(t, makeHandler("tenant-a"), http.MethodGet, "/fhir/CodeSystem/$lookup?system=urn:test&code=ok", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"valueBoolean":true`) {
+		t.Fatalf("tenant-a should not hit tenant-b cache, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCodeSystemLookupHTTPUsesRequestTenantOptIn(t *testing.T) {
 	ctx := context.Background()
 	m := terminology.NewMemoryStore()

@@ -34,5 +34,6 @@ func ContextWithJobTerminologyInstalls(ctx context.Context, job store.JobRecord,
 	if err != nil {
 		return ctx, err
 	}
-	return ContextWithTerminologyInstalls(ctx, installs), nil
+	ctx = ContextWithTerminologyInstalls(ctx, installs)
+	return store.ContextWithTerminologyScope(ctx, tenantID), nil
 }

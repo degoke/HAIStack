@@ -1,6 +1,10 @@
 package http
 
-import "github.com/degoke/health-ai-stack/pkg/sdc"
+import (
+	"context"
+
+	"github.com/degoke/health-ai-stack/pkg/sdc"
+)
 
 func operationParameters(req SDCRequest) sdc.OperationParameters {
 	if req.Parameters != nil {
@@ -12,8 +16,9 @@ func operationParameters(req SDCRequest) sdc.OperationParameters {
 	return sdc.OperationParameters{}
 }
 
-func validationOptions(a CoreSDCService, req SDCRequest) sdc.ValidationOptions {
+func validationOptions(a CoreSDCService, ctx context.Context, req SDCRequest) sdc.ValidationOptions {
 	opts := sdc.ValidationOptions{
+		Ctx:         ctx,
 		Expressions: a.Provider,
 		Terminology: a.Terminology,
 	}

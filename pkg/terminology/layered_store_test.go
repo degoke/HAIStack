@@ -176,6 +176,36 @@ func TestLayeredStoreContextInstallsOverrideWired(t *testing.T) {
 	}
 }
 
+func TestLocalServiceLookupCacheIsolatedPerScope(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	globalCS := []byte(`{"resourceType":"CodeSystem","url":"urn:global","version":"1","concept":[{"code":"x","display":"Global"}]}`)
+	if err := Compile(ctx, m, GlobalScopeID, "", globalCS); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: GlobalScopeID, ResourceType: "CodeSystem", CanonicalURL: "urn:global", Version: "1", ResourceJSON: globalCS,
+	})
+
+	layered := NewLayeredStore(m, "tenant-a")
+	svc := NewLocalService(layered, "tenant-a")
+
+	ctxB := store.ContextWithTerminologyInstalls(ctx, &memTerminologyInstallStore{rows: []store.TerminologyInstallRecord{{
+		ResourceType: "CodeSystem", CanonicalURL: "urn:global", Version: "1", Enabled: true,
+	}}})
+	ctxB = store.ContextWithTerminologyScope(ctxB, "tenant-b")
+	got, err := svc.Lookup(ctxB, LookupRequest{System: "urn:global", Code: "x"})
+	if err != nil || !got.Found {
+		t.Fatalf("tenant-b lookup=%+v err=%v", got, err)
+	}
+
+	ctxA := store.ContextWithTerminologyScope(ctx, "tenant-a")
+	got, err = svc.Lookup(ctxA, LookupRequest{System: "urn:global", Code: "x"})
+	if err != nil || got.Found {
+		t.Fatalf("tenant-a should miss without opt-in, lookup=%+v err=%v", got, err)
+	}
+}
+
 func TestChainTenantUsesLayeredGlobalFallback(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()
