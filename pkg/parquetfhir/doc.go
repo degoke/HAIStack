@@ -2,7 +2,7 @@
 // from FHIR StructureDefinitions (https://github.com/aehrc/parquet-on-fhir).
 //
 // Schemas are built from a base resource StructureDefinition and pruned to the
-// union of fields present in the exported resource payloads. Each resource JSON
-// object becomes one parquet row with nested groups and LIST columns for
-// repeating elements.
+// union of fields present in exported resource payloads. The encoder adds spec
+// annotations for date/dateTime ranges, decimal numerics, and Quantity canonical
+// groups. Use _parquetLayout=fhir on view export/run operations.
 package parquetfhir

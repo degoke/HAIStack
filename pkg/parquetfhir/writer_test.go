@@ -12,25 +12,25 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-func bundledPatientSD(t *testing.T) *validate.StructureDefinition {
+func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "registry", "internal", "bundles", "r4", "structure-definitions", "Patient.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "registry", "internal", "bundles", "r4", "structure-definitions", resourceType+".json"))
 	if err != nil {
-		t.Fatalf("read Patient StructureDefinition: %v", err)
+		t.Fatalf("read %s StructureDefinition: %v", resourceType, err)
 	}
 	catalog, err := validate.LoadProfileCatalogFromJSON([][]byte{raw})
 	if err != nil {
 		t.Fatalf("LoadProfileCatalogFromJSON: %v", err)
 	}
-	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL("Patient"))
+	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL(resourceType))
 	if !ok {
-		t.Fatal("missing Patient StructureDefinition")
+		t.Fatalf("missing %s StructureDefinition", resourceType)
 	}
 	return sd
 }
 
 func TestWriteResourcesNestedPatientParquet(t *testing.T) {
-	sd := bundledPatientSD(t)
+	sd := bundledSD(t, "Patient")
 	resources := []map[string]any{
 		{
 			"resourceType": "Patient",
@@ -46,15 +46,7 @@ func TestWriteResourcesNestedPatientParquet(t *testing.T) {
 		},
 	}
 
-	var buf bytes.Buffer
-	if err := parquetfhir.WriteResources(&buf, sd, resources); err != nil {
-		t.Fatalf("WriteResources: %v", err)
-	}
-	data := buf.Bytes()
-	if len(data) < 4 || string(data[:4]) != "PAR1" {
-		t.Fatalf("expected PAR1 magic, got %q", string(data[:min(4, len(data))]))
-	}
-
+	data := writeParquet(t, sd, resources)
 	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
@@ -65,10 +57,70 @@ func TestWriteResourcesNestedPatientParquet(t *testing.T) {
 	if file.Schema().Name() != "Patient" {
 		t.Fatalf("schema name=%q, want Patient", file.Schema().Name())
 	}
+	assertColumn(t, file.Schema(), "id")
+	assertColumn(t, file.Schema(), "name", "list", "element", "family")
+	assertColumn(t, file.Schema(), "telecom", "list", "element", "value")
+}
+
+func TestWriteResourcesObservationQuantityAnnotations(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType": "Observation",
+			"id":           "obs-1",
+			"status":       "final",
+			"valueQuantity": map[string]any{
+				"value":  36.5,
+				"unit":   "C",
+				"system": "http://unitsofmeasure.org",
+				"code":   "Cel",
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "valueQuantity", "value")
+	assertColumn(t, schema, "valueQuantity", "__value_numeric")
+	assertColumn(t, schema, "__valueQuantity_canonical", "value")
+}
+
+func TestWriteResourcesExtensionAndPrimitiveWrapper(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "ext-1",
+			"birthDate":    "1970-01-01",
+			"_birthDate": map[string]any{
+				"id": "bd-1",
+				"extension": []any{
+					map[string]any{
+						"url":           "http://hl7.org/fhir/StructureDefinition/patient-birthTime",
+						"valueDateTime": "1970-01-01T00:00:00Z",
+					},
+				},
+			},
+			"extension": []any{
+				map[string]any{
+					"url": "http://hl7.org.au/fhir/StructureDefinition/indigenous-status",
+					"valueCoding": map[string]any{
+						"system": "https://healthterminologies.gov.au/fhir/CodeSystem/australian-indigenous-status-1",
+						"code":   "1",
+					},
+				},
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "extension", "list", "element", "url")
+	assertColumn(t, schema, "_birthDate", "id")
+	assertColumn(t, schema, "__birthDate_start")
+	assertColumn(t, schema, "__birthDate_end")
 }
 
 func TestSchemaBuilderChoiceTypes(t *testing.T) {
-	sd := bundledPatientSD(t)
+	sd := bundledSD(t, "Patient")
 	builder, err := parquetfhir.NewSchemaBuilder(sd)
 	if err != nil {
 		t.Fatalf("NewSchemaBuilder: %v", err)
@@ -78,12 +130,59 @@ func TestSchemaBuilderChoiceTypes(t *testing.T) {
 		"multipleBirthBoolean": false,
 	})
 	schema := builder.BuildSchema()
-	if schema == nil {
-		t.Fatal("expected schema")
+	columns := schema.Columns()
+	found := false
+	for _, col := range columns {
+		if len(col) == 1 && col[0] == "multipleBirthBoolean" {
+			found = true
+			break
+		}
 	}
-	if schema.Name() != "Patient" {
-		t.Fatalf("schema name=%q", schema.Name())
+	if !found {
+		t.Fatalf("expected multipleBirthBoolean column, got %#v", columns)
 	}
+}
+
+func writeParquet(t *testing.T, sd *validate.StructureDefinition, resources []map[string]any) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := parquetfhir.WriteResources(&buf, sd, resources); err != nil {
+		t.Fatalf("WriteResources: %v", err)
+	}
+	data := buf.Bytes()
+	if len(data) < 4 || string(data[:4]) != "PAR1" {
+		t.Fatalf("expected PAR1 magic")
+	}
+	return data
+}
+
+func mustOpenSchema(t *testing.T, data []byte) *parquet.Schema {
+	t.Helper()
+	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	return file.Schema()
+}
+
+func assertColumn(t *testing.T, schema *parquet.Schema, parts ...string) {
+	t.Helper()
+	for _, col := range schema.Columns() {
+		if len(col) < len(parts) {
+			continue
+		}
+		match := true
+		for i, part := range parts {
+			if col[i] != part {
+				match = false
+				break
+			}
+		}
+		if match {
+			return
+		}
+	}
+	t.Fatalf("column not found: %v in %#v", parts, schema.Columns())
 }
 
 type bytesReader []byte
@@ -93,11 +192,4 @@ func (b bytesReader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, io.EOF
 	}
 	return copy(p, b[off:]), nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

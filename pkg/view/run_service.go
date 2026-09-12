@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -54,6 +55,17 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		Since:      req.Since,
 	}
 
+	if format == FormatParquet && req.ParquetLayout == ParquetLayoutFHIR {
+		if len(req.InlineDef) > 0 {
+			return nil, "", fmt.Errorf("view: Parquet-on-FHIR layout requires a registered view")
+		}
+		var buf bytes.Buffer
+		if _, err := WriteParquetFHIRExport(ctx, &buf, s.executor, execReq); err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), ParquetContentType, nil
+	}
+
 	var result *Result
 	var err error
 	if len(req.InlineDef) > 0 {
@@ -65,7 +77,7 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 		return nil, "", err
 	}
 
-	body, contentType, err := encodeRunResult(result, format, req.Header, req.ParquetLayout, s.executor, execReq)
+	body, contentType, err := encodeRunResult(ctx, result, format, req.Header, req.ParquetLayout, s.executor, execReq)
 	return body, contentType, err
 }
 
@@ -104,7 +116,7 @@ func (s *SQLQueryService) Execute(ctx context.Context, req SQLQueryRequest) ([]b
 		Rows:    result.Rows,
 		Total:   len(result.Rows),
 	}
-	body, contentType, err := encodeRunResult(viewResult, format, true, ParquetLayoutFlat, nil, ExecuteRequest{})
+	body, contentType, err := encodeRunResult(ctx, viewResult, format, true, ParquetLayoutFlat, nil, ExecuteRequest{})
 	return body, contentType, err
 }
 

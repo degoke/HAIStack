@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func encodeRunResult(result *Result, format OutputFormat, header bool, layout ParquetLayout, exec *Executor, execReq ExecuteRequest) ([]byte, string, error) {
+func encodeRunResult(ctx context.Context, result *Result, format OutputFormat, header bool, layout ParquetLayout, exec *Executor, execReq ExecuteRequest) ([]byte, string, error) {
 	switch format {
 	case FormatCSV:
 		var buf bytes.Buffer
@@ -32,7 +32,7 @@ func encodeRunResult(result *Result, format OutputFormat, header bool, layout Pa
 	case FormatParquet:
 		var buf bytes.Buffer
 		if layout == ParquetLayoutFHIR && exec != nil {
-			if _, err := WriteParquetFHIRExport(context.Background(), &buf, exec, execReq); err != nil {
+			if _, err := WriteParquetFHIRExport(ctx, &buf, exec, execReq); err != nil {
 				return nil, "", err
 			}
 		} else if err := WriteParquetResult(&buf, result); err != nil {

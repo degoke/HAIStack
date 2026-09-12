@@ -5,14 +5,15 @@ import (
 	"fmt"
 )
 
-// PrepareRow normalizes one FHIR resource map for parquet writing.
-func PrepareRow(raw map[string]any) (map[string]any, error) {
+// PrepareRow normalizes one FHIR resource map for parquet writing and adds
+// Parquet-on-FHIR annotation columns.
+func PrepareRow(raw map[string]any, index *elementIndex) (map[string]any, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("parquetfhir: nil resource")
 	}
 	row := make(map[string]any, len(raw))
 	for key, value := range raw {
-		if value == nil {
+		if value == nil || isAnnotationField(key) {
 			continue
 		}
 		normalized, err := normalizeValue(value)
@@ -29,6 +30,11 @@ func PrepareRow(raw map[string]any) (map[string]any, error) {
 			row["resourceType"] = rt
 		} else {
 			return nil, fmt.Errorf("parquetfhir: resourceType is required")
+		}
+	}
+	if index != nil {
+		if err := enrichAnnotations(row, index); err != nil {
+			return nil, err
 		}
 	}
 	return row, nil
@@ -59,7 +65,7 @@ func normalizeValue(value any) (any, error) {
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for key, item := range v {
-			if item == nil {
+			if item == nil || isAnnotationField(key) {
 				continue
 			}
 			normalized, err := normalizeValue(item)

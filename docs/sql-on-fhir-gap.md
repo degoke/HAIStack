@@ -52,7 +52,7 @@ Configure durable view export artifacts and async job metadata with `runtime.Bui
 
 Parquet export supports two layouts via `_parquetLayout`:
 - `flat` (default): ViewDefinition column schemas streamed through `WriteParquetExport`.
-- `fhir`: Parquet-on-FHIR nested resource layout derived from base StructureDefinitions (`pkg/parquetfhir`); exports full matching source resources, not flat view rows.
+- `fhir`: Full Parquet-on-FHIR nested resource layout from base StructureDefinitions (`pkg/parquetfhir`), including LIST/GROUP nesting, choice types, extensions, primitive wrappers (`_field`), and annotations (`__field_start/end`, `__field_numeric`, `__fieldQuantity_canonical`).
 
 ## References
 
