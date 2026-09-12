@@ -67,6 +67,39 @@ func TestCanonicalizeQuantityKelvinPassthrough(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeQuantityCentimetersToMeters(t *testing.T) {
+	canonical, err := canonicalizeQuantity(map[string]any{
+		"value":  150,
+		"unit":   "cm",
+		"system": "http://unitsofmeasure.org",
+		"code":   "cm",
+	})
+	if err != nil {
+		t.Fatalf("canonicalizeQuantity: %v", err)
+	}
+	if canonical["value"] != "1.5" {
+		t.Fatalf("value=%v, want 1.5", canonical["value"])
+	}
+	if canonical["code"] != "m" {
+		t.Fatalf("code=%v, want m", canonical["code"])
+	}
+}
+
+func TestCanonicalizeQuantityUnknownUnitSkipped(t *testing.T) {
+	canonical, err := canonicalizeQuantity(map[string]any{
+		"value":  1,
+		"unit":   "unknown-unit",
+		"system": "http://unitsofmeasure.org",
+		"code":   "unknown-unit",
+	})
+	if err != nil {
+		t.Fatalf("canonicalizeQuantity: %v", err)
+	}
+	if canonical != nil {
+		t.Fatalf("expected nil canonical, got %#v", canonical)
+	}
+}
+
 func TestNormalizeUCUMCodeFromUnit(t *testing.T) {
 	if got := normalizeUCUMCode("", "C"); got != "Cel" {
 		t.Fatalf("normalizeUCUMCode(C)=%q, want Cel", got)

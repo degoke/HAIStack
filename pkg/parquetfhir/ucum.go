@@ -28,7 +28,6 @@ var ucumConversions = map[string]ucumConversion{
 		canonicalCode: "K",
 		canonicalUnit: "Kelvin",
 		convert: func(v *big.Rat) *big.Rat {
-			// (F - 32) * 5/9 + 273.15
 			out := new(big.Rat).Sub(v, big.NewRat(32, 1))
 			out.Mul(out, big.NewRat(5, 9))
 			out.Add(out, big.NewRat(27315, 100))
@@ -39,6 +38,51 @@ var ucumConversions = map[string]ucumConversion{
 		canonicalCode: "K",
 		canonicalUnit: "Kelvin",
 		convert:       func(v *big.Rat) *big.Rat { return new(big.Rat).Set(v) },
+	},
+	"cm": {
+		canonicalCode: "m",
+		canonicalUnit: "meter",
+		convert: func(v *big.Rat) *big.Rat {
+			return new(big.Rat).Quo(v, big.NewRat(100, 1))
+		},
+	},
+	"m": {
+		canonicalCode: "m",
+		canonicalUnit: "meter",
+		convert:       func(v *big.Rat) *big.Rat { return new(big.Rat).Set(v) },
+	},
+	"[in_i]": {
+		canonicalCode: "m",
+		canonicalUnit: "meter",
+		convert: func(v *big.Rat) *big.Rat {
+			return new(big.Rat).Mul(v, big.NewRat(254, 10000))
+		},
+	},
+	"[ft_i]": {
+		canonicalCode: "m",
+		canonicalUnit: "meter",
+		convert: func(v *big.Rat) *big.Rat {
+			return new(big.Rat).Mul(v, big.NewRat(3048, 10000))
+		},
+	},
+	"g": {
+		canonicalCode: "kg",
+		canonicalUnit: "kilogram",
+		convert: func(v *big.Rat) *big.Rat {
+			return new(big.Rat).Quo(v, big.NewRat(1000, 1))
+		},
+	},
+	"kg": {
+		canonicalCode: "kg",
+		canonicalUnit: "kilogram",
+		convert:       func(v *big.Rat) *big.Rat { return new(big.Rat).Set(v) },
+	},
+	"[lb_av]": {
+		canonicalCode: "kg",
+		canonicalUnit: "kilogram",
+		convert: func(v *big.Rat) *big.Rat {
+			return new(big.Rat).Mul(v, big.NewRat(45359237, 100000000))
+		},
 	},
 }
 
@@ -54,6 +98,20 @@ func normalizeUCUMCode(code, unit string) string {
 		return "[degF]"
 	case "K":
 		return "K"
+	case "cm":
+		return "cm"
+	case "m", "meter":
+		return "m"
+	case "in", "inch", "[in_i]":
+		return "[in_i]"
+	case "ft", "foot", "[ft_i]":
+		return "[ft_i]"
+	case "g":
+		return "g"
+	case "kg", "kilogram":
+		return "kg"
+	case "lb", "lbs", "[lb_av]":
+		return "[lb_av]"
 	default:
 		return code
 	}
@@ -85,14 +143,17 @@ func canonicalizeQuantity(qty map[string]any) (map[string]any, error) {
 	canonicalSystem := system
 	converted := new(big.Rat).Set(rat)
 
-	if system == "" || system == ucumSystem {
-		if conv, ok := ucumConversions[code]; ok {
-			converted = conv.convert(rat)
-			canonicalCode = conv.canonicalCode
-			canonicalUnit = conv.canonicalUnit
-			canonicalSystem = ucumSystem
-		}
+	if system != "" && system != ucumSystem {
+		return nil, nil
 	}
+	conv, ok := ucumConversions[code]
+	if !ok {
+		return nil, nil
+	}
+	converted = conv.convert(rat)
+	canonicalCode = conv.canonicalCode
+	canonicalUnit = conv.canonicalUnit
+	canonicalSystem = ucumSystem
 
 	canonicalValue := converted.FloatString(6)
 	canonicalValue = strings.TrimRight(strings.TrimRight(canonicalValue, "0"), ".")

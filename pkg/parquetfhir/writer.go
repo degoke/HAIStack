@@ -15,18 +15,15 @@ const (
 )
 
 // WriteResources encodes FHIR resources as one Parquet-on-FHIR file.
-func WriteResources(w io.Writer, sd *validate.StructureDefinition, resources []map[string]any) error {
-	index, err := newElementIndex(sd)
-	if err != nil {
-		return err
-	}
-	builder, err := NewSchemaBuilder(sd)
+func WriteResources(w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, resources []map[string]any) error {
+	builder, err := NewSchemaBuilder(sd, catalog)
 	if err != nil {
 		return err
 	}
 	for _, resource := range resources {
 		builder.ObserveResource(resource)
 	}
+	index := builder.Index()
 	schema := builder.BuildSchema()
 	writer := parquet.NewGenericWriter[map[string]any](w, schema, parquet.MaxRowsPerRowGroup(DefaultRowGroupSize))
 
@@ -54,30 +51,28 @@ func WriteResources(w io.Writer, sd *validate.StructureDefinition, resources []m
 	return writer.Close()
 }
 
-// WriteResourcesStreaming writes resources in batches using fn as a row source.
-func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, fn func(yield func(map[string]any) error) error) (int, error) {
-	index, err := newElementIndex(sd)
-	if err != nil {
-		return 0, err
-	}
-	builder, err := NewSchemaBuilder(sd)
+// WriteResourcesStreaming writes resources in two passes: schema observation, then row encoding.
+// The supplied fn is invoked twice and must replay the same resource sequence.
+func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error) (int, error) {
+	builder, err := NewSchemaBuilder(sd, catalog)
 	if err != nil {
 		return 0, err
 	}
 
-	var resources []map[string]any
+	observed := 0
 	err = fn(func(raw map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		resources = append(resources, raw)
 		builder.ObserveResource(raw)
+		observed++
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
 
+	index := builder.Index()
 	schema := builder.BuildSchema()
 	writer := parquet.NewGenericWriter[map[string]any](w, schema, parquet.MaxRowsPerRowGroup(DefaultRowGroupSize))
 	defer func() { _ = writer.Close() }()
@@ -96,7 +91,7 @@ func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.Stru
 		return nil
 	}
 
-	if len(resources) == 0 {
+	if observed == 0 {
 		row, err := PrepareRow(map[string]any{"resourceType": sd.Type}, index)
 		if err != nil {
 			return 0, err
@@ -108,20 +103,22 @@ func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.Stru
 		return written, writer.Close()
 	}
 
-	for _, resource := range resources {
+	err = fn(func(raw map[string]any) error {
 		if err := ctx.Err(); err != nil {
-			return written, err
+			return err
 		}
-		row, err := PrepareRow(resource, index)
+		row, err := PrepareRow(raw, index)
 		if err != nil {
-			return written, err
+			return err
 		}
 		batch = append(batch, row)
 		if len(batch) >= DefaultRowGroupSize {
-			if err := flush(); err != nil {
-				return written, err
-			}
+			return flush()
 		}
+		return nil
+	})
+	if err != nil {
+		return written, err
 	}
 	if err := flush(); err != nil {
 		return written, err

@@ -65,6 +65,57 @@ func (idx *elementIndex) resolveFieldType(path, fieldName, parentType string) st
 	return ""
 }
 
+func (idx *elementIndex) merge(sd *validate.StructureDefinition) {
+	if idx == nil || sd == nil {
+		return
+	}
+	for i := range sd.Elements {
+		el := &sd.Elements[i]
+		idx.byPath[el.Path] = el
+		if !strings.Contains(el.Path, "[x]") {
+			continue
+		}
+		base := choiceBaseName(el.Path)
+		for _, typ := range el.Types {
+			name := choiceFieldName(base, typ)
+			idx.choiceTypes[name] = normalizeFHIRType(typ)
+		}
+	}
+}
+
+func mergeResourceProfiles(idx *elementIndex, catalog validate.ProfileCatalog, raw map[string]any) {
+	if idx == nil || catalog == nil || raw == nil {
+		return
+	}
+	meta, _ := raw["meta"].(map[string]any)
+	if meta == nil {
+		return
+	}
+	profiles, _ := meta["profile"].([]any)
+	for _, item := range profiles {
+		url, _ := item.(string)
+		if url == "" {
+			continue
+		}
+		sd, err := resolveProfileDefinition(catalog, url)
+		if err != nil || sd == nil {
+			continue
+		}
+		idx.merge(sd)
+	}
+}
+
+func resolveProfileDefinition(catalog validate.ProfileCatalog, url string) (*validate.StructureDefinition, error) {
+	if resolver, ok := catalog.(validate.ProfileCatalogResolver); ok {
+		return resolver.ResolveStructureDefinition(url)
+	}
+	sd, ok := catalog.GetStructureDefinition(url)
+	if !ok {
+		return nil, validate.ErrProfileNotFound
+	}
+	return sd, nil
+}
+
 func nestedParentType(el *validate.ElementDefinition, fieldType string) string {
 	if fieldType != "" && !isPrimitiveFHIRType(fieldType) {
 		return normalizeFHIRType(fieldType)

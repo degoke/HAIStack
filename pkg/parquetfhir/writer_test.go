@@ -2,6 +2,7 @@ package parquetfhir_test
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -220,7 +221,7 @@ func TestWriteResourcesExtensionAndPrimitiveWrapper(t *testing.T) {
 
 func TestSchemaBuilderChoiceTypes(t *testing.T) {
 	sd := bundledSD(t, "Patient")
-	builder, err := parquetfhir.NewSchemaBuilder(sd)
+	builder, err := parquetfhir.NewSchemaBuilder(sd, nil)
 	if err != nil {
 		t.Fatalf("NewSchemaBuilder: %v", err)
 	}
@@ -242,10 +243,51 @@ func TestSchemaBuilderChoiceTypes(t *testing.T) {
 	}
 }
 
+func TestWriteResourcesStreamingTwoPassReplay(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	pass := 0
+	resources := []map[string]any{
+		{"resourceType": "Patient", "id": "p1"},
+		{"resourceType": "Patient", "id": "p2"},
+	}
+	data := writeParquetStreaming(t, sd, nil, func(yield func(map[string]any) error) error {
+		pass++
+		for _, resource := range resources {
+			if err := yield(resource); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if pass != 2 {
+		t.Fatalf("passes=%d, want 2", pass)
+	}
+	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if file.NumRows() != 2 {
+		t.Fatalf("rows=%d, want 2", file.NumRows())
+	}
+}
+
+func writeParquetStreaming(t *testing.T, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := parquetfhir.WriteResourcesStreaming(context.Background(), &buf, sd, catalog, fn); err != nil {
+		t.Fatalf("WriteResourcesStreaming: %v", err)
+	}
+	data := buf.Bytes()
+	if len(data) < 4 || string(data[:4]) != "PAR1" {
+		t.Fatalf("expected PAR1 magic")
+	}
+	return data
+}
+
 func writeParquet(t *testing.T, sd *validate.StructureDefinition, resources []map[string]any) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := parquetfhir.WriteResources(&buf, sd, resources); err != nil {
+	if err := parquetfhir.WriteResources(&buf, sd, nil, resources); err != nil {
 		t.Fatalf("WriteResources: %v", err)
 	}
 	data := buf.Bytes()

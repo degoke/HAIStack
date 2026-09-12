@@ -13,20 +13,30 @@ type observedField struct {
 // SchemaBuilder derives a Parquet-on-FHIR schema from a StructureDefinition and
 // the union of fields present in exported resource payloads.
 type SchemaBuilder struct {
-	index *elementIndex
-	root  *observedField
+	index   *elementIndex
+	root    *observedField
+	catalog validate.ProfileCatalog
 }
 
 // NewSchemaBuilder indexes sd for schema generation.
-func NewSchemaBuilder(sd *validate.StructureDefinition) (*SchemaBuilder, error) {
+func NewSchemaBuilder(sd *validate.StructureDefinition, catalog validate.ProfileCatalog) (*SchemaBuilder, error) {
 	idx, err := newElementIndex(sd)
 	if err != nil {
 		return nil, err
 	}
 	return &SchemaBuilder{
-		index: idx,
-		root:  &observedField{children: make(map[string]*observedField)},
+		index:   idx,
+		root:    &observedField{children: make(map[string]*observedField)},
+		catalog: catalog,
 	}, nil
+}
+
+// Index returns the merged element index used for annotation enrichment.
+func (b *SchemaBuilder) Index() *elementIndex {
+	if b == nil {
+		return nil
+	}
+	return b.index
 }
 
 // ObserveResource records fields present in one FHIR resource JSON object.
@@ -34,6 +44,7 @@ func (b *SchemaBuilder) ObserveResource(raw map[string]any) {
 	if b == nil || raw == nil {
 		return
 	}
+	mergeResourceProfiles(b.index, b.catalog, raw)
 	for _, key := range sortedKeys(raw) {
 		value := raw[key]
 		if key == "resourceType" || value == nil || isAnnotationField(key) {

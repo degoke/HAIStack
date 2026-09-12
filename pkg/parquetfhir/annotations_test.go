@@ -11,10 +11,7 @@ import (
 
 func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "registry", "internal", "bundles", "r4", "structure-definitions", resourceType+".json"))
-	if err != nil {
-		t.Fatalf("read %s StructureDefinition: %v", resourceType, err)
-	}
+	raw := bundledSDRaw(t, resourceType)
 	catalog, err := validate.LoadProfileCatalogFromJSON([][]byte{raw})
 	if err != nil {
 		t.Fatalf("LoadProfileCatalogFromJSON: %v", err)
@@ -24,6 +21,15 @@ func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition 
 		t.Fatalf("missing %s StructureDefinition", resourceType)
 	}
 	return sd
+}
+
+func bundledSDRaw(t *testing.T, resourceType string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "registry", "internal", "bundles", "r4", "structure-definitions", resourceType+".json"))
+	if err != nil {
+		t.Fatalf("read %s StructureDefinition: %v", resourceType, err)
+	}
+	return raw
 }
 
 func TestDateTimeRangePartialPrecision(t *testing.T) {
