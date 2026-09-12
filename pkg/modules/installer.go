@@ -200,18 +200,18 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 		result.EnabledResources = append(result.EnabledResources, resourceType)
 	}
 
+	moduleProvenance := registry.InstallProvenance{
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
+		PackageVersion: mod.Manifest.Version,
+		ModuleName:     mod.Manifest.Name,
+		SourceModule:   mod.Manifest.Name,
+	}
 	for _, def := range mod.Definitions {
 		parsed, _, err := registry.ParseDefinition(def)
 		if err != nil {
 			return nil, fmt.Errorf("parse definition: %w", err)
 		}
-		provenance := registry.InstallProvenance{
-			PackageName:    "haistack-modules",
-			PackageVersion: mod.Manifest.Version,
-			ModuleName:     mod.Manifest.Name,
-			SourceModule:   mod.Manifest.Name,
-		}
-		if err := i.applier.InstallDefinition(ctx, def, provenance); err != nil {
+		if err := i.applier.InstallDefinition(ctx, def, moduleProvenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
 		}
 		step++
@@ -220,6 +220,9 @@ func (i *Installer) install(ctx context.Context, mod *Module) (*InstallResult, e
 			CanonicalURL: parsed.CanonicalURL,
 			Version:      parsed.Version,
 		})
+	}
+	if err := i.applier.CompletePackageInstall(ctx, moduleProvenance); err != nil {
+		return nil, err
 	}
 
 	if err := i.registerModule(ctx, mod); err != nil {
@@ -304,6 +307,12 @@ func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 	for _, ref := range oldDefs {
 		oldDefKeys[ref.CanonicalURL+"|"+ref.Version] = struct{}{}
 	}
+	upgradeProvenance := registry.InstallProvenance{
+		PackageName:    registry.ModulesPackageID(mod.Manifest.Name),
+		PackageVersion: mod.Manifest.Version,
+		ModuleName:     mod.Manifest.Name,
+		SourceModule:   mod.Manifest.Name,
+	}
 	for _, def := range mod.Definitions {
 		parsed, _, err := registry.ParseDefinition(def)
 		if err != nil {
@@ -313,19 +322,18 @@ func (i *Installer) upgrade(ctx context.Context, mod *Module) (*UpgradeResult, e
 		if _, ok := oldDefKeys[key]; ok {
 			continue
 		}
-		provenance := registry.InstallProvenance{
-			PackageName:    "haistack-modules",
-			PackageVersion: mod.Manifest.Version,
-			ModuleName:     mod.Manifest.Name,
-			SourceModule:   mod.Manifest.Name,
-		}
-		if err := i.applier.InstallDefinition(ctx, def, provenance); err != nil {
+		if err := i.applier.InstallDefinition(ctx, def, upgradeProvenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
 		}
 		result.InstalledDefinitions = append(result.InstalledDefinitions, DefinitionRef{
 			CanonicalURL: parsed.CanonicalURL,
 			Version:      parsed.Version,
 		})
+	}
+	if len(result.InstalledDefinitions) > 0 {
+		if err := i.applier.CompletePackageInstall(ctx, upgradeProvenance); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := i.registerModule(ctx, mod); err != nil {

@@ -1,7 +1,6 @@
 package sdc
 
 import (
-	"context"
 	"strings"
 )
 
@@ -42,7 +41,7 @@ func validateItemTargetConstraints(o *Outcome, item *Item, r QuestionnaireRespon
 		if constraint.Expression == "" {
 			continue
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), Expression{Language: "text/fhirpath", Expression: constraint.Expression}, r)
+		values, err := opts.Expressions.Evaluate(validationContext(opts), Expression{Language: "text/fhirpath", Expression: constraint.Expression}, r)
 		if err != nil {
 			o.add("error", "exception", err.Error(), path)
 			continue

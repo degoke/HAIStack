@@ -56,8 +56,13 @@ func (h *handler) handleCodeSystemLookup(w http.ResponseWriter, r *http.Request,
 		writeError(w, invalidRequest("system and code are required for $lookup", nil))
 		return
 	}
-	result, err := h.cfg.TerminologyService.Lookup(r.Context(), terminology.LookupRequest{
-		ScopeID: h.cfg.TerminologyScope,
+	ctx, err := h.withTerminologyInstalls(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := h.cfg.TerminologyService.Lookup(ctx, terminology.LookupRequest{
+		ScopeID: h.terminologyScope(ctx),
 		System:  system,
 		Version: version,
 		Code:    code,
@@ -83,8 +88,13 @@ func (h *handler) handleValueSetExpand(w http.ResponseWriter, r *http.Request, r
 		writeError(w, invalidRequest("url is required for $expand", nil))
 		return
 	}
-	expansion, err := h.cfg.TerminologyService.Expand(r.Context(), terminology.ExpandRequest{
-		ScopeID: h.cfg.TerminologyScope,
+	ctx, err := h.withTerminologyInstalls(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	expansion, err := h.cfg.TerminologyService.Expand(ctx, terminology.ExpandRequest{
+		ScopeID: h.terminologyScope(ctx),
 		URL:     url,
 		Version: version,
 		Offset:  offset,
@@ -125,12 +135,17 @@ func (h *handler) handleValidateCode(w http.ResponseWriter, r *http.Request, rou
 		writeError(w, err)
 		return
 	}
-	req, err := validateCodeRequest(r, route.resourceType, h.cfg.TerminologyScope)
+	ctx, err := h.withTerminologyInstalls(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	result, err := h.cfg.TerminologyService.ValidateCode(r.Context(), req)
+	req, err := validateCodeRequest(r, route.resourceType, h.terminologyScope(ctx))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := h.cfg.TerminologyService.ValidateCode(ctx, req)
 	if err != nil {
 		writeError(w, err)
 		return

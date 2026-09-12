@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
@@ -13,12 +14,19 @@ type TerminologyAdapter struct {
 	ScopeID string
 }
 
+func (a TerminologyAdapter) scopeID(ctx context.Context) string {
+	if scope := store.TerminologyScopeFromContext(ctx); scope != "" {
+		return scope
+	}
+	return a.ScopeID
+}
+
 func (a TerminologyAdapter) ValidateCode(ctx context.Context, c Coding, valueSet string) error {
 	if a.Service == nil || valueSet == "" {
 		return nil
 	}
 	result, err := a.Service.ValidateCode(ctx, terminology.ValidateCodeRequest{
-		ScopeID: a.ScopeID,
+		ScopeID: a.scopeID(ctx),
 		URL:     valueSet,
 		Coding:  terminology.Coding{System: c.System, Code: c.Code, Display: c.Display},
 	})
@@ -45,7 +53,7 @@ func (a TerminologyAdapter) Expand(ctx context.Context, url string) ([]Coding, e
 	if a.Service == nil {
 		return nil, fmt.Errorf("value set expansion unavailable: %s", url)
 	}
-	expanded, err := a.Service.Expand(ctx, terminology.ExpandRequest{ScopeID: a.ScopeID, URL: url})
+	expanded, err := a.Service.Expand(ctx, terminology.ExpandRequest{ScopeID: a.scopeID(ctx), URL: url})
 	if err != nil {
 		return nil, err
 	}

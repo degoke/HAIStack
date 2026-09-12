@@ -94,10 +94,11 @@ are warnings rather than invalid codes, and display mismatches are warnings.
 
 ## Global vs tenant scoping
 
-CodeSystems installed from IG packages or admin workflows are stored under
+CodeSystems and packaged ValueSets installed from IG packages are stored under
 `terminology.GlobalScopeID` (`__global__`) and shared across tenants.
-Tenant ValueSets compose against global CodeSystem projections via
-`LayeredStore` and `Chain` precedence:
+Tenant-custom ValueSets remain in the tenant scope. Tenants opt in to global
+catalog entries via `TerminologyInstallStore`. `LayeredStore` composes tenant
+overlays with opted-in global CodeSystems and ValueSets:
 
 ```text
 tenant LocalService → global LocalService → RemoteProvider (optional)
@@ -109,7 +110,32 @@ provider supports FHIR R4 `$lookup`, `$expand`, and `$validate-code` with
 in-memory caching, request throttling, and a simple circuit breaker.
 
 Per-tenant opt-in records live in `TerminologyInstallStore` (parallel to
-`RegistryInstallStore`).
+`RegistryInstallStore`). The **installing tenant** is auto-opted-in when a
+package or module installs terminology (`Enabled: true`; `sourceModule` records
+the package or module). Passive install/restart paths use `EnsureInstallOptIn`
+and never override explicit opt-out (`enabled=false` from
+`$terminology-enable`). Other tenants must still call
+`POST /fhir/Basic/$terminology-enable` (single URL or whole pack via `packName`).
+At server startup, configured installs use the default/sync tenant (SQLite
+`sqliteTenantID`, Postgres tenant DB). Async HTTP package and module install
+jobs stamp the request tenant on the job payload and opt in that tenant via
+`TerminologyInstallStoreFactory` (fallback: default/sync tenant when no owner is
+recorded).
+
+Server startup can install local modules and FHIR packages declaratively via
+`haistack.yaml` (`runtime.modulePaths`, `runtime.packages`). Installs are
+idempotent: completed package versions are tracked in `PackageInstallStore`
+(`CompletePackageInstall` records the first completion only; partial installs
+resume on restart). Databases upgraded before this table existed re-run install
+once on the next startup so `CompletePackageInstall` can record completion.
+Global terminology is not re-compiled when the resource already exists in `__global__`.
+Re-installing a completed package version only opts in absent terminology rows
+for the installing tenant.
+
+Pack-level enable validates every entry against the global catalog. Entries
+missing from `__global__` are skipped and returned as `warning` parameters;
+check `count` and `warning` in the response — `count: 0` with warnings is
+success, not an error, when every pack entry is absent from the global catalog.
 
 ## Scope and lifecycle
 
@@ -124,6 +150,15 @@ ValueSets and `__global__` for shared CodeSystems. Historical or retired
 versions remain readable when explicitly requested, but retired versions are
 excluded from current-version resolution.
 
+**SQLite multi-tenant note:** terminology opt-in rows are keyed by
+`sqliteTenantID` (sync tenant, default `local`), while the wired terminology
+overlay scope defaults to `sqliteTerminologyScope` (`default`). Authenticated
+HTTP requests use the principal's `tenantID` for both opt-in
+(`TerminologyInstallStoreFactory.ForTenant`) and terminology overlay scope, so
+multi-tenant single-process mode stays consistent without matching those config
+keys. Unauthenticated requests keep the wired overlay scope and default/sync
+tenant opt-in store.
+
 HTTP terminology operations are exposed when `TerminologyService` is wired:
 
 - `CodeSystem/$lookup`
@@ -134,5 +169,24 @@ Platform FHIR operations:
 
 - `POST /fhir/ImplementationGuide/$install` — async IG/package install
 - `POST /fhir/Basic/$install` — async local module install
-- `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress
+- `GET /fhir/Basic/{jobId}/$status` — poll background job status and progress; internal registry jobs stamp `principalId: "registry"` (synthetic owner, not a real user principal)
 - `POST /fhir/CapabilityStatement/$refresh` — hot-reload conformance state
+- `POST /fhir/Basic/$terminology-install` — rebuild projections; optional `preExpandValueSets=true`
+- `POST /fhir/Basic/$terminology-enable` — opt a tenant into a global CodeSystem or ValueSet, or a whole pack via `packName`/`packVersion` (requires global terminology store; validates catalog entries)
+
+## Optional ValueSet pre-expansion
+
+Finite packaged ValueSets can be pre-expanded at install time (opt-in via
+`haistack.yaml` `runtime.preExpandValueSets`, `runtime.Builder.WithPreExpandValueSets(true)`, or
+`Basic/$terminology-install?preExpandValueSets=true`). Registry package install
+enqueues one `registry.terminology.pre_expand_valuesets` job per package version
+(not per ValueSet) when at least one eligible ValueSet exists; bundled R4 core
+(`hl7.fhir.r4.core`) is excluded. REST definition writes via the FHIR API call
+`CompletePackageInstall` once per package version after bundle sync. Re-install
+resets a completed pack job to pending; duplicate pending jobs are skipped.
+Pre-expand jobs require `packName` and `packVersion` payload fields.
+Pre-expand skips ValueSets that already ship `expansion.contains`, already have
+matching `ExpansionFingerprint` members, exceed `MaxExpansion`, use unbounded
+compose heuristics (`ShouldEnqueuePreExpand`), or reference CodeSystems the
+tenant has not opted into. Runtime `$expand` prefers stored members and only
+composes when the projection is empty.

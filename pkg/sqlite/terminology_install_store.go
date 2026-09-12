@@ -107,6 +107,14 @@ func (s *TerminologyInstallStore) queryInstallRows(ctx context.Context, filter s
 		query += ` AND resource_type = ?`
 		args = append(args, filter.ResourceType)
 	}
+	if filter.CanonicalURL != "" {
+		query += ` AND canonical_url = ?`
+		args = append(args, filter.CanonicalURL)
+	}
+	if filter.Version != "" {
+		query += ` AND version = ?`
+		args = append(args, filter.Version)
+	}
 	query += ` ORDER BY canonical_url ASC, version ASC`
 
 	rows, err := s.exec.QueryContext(ctx, query, args...)

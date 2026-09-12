@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -62,8 +63,19 @@ type Config struct {
 	// TerminologyScope is the tenant scope passed to terminology operations.
 	TerminologyScope string
 
+	// TerminologyInstallFactory resolves per-tenant opt-in stores for HTTP
+	// terminology operations. When nil, wired default installs are used.
+	TerminologyInstallFactory store.TerminologyInstallStoreFactory
+
+	// DefaultTerminologyTenantID is the sync/default tenant when the request has
+	// no authenticated tenant (single-tenant dev and startup installs).
+	DefaultTerminologyTenantID string
+
 	// TerminologyInstallService handles Basic/$terminology-install.
 	TerminologyInstallService TerminologyInstallService
+
+	// TerminologyEnableService handles Basic/$terminology-enable.
+	TerminologyEnableService TerminologyEnableService
 
 	// ModuleInstallService handles Basic/$install.
 	ModuleInstallService ModuleInstallService

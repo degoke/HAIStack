@@ -8,6 +8,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
@@ -40,10 +41,13 @@ type Builder struct {
 	moduleAuthorizer      modules.InstallAuthorizer
 	moduleVerifier        modules.ModuleVerifier
 
-	modulePaths []string
-	httpAddr    string
+	modulePaths     []string
+	packageInstalls []packages.InstallSpec
+	httpAddr        string
 
 	remoteTerminologyURL string
+	preExpandValueSets   bool
+	maxExpansion         int
 }
 
 // New returns a new runtime builder.
@@ -75,6 +79,20 @@ func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
 // (for example https://tx.fhir.org/r4) as the final provider in the chain.
 func (b *Builder) WithRemoteTerminology(baseURL string) *Builder {
 	b.remoteTerminologyURL = strings.TrimSpace(baseURL)
+	return b
+}
+
+// WithPreExpandValueSets enqueues async ValueSet pre-expansion jobs when IG
+// packages install finite global ValueSets.
+func (b *Builder) WithPreExpandValueSets(enabled bool) *Builder {
+	b.preExpandValueSets = enabled
+	return b
+}
+
+// WithMaxExpansion sets the maximum ValueSet expansion size for terminology
+// services and pre-expand workers. Zero uses the default of 10000.
+func (b *Builder) WithMaxExpansion(max int) *Builder {
+	b.maxExpansion = max
 	return b
 }
 
@@ -206,6 +224,13 @@ func (b *Builder) WithModules(paths ...string) *Builder {
 		}
 		b.modulePaths = append(b.modulePaths, path)
 	}
+	return b
+}
+
+// WithPackageInstalls installs FHIR NPM packages or local IG directories at build time.
+// Already-installed package versions are skipped idempotently.
+func (b *Builder) WithPackageInstalls(specs ...packages.InstallSpec) *Builder {
+	b.packageInstalls = append(b.packageInstalls, specs...)
 	return b
 }
 

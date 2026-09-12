@@ -199,6 +199,10 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 					"name":       "terminology-install",
 					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-terminology-install",
 				},
+				map[string]string{
+					"name":       "terminology-enable",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-terminology-enable",
+				},
 			)
 		case "CapabilityStatement":
 			operations = append(operations, map[string]string{

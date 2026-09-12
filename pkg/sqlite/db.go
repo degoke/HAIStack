@@ -155,6 +155,11 @@ func (db *DB) RegistryInstallStore() *RegistryInstallStore {
 	return newRegistryInstallStore(db.sql)
 }
 
+// PackageInstallStore returns a connection-scoped package install completion store.
+func (db *DB) PackageInstallStore() *PackageInstallStore {
+	return newPackageInstallStore(db.sql)
+}
+
 // AuthStore returns a tenant-scoped auth persistence adapter.
 func (db *DB) AuthStore(tenantID string) *AuthStore {
 	return newAuthStore(db.sql, tenantID)

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
@@ -18,6 +19,22 @@ import (
 const DefaultFHIRVersion = "4.0.1"
 
 const defaultFHIRVersion = DefaultFHIRVersion
+
+// BundledCorePackageName is the package id for embedded R4 base definitions.
+// SeedBundled intentionally does not enqueue ValueSet pre-expand for this pack.
+const BundledCorePackageName = "hl7.fhir.r4.core"
+
+// ModulesPackageName is the prefix for haistack module package ids.
+const ModulesPackageName = "haistack-modules"
+
+// ModulesPackageID returns the package id for one module (haistack-modules/<name>).
+// Completion is tracked as ModulesPackageID(name)@manifestVersion.
+func ModulesPackageID(moduleName string) string {
+	if moduleName == "" {
+		return ModulesPackageName
+	}
+	return ModulesPackageName + "/" + moduleName
+}
 
 // Config configures a registry Manager.
 type Config struct {
@@ -31,6 +48,9 @@ type Config struct {
 	GlobalTerminology   store.TerminologyStore
 	TerminologyInstalls store.TerminologyInstallStore
 	TerminologyCache    terminology.Invalidator
+	JobStore            store.JobStore
+	PackageInstalls     store.PackageInstallStore
+	PreExpandValueSets  bool
 }
 
 // Manager seeds, installs, enables, and compiles the FHIR definition catalog.
@@ -45,6 +65,9 @@ type Manager struct {
 	globalTerminology   store.TerminologyStore
 	terminologyInstalls store.TerminologyInstallStore
 	terminologyCache    terminology.Invalidator
+	jobStore            store.JobStore
+	packageInstalls     store.PackageInstallStore
+	preExpandValueSets  bool
 	snapshot            *Snapshot
 	seedMu              sync.Mutex
 	seeded              bool
@@ -71,17 +94,21 @@ func NewManager(cfg Config) *Manager {
 		globalTerminology:   cfg.GlobalTerminology,
 		terminologyInstalls: cfg.TerminologyInstalls,
 		terminologyCache:    cfg.TerminologyCache,
+		jobStore:            cfg.JobStore,
+		packageInstalls:     cfg.PackageInstalls,
+		preExpandValueSets:  cfg.PreExpandValueSets,
 	}
 }
 
 func (m *Manager) terminologyTarget(resourceType string) (store.TerminologyStore, string) {
-	if resourceType == "CodeSystem" && m.globalTerminology != nil {
+	if m.globalTerminology != nil && (resourceType == "CodeSystem" || resourceType == "ValueSet") {
 		return m.globalTerminology, terminology.GlobalScopeID
 	}
 	return m.terminology, m.terminologyScope
 }
 
 // SeedBundled loads embedded R4 base definitions into the catalog idempotently.
+// Bundled core definitions never enqueue ValueSet pre-expand jobs; see BundledCorePackageName.
 func (m *Manager) SeedBundled(ctx context.Context) error {
 	m.seedMu.Lock()
 	defer m.seedMu.Unlock()
@@ -106,7 +133,7 @@ func (m *Manager) SeedBundled(ctx context.Context) error {
 			return fmt.Errorf("check bundled definition %s: %w", parsed.CanonicalURL, err)
 		}
 		if err := m.ingestDefinition(ctx, raw, InstallProvenance{
-			PackageName:    "hl7.fhir.r4.core",
+			PackageName:    BundledCorePackageName,
 			PackageVersion: m.fhirVersion,
 		}, false); err != nil {
 			return err
@@ -123,11 +150,11 @@ func (m *Manager) InstallDefinitionsFromFS(ctx context.Context, fsys fs.FS, root
 		return err
 	}
 	for _, raw := range resources {
-		if err := m.InstallDefinition(ctx, raw, provenance); err != nil {
+		if err := m.ingestDefinition(ctx, raw, provenance, true); err != nil {
 			return err
 		}
 	}
-	return nil
+	return m.CompletePackageInstall(ctx, provenance)
 }
 
 // InstallDefinitionsFromDir ingests every .json definition file under dir on the local filesystem.
@@ -140,6 +167,20 @@ func (m *Manager) InstallDefinition(ctx context.Context, jsonData []byte, proven
 	return m.ingestDefinition(ctx, jsonData, provenance, true)
 }
 
+// CompletePackageInstall enqueues one batched ValueSet pre-expand job for a package
+// after callers finish a loop of InstallDefinition calls and records completion.
+func (m *Manager) CompletePackageInstall(ctx context.Context, provenance InstallProvenance) error {
+	if err := m.enqueuePackPreExpand(ctx, provenance); err != nil {
+		return err
+	}
+	if m.packageInstalls != nil && provenance.PackageName != "" && provenance.PackageVersion != "" {
+		if err := m.packageInstalls.MarkComplete(ctx, provenance.PackageName, provenance.PackageVersion, m.now().UTC()); err != nil {
+			return fmt.Errorf("mark package install complete: %w", err)
+		}
+	}
+	return nil
+}
+
 // DeleteDefinition removes a catalog entry and its terminology projection.
 func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version string) error {
 	m.seedMu.Lock()
@@ -149,7 +190,7 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 	if err != nil {
 		return err
 	}
-	if m.terminology != nil && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
+	if (m.terminology != nil || m.globalTerminology != nil) && (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") {
 		termStore, termScope := m.terminologyTarget(r.FHIRResourceType)
 		if err := termStore.DeleteProjections(ctx, termScope, r.FHIRResourceType, canonicalURL, version); err != nil {
 			return err
@@ -159,15 +200,15 @@ func (m *Manager) DeleteDefinition(ctx context.Context, canonicalURL, version st
 		}
 		if m.terminologyCache != nil {
 			if r.FHIRResourceType == "CodeSystem" {
-				m.terminologyCache.InvalidateCodeSystem(canonicalURL, version)
+				m.terminologyCache.InvalidateCodeSystem(ctx, canonicalURL, version)
 			} else {
-				m.terminologyCache.InvalidateValueSet(canonicalURL, version)
+				m.terminologyCache.InvalidateValueSet(ctx, canonicalURL, version)
 			}
 		}
 	}
-	if r.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
+	if (r.FHIRResourceType == "CodeSystem" || r.FHIRResourceType == "ValueSet") && m.terminologyInstalls != nil {
 		if err := m.terminologyInstalls.Delete(ctx, store.TerminologyInstallFilter{
-			ResourceType: "CodeSystem",
+			ResourceType: r.FHIRResourceType,
 			CanonicalURL: canonicalURL,
 			Version:      version,
 		}); err != nil {
@@ -206,7 +247,7 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 	if err := m.definitions.Upsert(ctx, record, targets); err != nil {
 		return err
 	}
-	if m.terminology != nil && (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") {
+	if (m.terminology != nil || m.globalTerminology != nil) && (parsed.FHIRResourceType == "CodeSystem" || parsed.FHIRResourceType == "ValueSet") {
 		var meta struct {
 			ID string `json:"id"`
 		}
@@ -215,18 +256,32 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		}
 		termStore, termScope := m.terminologyTarget(parsed.FHIRResourceType)
 		tr := store.TerminologyResourceRecord{ScopeID: termScope, ResourceType: parsed.FHIRResourceType, ResourceID: meta.ID, CanonicalURL: parsed.CanonicalURL, Version: parsed.Version, Status: parsed.Status, ResourceJSON: append([]byte(nil), jsonData...), SourceModule: provenance.SourceModule}
-		if err := terminology.Install(ctx, termStore, tr); err != nil {
-			return fmt.Errorf("compile terminology: %w", err)
+		existing, err := termStore.FindResource(ctx, termScope, parsed.FHIRResourceType, parsed.CanonicalURL, parsed.Version)
+		if err != nil {
+			return fmt.Errorf("check terminology resource %s: %w", parsed.CanonicalURL, err)
 		}
-		if parsed.FHIRResourceType == "CodeSystem" && m.terminologyInstalls != nil {
-			if err := m.terminologyInstalls.UpsertInstall(ctx, store.TerminologyInstallRecord{
+		if existing == nil {
+			if err := terminology.Install(ctx, termStore, tr); err != nil {
+				return fmt.Errorf("compile terminology: %w", err)
+			}
+		}
+		installs := TerminologyInstallsFromContext(ctx)
+		if installs == nil {
+			installs = m.terminologyInstalls
+		}
+		if installs != nil {
+			sourceModule := provenance.SourceModule
+			if sourceModule == "" {
+				sourceModule = provenance.PackageName
+			}
+			if err := terminology.EnsureInstallOptIn(ctx, installs, store.TerminologyInstallRecord{
 				PackName:     provenance.PackageName,
 				PackVersion:  provenance.PackageVersion,
 				ResourceType: parsed.FHIRResourceType,
 				CanonicalURL: parsed.CanonicalURL,
 				Version:      parsed.Version,
 				Enabled:      true,
-				SourceModule: provenance.SourceModule,
+				SourceModule: sourceModule,
 				InstalledAt:  m.now().UTC(),
 			}); err != nil {
 				return err
@@ -234,9 +289,9 @@ func (m *Manager) ingestDefinition(ctx context.Context, jsonData []byte, provena
 		}
 		if m.terminologyCache != nil {
 			if parsed.FHIRResourceType == "CodeSystem" {
-				m.terminologyCache.InvalidateCodeSystem(parsed.CanonicalURL, parsed.Version)
+				m.terminologyCache.InvalidateCodeSystem(ctx, parsed.CanonicalURL, parsed.Version)
 			} else {
-				m.terminologyCache.InvalidateValueSet(parsed.CanonicalURL, parsed.Version)
+				m.terminologyCache.InvalidateValueSet(ctx, parsed.CanonicalURL, parsed.Version)
 			}
 		}
 	}
@@ -377,4 +432,35 @@ func (m *Manager) scheduleSearchReindex(ctx context.Context, resourceTypes ...st
 		return nil
 	}
 	return m.searchReindex.ScheduleReindex(ctx, resourceTypes...)
+}
+
+func (m *Manager) enqueuePackPreExpand(ctx context.Context, provenance InstallProvenance) error {
+	if !m.preExpandValueSets || m.jobStore == nil || provenance.PackageName == "" || provenance.PackageVersion == "" {
+		return nil
+	}
+	if provenance.PackageName == BundledCorePackageName {
+		return nil
+	}
+	listStore := m.terminology
+	if m.globalTerminology != nil {
+		listStore = m.globalTerminology
+	}
+	termScope := m.terminologyScope
+	if m.globalTerminology != nil {
+		termScope = terminology.GlobalScopeID
+	}
+	if m.definitions == nil || listStore == nil {
+		return nil
+	}
+	urls, err := terminology.EligiblePackPreExpandURLs(ctx, m.definitions, listStore, termScope, provenance.PackageName, provenance.PackageVersion)
+	if err != nil {
+		return fmt.Errorf("check pack pre-expand eligibility: %w", err)
+	}
+	if len(urls) == 0 {
+		return nil
+	}
+	if err := jobs.EnqueuePackPreExpand(ctx, m.jobStore, termScope, provenance.PackageName, provenance.PackageVersion, m.terminologyScope, m.now); err != nil {
+		return fmt.Errorf("enqueue pack pre-expand: %w", err)
+	}
+	return nil
 }

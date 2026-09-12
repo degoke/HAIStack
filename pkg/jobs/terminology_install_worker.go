@@ -10,9 +10,11 @@ import (
 
 // TerminologyInstallWorker handles registry.terminology.install jobs.
 type TerminologyInstallWorker struct {
-	Terminology store.TerminologyStore
-	ScopeID     string
-	JobStore    store.JobStore
+	Terminology  store.TerminologyStore
+	ScopeID      string
+	MaxExpansion int
+	Installs     store.TerminologyInstallStore
+	JobStore     store.JobStore
 }
 
 // HandleJob rebuilds terminology projections for the configured scope.
@@ -35,6 +37,24 @@ func (w *TerminologyInstallWorker) HandleJob(ctx context.Context, job store.JobR
 	_ = reporter.Update(ctx, Progress{Phase: "rebuild", Message: scope})
 	if err := terminology.Rebuild(ctx, w.Terminology, scope); err != nil {
 		return err
+	}
+	if payload.PreExpandValueSets {
+		_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Message: scope})
+		composeStore := terminology.StoreForScope(w.Terminology, w.ScopeID, w.Installs, scope)
+		results, err := terminology.PreExpandScope(ctx, w.Terminology, composeStore, scope, nil, terminology.PreExpandOptions{
+			MaxExpansion: w.MaxExpansion,
+			Installs:     w.Installs,
+		})
+		if err != nil {
+			return err
+		}
+		expanded := 0
+		for _, r := range results {
+			if !r.Skipped {
+				expanded++
+			}
+		}
+		return reporter.Complete(ctx, map[string]any{"scope": scope, "expanded": expanded, "results": results})
 	}
 	return reporter.Complete(ctx, map[string]string{"scope": scope})
 }
