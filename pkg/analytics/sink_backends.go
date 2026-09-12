@@ -45,6 +45,7 @@ type manifestExportSink struct {
 	executor      *view.Executor
 	actor         string
 	mu            sync.Mutex
+	lastRowCount  int
 }
 
 // NewManifestExportSink returns a sink that writes export payloads and advances watermarks.
@@ -73,6 +74,7 @@ func (s *manifestExportSink) WriteRows(ctx context.Context, result *view.Result)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastRowCount = 0
 	if err := s.writeFormatted(ctx, result); err != nil {
 		return err
 	}
@@ -82,17 +84,32 @@ func (s *manifestExportSink) WriteRows(ctx context.Context, result *view.Result)
 	return nil
 }
 
+// LastExportRowCount implements ExportRowCountSink.
+func (s *manifestExportSink) LastExportRowCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastRowCount
+}
+
 func (s *manifestExportSink) writeFormatted(ctx context.Context, result *view.Result) error {
 	switch s.format {
 	case FormatCSV:
 		return NewCSVSink(s.root).WriteRows(ctx, result)
 	case FormatParquet:
-		return NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
+		sink := NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
 			Writer:   s.root,
 			Layout:   s.parquetLayout,
 			Executor: s.executor,
 			Actor:    s.actor,
-		}).WriteRows(ctx, result)
+		})
+		if err := sink.WriteRows(ctx, result); err != nil {
+			return err
+		}
+		s.lastRowCount = sink.LastExportRowCount()
+		return nil
 	default:
 		return NewNDJSONSink(s.root).WriteRows(ctx, result)
 	}

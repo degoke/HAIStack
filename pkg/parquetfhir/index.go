@@ -47,6 +47,42 @@ func (idx *elementIndex) lookup(path, fieldName string) *validate.ElementDefinit
 	return nil
 }
 
+func (idx *elementIndex) resolveFieldType(path, fieldName, parentType string) string {
+	if el := idx.lookup(path, fieldName); el != nil {
+		if typ := elementType(el, fieldName, idx.choiceTypes); typ != "" {
+			return typ
+		}
+	}
+	if typ, ok := idx.choiceTypes[fieldName]; ok {
+		return typ
+	}
+	if typ := lookupDatatypeField(parentType, fieldName); typ != "" {
+		return typ
+	}
+	if typ := inferExtensionValueType(fieldName); typ != "" {
+		return typ
+	}
+	return ""
+}
+
+func nestedParentType(el *validate.ElementDefinition, fieldType string) string {
+	if fieldType != "" && !isPrimitiveFHIRType(fieldType) {
+		return normalizeFHIRType(fieldType)
+	}
+	if el == nil {
+		return ""
+	}
+	for _, typ := range el.Types {
+		if !isPrimitiveFHIRType(typ) {
+			return normalizeFHIRType(typ)
+		}
+	}
+	if len(el.Types) == 1 {
+		return normalizeFHIRType(el.Types[0])
+	}
+	return ""
+}
+
 func choiceBaseName(path string) string {
 	idx := strings.LastIndex(path, ".")
 	base := path

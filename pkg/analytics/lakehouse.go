@@ -89,6 +89,19 @@ func (s *lakehouseSink) LastArtifacts() []LakehouseArtifact {
 	return out
 }
 
+// LastExportRowCount implements ExportRowCountSink.
+func (s *lakehouseSink) LastExportRowCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.lastArtifacts) == 0 {
+		return 0
+	}
+	return s.lastArtifacts[0].RowCount
+}
+
 func (s *lakehouseSink) WriteRows(ctx context.Context, result *view.Result) error {
 	if s == nil {
 		return fmt.Errorf("%w: lakehouse sink is required", ErrUnsupportedDestination)

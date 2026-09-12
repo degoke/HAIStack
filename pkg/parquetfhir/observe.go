@@ -42,7 +42,9 @@ func (b *SchemaBuilder) ObserveResource(raw map[string]any) {
 		field := b.ensureChild(b.root, key)
 		path := b.index.resourceType + "." + key
 		el := b.index.lookup(path, key)
-		if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
+		if typ := b.index.resolveFieldType(path, key, ""); typ != "" {
+			field.fhirType = typ
+		} else if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
 			field.fhirType = typ
 		}
 		if el != nil && isRepeatingMax(el.Max) {
@@ -53,7 +55,7 @@ func (b *SchemaBuilder) ObserveResource(raw map[string]any) {
 			field.repeating = true
 			b.observeContained(field, value)
 		} else {
-			b.observe(field, path, value)
+			b.observe(field, path, field.fhirType, value)
 		}
 		b.observeAnnotations(b.root, field, key)
 	}
@@ -82,7 +84,7 @@ func (b *SchemaBuilder) observeAnnotations(parent, field *observedField, fieldNa
 	}
 }
 
-func (b *SchemaBuilder) observe(field *observedField, sdPath string, value any) {
+func (b *SchemaBuilder) observe(field *observedField, sdPath, parentType string, value any) {
 	switch v := value.(type) {
 	case []any:
 		field.repeating = true
@@ -90,7 +92,7 @@ func (b *SchemaBuilder) observe(field *observedField, sdPath string, value any) 
 			if item == nil {
 				continue
 			}
-			b.observeItem(field, sdPath, item)
+			b.observeItem(field, sdPath, parentType, item)
 		}
 	case map[string]any:
 		for _, key := range sortedKeys(v) {
@@ -101,7 +103,9 @@ func (b *SchemaBuilder) observe(field *observedField, sdPath string, value any) 
 			child := b.ensureChild(field, key)
 			childPath := sdPath + "." + key
 			el := b.index.lookup(childPath, key)
-			if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
+			if typ := b.index.resolveFieldType(childPath, key, parentType); typ != "" {
+				child.fhirType = typ
+			} else if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
 				child.fhirType = typ
 			}
 			if el != nil && isRepeatingMax(el.Max) {
@@ -112,13 +116,17 @@ func (b *SchemaBuilder) observe(field *observedField, sdPath string, value any) 
 				num := b.ensureChild(field, quantityValueNumericField())
 				num.fhirType = "decimalAnnotation"
 			}
-			b.observe(child, childPath, childValue)
+			nestedParent := parentType
+			if nested := nestedParentType(el, child.fhirType); nested != "" {
+				nestedParent = nested
+			}
+			b.observe(child, childPath, nestedParent, childValue)
 			b.observeAnnotations(field, child, key)
 		}
 	}
 }
 
-func (b *SchemaBuilder) observeItem(field *observedField, sdPath string, item any) {
+func (b *SchemaBuilder) observeItem(field *observedField, sdPath, parentType string, item any) {
 	switch v := item.(type) {
 	case map[string]any:
 		for _, key := range sortedKeys(v) {
@@ -129,13 +137,19 @@ func (b *SchemaBuilder) observeItem(field *observedField, sdPath string, item an
 			child := b.ensureChild(field, key)
 			childPath := sdPath + "." + key
 			el := b.index.lookup(childPath, key)
-			if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
+			if typ := b.index.resolveFieldType(childPath, key, parentType); typ != "" {
+				child.fhirType = typ
+			} else if typ := elementType(el, key, b.index.choiceTypes); typ != "" {
 				child.fhirType = typ
 			}
 			if el != nil && isRepeatingMax(el.Max) {
 				child.repeating = true
 			}
-			b.observe(child, childPath, childValue)
+			nestedParent := parentType
+			if nested := nestedParentType(el, child.fhirType); nested != "" {
+				nestedParent = nested
+			}
+			b.observe(child, childPath, nestedParent, childValue)
 			b.observeAnnotations(field, child, key)
 		}
 	}

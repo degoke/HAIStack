@@ -10,38 +10,25 @@ func (b *SchemaBuilder) observeContained(field *observedField, value any) {
 		if !ok || resource == nil {
 			continue
 		}
+		resourceType := stringOrEmpty(resource["resourceType"])
 		for _, key := range sortedKeys(resource) {
 			childValue := resource[key]
 			if childValue == nil {
 				continue
 			}
 			child := b.ensureChild(field, key)
+			childPath := resourceType + "." + key
 			if key == "resourceType" {
 				child.fhirType = "code"
+			} else if typ := b.index.resolveFieldType(childPath, key, resourceType); typ != "" {
+				child.fhirType = typ
 			}
-			b.observeValue(child, childValue)
-		}
-	}
-}
-
-func (b *SchemaBuilder) observeValue(field *observedField, value any) {
-	switch v := value.(type) {
-	case []any:
-		field.repeating = true
-		for _, item := range v {
-			if item == nil {
-				continue
+			nestedParent := resourceType
+			if nested := nestedParentType(nil, child.fhirType); nested != "" {
+				nestedParent = nested
 			}
-			b.observeItem(field, "", item)
-		}
-	case map[string]any:
-		for _, key := range sortedKeys(v) {
-			childValue := v[key]
-			if childValue == nil {
-				continue
-			}
-			child := b.ensureChild(field, key)
-			b.observeValue(child, childValue)
+			b.observe(child, childPath, nestedParent, childValue)
+			b.observeAnnotations(field, child, key)
 		}
 	}
 }

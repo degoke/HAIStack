@@ -3,6 +3,7 @@ package parquetfhir
 import (
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -11,17 +12,20 @@ func enrichAnnotations(row map[string]any, index *elementIndex) error {
 	if row == nil || index == nil {
 		return nil
 	}
-	return enrichMap(row, index.resourceType, index)
+	return enrichMap(row, index.resourceType, index, "")
 }
 
-func enrichMap(values map[string]any, sdPath string, index *elementIndex) error {
+func enrichMap(values map[string]any, sdPath string, index *elementIndex, parentType string) error {
 	for key, raw := range values {
 		if raw == nil || isAnnotationField(key) {
 			continue
 		}
 		path := sdPath + "." + key
 		el := index.lookup(path, key)
-		fhirType := elementType(el, key, index.choiceTypes)
+		fhirType := index.resolveFieldType(path, key, parentType)
+		if fhirType == "" {
+			fhirType = elementType(el, key, index.choiceTypes)
+		}
 
 		switch v := raw.(type) {
 		case string:
@@ -41,16 +45,26 @@ func enrichMap(values map[string]any, sdPath string, index *elementIndex) error 
 				values[annotationNumericField(key)] = numeric
 			}
 		case map[string]any:
-			if err := enrichQuantityGroup(key, v, values); err != nil {
-				return err
+			if fhirType == "Quantity" {
+				if err := enrichQuantityGroup(key, v, values); err != nil {
+					return err
+				}
 			}
-			if err := enrichMap(v, path, index); err != nil {
+			nestedParent := parentType
+			if nested := nestedParentType(el, fhirType); nested != "" {
+				nestedParent = nested
+			}
+			if err := enrichMap(v, path, index, nestedParent); err != nil {
 				return err
 			}
 		case []any:
 			for _, item := range v {
 				if m, ok := item.(map[string]any); ok {
-					if err := enrichMap(m, path, index); err != nil {
+					nestedParent := parentType
+					if nested := nestedParentType(el, fhirType); nested != "" {
+						nestedParent = nested
+					}
+					if err := enrichMap(m, path, index, nestedParent); err != nil {
 						return err
 					}
 				}
@@ -92,39 +106,76 @@ func enrichQuantityGroup(fieldName string, qty map[string]any, parent map[string
 func dateRange(raw, fhirType string) (time.Time, time.Time, error) {
 	switch normalizeFHIRType(fhirType) {
 	case "date":
-		t, err := time.Parse("2006-01-02", raw)
-		if err != nil {
-			return time.Time{}, time.Time{}, err
-		}
-		start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-		end := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 999000000, time.UTC)
-		return start, end, nil
+		return dateOnlyRange(raw)
 	case "dateTime", "instant":
-		t, err := parseDateTime(raw)
-		if err != nil {
-			return time.Time{}, time.Time{}, err
-		}
-		start := t.UTC()
-		end := start.Add(time.Second - time.Millisecond)
-		return start, end, nil
+		return dateTimeRange(raw)
 	default:
 		return time.Time{}, time.Time{}, fmt.Errorf("unsupported date type %q", fhirType)
 	}
 }
 
-func parseDateTime(raw string) (time.Time, error) {
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04:05",
+func dateOnlyRange(raw string) (time.Time, time.Time, error) {
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
 	}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return t, nil
+	start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	end := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 999000000, time.UTC)
+	return start, end, nil
+}
+
+func dateTimeRange(raw string) (time.Time, time.Time, error) {
+	switch len(raw) {
+	case 4:
+		start := time.Date(mustAtoi(raw), 1, 1, 0, 0, 0, 0, time.UTC)
+		end := time.Date(mustAtoi(raw), 12, 31, 23, 59, 59, 999000000, time.UTC)
+		return start, end, nil
+	case 7:
+		t, err := time.Parse("2006-01", raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+		end := start.AddDate(0, 1, 0).Add(-time.Millisecond)
+		return start, end, nil
+	case 10:
+		return dateOnlyRange(raw)
+	}
+
+	t, precision, err := parseDateTime(raw)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	start := t.UTC()
+	end := start.Add(precision).Add(-time.Millisecond)
+	return start, end, nil
+}
+
+func mustAtoi(raw string) int {
+	n, _ := strconv.Atoi(raw)
+	return n
+}
+
+func parseDateTime(raw string) (time.Time, time.Duration, error) {
+	layouts := []struct {
+		layout    string
+		precision time.Duration
+	}{
+		{time.RFC3339, time.Second},
+		{time.RFC3339Nano, time.Nanosecond},
+		{"2006-01-02T15:04:05Z07:00", time.Second},
+		{"2006-01-02T15:04:05", time.Second},
+		{"2006-01-02T15:04Z07:00", time.Minute},
+		{"2006-01-02T15:04Z", time.Minute},
+		{"2006-01-02T15Z07:00", time.Hour},
+		{"2006-01-02T15Z", time.Hour},
+	}
+	for _, item := range layouts {
+		if t, err := time.Parse(item.layout, raw); err == nil {
+			return t, item.precision, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("invalid dateTime %q", raw)
+	return time.Time{}, 0, fmt.Errorf("invalid dateTime %q", raw)
 }
 
 func decimalBytes(raw string) ([]byte, error) {

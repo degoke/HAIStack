@@ -17,11 +17,11 @@
 //   - Edge mode (ModeRefresh): FHIR -> ViewDefinition -> Postgres reporting tables.
 //     Full refresh only; each run replaces all rows for the view identity.
 //   - Cloud mode (ModeExport): FHIR -> ViewDefinition -> structured rows -> sink
-//     adapters. CSV is the only concrete sink in v1.
+//     adapters. CSV, NDJSON, flat Parquet, and Parquet-on-FHIR nested exports are supported.
 //
-// Warehouse, Parquet, incremental lake export, partitioning, and manifests are
-// explicitly deferred. Sink interfaces exist so later backends can be added
-// without changing the view execution path.
+// Warehouse refresh, lakehouse partitioning, and manifest export sinks are implemented
+// for Postgres analytics mode. Use ParquetLayout and Executor on parquet sinks for
+// _parquetLayout=fhir nested resource exports.
 //
 // # Public API
 //
@@ -103,15 +103,21 @@
 //	    },
 //	})
 //
-// Deferred sink interfaces (stub constructors return ErrSinkNotImplemented):
-// ParquetSink, WarehouseSink, LakehouseSink, ManifestExportSink.
+// Parquet, lakehouse, warehouse, and manifest sinks:
+//
+//	sink := analytics.NewParquetFileSinkWithConfig(analytics.ParquetFileSinkConfig{
+//	    Writer: &buf, Layout: view.ParquetLayoutFHIR, Executor: viewExec,
+//	})
+//	lake := analytics.NewLakehouseSink(analytics.LakehouseConfig{
+//	    RootDir: dir, ParquetLayout: view.ParquetLayoutFHIR, Executor: viewExec,
+//	})
 //
 // # Background jobs
 //
 // Runs are synchronous in v1 but shaped for pkg/jobs integration:
 //
 //   - analytics.refresh (jobs.TypeAnalyticsRefresh) with RefreshPayload
-//   - export.csv (jobs.TypeExportCSV) with ExportPayload
+//   - export.csv (jobs.TypeExportCSV) with ExportPayload (format + parquetLayout)
 //
 // Register handlers on a jobs.Runner:
 //

@@ -62,6 +62,62 @@ func TestWriteResourcesNestedPatientParquet(t *testing.T) {
 	assertColumn(t, file.Schema(), "telecom", "list", "element", "value")
 }
 
+func TestWriteResourcesObservationPartialEffectiveDateTime(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType":       "Observation",
+			"id":                 "obs-date",
+			"status":             "final",
+			"effectiveDateTime":  "2022-02-10",
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "effectiveDateTime")
+	assertColumn(t, schema, "__effectiveDateTime_start")
+	assertColumn(t, schema, "__effectiveDateTime_end")
+}
+
+func TestWriteResourcesExtensionValueDecimalAnnotation(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "ext-dec",
+			"extension": []any{
+				map[string]any{
+					"url":          "http://example.org/ext",
+					"valueDecimal": "12.345678",
+				},
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "extension", "list", "element", "valueDecimal")
+	assertColumn(t, schema, "extension", "list", "element", "__valueDecimal_numeric")
+}
+
+func TestWriteResourcesExtensionValueInteger(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "ext-int",
+			"extension": []any{
+				map[string]any{
+					"url":           "http://example.org/ext",
+					"valueInteger": 42,
+				},
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "extension", "list", "element", "valueInteger")
+}
+
 func TestWriteResourcesPatientContainedOrganization(t *testing.T) {
 	sd := bundledSD(t, "Patient")
 	resources := []map[string]any{

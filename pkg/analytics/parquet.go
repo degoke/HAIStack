@@ -10,10 +10,11 @@ import (
 
 // ParquetFileSink writes view rows as Apache Parquet binary.
 type ParquetFileSink struct {
-	w        io.Writer
-	layout   view.ParquetLayout
-	executor *view.Executor
-	actor    string
+	w            io.Writer
+	layout       view.ParquetLayout
+	executor     *view.Executor
+	actor        string
+	lastRowCount int
 }
 
 // ParquetFileSinkConfig configures ParquetFileSink encoding.
@@ -54,10 +55,20 @@ func (s *ParquetFileSink) WriteRows(ctx context.Context, result *view.Result) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor); err != nil {
+	rowCount, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor)
+	if err != nil {
 		return fmt.Errorf("write parquet: %w", err)
 	}
+	s.lastRowCount = rowCount
 	return ctx.Err()
+}
+
+// LastExportRowCount implements ExportRowCountSink.
+func (s *ParquetFileSink) LastExportRowCount() int {
+	if s == nil {
+		return 0
+	}
+	return s.lastRowCount
 }
 
 // NewParquetSink returns a ParquetFileSink-compatible RowSink.
