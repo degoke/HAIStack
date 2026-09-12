@@ -245,6 +245,46 @@ func TestLocalServiceInvalidateValueSetClearsScopedExpandCache(t *testing.T) {
 	}
 }
 
+func TestLocalServiceInvalidateValueSetClearsMemberLookupCache(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemoryStore()
+	cs := []byte(`{"resourceType":"CodeSystem","url":"urn:cs","version":"1","concept":[{"code":"a","display":"A"}]}`)
+	if err := Compile(ctx, m, "tenant-a", "", cs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "CodeSystem", CanonicalURL: "urn:cs", Version: "1", ResourceJSON: cs,
+	})
+	vs := []byte(`{"resourceType":"ValueSet","url":"urn:vs","version":"2","compose":{"include":[{"system":"urn:cs","concept":[{"code":"a"}]}]}}`)
+	if err := Compile(ctx, m, "tenant-a", "", vs); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: "tenant-a", ResourceType: "ValueSet", CanonicalURL: "urn:vs", Version: "2", ResourceJSON: vs,
+	})
+
+	svc := NewLocalService(m, "tenant-a")
+	ctxA := store.ContextWithTerminologyScope(ctx, "tenant-a")
+	got, err := svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
+	if err != nil || !got.Found || got.Concept.Display != "A" {
+		t.Fatalf("lookup=%+v err=%v", got, err)
+	}
+	if err := m.ReplaceCodeSystem(ctx, "tenant-a", "urn:cs", "1", []store.TerminologyConceptRecord{{
+		ScopeID: "tenant-a", SystemURL: "urn:cs", SystemVersion: "1", Code: "a", Display: "Alpha", Active: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
+	if err != nil || !got.Found || got.Concept.Display != "A" {
+		t.Fatalf("expected cached lookup display A, got=%+v err=%v", got, err)
+	}
+	svc.InvalidateValueSet("urn:vs", "2")
+	got, err = svc.Lookup(ctxA, LookupRequest{System: "urn:cs", Version: "1", Code: "a"})
+	if err != nil || !got.Found || got.Concept.Display != "Alpha" {
+		t.Fatalf("expected lookup refresh after ValueSet invalidation, got=%+v err=%v", got, err)
+	}
+}
+
 func TestLocalServiceLookupCacheIsolatedPerScope(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryStore()

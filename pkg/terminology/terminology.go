@@ -199,6 +199,91 @@ func expandCacheMatch(key, url, version string) bool {
 	return strings.Contains(key, "|"+url+"|")
 }
 
+type composeSystemRef struct {
+	System  string
+	Version string
+}
+
+func collectComposeCodeSystems(ctx context.Context, st store.TerminologyStore, scope, composeJSON string, seenVS map[string]bool, out map[string]string) error {
+	if composeJSON == "" {
+		return nil
+	}
+	var c map[string]any
+	if err := json.Unmarshal([]byte(composeJSON), &c); err != nil {
+		return err
+	}
+	inc, _ := c["include"].([]any)
+	for _, iv := range inc {
+		m, _ := iv.(map[string]any)
+		sys, _ := m["system"].(string)
+		ver, _ := m["version"].(string)
+		if sys != "" {
+			out[sys] = ver
+		}
+		for _, vsURL := range stringListField(m["valueSet"]) {
+			if seenVS[vsURL] {
+				continue
+			}
+			seenVS[vsURL] = true
+			vs, err := st.GetValueSet(ctx, scope, vsURL, "")
+			if err != nil {
+				return err
+			}
+			if vs == nil {
+				continue
+			}
+			if err := collectComposeCodeSystems(ctx, st, scope, vs.ComposeJSON, seenVS, out); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func stringListField(raw any) []string {
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func (s *LocalService) composeCodeSystemsForValueSet(ctx context.Context, url, version string) []composeSystemRef {
+	systems := map[string]string{}
+	seenVS := map[string]bool{url + "|" + version: true}
+	scopes := []string{s.ScopeID}
+	if s.ScopeID != GlobalScopeID {
+		scopes = append(scopes, GlobalScopeID)
+	}
+	for _, scope := range scopes {
+		vs, err := s.Store.GetValueSet(ctx, scope, url, version)
+		if err != nil || vs == nil || vs.ComposeJSON == "" {
+			continue
+		}
+		if err := collectComposeCodeSystems(ctx, s.Store, scope, vs.ComposeJSON, seenVS, systems); err != nil {
+			return nil
+		}
+		break
+	}
+	refs := make([]composeSystemRef, 0, len(systems))
+	for sys, ver := range systems {
+		refs = append(refs, composeSystemRef{System: sys, Version: ver})
+	}
+	return refs
+}
+
 func (s *LocalService) InvalidateCodeSystem(system, version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -210,11 +295,19 @@ func (s *LocalService) InvalidateCodeSystem(system, version string) {
 	s.expandCache = map[string]*Expansion{}
 }
 func (s *LocalService) InvalidateValueSet(url, version string) {
+	systems := s.composeCodeSystemsForValueSet(context.Background(), url, version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.expandCache {
 		if expandCacheMatch(k, url, version) {
 			delete(s.expandCache, k)
+		}
+	}
+	for _, sys := range systems {
+		for k := range s.lookupCache {
+			if lookupCacheMatch(k, sys.System, sys.Version) {
+				delete(s.lookupCache, k)
+			}
 		}
 	}
 }
