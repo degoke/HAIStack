@@ -61,11 +61,6 @@ func parseModuleInstallParameters(body []byte) (path string, upgradeOnly bool) {
 	return path, upgradeOnly
 }
 
-func parseTerminologyInstallScope(body []byte) string {
-	scope, _ := parseTerminologyInstallParameters(body)
-	return scope
-}
-
 func parseTerminologyInstallParameters(body []byte) (scopeID string, preExpand bool) {
 	if len(body) == 0 {
 		return "", false
