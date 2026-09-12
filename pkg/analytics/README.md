@@ -155,6 +155,8 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 }, jobs.EnqueueOptions{})
 ```
 
+`ExportHandler` and `ExportHandlerWithConfig` take an optional `*WatermarkStore` third argument (`nil` disables watermark auto-fill/advance). When configured, watermarks advance using `ResultMetadata.maxLastUpdated` from exported resources when present. See [CHANGELOG-parquet-analytics.md](../docs/CHANGELOG-parquet-analytics.md).
+
 ## Where it fits
 
 | Layer | Role |

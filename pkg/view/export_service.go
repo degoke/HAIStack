@@ -281,7 +281,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 
 	var files []ExportFile
 	writer := NewFileExportWriter(s.files, jobID)
-	var execErr error
+	var exportMaxUpdated time.Time
 	failJob := func(err error) error {
 		_ = s.files.DeleteJob(ctx, jobID)
 		job.Status = ExportError
@@ -300,20 +300,24 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		var rowCount int
 		if job.Request.Format == FormatParquet {
-			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout)
-			if execErr != nil {
-				return failJob(execErr)
+			var err error
+			rowCount, err, exportMaxUpdated = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout, exportMaxUpdated)
+			if err != nil {
+				return failJob(err)
 			}
 		} else {
 			result, execErr := s.executor.Execute(ctx, ExecuteRequest{
-				ViewName: target.ViewName,
-				Version:  target.Version,
-				Actor:    job.Request.Actor,
-				Since:    since,
+				ViewName:   target.ViewName,
+				Version:    target.Version,
+				Actor:      job.Request.Actor,
+				Subject:    job.Request.Subject,
+				Parameters: job.Request.Parameters,
+				Since:      since,
 			})
 			if execErr != nil {
 				return failJob(execErr)
 			}
+			exportMaxUpdated = LatestTimestamp(exportMaxUpdated, result.Metadata.MaxLastUpdated)
 			rowCount = len(result.Rows)
 			if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
 				return failJob(err)
@@ -339,9 +343,9 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 	}
 
 	if s.watermark != nil {
-		now := s.now()
+		advanceAt := WatermarkAdvanceTime(exportMaxUpdated, s.now())
 		for _, target := range job.Request.Views {
-			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, now); err != nil {
+			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, advanceAt); err != nil {
 				return failJob(err)
 			}
 		}
@@ -377,10 +381,11 @@ func (s *ExportService) writeParquetExportFile(
 	since time.Time,
 	req ViewExportRequest,
 	layout ParquetLayout,
-) (int, error) {
+	maxUpdated time.Time,
+) (int, error, time.Time) {
 	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
 	if err != nil {
-		return 0, fmt.Errorf("create temp parquet file: %w", err)
+		return 0, fmt.Errorf("create temp parquet file: %w", err), maxUpdated
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
@@ -395,23 +400,27 @@ func (s *ExportService) writeParquetExportFile(
 	}
 	var rowCount int
 	if layout == ParquetLayoutFHIR {
-		rowCount, _, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		var stats MatchingResourceStats
+		rowCount, stats, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		maxUpdated = LatestTimestamp(maxUpdated, stats.MaxLastUpdated)
 	} else {
-		rowCount, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+		var flatMax time.Time
+		rowCount, flatMax, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+		maxUpdated = LatestTimestamp(maxUpdated, flatMax)
 	}
 	if err != nil {
 		_ = tmp.Close()
-		return rowCount, err
+		return rowCount, err, maxUpdated
 	}
 	if err := tmp.Close(); err != nil {
-		return rowCount, err
+		return rowCount, err, maxUpdated
 	}
 	data, err := os.ReadFile(tmpPath)
 	if err != nil {
-		return rowCount, err
+		return rowCount, err, maxUpdated
 	}
 	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
-		return rowCount, err
+		return rowCount, err, maxUpdated
 	}
-	return rowCount, nil
+	return rowCount, nil, maxUpdated
 }

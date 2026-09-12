@@ -338,6 +338,8 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 			r.URL.Query().Get("_parquetLayout"),
 			r.URL.Query().Get("parquetLayout"),
 		)),
+		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
+		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
@@ -363,10 +365,33 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
+	views, subject, params, err := parseExportParametersBody(body)
+	if err != nil {
+		return req, err
+	}
+	if subject != "" {
+		req.Subject = subject
+	}
+	if len(params) > 0 {
+		req.Parameters = params
+	}
+	if len(views) > 0 {
+		req.Views = views
+	}
+	if len(req.Views) == 0 {
+		return req, invalidRequest("at least one view parameter is required", nil)
+	}
+	return req, nil
+}
+
+func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, map[string]any, error) {
 	var params struct {
 		Parameter []struct {
-			Name    string `json:"name"`
-			Part    []struct {
+			Name  string `json:"name"`
+			Value *struct {
+				String string `json:"valueString"`
+			} `json:"valueString"`
+			Part []struct {
 				Name  string `json:"name"`
 				Value *struct {
 					String string `json:"valueString"`
@@ -375,32 +400,41 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 		} `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return req, invalidRequest("invalid Parameters body", err)
+		return nil, "", nil, invalidRequest("invalid Parameters body", err)
 	}
+	var views []view.ViewExportTarget
+	subject := ""
+	operationParams := make(map[string]any)
 	for _, p := range params.Parameter {
-		if p.Name != "view" {
+		if p.Name == "view" {
+			target := view.ViewExportTarget{}
+			for _, part := range p.Part {
+				if part.Value == nil {
+					continue
+				}
+				switch part.Name {
+				case "viewName", "name":
+					target.ViewName = part.Value.String
+				case "version":
+					target.Version = part.Value.String
+				case "outputName":
+					target.OutputName = part.Value.String
+				}
+			}
+			if target.ViewName != "" {
+				views = append(views, target)
+			}
 			continue
 		}
-		target := view.ViewExportTarget{}
-		for _, part := range p.Part {
-			if part.Value == nil {
-				continue
-			}
-			switch part.Name {
-			case "viewName", "name":
-				target.ViewName = part.Value.String
-			case "version":
-				target.Version = part.Value.String
-			case "outputName":
-				target.OutputName = part.Value.String
-			}
+		if p.Value == nil {
+			continue
 		}
-		if target.ViewName != "" {
-			req.Views = append(req.Views, target)
+		switch p.Name {
+		case "subject":
+			subject = p.Value.String
+		default:
+			operationParams[p.Name] = p.Value.String
 		}
 	}
-	if len(req.Views) == 0 {
-		return req, invalidRequest("at least one view parameter is required", nil)
-	}
-	return req, nil
+	return views, subject, operationParams, nil
 }

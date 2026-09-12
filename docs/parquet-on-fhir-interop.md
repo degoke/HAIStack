@@ -38,3 +38,13 @@ View export and analytics FHIR parquet paths honor `ExecuteRequest.Since`. Analy
 ## Memory behavior
 
 `WriteResourcesStreaming` performs one candidate scan, observes schema from each resource, spills raw JSON to a temp NDJSON file, then encodes parquet in bounded row groups. Lakehouse blob uploads write parquet to a temp file before `BlobStore.Put` to avoid duplicating an in-memory buffer during encoding.
+
+### Sizing guidance
+
+| Stage | Peak memory driver |
+|-------|-------------------|
+| Resource scan + spill | One resource JSON + NDJSON encoder buffer |
+| Parquet encode | One row group of prepared rows (default 1000) |
+| Blob / export artifact upload | Full compressed parquet file loaded for `Put` |
+
+For moderate exports (tens of MB parquet), in-process buffering is fine. Multi-GB lakehouse loads should use filesystem partitions (`LakehouseConfig.RootDir`) or a future streaming blob upload API. `CollectMatchingResources` is deprecated for large exports because it retains every matching resource in RAM.
