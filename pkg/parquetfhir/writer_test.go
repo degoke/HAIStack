@@ -62,6 +62,27 @@ func TestWriteResourcesNestedPatientParquet(t *testing.T) {
 	assertColumn(t, file.Schema(), "telecom", "list", "element", "value")
 }
 
+func TestWriteResourcesPatientContainedOrganization(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "p-contained",
+			"contained": []any{
+				map[string]any{
+					"resourceType": "Organization",
+					"id":           "org-1",
+					"name":         "Acme Health",
+				},
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "contained", "list", "element", "name")
+	assertColumn(t, schema, "contained", "list", "element", "resourceType")
+}
+
 func TestWriteResourcesObservationQuantityAnnotations(t *testing.T) {
 	sd := bundledSD(t, "Observation")
 	resources := []map[string]any{
@@ -82,6 +103,28 @@ func TestWriteResourcesObservationQuantityAnnotations(t *testing.T) {
 	assertColumn(t, schema, "valueQuantity", "value")
 	assertColumn(t, schema, "valueQuantity", "__value_numeric")
 	assertColumn(t, schema, "__valueQuantity_canonical", "value")
+	assertColumn(t, schema, "__valueQuantity_canonical", "code")
+}
+
+func TestWriteResourcesObservationQuantityCanonicalKelvin(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType": "Observation",
+			"id":           "obs-temp",
+			"status":       "final",
+			"valueQuantity": map[string]any{
+				"value":  36.5,
+				"unit":   "C",
+				"system": "http://unitsofmeasure.org",
+				"code":   "Cel",
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "__valueQuantity_canonical", "value")
+	assertColumn(t, schema, "__valueQuantity_canonical", "unit")
 }
 
 func TestWriteResourcesExtensionAndPrimitiveWrapper(t *testing.T) {

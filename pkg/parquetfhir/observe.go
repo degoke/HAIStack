@@ -48,7 +48,13 @@ func (b *SchemaBuilder) ObserveResource(raw map[string]any) {
 		if el != nil && isRepeatingMax(el.Max) {
 			field.repeating = true
 		}
-		b.observe(field, path, value)
+		if key == "contained" {
+			field.fhirType = "Resource"
+			field.repeating = true
+			b.observeContained(field, value)
+		} else {
+			b.observe(field, path, value)
+		}
 		b.observeAnnotations(b.root, field, key)
 	}
 }

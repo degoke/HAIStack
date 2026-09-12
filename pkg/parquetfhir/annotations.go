@@ -79,14 +79,13 @@ func enrichQuantityGroup(fieldName string, qty map[string]any, parent map[string
 	}
 	qty[quantityValueNumericField()] = numeric
 
-	canonical := map[string]any{
-		"value":  decimalStr,
-		"code":   stringOrEmpty(qty["code"]),
-		"system": stringOrEmpty(qty["system"]),
-		"unit":   stringOrEmpty(qty["unit"]),
+	canonical, err := canonicalizeQuantity(qty)
+	if err != nil {
+		return err
 	}
-	canonical[quantityValueNumericField()] = numeric
-	parent[annotationCanonicalField(fieldName)] = canonical
+	if canonical != nil {
+		parent[annotationCanonicalField(fieldName)] = canonical
+	}
 	return nil
 }
 

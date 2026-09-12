@@ -10,12 +10,37 @@ import (
 
 // ParquetFileSink writes view rows as Apache Parquet binary.
 type ParquetFileSink struct {
-	w io.Writer
+	w        io.Writer
+	layout   view.ParquetLayout
+	executor *view.Executor
+	actor    string
 }
 
-// NewParquetFileSink returns a sink that writes parquet to w.
+// ParquetFileSinkConfig configures ParquetFileSink encoding.
+type ParquetFileSinkConfig struct {
+	Writer   io.Writer
+	Layout   view.ParquetLayout
+	Executor *view.Executor
+	Actor    string
+}
+
+// NewParquetFileSink returns a sink that writes flat-view parquet to w.
 func NewParquetFileSink(w io.Writer) *ParquetFileSink {
-	return &ParquetFileSink{w: w}
+	return &ParquetFileSink{w: w, layout: view.ParquetLayoutFlat}
+}
+
+// NewParquetFileSinkWithConfig returns a sink with optional Parquet-on-FHIR layout.
+func NewParquetFileSinkWithConfig(cfg ParquetFileSinkConfig) *ParquetFileSink {
+	layout := cfg.Layout
+	if layout == "" {
+		layout = view.ParquetLayoutFlat
+	}
+	return &ParquetFileSink{
+		w:        cfg.Writer,
+		layout:   layout,
+		executor: cfg.Executor,
+		actor:    cfg.Actor,
+	}
 }
 
 // WriteRows encodes view rows as Apache Parquet.
@@ -29,7 +54,7 @@ func (s *ParquetFileSink) WriteRows(ctx context.Context, result *view.Result) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := view.WriteParquetResult(s.w, result); err != nil {
+	if _, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor); err != nil {
 		return fmt.Errorf("write parquet: %w", err)
 	}
 	return ctx.Err()

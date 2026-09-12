@@ -25,8 +25,8 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | Incremental refresh (`_since`) | Supported | Search `_lastUpdated=gt...`, envelope `LastUpdated`, export watermarks advanced only after successful refresh/export |
 | IG ViewDefinition install | Supported | `packages.Installer` registers views; async via job queue when present, otherwise `DirectPackageInstallService` runs synchronously |
 | Arbitrary SQL backend | Supported | `$sqlquery-run` over reporting tables; in-process SQLite for ad hoc SELECT; requires a reporting store (Postgres analytics mode) |
-| Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; flat view Apache Parquet binary (`application/vnd.apache.parquet`); lakehouse writes `{partition}/{view}-{version}.parquet` to filesystem or blob store |
-| Parquet-on-FHIR nested resource export | Supported | `_parquetLayout=fhir` on `$viewdefinition-run` and `$viewdefinition-export`; schema derived from base StructureDefinition via `pkg/parquetfhir` |
+| Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; flat view Apache Parquet binary (`application/vnd.apache.parquet`); lakehouse writes `{partition}/{view}-{version}.parquet` to filesystem or blob store; `_parquetLayout=fhir` on lakehouse and manifest parquet sinks |
+| Parquet-on-FHIR nested resource export | Supported | `_parquetLayout=fhir` on `$viewdefinition-run` and `$viewdefinition-export`; schema derived from base StructureDefinition via `pkg/parquetfhir`; UCUM quantity canonicalization, contained resources, date/decimal annotations |
 | SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; legacy `analytics.view.*` cursors migrate to watermarks on first read; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
 
 ## Runtime availability
@@ -52,7 +52,9 @@ Configure durable view export artifacts and async job metadata with `runtime.Bui
 
 Parquet export supports two layouts via `_parquetLayout`:
 - `flat` (default): ViewDefinition column schemas streamed through `WriteParquetExport`.
-- `fhir`: Full Parquet-on-FHIR nested resource layout from base StructureDefinitions (`pkg/parquetfhir`), including LIST/GROUP nesting, choice types, extensions, primitive wrappers (`_field`), and annotations (`__field_start/end`, `__field_numeric`, `__fieldQuantity_canonical`).
+- `fhir`: Full Parquet-on-FHIR nested resource layout from base StructureDefinitions (`pkg/parquetfhir`), including LIST/GROUP nesting, choice types, extensions, primitive wrappers (`_field`), contained resources, UCUM quantity canonical groups, and annotations (`__field_start/end`, `__field_numeric`, `__fieldQuantity_canonical`). Timestamp annotations use Parquet TIMESTAMP(MILLIS) on INT64 (compatible with spec INT96 semantics).
+
+Analytics lakehouse and manifest parquet sinks accept `ParquetLayout` / `ParquetLayout` + `Executor` on `LakehouseConfig` and `ManifestExportConfig` for the same FHIR layout.
 
 ## References
 

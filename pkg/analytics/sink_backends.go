@@ -29,16 +29,22 @@ func (s *warehouseSink) WriteRows(ctx context.Context, result *view.Result) erro
 
 // ManifestExportConfig configures cursor-based manifest export.
 type ManifestExportConfig struct {
-	Root      io.Writer
-	Watermark *WatermarkStore
-	Format    ExportFormat
+	Root          io.Writer
+	Watermark     *WatermarkStore
+	Format        ExportFormat
+	ParquetLayout view.ParquetLayout
+	Executor      *view.Executor
+	Actor         string
 }
 
 type manifestExportSink struct {
-	root      io.Writer
-	watermark *WatermarkStore
-	format    ExportFormat
-	mu        sync.Mutex
+	root          io.Writer
+	watermark     *WatermarkStore
+	format        ExportFormat
+	parquetLayout view.ParquetLayout
+	executor      *view.Executor
+	actor         string
+	mu            sync.Mutex
 }
 
 // NewManifestExportSink returns a sink that writes export payloads and advances watermarks.
@@ -47,10 +53,17 @@ func NewManifestExportSink(cfg ManifestExportConfig) ManifestExportSink {
 	if format == "" {
 		format = FormatNDJSON
 	}
+	layout := cfg.ParquetLayout
+	if layout == "" {
+		layout = view.ParquetLayoutFlat
+	}
 	return &manifestExportSink{
-		root:      cfg.Root,
-		watermark: cfg.Watermark,
-		format:    format,
+		root:          cfg.Root,
+		watermark:     cfg.Watermark,
+		format:        format,
+		parquetLayout: layout,
+		executor:      cfg.Executor,
+		actor:         cfg.Actor,
 	}
 }
 
@@ -74,7 +87,12 @@ func (s *manifestExportSink) writeFormatted(ctx context.Context, result *view.Re
 	case FormatCSV:
 		return NewCSVSink(s.root).WriteRows(ctx, result)
 	case FormatParquet:
-		return NewParquetSink(s.root).WriteRows(ctx, result)
+		return NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
+			Writer:   s.root,
+			Layout:   s.parquetLayout,
+			Executor: s.executor,
+			Actor:    s.actor,
+		}).WriteRows(ctx, result)
 	default:
 		return NewNDJSONSink(s.root).WriteRows(ctx, result)
 	}

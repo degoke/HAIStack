@@ -34,6 +34,12 @@ type LakehouseConfig struct {
 	BlobPrefix string
 	// PartitionBy derives the partition path for a view result.
 	PartitionBy func(*view.Result) string
+	// ParquetLayout selects flat view columns or Parquet-on-FHIR nested resources.
+	ParquetLayout view.ParquetLayout
+	// Executor is required when ParquetLayout is fhir.
+	Executor *view.Executor
+	// Actor is forwarded to FHIR resource export authorization.
+	Actor string
 }
 
 type lakehouseSink struct {
@@ -96,33 +102,38 @@ func (s *lakehouseSink) WriteRows(ctx context.Context, result *view.Result) erro
 
 	partition := s.partitionBy(result)
 	filename := lakehouseFilename(result)
-	artifact := LakehouseArtifact{Partition: partition, RowCount: len(result.Rows)}
+	artifact := LakehouseArtifact{Partition: partition}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var rowCount int
+	var err error
 	switch {
 	case strings.TrimSpace(s.cfg.RootDir) != "":
-		location, err := writeLakehouseParquetFile(s.cfg.RootDir, partition, filename, result)
-		if err != nil {
-			return err
+		var location string
+		location, rowCount, err = writeLakehouseParquetFile(ctx, s.cfg.RootDir, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		if err == nil {
+			artifact.Location = location
 		}
-		artifact.Location = location
 	case s.cfg.Blob != nil:
-		location, err := writeLakehouseParquetBlob(ctx, s.cfg.Blob, s.cfg.BlobPrefix, partition, filename, result)
-		if err != nil {
-			return err
+		var location string
+		location, rowCount, err = writeLakehouseParquetBlob(ctx, s.cfg.Blob, s.cfg.BlobPrefix, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		if err == nil {
+			artifact.Location = location
 		}
-		artifact.Location = location
 	case s.cfg.Root != nil:
-		if err := view.WriteParquetResult(s.cfg.Root, result); err != nil {
-			return fmt.Errorf("write lakehouse parquet: %w", err)
+		rowCount, err = writeParquet(ctx, s.cfg.Root, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		if err == nil {
+			artifact.Location = "stream:" + filename
 		}
-		artifact.Location = "stream:" + filename
 	default:
 		return fmt.Errorf("%w: lakehouse writer is required", ErrUnsupportedDestination)
 	}
-
+	if err != nil {
+		return err
+	}
+	artifact.RowCount = rowCount
 	s.lastArtifacts = []LakehouseArtifact{artifact}
 	return ctx.Err()
 }
@@ -141,24 +152,32 @@ func lakehouseFilename(result *view.Result) string {
 	return fmt.Sprintf("%s-%s.parquet", viewName, version)
 }
 
-func writeLakehouseParquetFile(rootDir, partition, filename string, result *view.Result) (string, error) {
+func writeLakehouseParquetFile(
+	ctx context.Context,
+	rootDir, partition, filename string,
+	result *view.Result,
+	layout view.ParquetLayout,
+	executor *view.Executor,
+	actor string,
+) (string, int, error) {
 	dir := filepath.Join(rootDir, filepath.FromSlash(partition))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create lakehouse partition dir: %w", err)
+		return "", 0, fmt.Errorf("create lakehouse partition dir: %w", err)
 	}
 	location := filepath.Join(dir, filename)
 	file, err := os.Create(location)
 	if err != nil {
-		return "", fmt.Errorf("create lakehouse parquet file: %w", err)
+		return "", 0, fmt.Errorf("create lakehouse parquet file: %w", err)
 	}
-	if err := view.WriteParquetResult(file, result); err != nil {
+	rowCount, err := writeParquet(ctx, file, result, layout, executor, actor)
+	if err != nil {
 		_ = file.Close()
-		return "", err
+		return "", rowCount, err
 	}
 	if err := file.Close(); err != nil {
-		return "", err
+		return "", rowCount, err
 	}
-	return location, nil
+	return location, rowCount, nil
 }
 
 func writeLakehouseParquetBlob(
@@ -166,10 +185,14 @@ func writeLakehouseParquetBlob(
 	blob store.BlobStore,
 	prefix, partition, filename string,
 	result *view.Result,
-) (string, error) {
+	layout view.ParquetLayout,
+	executor *view.Executor,
+	actor string,
+) (string, int, error) {
 	var buf bytes.Buffer
-	if err := view.WriteParquetResult(&buf, result); err != nil {
-		return "", err
+	rowCount, err := writeParquet(ctx, &buf, result, layout, executor, actor)
+	if err != nil {
+		return "", rowCount, err
 	}
 	key := path.Join(strings.Trim(prefix, "/"), partition, filename)
 	if err := blob.Put(ctx, store.BlobObject{
@@ -178,7 +201,7 @@ func writeLakehouseParquetBlob(
 		Size:        int64(buf.Len()),
 		Data:        buf.Bytes(),
 	}); err != nil {
-		return "", fmt.Errorf("put lakehouse parquet blob: %w", err)
+		return "", rowCount, fmt.Errorf("put lakehouse parquet blob: %w", err)
 	}
-	return key, nil
+	return key, rowCount, nil
 }

@@ -59,12 +59,13 @@ type ViewExportJob struct {
 
 // ExportFile describes one exported artifact.
 type ExportFile struct {
-	ViewName   string `json:"viewName"`
-	Version    string `json:"version"`
-	OutputName string `json:"outputName"`
-	Filename   string `json:"filename"`
-	RowCount   int    `json:"rowCount"`
-	Format     string `json:"format"`
+	ViewName       string        `json:"viewName"`
+	Version        string        `json:"version"`
+	OutputName     string        `json:"outputName"`
+	Filename       string        `json:"filename"`
+	RowCount       int           `json:"rowCount"`
+	Format         string        `json:"format"`
+	ParquetLayout  ParquetLayout `json:"parquetLayout,omitempty"`
 }
 
 // ViewExportJobStore persists export jobs.
@@ -316,14 +317,22 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 				return failJob(err)
 			}
 		}
-		files = append(files, ExportFile{
+		file := ExportFile{
 			ViewName:   target.ViewName,
 			Version:    target.Version,
 			OutputName: outputName,
 			Filename:   filename,
 			RowCount:   rowCount,
 			Format:     string(job.Request.Format),
-		})
+		}
+		if job.Request.Format == FormatParquet {
+			layout := job.Request.ParquetLayout
+			if layout == "" {
+				layout = ParquetLayoutFlat
+			}
+			file.ParquetLayout = layout
+		}
+		files = append(files, file)
 		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
 	}
 
