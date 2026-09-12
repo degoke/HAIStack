@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -39,6 +40,43 @@ func TestRunnerSkipsFlatExecuteForFHIRParquetExport(t *testing.T) {
 	}
 	if !view.IsParquetFile(buf.Bytes()) {
 		t.Fatal("expected parquet output")
+	}
+}
+
+func TestRunnerFHIRParquetExportRespectsSince(t *testing.T) {
+	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	jane := patientJane(t)
+	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	john := patientJohn(t)
+	john.LastUpdated = time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	resources := newMemResourceStore()
+	resources.Seed(t, jane, john)
+	exec := newFHIRExecutorWithStore(t, resources)
+
+	runner, err := analytics.NewRunner(analytics.Config{Executor: exec})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	var buf bytes.Buffer
+	sink := analytics.NewParquetFileSinkWithConfig(analytics.ParquetFileSinkConfig{
+		Writer:   &buf,
+		Layout:   view.ParquetLayoutFHIR,
+		Executor: exec,
+	})
+	result, err := runner.Run(context.Background(), analytics.RunRequest{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Mode:     analytics.ModeExport,
+		Since:    cutoff,
+		Destination: analytics.Destination{
+			Sink: sink,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.RowCount != 1 {
+		t.Fatalf("rowCount=%d, want 1 after since filter", result.RowCount)
 	}
 }
 

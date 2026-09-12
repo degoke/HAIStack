@@ -31,24 +31,19 @@ func enrichMap(values map[string]any, sdPath string, index *elementIndex, parent
 		case string:
 			if isDateLikeType(fhirType) {
 				start, end, err := dateRange(v, fhirType)
-				if err != nil {
-					return fmt.Errorf("%s: %w", key, err)
+				if err == nil {
+					values[annotationStartField(key)] = start
+					values[annotationEndField(key)] = end
 				}
-				values[annotationStartField(key)] = start
-				values[annotationEndField(key)] = end
 			}
 			if isDecimalType(fhirType) {
-				numeric, err := decimalBytes(v)
-				if err != nil {
-					return fmt.Errorf("%s numeric: %w", key, err)
+				if numeric, err := decimalBytes(v); err == nil {
+					values[annotationNumericField(key)] = numeric
 				}
-				values[annotationNumericField(key)] = numeric
 			}
 		case map[string]any:
 			if fhirType == "Quantity" {
-				if err := enrichQuantityGroup(key, v, values); err != nil {
-					return err
-				}
+				enrichQuantityGroup(key, v, values)
 			}
 			nestedParent := parentType
 			if nested := nestedParentType(el, fhirType); nested != "" {
@@ -74,33 +69,27 @@ func enrichMap(values map[string]any, sdPath string, index *elementIndex, parent
 	return nil
 }
 
-func enrichQuantityGroup(fieldName string, qty map[string]any, parent map[string]any) error {
+func enrichQuantityGroup(fieldName string, qty map[string]any, parent map[string]any) {
 	if qty == nil {
-		return nil
+		return
 	}
 	rawValue, ok := qty["value"]
 	if !ok || rawValue == nil {
-		return nil
+		return
 	}
 	decimalStr, err := coerceDecimalString(rawValue)
 	if err != nil {
-		return fmt.Errorf("quantity value: %w", err)
+		return
 	}
 	qty["value"] = decimalStr
-	numeric, err := decimalBytes(decimalStr)
-	if err != nil {
-		return err
+	if numeric, err := decimalBytes(decimalStr); err == nil {
+		qty[quantityValueNumericField()] = numeric
 	}
-	qty[quantityValueNumericField()] = numeric
 
 	canonical, err := canonicalizeQuantity(qty)
-	if err != nil {
-		return err
-	}
-	if canonical != nil {
+	if err == nil && canonical != nil {
 		parent[annotationCanonicalField(fieldName)] = canonical
 	}
-	return nil
 }
 
 func dateRange(raw, fhirType string) (time.Time, time.Time, error) {
@@ -127,8 +116,12 @@ func dateOnlyRange(raw string) (time.Time, time.Time, error) {
 func dateTimeRange(raw string) (time.Time, time.Time, error) {
 	switch len(raw) {
 	case 4:
-		start := time.Date(mustAtoi(raw), 1, 1, 0, 0, 0, 0, time.UTC)
-		end := time.Date(mustAtoi(raw), 12, 31, 23, 59, 59, 999000000, time.UTC)
+		year, err := parseYear(raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		start := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+		end := time.Date(year, 12, 31, 23, 59, 59, 999000000, time.UTC)
 		return start, end, nil
 	case 7:
 		t, err := time.Parse("2006-01", raw)
@@ -151,9 +144,12 @@ func dateTimeRange(raw string) (time.Time, time.Time, error) {
 	return start, end, nil
 }
 
-func mustAtoi(raw string) int {
-	n, _ := strconv.Atoi(raw)
-	return n
+func parseYear(raw string) (int, error) {
+	year, err := strconv.Atoi(raw)
+	if err != nil || year < 1 || year > 9999 {
+		return 0, fmt.Errorf("invalid year %q", raw)
+	}
+	return year, nil
 }
 
 func parseDateTime(raw string) (time.Time, time.Duration, error) {
@@ -210,9 +206,9 @@ func coerceDecimalString(raw any) (string, error) {
 	case string:
 		return v, nil
 	case float64:
-		return fmt.Sprintf("%g", v), nil
+		return ratFloatString(v), nil
 	case float32:
-		return fmt.Sprintf("%g", v), nil
+		return ratFloatString(float64(v)), nil
 	case int:
 		return fmt.Sprintf("%d", v), nil
 	case int64:
@@ -222,6 +218,10 @@ func coerceDecimalString(raw any) (string, error) {
 	default:
 		return fmt.Sprint(v), nil
 	}
+}
+
+func ratFloatString(v float64) string {
+	return new(big.Rat).SetFloat64(v).FloatString(6)
 }
 
 func stringOrEmpty(raw any) string {

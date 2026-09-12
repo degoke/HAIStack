@@ -26,7 +26,7 @@ This document maps the HAIStack ViewDefinition implementation in `pkg/view` to t
 | IG ViewDefinition install | Supported | `packages.Installer` registers views; async via job queue when present, otherwise `DirectPackageInstallService` runs synchronously |
 | Arbitrary SQL backend | Supported | `$sqlquery-run` over reporting tables; in-process SQLite for ad hoc SELECT; requires a reporting store (Postgres analytics mode) |
 | Partitioned output / lakehouse sinks | Supported | `LakehouseSink`, `WarehouseSink`, `ManifestExportSink`; flat view Apache Parquet binary (`application/vnd.apache.parquet`); lakehouse writes `{partition}/{view}-{version}.parquet` to filesystem or blob store; `_parquetLayout=fhir` on lakehouse and manifest parquet sinks |
-| Parquet-on-FHIR nested resource export | Supported | `_parquetLayout=fhir` on `$viewdefinition-run` and `$viewdefinition-export`; two-pass streaming export; profile-aware schema merge from `meta.profile`; UCUM canonicalization (temperature, length, mass); contained resources; nested Extension/Period typing; partial FHIR dateTime ranges |
+| Parquet-on-FHIR nested resource export | Supported | `_parquetLayout=fhir` on `$viewdefinition-run` and `$viewdefinition-export`; single-pass streaming export; profile-aware schema merge from `meta.profile`; UCUM canonicalization (temperature, length, mass); contained resources; nested Extension/Period typing; partial FHIR dateTime ranges. See [parquet-on-fhir-interop.md](./parquet-on-fhir-interop.md) for compatibility matrix. |
 | SQL-on-FHIR watermark / change detection | Supported | `analytics.WatermarkStore`; legacy `analytics.view.*` cursors migrate to watermarks on first read; CDC enqueues refresh jobs; watermarks advance in the refresh/export handler after success |
 
 ## Runtime availability
@@ -60,4 +60,5 @@ Analytics lakehouse and manifest parquet sinks accept `ParquetLayout` / `Parquet
 
 - HAIStack view engine: `pkg/view/README.md`
 - Analytics pipeline: `pkg/analytics/README.md`
+- Parquet-on-FHIR interop profile: [parquet-on-fhir-interop.md](./parquet-on-fhir-interop.md)
 - HL7 SQL-on-FHIR IG: https://build.fhir.org/ig/HL7/fhir-analytics/

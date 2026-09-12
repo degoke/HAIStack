@@ -30,6 +30,13 @@ func bundledPatientCatalog(t *testing.T) validate.MemoryProfileCatalog {
 
 func newFHIRExecutor(t *testing.T) *view.Executor {
 	t.Helper()
+	resources := newMemResourceStore()
+	resources.Seed(t, patientJane(t), patientJohn(t))
+	return newFHIRExecutorWithStore(t, resources)
+}
+
+func newFHIRExecutorWithStore(t *testing.T, resources *memResourceStore) *view.Executor {
+	t.Helper()
 	engine, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
 		t.Fatalf("engine: %v", err)
@@ -38,8 +45,6 @@ func newFHIRExecutor(t *testing.T) *view.Executor {
 	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	resources := newMemResourceStore()
-	resources.Seed(t, patientJane(t), patientJohn(t))
 	exec, err := view.NewExecutor(view.Config{
 		Resources:      resources,
 		Engine:         engine,

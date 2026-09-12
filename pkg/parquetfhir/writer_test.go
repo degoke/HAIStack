@@ -11,6 +11,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 )
 
 func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition {
@@ -28,6 +29,61 @@ func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition 
 		t.Fatalf("missing %s StructureDefinition", resourceType)
 	}
 	return sd
+}
+
+func TestInteropSpecPatientExampleSchema(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "example",
+			"birthDate":    "1970-01-01",
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "resourceType")
+	assertColumn(t, schema, "id")
+	assertColumn(t, schema, "birthDate")
+	assertColumnKind(t, schema, parquet.ByteArray, "birthDate")
+	assertColumn(t, schema, "__birthDate_start")
+	assertColumn(t, schema, "__birthDate_end")
+	assertColumnKind(t, schema, parquet.Int64, "__birthDate_start")
+	assertColumnKind(t, schema, parquet.Int64, "__birthDate_end")
+	assertColumnTimestampMillis(t, schema, "__birthDate_start")
+	assertColumnTimestampMillis(t, schema, "__birthDate_end")
+}
+
+func TestInteropSpecObservationExampleSchema(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType":      "Observation",
+			"id":                "obs-spec",
+			"status":            "final",
+			"effectiveDateTime": "2022-02-10",
+			"valueQuantity": map[string]any{
+				"value":  36.5,
+				"unit":   "C",
+				"system": "http://unitsofmeasure.org",
+				"code":   "Cel",
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources)
+	schema := mustOpenSchema(t, data)
+	assertColumn(t, schema, "effectiveDateTime")
+	assertColumnKind(t, schema, parquet.ByteArray, "effectiveDateTime")
+	assertColumn(t, schema, "__effectiveDateTime_start")
+	assertColumnKind(t, schema, parquet.Int64, "__effectiveDateTime_start")
+	assertColumnTimestampMillis(t, schema, "__effectiveDateTime_start")
+	assertColumn(t, schema, "valueQuantity", "value")
+	assertColumnKind(t, schema, parquet.ByteArray, "valueQuantity", "value")
+	assertColumn(t, schema, "valueQuantity", "__value_numeric")
+	assertColumnKind(t, schema, parquet.FixedLenByteArray, "valueQuantity", "__value_numeric")
+	assertColumnDecimal(t, schema, 38, 6, "valueQuantity", "__value_numeric")
+	assertColumn(t, schema, "__valueQuantity_canonical", "value")
+	assertColumnKind(t, schema, parquet.ByteArray, "__valueQuantity_canonical", "value")
 }
 
 func TestWriteResourcesNestedPatientParquet(t *testing.T) {
@@ -243,7 +299,7 @@ func TestSchemaBuilderChoiceTypes(t *testing.T) {
 	}
 }
 
-func TestWriteResourcesStreamingTwoPassReplay(t *testing.T) {
+func TestWriteResourcesStreamingSinglePassCollection(t *testing.T) {
 	sd := bundledSD(t, "Patient")
 	pass := 0
 	resources := []map[string]any{
@@ -259,8 +315,8 @@ func TestWriteResourcesStreamingTwoPassReplay(t *testing.T) {
 		}
 		return nil
 	})
-	if pass != 2 {
-		t.Fatalf("passes=%d, want 2", pass)
+	if pass != 1 {
+		t.Fatalf("passes=%d, want 1", pass)
 	}
 	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
 	if err != nil {
@@ -324,6 +380,61 @@ func assertColumn(t *testing.T, schema *parquet.Schema, parts ...string) {
 		}
 	}
 	t.Fatalf("column not found: %v in %#v", parts, schema.Columns())
+}
+
+func assertColumnKind(t *testing.T, schema *parquet.Schema, want parquet.Kind, parts ...string) {
+	t.Helper()
+	leaf, ok := schema.Lookup(parts...)
+	if !ok {
+		t.Fatalf("column not found for kind check: %v", parts)
+	}
+	if got := leaf.Node.Type().Kind(); got != want {
+		t.Fatalf("column %v kind=%s, want %s", parts, got, want)
+	}
+}
+
+func assertColumnTimestampMillis(t *testing.T, schema *parquet.Schema, parts ...string) {
+	t.Helper()
+	leaf, ok := schema.Lookup(parts...)
+	if !ok {
+		t.Fatalf("column not found for timestamp check: %v", parts)
+	}
+	lt := leaf.Node.Type().LogicalType()
+	if lt == nil {
+		t.Fatalf("column %v missing logical type", parts)
+	}
+	ts, ok := lt.Value.(*format.TimestampType)
+	if !ok {
+		t.Fatalf("column %v logical type=%T, want TIMESTAMP", parts, lt.Value)
+	}
+	if !ts.IsAdjustedToUTC {
+		t.Fatalf("column %v TIMESTAMP not UTC-adjusted", parts)
+	}
+	if _, ok := ts.Unit.Value.(*format.MilliSeconds); !ok {
+		t.Fatalf("column %v TIMESTAMP unit=%v, want MILLIS", parts, ts.Unit.Value)
+	}
+}
+
+func assertColumnDecimal(t *testing.T, schema *parquet.Schema, precision, scale int, parts ...string) {
+	t.Helper()
+	leaf, ok := schema.Lookup(parts...)
+	if !ok {
+		t.Fatalf("column not found for decimal check: %v", parts)
+	}
+	lt := leaf.Node.Type().LogicalType()
+	if lt == nil {
+		t.Fatalf("column %v missing logical type", parts)
+	}
+	dec, ok := lt.Value.(*format.DecimalType)
+	if !ok {
+		t.Fatalf("column %v logical type=%T, want DECIMAL", parts, lt.Value)
+	}
+	if dec.Precision != int32(precision) || dec.Scale != int32(scale) {
+		t.Fatalf("column %v DECIMAL(%d,%d), want DECIMAL(%d,%d)", parts, dec.Precision, dec.Scale, precision, scale)
+	}
+	if leaf.Node.Type().Length() != 16 {
+		t.Fatalf("column %v decimal length=%d, want 16", parts, leaf.Node.Type().Length())
+	}
 }
 
 type bytesReader []byte

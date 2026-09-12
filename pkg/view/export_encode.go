@@ -31,12 +31,17 @@ func encodeRunResult(ctx context.Context, result *Result, format OutputFormat, h
 		return buf.Bytes(), "application/fhir+ndjson", nil
 	case FormatParquet:
 		var buf bytes.Buffer
-		if layout == ParquetLayoutFHIR && exec != nil {
+		switch {
+		case layout == ParquetLayoutFHIR && exec == nil:
+			return nil, "", fmt.Errorf("view: executor is required for Parquet-on-FHIR layout")
+		case layout == ParquetLayoutFHIR:
 			if _, err := WriteParquetFHIRExport(ctx, &buf, exec, execReq); err != nil {
 				return nil, "", err
 			}
-		} else if err := WriteParquetResult(&buf, result); err != nil {
-			return nil, "", err
+		default:
+			if err := WriteParquetResult(&buf, result); err != nil {
+				return nil, "", err
+			}
 		}
 		return buf.Bytes(), ParquetContentType, nil
 	default:

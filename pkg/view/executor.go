@@ -62,13 +62,33 @@ type ExecuteRequest struct {
 
 // Result is the structured output of a view execution.
 type Result struct {
-	ViewName   string
-	Version    string
-	Columns    []ColumnInfo
-	Rows       []map[string]any
-	Total      int
-	Metadata   ResultMetadata
-	NextOffset *int
+	ViewName    string
+	Version     string
+	Columns     []ColumnInfo
+	Rows        []map[string]any
+	Total       int
+	Metadata    ResultMetadata
+	NextOffset  *int
+	ExecRequest *ExecuteRequest
+}
+
+// ExecRequestForExport returns the execute request used for Parquet-on-FHIR export.
+func ExecRequestForExport(result *Result, actor string) ExecuteRequest {
+	if result == nil {
+		return ExecuteRequest{Actor: actor}
+	}
+	if result.ExecRequest != nil {
+		req := *result.ExecRequest
+		if req.Actor == "" {
+			req.Actor = actor
+		}
+		return req
+	}
+	return ExecuteRequest{
+		ViewName: result.ViewName,
+		Version:  result.Version,
+		Actor:    actor,
+	}
 }
 
 // ResultMetadata captures execution-side metadata.

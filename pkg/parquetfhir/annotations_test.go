@@ -68,6 +68,34 @@ func TestDateTimeRangeFullTimestampEndMillisecond(t *testing.T) {
 	}
 }
 
+func TestDateTimeRangeInvalidYearRejected(t *testing.T) {
+	if _, _, err := dateTimeRange("abcd"); err == nil {
+		t.Fatal("expected invalid year error")
+	}
+}
+
+func TestEnrichMapSkipsInvalidDecimalAnnotation(t *testing.T) {
+	idx, err := newElementIndex(bundledSD(t, "Patient"))
+	if err != nil {
+		t.Fatalf("newElementIndex: %v", err)
+	}
+	row := map[string]any{
+		"extension": []any{
+			map[string]any{
+				"url":          "http://example.org/ext",
+				"valueDecimal": "not-a-decimal",
+			},
+		},
+	}
+	if err := enrichMap(row, "Patient", idx, ""); err != nil {
+		t.Fatalf("enrichMap: %v", err)
+	}
+	ext := row["extension"].([]any)[0].(map[string]any)
+	if _, ok := ext["__valueDecimal_numeric"]; ok {
+		t.Fatal("expected invalid decimal annotation to be skipped")
+	}
+}
+
 func TestResolveFieldTypeExtensionValueInteger(t *testing.T) {
 	idx, err := newElementIndex(bundledSD(t, "Patient"))
 	if err != nil {

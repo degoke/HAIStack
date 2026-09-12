@@ -123,6 +123,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			ViewName: req.ViewName,
 			Version:  version,
 			Metadata: view.ResultMetadata{ExecutedAt: runAt},
+			ExecRequest: &view.ExecuteRequest{
+				ViewName:   req.ViewName,
+				Version:    version,
+				Actor:      req.Actor,
+				Subject:    req.Subject,
+				Parameters: req.Parameters,
+				Since:      since,
+			},
 		}
 	} else {
 		result, err = r.executor.Execute(ctx, view.ExecuteRequest{

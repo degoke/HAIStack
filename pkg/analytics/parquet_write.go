@@ -15,10 +15,6 @@ func writeParquet(ctx context.Context, w io.Writer, result *view.Result, layout 
 	if result == nil {
 		return 0, fmt.Errorf("analytics: nil view result")
 	}
-	execReq := view.ExecuteRequest{
-		ViewName: result.ViewName,
-		Version:  result.Version,
-		Actor:    actor,
-	}
+	execReq := view.ExecRequestForExport(result, actor)
 	return view.WriteParquetOutput(ctx, w, result, execReq, layout, executor)
 }
