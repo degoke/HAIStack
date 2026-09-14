@@ -300,11 +300,12 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		var rowCount int
 		if job.Request.Format == FormatParquet {
-			var err error
-			rowCount, err, exportMaxUpdated = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout, exportMaxUpdated)
+			parquetResult, err := s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout, exportMaxUpdated)
 			if err != nil {
 				return failJob(err)
 			}
+			exportMaxUpdated = parquetResult.MaxLastUpdated
+			rowCount = parquetResult.RowCount
 		} else {
 			result, execErr := s.executor.Execute(ctx, ExecuteRequest{
 				ViewName:   target.ViewName,
@@ -382,10 +383,10 @@ func (s *ExportService) writeParquetExportFile(
 	req ViewExportRequest,
 	layout ParquetLayout,
 	maxUpdated time.Time,
-) (int, error, time.Time) {
+) (ParquetExportResult, error) {
 	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
 	if err != nil {
-		return 0, fmt.Errorf("create temp parquet file: %w", err), maxUpdated
+		return ParquetExportResult{MaxLastUpdated: maxUpdated}, fmt.Errorf("create temp parquet file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
@@ -398,29 +399,30 @@ func (s *ExportService) writeParquetExportFile(
 		Parameters: req.Parameters,
 		Since:      since,
 	}
-	var rowCount int
+	var exportResult ParquetExportResult
 	if layout == ParquetLayoutFHIR {
 		var stats MatchingResourceStats
-		rowCount, stats, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
-		maxUpdated = LatestTimestamp(maxUpdated, stats.MaxLastUpdated)
+		exportResult.RowCount, stats, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		exportResult.MaxLastUpdated = LatestTimestamp(maxUpdated, stats.MaxLastUpdated)
 	} else {
-		var flatMax time.Time
-		rowCount, flatMax, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
-		maxUpdated = LatestTimestamp(maxUpdated, flatMax)
+		var flatResult ParquetExportResult
+		flatResult, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+		exportResult.RowCount = flatResult.RowCount
+		exportResult.MaxLastUpdated = LatestTimestamp(maxUpdated, flatResult.MaxLastUpdated)
 	}
 	if err != nil {
 		_ = tmp.Close()
-		return rowCount, err, maxUpdated
+		return exportResult, err
 	}
 	if err := tmp.Close(); err != nil {
-		return rowCount, err, maxUpdated
+		return exportResult, err
 	}
 	data, err := os.ReadFile(tmpPath)
 	if err != nil {
-		return rowCount, err, maxUpdated
+		return exportResult, err
 	}
 	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
-		return rowCount, err, maxUpdated
+		return exportResult, err
 	}
-	return rowCount, nil, maxUpdated
+	return exportResult, nil
 }

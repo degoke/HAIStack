@@ -198,6 +198,67 @@ func TestViewDefinitionExportKickoffStatusAndFileDownload(t *testing.T) {
 	}
 }
 
+func TestViewDefinitionRunParsesSubjectAndParameters(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"subject","valueString":{"valueString":"Patient/pat-jane"}},
+		{"name":"actor","valueString":{"valueString":"Practitioner/runner"}},
+		{"name":"tenant","valueString":{"valueString":"demo"}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost, "/fhir/$viewdefinition-run", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.Subject != "Patient/pat-jane" {
+		t.Fatalf("Subject=%q, want Patient/pat-jane", runSvc.last.Subject)
+	}
+	if runSvc.last.Actor != "Practitioner/runner" {
+		t.Fatalf("Actor=%q, want Practitioner/runner", runSvc.last.Actor)
+	}
+	if runSvc.last.Parameters["tenant"] != "demo" {
+		t.Fatalf("Parameters=%v, want tenant=demo", runSvc.last.Parameters)
+	}
+}
+
+func TestViewDefinitionRunParsesQuerySubject(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?viewName=patient_summary_view&_subject=Patient%2Fquery-subject&_actor=Practitioner%2Fquery",
+		nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.Subject != "Patient/query-subject" {
+		t.Fatalf("Subject=%q, want Patient/query-subject", runSvc.last.Subject)
+	}
+	if runSvc.last.Actor != "Practitioner/query" {
+		t.Fatalf("Actor=%q, want Practitioner/query", runSvc.last.Actor)
+	}
+}
+
+func TestViewDefinitionExportParsesActorFromBody(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"actor","valueString":{"valueString":"Practitioner/export"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Actor != "Practitioner/export" {
+		t.Fatalf("Actor=%q, want Practitioner/export", exportSvc.last.Actor)
+	}
+}
+
 func TestViewDefinitionExportSystemRoute(t *testing.T) {
 	exportSvc := newFakeViewExportService()
 	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})

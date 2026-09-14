@@ -231,6 +231,8 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 			r.URL.Query().Get("parquetLayout"),
 		)),
 		Header:   strings.EqualFold(r.URL.Query().Get("header"), "true"),
+		Actor:    strings.TrimSpace(r.URL.Query().Get("_actor")),
+		Subject:  strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
@@ -259,16 +261,21 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 		return req, invalidRequest("invalid request body", err)
 	}
 	var params struct {
-		Parameter []struct {
-			Name  string `json:"name"`
-			Value *struct {
-				String string `json:"valueString"`
-			} `json:"valueString"`
-		} `json:"parameter"`
-		Resource json.RawMessage `json:"resource"`
+		Parameter []operationParameter `json:"parameter"`
+		Resource  json.RawMessage      `json:"resource"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
 		return req, invalidRequest("invalid Parameters body", err)
+	}
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "viewName", "version")
+	if subject != "" {
+		req.Subject = subject
+	}
+	if actor != "" {
+		req.Actor = actor
+	}
+	if len(operationParams) > 0 {
+		req.Parameters = operationParams
 	}
 	for _, p := range params.Parameter {
 		if p.Value == nil {
@@ -365,12 +372,15 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
-	views, subject, params, err := parseExportParametersBody(body)
+	views, subject, actor, params, err := parseExportParametersBody(body)
 	if err != nil {
 		return req, err
 	}
 	if subject != "" {
 		req.Subject = subject
+	}
+	if actor != "" {
+		req.Actor = actor
 	}
 	if len(params) > 0 {
 		req.Parameters = params
@@ -384,57 +394,79 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	return req, nil
 }
 
-func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, map[string]any, error) {
+func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, map[string]any, error) {
 	var params struct {
-		Parameter []struct {
-			Name  string `json:"name"`
-			Value *struct {
-				String string `json:"valueString"`
-			} `json:"valueString"`
-			Part []struct {
-				Name  string `json:"name"`
-				Value *struct {
-					String string `json:"valueString"`
-				} `json:"valueString"`
-			} `json:"part"`
-		} `json:"parameter"`
+		Parameter []operationParameter `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return nil, "", nil, invalidRequest("invalid Parameters body", err)
+		return nil, "", "", nil, invalidRequest("invalid Parameters body", err)
 	}
 	var views []view.ViewExportTarget
-	subject := ""
-	operationParams := make(map[string]any)
 	for _, p := range params.Parameter {
-		if p.Name == "view" {
-			target := view.ViewExportTarget{}
-			for _, part := range p.Part {
-				if part.Value == nil {
-					continue
-				}
-				switch part.Name {
-				case "viewName", "name":
-					target.ViewName = part.Value.String
-				case "version":
-					target.Version = part.Value.String
-				case "outputName":
-					target.OutputName = part.Value.String
-				}
+		if p.Name != "view" {
+			continue
+		}
+		target := view.ViewExportTarget{}
+		for _, part := range p.Part {
+			if part.Value == nil {
+				continue
 			}
-			if target.ViewName != "" {
-				views = append(views, target)
+			switch part.Name {
+			case "viewName", "name":
+				target.ViewName = part.Value.String
+			case "version":
+				target.Version = part.Value.String
+			case "outputName":
+				target.OutputName = part.Value.String
 			}
+		}
+		if target.ViewName != "" {
+			views = append(views, target)
+		}
+	}
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view")
+	return views, subject, actor, operationParams, nil
+}
+
+type operationParameter struct {
+	Name  string `json:"name"`
+	Value *struct {
+		String string `json:"valueString"`
+	} `json:"valueString"`
+	Part []struct {
+		Name  string `json:"name"`
+		Value *struct {
+			String string `json:"valueString"`
+		} `json:"valueString"`
+	} `json:"part"`
+}
+
+func parseOperationContextFromParameters(parameters []operationParameter, reserved ...string) (subject, actor string, operationParams map[string]any) {
+	reservedNames := make(map[string]struct{}, len(reserved))
+	for _, name := range reserved {
+		reservedNames[name] = struct{}{}
+	}
+	for _, p := range parameters {
+		if len(p.Part) > 0 {
 			continue
 		}
 		if p.Value == nil {
 			continue
 		}
+		if _, skip := reservedNames[p.Name]; skip {
+			continue
+		}
 		switch p.Name {
 		case "subject":
 			subject = p.Value.String
+		case "actor":
+			actor = p.Value.String
 		default:
+			if operationParams == nil {
+				operationParams = make(map[string]any)
+			}
 			operationParams[p.Name] = p.Value.String
 		}
 	}
-	return views, subject, operationParams, nil
+	return subject, actor, operationParams
 }

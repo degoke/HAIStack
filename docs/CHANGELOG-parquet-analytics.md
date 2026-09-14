@@ -7,7 +7,8 @@
 - Parquet-on-FHIR nested export via `_parquetLayout=fhir` on `$viewdefinition-run`, `$viewdefinition-export`, and analytics sinks.
 - `ExportPayload.since` and `ExportPayload.parameters` for analytics background export jobs.
 - `ResultMetadata.maxLastUpdated` for data-clock watermark advancement.
-- HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject` / custom parameters in POST body).
+- HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
+- HTTP `$viewdefinition-run` support for the same operation context fields.
 
 ### Changed
 

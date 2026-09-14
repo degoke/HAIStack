@@ -158,6 +158,13 @@ func TestExportHandlerUsesWatermarkSince(t *testing.T) {
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
+	since, err := watermarks.Since(context.Background(), analytics.ViewPatientSummary, "1.0.0")
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if !since.Equal(jane.LastUpdated.UTC()) {
+		t.Fatalf("watermark since=%v, want %v", since, jane.LastUpdated.UTC())
+	}
 }
 
 func parquetPatientIDs(t *testing.T, data []byte) []string {
