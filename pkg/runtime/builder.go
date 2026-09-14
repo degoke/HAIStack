@@ -45,6 +45,12 @@ type Builder struct {
 	packageInstalls []packages.InstallSpec
 	httpAddr        string
 
+	analyticsEnabled       bool
+	analyticsMaxConcurrent int
+	postgresReadReplicaDSN string
+	viewExportDir          string
+	dataDir                string
+
 	remoteTerminologyURL string
 	preExpandValueSets   bool
 	maxExpansion         int
@@ -237,6 +243,39 @@ func (b *Builder) WithPackageInstalls(specs ...packages.InstallSpec) *Builder {
 // WithHTTP sets the listen address for a managed HTTP server started by Runtime.Start.
 func (b *Builder) WithHTTP(addr string) *Builder {
 	b.httpAddr = addr
+	return b
+}
+
+// WithAnalytics enables Postgres reporting-table refresh, CDC-triggered jobs, and
+// view execution wired through pkg/analytics. Requires Postgres storage.
+func (b *Builder) WithAnalytics() *Builder {
+	b.analyticsEnabled = true
+	return b
+}
+
+// WithAnalyticsConcurrency limits concurrent analytics refresh jobs to protect OLTP.
+// Defaults to 1 when analytics is enabled and this is not set.
+func (b *Builder) WithAnalyticsConcurrency(max int) *Builder {
+	b.analyticsMaxConcurrent = max
+	return b
+}
+
+// WithPostgresReadReplica configures a read-only Postgres DSN for analytics view scans.
+func (b *Builder) WithPostgresReadReplica(dsn string) *Builder {
+	b.postgresReadReplicaDSN = dsn
+	return b
+}
+
+// WithViewExportDir sets the filesystem directory for ViewDefinition export artifacts.
+// When unset, SQLite runtimes use {db-dir}/view-exports and Postgres runtimes use view-exports/{tenantId}.
+func (b *Builder) WithViewExportDir(dir string) *Builder {
+	b.viewExportDir = dir
+	return b
+}
+
+// WithDataDir sets the absolute runtime data directory for view export artifacts and job metadata.
+func (b *Builder) WithDataDir(dir string) *Builder {
+	b.dataDir = dir
 	return b
 }
 

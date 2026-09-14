@@ -11,6 +11,7 @@ import (
 // TenantDB scopes all store operations to one tenant.
 type TenantDB struct {
 	pool     *pgxpool.Pool
+	readPool *pgxpool.Pool
 	tenantID string
 }
 

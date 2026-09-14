@@ -78,8 +78,11 @@
 //   - PATCH  /fhir/{ResourceType}/{id}       — JSON Patch update
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
 //   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle
-//   - GET    /fhir/$export                     — bulk export (501 until implemented)
-//   - GET    /fhir/Group/{id}/$export          — group bulk export (501 until implemented)
+//   - GET    /fhir/$export                     — system bulk export kickoff (async; requires BulkExportService)
+//   - GET    /fhir/Group/{id}/$export          — group bulk export kickoff (async)
+//   - GET    /fhir/$export/status/{jobId}      — export status polling / manifest
+//   - DELETE /fhir/$export/status/{jobId}      — cancel export
+//   - GET    /fhir/$export/files/{jobId}/{file} — download NDJSON artifact
 //   - GET/POST /fhir/$operation and resource operation paths — custom operations
 //   - POST   /sync/push, GET /sync/pull        — optional sync hub routes via NewRootHandlerWithSyncMiddleware;
 //     pull defaults to 100 events and accepts limits from 1 through 1000
@@ -137,7 +140,7 @@
 //
 // # Out of scope (MVP)
 //
-//   - Bulk export implementation (routes return 501)
+//   - BulkExportService — when nil, $export routes return 501
 //   - Full CapabilityStatement conformance testing
 //   - SMART metadata, built-in OAuth2/SMART token runtime
 //   - gRPC or non-FHIR content types

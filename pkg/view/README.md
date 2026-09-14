@@ -6,16 +6,14 @@ analytics, and permissioned data access.
 ## What it does
 
 A FHIR `ViewDefinition` is a declarative description of a tabular or structured
-projection over one FHIR resource type. This package turns those definitions into
-runnable views:
+projection over FHIR data. This package turns those definitions into runnable views:
 
-- Load a `ViewDefinition` JSON payload and validate it against the v1 executable
-  subset.
+- Load a `ViewDefinition` JSON payload and validate it.
 - Register named/versioned views in an in-memory registry.
 - Execute a view against a `store.ResourceStore` by scanning resources, applying
-  FHIRPath filters, and extracting columns.
+  FHIRPath filters, and expanding nested selects (`forEach`, `unionAll`, joins).
 - Return stable JSON rows with pagination metadata.
-- Optionally enforce permissions and write audit records.
+- Optionally enforce permissions, write audit records, and persist materialized rows.
 
 In short: **given a ViewDefinition and a resource store, produce structured JSON
 rows.**
@@ -51,44 +49,61 @@ for _, row := range res.Rows {
 }
 ```
 
-**Custom view with a filter:**
+**Nested `forEach` (one row per phone):**
 
 ```go
 def := []byte(`{
     "resourceType": "ViewDefinition",
-    "name": "female_patients",
+    "name": "patient_phones_foreach",
     "version": "1.0.0",
     "resource": "Patient",
     "select": [{
-        "column": [
-            {"name": "id", "path": "Patient.id"},
-            {"name": "name", "path": "Patient.name.first().family"}
-        ]
-    }],
-    "where": [
-        {"path": "Patient.gender = 'female'"}
-    ]
+        "column": [{"name": "id", "path": "Patient.id"}],
+        "select": [{
+            "forEach": "Patient.telecom.where(system = 'phone')",
+            "column": [{"name": "phone", "path": "value"}]
+        }]
+    }]
 }`)
-
-if _, err := reg.Register(def, engine); err != nil {
-    // handle
-}
 ```
 
-**Authorization and audit:**
+**Reference join (Appointment → Patient):**
+
+```go
+def := []byte(`{
+    "resourceType": "ViewDefinition",
+    "name": "appointment_patient_join",
+    "version": "1.0.0",
+    "resource": "Appointment",
+    "select": [{
+        "column": [{"name": "appt_id", "path": "Appointment.id"}],
+        "select": [{
+            "forEach": "Appointment.participant.actor",
+            "select": [{
+                "column": [
+                    {"name": "patient_id", "path": "Patient.id"},
+                    {"name": "family", "path": "Patient.name.first().family"}
+                ]
+            }]
+        }]
+    }]
+}`)
+```
+
+**Materialized rows:**
 
 ```go
 exec, err := view.NewExecutor(view.Config{
-    Resources:  resourceStore,
-    Engine:     engine,
-    Registry:   reg,
-    Authorizer: myAuthorizer,
-    Audit:      view.AuditStoreAdapter{Store: auditStore},
+    Resources:         resourceStore,
+    Engine:            engine,
+    Registry:          reg,
+    MaterializedViews: materializedViewStore,
+})
+// View metadata: {"materialize": "true", "materializeKey": "id"}
+res, err := exec.Execute(ctx, view.ExecuteRequest{
+    ViewName: "patient_summary_materialized",
 })
 ```
-
-If the view declares `permissions`, the authorizer is called before any resources
-are read. The audit logger is invoked on success, denial, and resolution errors.
 
 ## Where it fits
 
@@ -98,23 +113,55 @@ are read. The audit logger is invoked on success, denial, and resolution errors.
 | **fhirpath** | Read fields inside a resource you already have |
 | **view** | Build structured projections from resources (this package) |
 | **ai** | Consume `Result.Rows` as LLM context |
-| **analytics** | Reuse views before materialization exists |
+| **analytics** | Refresh reporting tables from the same executor |
 
 ## Supported ViewDefinition subset
 
 - One source resource type per view (`resource`).
-- One root select with a flat list of columns.
-- Each column has a name and a FHIRPath expression.
+- Root `select` array (multiple entries cross-join).
+- Nested `select`, `forEach`, `forEachOrNull`, and `unionAll`.
+- Column paths prefixed with a resource type (for example `Patient.id`) evaluate against the root resource; relative paths evaluate against the current `forEach` item.
+- Typed relative references in `forEach` collections resolve through the resource store for join-like projections.
 - Optional root filters (`where`) expressed as FHIRPath predicates.
+- Materialization via `metadata.materialize` / `metadata.materializeKey` when `MaterializedViews` is configured.
 - Declared permissions as a top-level `permissions` array (v1 extension).
 
-Unsupported constructs are rejected at parse time:
+## SQL-on-FHIR operations
 
-- Multiple root selects
-- Nested selects
-- `forEach` / `forEachOrNull`
-- `unionAll`
-- Joins and materialization directives
+| Operation | Endpoint | Notes |
+|-----------|----------|-------|
+| `$viewdefinition-run` | `POST /fhir/ViewDefinition/$viewdefinition-run` or `POST /fhir/$viewdefinition-run` | Sync JSON/CSV/NDJSON/Apache Parquet binary output |
+| `$viewdefinition-export` | `POST /fhir/ViewDefinition/$viewdefinition-export` or `POST /fhir/$viewdefinition-export` | Async export with watermark-aware `_since`; download at `$viewdefinition-export/files/{jobId}/{filename}` |
+| `$materialize` | `POST /fhir/ViewDefinition/$materialize` | Async materialized view refresh |
+| `$sqlquery-run` | `POST /fhir/Library/$sqlquery-run` or `POST /fhir/$sqlquery-run` | Read-only SQL over reporting tables (Postgres analytics mode) |
+
+## Search-driven execution
+
+Views can declare index-backed prefilters:
+
+```json
+"metadata": {
+  "searchParams": "status=final",
+  "searchMode": "auto"
+}
+```
+
+When `Executor.Config.Search` is wired, candidate IDs come from the search index. FHIRPath `where` filters still apply as a residual check. `_since` on execute adds `_lastUpdated=gt...` to the search query.
+
+## FHIR `$materialize` operation
+
+```
+POST /fhir/ViewDefinition/$materialize
+Prefer: respond-async
+
+GET /fhir/ViewDefinition/$materialize/status/{jobId}
+```
+
+Requires `ViewMaterializeService` and `MaterializedViews` on the executor (wired in Postgres analytics mode).
+
+## FHIRPath `resolve()` and `memberOf()`
+
+Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring does this automatically when resource store / terminology service are available).
 
 ## Row encoding
 
@@ -127,14 +174,42 @@ Unsupported constructs are rejected at parse time:
 - Proto primitive wrappers → JSON scalar
 - Unsupported complex objects → `ErrRowEncoding`
 
-## MVP limits
+## Limits
 
-- Single-resource views only; no joins.
-- Scan-based execution through `ListIDs` / `Read`; no search-driven filtering.
-- No materialization, incremental refresh, or warehouse sinks.
-- No parameter substitution in v1 (`ExecuteRequest.Parameters` is passed to
-  auth and audit only).
-- In-memory registry only; persistent view registries are future work.
+- Reference resolution supports typed, absolute URL, URN, and contained `#` references (including FHIRPath `resolve()` when the evaluation resource is in context).
+- `$sqlquery-run` executes read-only SQL against refreshed reporting tables (requires Postgres analytics wiring).
+- `$viewdefinition-run` and `$viewdefinition-export` are available on SQLite/edge runtimes when the view executor is wired; async export/materialize job metadata persists to `{dataDir}/jobs/*` when a runtime data directory is configured (see `runtime.WithDataDir`).
+- Parquet export writes Apache Parquet binary (`application/vnd.apache.parquet`). Default `_parquetLayout=flat` streams flat ViewDefinition columns; `_parquetLayout=fhir` writes full Parquet-on-FHIR nested layouts (LIST/GROUP, choice types, extensions, `_primitive` wrappers, contained resources, UCUM quantity canonicalization, query annotations) from base StructureDefinitions via `pkg/parquetfhir`. Export job files record `parquetLayout` in metadata when format is parquet.
+- Search-driven execution requires search wiring; `searchMode=index` fails without index.
+- `ExecuteRequest.Parameters` is passed to auth and audit only (no FHIRPath substitution yet).
+
+## Execution metadata
+
+`ResultMetadata` fields differ slightly by export mode:
+
+| Field | Flat `Execute` | FHIR parquet export (`_parquetLayout=fhir`) |
+|-------|----------------|---------------------------------------------|
+| `scanned` | Candidate IDs considered | Same |
+| `filtered` | Expanded **view row** count after filters | Matching **source resource** count |
+| `maxLastUpdated` | Latest `LastUpdated` among returned view rows | Latest `LastUpdated` among exported resources |
+
+When comparing flat refresh metrics to FHIR lakehouse exports, treat `filtered` as mode-specific rather than interchangeable.
+
+Incremental watermarks prefer `maxLastUpdated` (data clock) over process time when exported resources carry `LastUpdated`. Stored watermarks are inclusive at that timestamp; search prefilters use `_lastUpdated=gt{watermark}` while envelope checks use strict `LastUpdated.Before(since)`, so a resource whose `LastUpdated` equals the saved watermark is excluded on the next search-driven pass.
+
+HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters). Query `_subject`/`_actor` are applied first; non-empty Parameters body fields override them. Export output format can be set via query `_format` or body `format` (for example `parquet`, `ndjson`, `csv`); body `format` overrides query when both are present. Query-only export requests with no `_format` or body `format` default to NDJSON artifacts in `ExportService.Kickoff`.
+
+TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FHIR parameter values (`valueReference`, `valueCode`, etc.) are not yet supported.
+
+## Parquet export sizing
+
+Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse **filesystem** partitions stream directly to disk. **Blob** uploads and `$viewdefinition-export` artifact writes still buffer the finished parquet file in memory for `BlobStore.Put` / filesystem artifact storage.
+
+Practical guidance:
+
+- Plan for roughly **2× compressed parquet size** peak RAM at blob upload time (file bytes loaded for `Put`).
+- Very large exports (multi-GB) should target filesystem lakehouse partitions or a streaming blob backend; see `docs/parquet-on-fhir-interop.md`.
+- Prefer `WriteParquetFHIRExport` over `CollectMatchingResources` for large datasets; the latter materializes every match in memory.
 
 See [doc.go](./doc.go) for the full API, package boundaries, and integration
 points.

@@ -127,3 +127,11 @@ func (c PolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal auth.P
 		ResourceType: resourceType,
 	})
 }
+
+func (c PolicyAuthChecker) AuthorizeExport(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, groupID string) (auth.Decision, error) {
+	return c.Engine.CanBulkExport(ctx, auth.BulkExportRequest{
+		Principal: principal,
+		Tenant:    tenant,
+		GroupID:   groupID,
+	})
+}

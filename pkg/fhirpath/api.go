@@ -46,6 +46,18 @@ type Config struct {
 	DefaultTimeout   time.Duration
 	MaxExpressionLen int
 	MaxResultItems   int
+	// Resolve enables resolve() by looking up reference strings at evaluation time.
+	Resolve ResolveFunc
+	// Terminology enables memberOf() via the experimental FHIRPath function table.
+	Terminology TerminologyValidator
+}
+
+// ResolveFunc resolves one FHIR reference string to a resource envelope or proto.
+type ResolveFunc func(ctx context.Context, ref string) (any, error)
+
+// TerminologyValidator validates whether a code is a member of a value set.
+type TerminologyValidator interface {
+	MemberOf(ctx context.Context, valueSetURL, system, code string) (bool, error)
 }
 
 // DefaultCacheSize is the default compile-cache capacity.

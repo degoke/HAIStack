@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/search"
@@ -33,6 +34,7 @@ type Runtime struct {
 
 	jobRunner     *jobs.Runner
 	syncProcessor *hasync.JobProcessor
+	analyticsCDC  *analytics.CDCProcessor
 	reindexWorker *search.ReindexWorker
 	syncEngine    *hasync.Engine
 
@@ -109,7 +111,7 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	}
 	rt.starting = true
 
-	if rt.jobRunner != nil || rt.syncProcessor != nil {
+	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil {
 		rt.jobCtx, rt.jobCancel = context.WithCancel(ctx)
 		rt.jobWG.Add(1)
 		go func() {
@@ -247,6 +249,13 @@ func (rt *Runtime) runJobLoop(ctx context.Context) {
 				rt.recordBackgroundError(fmt.Errorf("%w: sync jobs: %v", ErrBackgroundWorker, err))
 			}
 			processed = processed || ok
+		}
+		if rt.analyticsCDC != nil {
+			n, err := rt.analyticsCDC.RunOnce(ctx)
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				rt.recordBackgroundError(fmt.Errorf("%w: analytics cdc: %v", ErrBackgroundWorker, err))
+			}
+			processed = processed || n > 0
 		}
 
 		if !processed {

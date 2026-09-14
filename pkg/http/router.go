@@ -11,6 +11,7 @@ import (
 )
 
 var fhirIDPattern = regexp.MustCompile(`^[A-Za-z0-9\-\.]{1,64}$`)
+var exportFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9_\-\.]{1,128}$`)
 
 type routeKind int
 
@@ -25,6 +26,11 @@ const (
 	routeHistory
 	routeOperation
 	routeSystemOperation
+	routeBulkExportStatus
+	routeBulkExportFile
+	routeMaterializeStatus
+	routeViewExportStatus
+	routeViewExportFile
 )
 
 type parsedRoute struct {
@@ -32,6 +38,8 @@ type parsedRoute struct {
 	resourceType string
 	id           string
 	operation    string
+	jobID        string
+	filename     string
 }
 
 func parseRoute(basePath, requestPath string) (parsedRoute, error) {
@@ -47,6 +55,53 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 	}
 
 	parts := strings.Split(rel, "/")
+	if len(parts) >= 2 && parts[0] == "$export" {
+		switch parts[1] {
+		case "status":
+			if len(parts) != 3 {
+				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+			}
+			if err := validateID(parts[2]); err != nil {
+				return parsedRoute{}, err
+			}
+			return parsedRoute{kind: routeBulkExportStatus, jobID: parts[2]}, nil
+		case "files":
+			if len(parts) != 4 {
+				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+			}
+			if err := validateID(parts[2]); err != nil {
+				return parsedRoute{}, err
+			}
+			if err := validateExportFilename(parts[3]); err != nil {
+				return parsedRoute{}, err
+			}
+			return parsedRoute{kind: routeBulkExportFile, jobID: parts[2], filename: parts[3]}, nil
+		}
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$materialize" && parts[2] == "status" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeMaterializeStatus, jobID: parts[3]}, nil
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$viewdefinition-export" && parts[2] == "status" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeViewExportStatus, jobID: parts[3]}, nil
+	}
+	if len(parts) >= 4 && parts[0] == "ViewDefinition" && parts[1] == "$viewdefinition-export" && parts[2] == "files" {
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		if len(parts) != 5 || parts[4] == "" {
+			return parsedRoute{}, fmt.Errorf("export filename is required")
+		}
+		if err := validateExportFilename(parts[4]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeViewExportFile, jobID: parts[3], filename: parts[4]}, nil
+	}
 	switch len(parts) {
 	case 1:
 		if parts[0] == "metadata" {
@@ -161,6 +216,22 @@ func validateID(id string) error {
 	}
 	if !fhirIDPattern.MatchString(id) {
 		return fmt.Errorf("id %q does not match FHIR id syntax", id)
+	}
+	return nil
+}
+
+func validateExportFilename(filename string) error {
+	if filename == "" {
+		return fmt.Errorf("export filename is required")
+	}
+	if filename == "." || filename == ".." {
+		return fmt.Errorf("export filename %q is invalid", filename)
+	}
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		return fmt.Errorf("export filename %q is invalid", filename)
+	}
+	if !exportFilenamePattern.MatchString(filename) {
+		return fmt.Errorf("export filename %q does not match allowed syntax", filename)
 	}
 	return nil
 }

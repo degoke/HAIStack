@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
 const defaultRegistryBase = "https://packages.fhir.org"
@@ -29,6 +31,8 @@ type Installer struct {
 	HTTPClient   *http.Client
 	TempDir      string
 	EnableTypes  bool
+	ViewRegistry *view.Registry
+	FHIRPath     fhirpath.Engine
 	OnProgress   ProgressFunc
 }
 
@@ -154,6 +158,11 @@ func (i *Installer) installDefinitions(ctx context.Context, packageID, version, 
 		}
 		if err := i.Registry.InstallDefinition(ctx, raw, provenance); err != nil {
 			return nil, fmt.Errorf("install definition %s: %w", parsed.CanonicalURL, err)
+		}
+		if parsed.FHIRResourceType == "ViewDefinition" && i.ViewRegistry != nil && i.FHIRPath != nil {
+			if _, err := view.RegisterViewDefinition(i.ViewRegistry, raw, i.FHIRPath); err != nil && !errors.Is(err, view.ErrViewAlreadyRegistered) {
+				return nil, fmt.Errorf("register view definition %s: %w", parsed.CanonicalURL, err)
+			}
 		}
 		result.Installed++
 		if i.EnableTypes && parsed.FHIRResourceType == "StructureDefinition" {
