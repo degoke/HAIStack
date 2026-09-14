@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 	verilyfhirpath "github.com/verily-src/fhirpath-go/fhirpath"
 	"github.com/verily-src/fhirpath-go/fhirpath/system"
+	protobuf "google.golang.org/protobuf/proto"
 )
 
 // EnvValueFromAny converts a Go value into a FHIRPath environment constant.
@@ -39,6 +40,9 @@ func EnvValueFromAny(value any, codec proto.ProtoCodec) (any, error) {
 	default:
 		if proto.IsProtoResource(value) {
 			return unwrapProtoResource(value)
+		}
+		if msg, ok := value.(protobuf.Message); ok {
+			return msg, nil
 		}
 	}
 	switch value {

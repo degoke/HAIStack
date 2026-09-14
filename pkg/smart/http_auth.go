@@ -51,6 +51,18 @@ func (c ScopePolicyAuthChecker) AuthorizeWrite(ctx context.Context, principal au
 	})
 }
 
+// AuthorizeExport implements http.AuthChecker.
+func (c ScopePolicyAuthChecker) AuthorizeExport(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, groupID string) (auth.Decision, error) {
+	if c.Engine == nil {
+		return auth.Deny("auth engine not configured"), nil
+	}
+	return c.Engine.CanBulkExport(ctx, auth.BulkExportRequest{
+		Principal: principal,
+		Tenant:    tenant,
+		GroupID:   groupID,
+	})
+}
+
 // AuthorizeSearch implements http.AuthChecker.
 func (c ScopePolicyAuthChecker) AuthorizeSearch(ctx context.Context, principal auth.Principal, tenant auth.TenantContext, resourceType string) (auth.Decision, error) {
 	if c.Engine == nil {

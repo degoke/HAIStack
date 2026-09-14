@@ -21,6 +21,13 @@ type ContextExpression struct {
 	Label      string
 }
 
+// ContextResourceResult holds evaluated resources for one contextExpression.
+// An entry with only Label set means the query succeeded but returned no matches.
+type ContextResourceResult struct {
+	Label     string
+	Resources []any
+}
+
 // ChoiceColumn guides multi-column rendering for choice/reference items.
 type ChoiceColumn struct {
 	Path       string

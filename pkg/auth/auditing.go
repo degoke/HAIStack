@@ -133,6 +133,23 @@ func (a *AuditingEngine) CheckPatientScope(ctx context.Context, req PatientScope
 	return d, err
 }
 
+// CanBulkExport implements PolicyEngine and emits an auth decision event.
+func (a *AuditingEngine) CanBulkExport(ctx context.Context, req BulkExportRequest) (Decision, error) {
+	d, err := a.Inner.CanBulkExport(ctx, req)
+	if err == nil {
+		a.log(ctx, audit.AuthDecisionEvent{
+			Actor:        req.Principal.ID,
+			Tenant:       req.Tenant.TenantID,
+			AuthAction:   string(ActionBulkExport),
+			ResourceType: "Group",
+			ResourceID:   req.GroupID,
+			Allowed:      d.Allowed,
+			Reason:       d.Reason,
+		})
+	}
+	return d, err
+}
+
 func (a *AuditingEngine) log(ctx context.Context, ev audit.AuthDecisionEvent) {
 	if a == nil || a.Audit == nil {
 		return

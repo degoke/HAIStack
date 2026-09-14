@@ -12,10 +12,12 @@ import (
 
 // EnqueueOptions customize NewJob / Enqueue defaults.
 type EnqueueOptions struct {
-	ID       string
-	RunAfter time.Time
-	Now      func() time.Time
-	NewID    func() string
+	ID          string
+	RunAfter    time.Time
+	Now         func() time.Time
+	NewID       func() string
+	PrincipalID string
+	TenantID    string
 }
 
 // MarshalPayload JSON-encodes a typed payload for JobRecord.Payload.
@@ -56,6 +58,12 @@ func NewJob(jobType string, payload any, opts EnqueueOptions) (store.JobRecord, 
 			id = opts.NewID()
 		} else {
 			id = uuid.NewString()
+		}
+	}
+	if opts.PrincipalID != "" || opts.TenantID != "" {
+		body, err = StampOwner(body, JobOwner{PrincipalID: opts.PrincipalID, TenantID: opts.TenantID})
+		if err != nil {
+			return store.JobRecord{}, err
 		}
 	}
 	return store.JobRecord{

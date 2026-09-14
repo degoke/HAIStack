@@ -44,7 +44,8 @@ func AppointmentView() []byte {
 		"where": [
 			{"path": "Appointment.status = 'booked'", "description": "Only booked appointments"},
 			{"path": "Appointment.start >= @2024-01-01", "description": "From 2024 onward"}
-		]
+		],
+		"metadata": {"searchParams": "status=booked&date=ge2024-01-01"}
 	}`)
 }
 
@@ -69,6 +70,7 @@ func ObservationView() []byte {
 		}],
 		"where": [
 			{"path": "Observation.status = 'final'", "description": "Only final results"}
-		]
+		],
+		"metadata": {"searchParams": "status=final"}
 	}`)
 }

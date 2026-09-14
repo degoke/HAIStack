@@ -230,18 +230,48 @@ func TestRunner_RejectsCustomDefinitionUsingBuiltInName(t *testing.T) {
 	}
 }
 
-func TestDeferredSinksNotImplemented(t *testing.T) {
+func TestDeferredSinksRequireConfiguration(t *testing.T) {
 	ctx := context.Background()
-	result := &view.Result{ViewName: analytics.ViewPatientSummary, Version: "1.0.0"}
-	sinks := []analytics.RowSink{
-		analytics.NewParquetSink(),
-		analytics.NewWarehouseSink(),
-		analytics.NewLakehouseSink(),
-		analytics.NewManifestExportSink(),
+	result := &view.Result{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Columns:  []view.ColumnInfo{{Name: "patient_id", Type: "string"}},
 	}
-	for _, sink := range sinks {
-		if err := sink.WriteRows(ctx, result); !errors.Is(err, analytics.ErrSinkNotImplemented) {
-			t.Fatalf("WriteRows err = %v, want ErrSinkNotImplemented", err)
-		}
+
+	reporting := newMemReportingTableStore()
+	if err := analytics.NewWarehouseSink(reporting).WriteRows(ctx, result); err != nil {
+		t.Fatalf("warehouse sink: %v", err)
+	}
+
+	var lakeBuf bytes.Buffer
+	lakeSink := analytics.NewLakehouseSink(analytics.LakehouseConfig{Root: &lakeBuf})
+	if err := lakeSink.WriteRows(ctx, result); err != nil {
+		t.Fatalf("lakehouse sink: %v", err)
+	}
+
+	var manifestBuf bytes.Buffer
+	manifestSink := analytics.NewManifestExportSink(analytics.ManifestExportConfig{
+		Root:   &manifestBuf,
+		Format: analytics.FormatNDJSON,
+	})
+	if err := manifestSink.WriteRows(ctx, result); err != nil {
+		t.Fatalf("manifest sink: %v", err)
+	}
+}
+
+func TestParquetSinkWritesBinaryParquet(t *testing.T) {
+	var buf bytes.Buffer
+	sink := analytics.NewParquetSink(&buf)
+	result := &view.Result{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Columns:  []view.ColumnInfo{{Name: "patient_id", Type: "string"}},
+		Rows:     []map[string]any{{"patient_id": "p1"}},
+	}
+	if err := sink.WriteRows(context.Background(), result); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	if !view.IsParquetFile(buf.Bytes()) {
+		t.Fatal("expected parquet binary output")
 	}
 }

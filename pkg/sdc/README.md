@@ -142,6 +142,16 @@ projections and resource-shaped JSON maps. A subject should normally be a
 CQL and FHIR Query are represented by safe provider interfaces. If no provider
 is installed, the operation reports an unavailable-expression diagnostic.
 
+`SearchFHIRQueryProvider` executes `application/x-fhir-query` expressions against
+`pkg/search`. `ComposeExpressions` combines FHIRPath, FHIR Query, and CQL
+providers for populate, validate, and render. `RenderWithOptions` evaluates
+`contextExpression` extensions and attaches results to `FieldState.ContextResources`.
+FHIR Query substitution supports `%subject`, `%patient` (alias), launch context,
+questionnaire variables, and `%qitem` (current item linkId). When no FHIR Query
+provider is configured, context expressions remain metadata-only and render a
+field-level diagnostic. The default runtime only wires FHIR Query when search is
+enabled.
+
 ### Calculated expressions and rendering
 
 `EvaluateCalculated` iterates calculated expressions with a convergence limit,
@@ -179,8 +189,8 @@ result, err := coreService.ProcessTransactionBundle(ctx, bundle)
 
 Definition extraction supports deterministic mappings, repeated answers,
 resource identities, POST-versus-PUT request generation, and extraction
-diagnostics. StructureMap execution is an adapter contract; no StructureMap
-runtime is bundled.
+diagnostics. StructureMap execution is provided by `pkg/structuremap` and
+wired into the default runtime when `sourceStructureMap` is configured.
 
 ## HTTP and runtime
 
@@ -242,7 +252,7 @@ Included:
 Injected by applications:
 
 - CQL runtime
-- FHIR Query runtime
+- FHIR Query runtime (default runtime wires `SearchFHIRQueryProvider` when search is enabled)
 - terminology service and value-set expansion
 - StructureMap runtime
 - extraction mappings/templates

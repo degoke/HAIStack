@@ -32,6 +32,7 @@ type ResourceService struct {
 	outbox                  hasync.Outbox
 	terminology             store.TerminologyStore
 	terminologyScope        string
+	globalTerminologyScope  string
 	terminologySourceModule string
 	terminologyCache        terminology.Invalidator
 	definitionIngestor      DefinitionIngestor
@@ -54,6 +55,7 @@ type ResourceServiceConfig struct {
 	Outbox                  hasync.Outbox
 	Terminology             store.TerminologyStore
 	TerminologyScope        string
+	GlobalTerminologyScope  string
 	TerminologySourceModule string
 	TerminologyCache        terminology.Invalidator
 	DefinitionIngestor      DefinitionIngestor
@@ -91,6 +93,7 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 		outbox:                  cfg.Outbox,
 		terminology:             cfg.Terminology,
 		terminologyScope:        cfg.TerminologyScope,
+		globalTerminologyScope:  cfg.GlobalTerminologyScope,
 		terminologySourceModule: cfg.TerminologySourceModule,
 		terminologyCache:        cfg.TerminologyCache,
 		definitionIngestor:      cfg.DefinitionIngestor,
@@ -510,15 +513,16 @@ func (s *ResourceService) compileTerminology(ctx context.Context, session store.
 	if meta.URL == "" {
 		return fmt.Errorf("terminology url is required")
 	}
-	r := store.TerminologyResourceRecord{ScopeID: s.terminologyScope, ResourceType: meta.ResourceType, ResourceID: meta.ID, CanonicalURL: meta.URL, Version: meta.Version, Status: meta.Status, ResourceJSON: append([]byte(nil), env.JSON...), SourceModule: s.terminologySourceModule}
+	scope := s.terminologyScopeFor(meta.ResourceType)
+	r := store.TerminologyResourceRecord{ScopeID: scope, ResourceType: meta.ResourceType, ResourceID: meta.ID, CanonicalURL: meta.URL, Version: meta.Version, Status: meta.Status, ResourceJSON: append([]byte(nil), env.JSON...), SourceModule: s.terminologySourceModule}
 	if err := terminology.Install(ctx, ts.TerminologyStore(), r); err != nil {
 		return err
 	}
 	if s.terminologyCache != nil {
 		if meta.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(meta.URL, meta.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, meta.URL, meta.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(meta.URL, meta.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, meta.URL, meta.Version)
 		}
 	}
 	return nil
@@ -538,17 +542,25 @@ func (s *ResourceService) removeTerminology(ctx context.Context, session store.W
 	if m.URL == "" {
 		return nil
 	}
-	if err := ts.TerminologyStore().DeleteProjections(ctx, s.terminologyScope, env.ResourceType, m.URL, m.Version); err != nil {
+	scope := s.terminologyScopeFor(env.ResourceType)
+	if err := ts.TerminologyStore().DeleteProjections(ctx, scope, env.ResourceType, m.URL, m.Version); err != nil {
 		return err
 	}
 	if s.terminologyCache != nil {
 		if env.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(m.URL, m.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, m.URL, m.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(m.URL, m.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, m.URL, m.Version)
 		}
 	}
-	return ts.TerminologyStore().DeleteResource(ctx, s.terminologyScope, env.ResourceType, m.URL, m.Version)
+	return ts.TerminologyStore().DeleteResource(ctx, scope, env.ResourceType, m.URL, m.Version)
+}
+
+func (s *ResourceService) terminologyScopeFor(resourceType string) string {
+	if resourceType == "CodeSystem" && s.globalTerminologyScope != "" {
+		return s.globalTerminologyScope
+	}
+	return s.terminologyScope
 }
 
 func (s *ResourceService) removePreviousTerminology(ctx context.Context, session store.WriteSession, previous, current *types.ResourceEnvelope) error {
@@ -569,17 +581,18 @@ func (s *ResourceService) removePreviousTerminology(ctx context.Context, session
 	if !ok {
 		return nil
 	}
-	if err := ts.TerminologyStore().DeleteProjections(ctx, s.terminologyScope, previous.ResourceType, oldMeta.URL, oldMeta.Version); err != nil {
+	scope := s.terminologyScopeFor(previous.ResourceType)
+	if err := ts.TerminologyStore().DeleteProjections(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version); err != nil {
 		return err
 	}
 	if s.terminologyCache != nil {
 		if previous.ResourceType == "CodeSystem" {
-			s.terminologyCache.InvalidateCodeSystem(oldMeta.URL, oldMeta.Version)
+			s.terminologyCache.InvalidateCodeSystem(ctx, oldMeta.URL, oldMeta.Version)
 		} else {
-			s.terminologyCache.InvalidateValueSet(oldMeta.URL, oldMeta.Version)
+			s.terminologyCache.InvalidateValueSet(ctx, oldMeta.URL, oldMeta.Version)
 		}
 	}
-	return ts.TerminologyStore().DeleteResource(ctx, s.terminologyScope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
+	return ts.TerminologyStore().DeleteResource(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
 }
 
 func (s *ResourceService) withVersionMeta(envelope *types.ResourceEnvelope, versionID string, now time.Time) (*types.ResourceEnvelope, error) {

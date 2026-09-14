@@ -3,10 +3,13 @@ package runtime
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
@@ -27,20 +30,33 @@ type Builder struct {
 	sdcService     hahttp.SDCService
 	searchEnabled  bool
 
-	syncHubURL            string
-	syncHub               hasync.Hub
-	syncServer            hasync.HubServer
-	syncNodeID            string
-	syncMiddleware        func(http.Handler) http.Handler
-	httpMiddleware        func(http.Handler) http.Handler
-	httpPrincipalResolver hahttp.PrincipalResolver
-	httpAuthChecker       hahttp.AuthChecker
-	httpRateLimit         hahttp.RateLimitConfig
-	moduleAuthorizer      modules.InstallAuthorizer
-	moduleVerifier        modules.ModuleVerifier
+	remoteTerminologyURL       string
+	remoteTerminologyHeaders   map[string]string
+	remoteTerminologyAuthorize func(*http.Request) error
+	syncHubURL                 string
+	syncHub                    hasync.Hub
+	syncServer                 hasync.HubServer
+	syncNodeID                 string
+	syncMiddleware             func(http.Handler) http.Handler
+	httpMiddleware             func(http.Handler) http.Handler
+	httpPrincipalResolver      hahttp.PrincipalResolver
+	httpAuthChecker            hahttp.AuthChecker
+	httpRateLimit              hahttp.RateLimitConfig
+	moduleAuthorizer           modules.InstallAuthorizer
+	moduleVerifier             modules.ModuleVerifier
 
-	modulePaths []string
-	httpAddr    string
+	modulePaths     []string
+	packageInstalls []packages.InstallSpec
+	httpAddr        string
+
+	analyticsEnabled       bool
+	analyticsMaxConcurrent int
+	postgresReadReplicaDSN string
+	viewExportDir          string
+	dataDir                string
+
+	preExpandValueSets bool
+	maxExpansion       int
 }
 
 // New returns a new runtime builder.
@@ -65,6 +81,27 @@ func (b *Builder) WithSQLiteTenant(tenantID string) *Builder {
 // It defaults to "default".
 func (b *Builder) WithSQLiteTerminologyScope(scope string) *Builder {
 	b.sqliteTerminologyScope = scope
+	return b
+}
+
+// WithRemoteTerminology configures an optional remote FHIR terminology server
+// (for example https://tx.fhir.org/r4) as the final provider in the chain.
+func (b *Builder) WithRemoteTerminology(baseURL string) *Builder {
+	b.remoteTerminologyURL = strings.TrimSpace(baseURL)
+	return b
+}
+
+// WithPreExpandValueSets enqueues async ValueSet pre-expansion jobs when IG
+// packages install finite global ValueSets.
+func (b *Builder) WithPreExpandValueSets(enabled bool) *Builder {
+	b.preExpandValueSets = enabled
+	return b
+}
+
+// WithMaxExpansion sets the maximum ValueSet expansion size for terminology
+// services and pre-expand workers. Zero uses the default of 10000.
+func (b *Builder) WithMaxExpansion(max int) *Builder {
+	b.maxExpansion = max
 	return b
 }
 
@@ -116,6 +153,47 @@ func (b *Builder) WithSDC(service hahttp.SDCService) *Builder { b.sdcService = s
 func (b *Builder) WithSearch() *Builder {
 	b.searchEnabled = true
 	return b
+}
+
+// WithRemoteTerminologyTranslate sets a FHIR server base URL used for ConceptMap/$translate
+// when local ConceptMaps are unavailable. It is an alias for WithRemoteTerminology.
+func (b *Builder) WithRemoteTerminologyTranslate(baseURL string) *Builder {
+	return b.WithRemoteTerminology(baseURL)
+}
+
+// WithRemoteTerminologyTranslateHeader adds a static request header for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyTranslateHeader(key, value string) *Builder {
+	if b.remoteTerminologyHeaders == nil {
+		b.remoteTerminologyHeaders = map[string]string{}
+	}
+	b.remoteTerminologyHeaders[key] = value
+	return b
+}
+
+// WithRemoteTerminologyTranslateAuthorize sets per-request auth for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyTranslateAuthorize(fn func(*http.Request) error) *Builder {
+	b.remoteTerminologyAuthorize = fn
+	return b
+}
+
+// WithRemoteTerminologyBearerToken sets a Bearer token for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyBearerToken(token string) *Builder {
+	if strings.TrimSpace(token) == "" {
+		return b
+	}
+	return b.WithRemoteTerminologyTranslateHeader("Authorization", "Bearer "+strings.TrimSpace(token))
+}
+
+func (b *Builder) remoteTranslateClient() conceptmap.RemoteHTTPClient {
+	client := conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+	if len(b.remoteTerminologyHeaders) > 0 {
+		client.Headers = map[string]string{}
+		for key, value := range b.remoteTerminologyHeaders {
+			client.Headers[key] = value
+		}
+	}
+	client.Authorize = b.remoteTerminologyAuthorize
+	return client
 }
 
 // WithSync enables device sync against a remote hub URL.
@@ -199,9 +277,49 @@ func (b *Builder) WithModules(paths ...string) *Builder {
 	return b
 }
 
+// WithPackageInstalls installs FHIR NPM packages or local IG directories at build time.
+// Already-installed package versions are skipped idempotently.
+func (b *Builder) WithPackageInstalls(specs ...packages.InstallSpec) *Builder {
+	b.packageInstalls = append(b.packageInstalls, specs...)
+	return b
+}
+
 // WithHTTP sets the listen address for a managed HTTP server started by Runtime.Start.
 func (b *Builder) WithHTTP(addr string) *Builder {
 	b.httpAddr = addr
+	return b
+}
+
+// WithAnalytics enables Postgres reporting-table refresh, CDC-triggered jobs, and
+// view execution wired through pkg/analytics. Requires Postgres storage.
+func (b *Builder) WithAnalytics() *Builder {
+	b.analyticsEnabled = true
+	return b
+}
+
+// WithAnalyticsConcurrency limits concurrent analytics refresh jobs to protect OLTP.
+// Defaults to 1 when analytics is enabled and this is not set.
+func (b *Builder) WithAnalyticsConcurrency(max int) *Builder {
+	b.analyticsMaxConcurrent = max
+	return b
+}
+
+// WithPostgresReadReplica configures a read-only Postgres DSN for analytics view scans.
+func (b *Builder) WithPostgresReadReplica(dsn string) *Builder {
+	b.postgresReadReplicaDSN = dsn
+	return b
+}
+
+// WithViewExportDir sets the filesystem directory for ViewDefinition export artifacts.
+// When unset, SQLite runtimes use {db-dir}/view-exports and Postgres runtimes use view-exports/{tenantId}.
+func (b *Builder) WithViewExportDir(dir string) *Builder {
+	b.viewExportDir = dir
+	return b
+}
+
+// WithDataDir sets the absolute runtime data directory for view export artifacts and job metadata.
+func (b *Builder) WithDataDir(dir string) *Builder {
+	b.dataDir = dir
 	return b
 }
 

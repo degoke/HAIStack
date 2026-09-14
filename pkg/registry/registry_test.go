@@ -3,6 +3,7 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,6 +15,14 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 )
+
+func TestMain(m *testing.M) {
+	if err := registry.WarmBundledDefinitionCache(); err != nil {
+		fmt.Fprintf(os.Stderr, "warm bundled definition cache: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 type memDefinitionStore struct {
 	mu      sync.Mutex

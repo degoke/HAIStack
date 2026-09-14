@@ -11,6 +11,7 @@ import (
 	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/runtime"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -98,6 +99,20 @@ func BuildRuntime(ctx context.Context, cfg config.Config, httpAddr string) (*run
 	}
 	if len(cfg.Runtime.ModulePaths) > 0 {
 		b.WithModules(cfg.Runtime.ModulePaths...)
+	}
+	if len(cfg.Runtime.Packages) > 0 {
+		specs := make([]packages.InstallSpec, 0, len(cfg.Runtime.Packages))
+		for _, pkg := range cfg.Runtime.Packages {
+			specs = append(specs, packages.InstallSpec{
+				PackageID: pkg.PackageID,
+				Version:   pkg.Version,
+				Path:      pkg.Path,
+			})
+		}
+		b.WithPackageInstalls(specs...)
+	}
+	if cfg.Runtime.PreExpandValueSets {
+		b.WithPreExpandValueSets(true)
 	}
 	if cfg.Sync.HubURL != "" {
 		b.WithSync(cfg.Sync.HubURL).WithSyncNode(cfg.Sync.NodeID)

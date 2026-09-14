@@ -1,7 +1,6 @@
 package sdc
 
 import (
-	"context"
 	"fmt"
 	"strings"
 )
@@ -96,7 +95,7 @@ func validateReferenceAnswer(o *Outcome, item *Item, answer Answer, opts Validat
 		o.add("error", "exception", "reference resolver is unavailable", path)
 		return
 	}
-	resource, err := opts.References.ResolveReference(context.Background(), ref)
+	resource, err := opts.References.ResolveReference(validationContext(opts), ref)
 	if err != nil {
 		o.add("error", "not-found", err.Error(), path)
 		return
@@ -119,7 +118,7 @@ func validateReferenceAnswer(o *Outcome, item *Item, answer Answer, opts Validat
 			o.add("error", "exception", "reference filter expression provider is unavailable", path)
 			return
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), Expression{
+		values, err := opts.Expressions.Evaluate(validationContext(opts), Expression{
 			Language:   "text/fhirpath",
 			Expression: item.ReferenceFilter,
 		}, resource)
@@ -157,7 +156,7 @@ func validateQuantityAnswer(o *Outcome, item *Item, answer Answer, opts Validati
 		}
 	}
 	if item.UnitValueSet != "" && opts.Terminology != nil && qty.Code != "" {
-		if err := opts.Terminology.ValidateCode(context.Background(), Coding{System: qty.System, Code: qty.Code}, item.UnitValueSet); err != nil {
+		if err := opts.Terminology.ValidateCode(validationContext(opts), Coding{System: qty.System, Code: qty.Code}, item.UnitValueSet); err != nil {
 			o.add("error", "code-invalid", err.Error(), path)
 		}
 	}
@@ -199,7 +198,7 @@ func validateRequiredExpression(o *Outcome, item *Item, response QuestionnaireRe
 		o.add("error", "exception", "required expression provider is unavailable", path)
 		return
 	}
-	values, err := opts.Expressions.Evaluate(context.Background(), *item.RequiredExpression, response)
+	values, err := opts.Expressions.Evaluate(validationContext(opts), *item.RequiredExpression, response)
 	if err != nil {
 		o.add("error", "exception", err.Error(), path)
 		return
@@ -251,14 +250,14 @@ func validateAnswerValueSet(o *Outcome, item *Item, answer Answer, opts Validati
 		return
 	}
 	if c, ok := codingFrom(answer.Value); ok {
-		if err := opts.Terminology.ValidateCode(context.Background(), c, item.AnswerValueSet); err != nil {
+		if err := opts.Terminology.ValidateCode(validationContext(opts), c, item.AnswerValueSet); err != nil {
 			o.add("error", "code-invalid", err.Error(), path)
 		}
 		return
 	}
 	if item.Type == "open-choice" {
 		if s, ok := answer.Value.(string); ok && s != "" {
-			codes, err := opts.Terminology.Expand(context.Background(), item.AnswerValueSet)
+			codes, err := opts.Terminology.Expand(validationContext(opts), item.AnswerValueSet)
 			if err != nil {
 				o.add("error", "exception", err.Error(), path)
 				return

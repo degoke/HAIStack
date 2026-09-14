@@ -993,6 +993,9 @@ func (p FHIRQueryExpressions) Evaluate(ctx context.Context, e Expression, r any)
 	if p.Provider == nil {
 		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, r)
 	}
+	if constants := fhirQueryConstantsFromInput(r); len(constants) > 0 {
+		return executeFHIRQueryWithConstants(ctx, p.Provider, e.Expression, constants, r)
+	}
 	return p.Provider.ExecuteFHIRQuery(ctx, e.Expression, r)
 }
 

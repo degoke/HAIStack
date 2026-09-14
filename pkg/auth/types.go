@@ -96,4 +96,5 @@ const (
 	ActionPushDevice    = "push-device-event"
 	ActionInstallModule = "install-module"
 	ActionPatientAccess = "patient-access"
+	ActionBulkExport    = "bulk-export"
 )
