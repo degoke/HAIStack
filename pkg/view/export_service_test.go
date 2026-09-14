@@ -7,6 +7,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/testkit/viewtest"
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
@@ -373,28 +374,8 @@ func TestExportServiceParquetFHIRRecordsLayoutMetadata(t *testing.T) {
 func TestExportServiceAdvancesWatermarkToMaxLastUpdatedFlatParquet(t *testing.T) {
 	ctx := context.Background()
 	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	jane := patientJane(t)
-	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	john := patientJohn(t)
-	john.LastUpdated = time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	engine, err := fhirpath.NewEngine(fhirpath.Config{})
-	if err != nil {
-		t.Fatalf("engine: %v", err)
-	}
-	reg := view.NewRegistry()
-	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	resources := newMemResourceStore()
-	resources.Seed(t, jane, john)
-	exec, err := view.NewExecutor(view.Config{
-		Resources: resources,
-		Engine:    engine,
-		Registry:  reg,
-	})
-	if err != nil {
-		t.Fatalf("executor: %v", err)
-	}
+	patients := viewtest.IncrementalPatientSummaryPatients(t)
+	exec := viewtest.NewPatientSummaryExecutor(t, patients)
 	wm := &recordWatermark{since: cutoff}
 	svc, err := view.NewExportService(view.ExportServiceConfig{
 		Jobs:      view.NewInMemoryViewExportJobStore(),
@@ -432,7 +413,7 @@ func TestExportServiceAdvancesWatermarkToMaxLastUpdatedFlatParquet(t *testing.T)
 	if rows != 1 {
 		t.Fatalf("parquet rows=%d, want 1", rows)
 	}
-	if !wm.advanced.Equal(jane.LastUpdated.UTC()) {
-		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, jane.LastUpdated.UTC())
+	if !wm.advanced.Equal(patients.Jane.LastUpdated.UTC()) {
+		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, patients.Jane.LastUpdated.UTC())
 	}
 }

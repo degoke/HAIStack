@@ -21,7 +21,7 @@
 //   - conflicttest — conflict detection and resolution scenarios on top of synctest
 //   - golden — canonical OperationOutcome JSON comparison (inline/embedded goldens)
 //   - parquettest — parquet export byte assertions for analytics/view/http tests
-//   - viewtest — shared view.Executor wiring for patient_summary_view integration tests
+//   - viewtest — patient_summary_view executor wiring for analytics/view/http integration tests
 //   - aitest — reusable ai.Executor harness with optional search, views, and core wiring
 //     (including shared resource/search stores and approval/model fakes)
 //

@@ -14,6 +14,8 @@ func IDs(t *testing.T, data []byte) []string {
 }
 
 // StringColumn reads non-empty string values from a top-level parquet column.
+// It expects UTF-8 string columns encoded as Parquet BYTE_ARRAY (flat view and
+// FHIR id exports). Other physical types return empty strings.
 func StringColumn(t *testing.T, data []byte, column string) []string {
 	t.Helper()
 	if column == "" {
