@@ -200,7 +200,7 @@ func testDefinitionStore() memDefinitionStore {
 		},
 	})
 	return memDefinitionStore{records: map[string][]byte{
-		"http://hl7.org/fhir/StructureDefinition/Patient":      patientSD,
+		"http://hl7.org/fhir/StructureDefinition/Patient":     patientSD,
 		"http://hl7.org/fhir/StructureDefinition/Observation": observationSD,
 		"http://hl7.org/fhir/StructureDefinition/Bundle":      bundleSD,
 	}}
@@ -311,9 +311,9 @@ func TestMapCardinalityResolverFirstRepeatingProfileWins(t *testing.T) {
 		},
 	})
 	store := memDefinitionStore{records: map[string][]byte{
-		"http://hl7.org/fhir/StructureDefinition/Observation":        baseSD,
-		"http://example.org/StructureDefinition/first-repeating":    firstRepeating,
-		"http://example.org/StructureDefinition/second-repeating":   secondRepeating,
+		"http://hl7.org/fhir/StructureDefinition/Observation":     baseSD,
+		"http://example.org/StructureDefinition/first-repeating":  firstRepeating,
+		"http://example.org/StructureDefinition/second-repeating": secondRepeating,
 	}}
 	resolver := newMapCardinalityResolver(store, Map{})
 	obs := map[string]any{
@@ -426,7 +426,7 @@ func TestMapCardinalityResolverSnapshotProfileDoesNotMergeBase(t *testing.T) {
 		},
 	})
 	store := memDefinitionStore{records: map[string][]byte{
-		"http://hl7.org/fhir/StructureDefinition/Observation": baseSD,
+		"http://hl7.org/fhir/StructureDefinition/Observation":  baseSD,
 		"http://example.org/StructureDefinition/snapshot-only": profileSD,
 	}}
 	resolver := newMapCardinalityResolver(store, Map{})

@@ -356,21 +356,21 @@ func choiceTypeJSONSuffix(typ string) string {
 }
 
 var choiceTypeJSONSuffixes = map[string]string{
-	"uri":            "Uri",
-	"url":            "Url",
-	"uuid":           "Uuid",
-	"oid":            "Oid",
-	"id":             "Id",
-	"dateTime":       "DateTime",
-	"instant":        "Instant",
-	"time":           "Time",
-	"date":           "Date",
-	"positiveInt":    "PositiveInt",
-	"unsignedInt":    "UnsignedInt",
-	"base64Binary":   "Base64Binary",
-	"xhtml":          "Xhtml",
-	"markdown":       "Markdown",
-	"canonical":      "Canonical",
+	"uri":          "Uri",
+	"url":          "Url",
+	"uuid":         "Uuid",
+	"oid":          "Oid",
+	"id":           "Id",
+	"dateTime":     "DateTime",
+	"instant":      "Instant",
+	"time":         "Time",
+	"date":         "Date",
+	"positiveInt":  "PositiveInt",
+	"unsignedInt":  "UnsignedInt",
+	"base64Binary": "Base64Binary",
+	"xhtml":        "Xhtml",
+	"markdown":     "Markdown",
+	"canonical":    "Canonical",
 }
 
 func mergeElementIndexes(base, overlay map[string]string) map[string]string {

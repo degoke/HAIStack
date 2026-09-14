@@ -109,7 +109,7 @@ func TestEntryGroupSelectedByMapName(t *testing.T) {
 		URL:  "http://example/map",
 		Group: []Group{
 			{
-				Name: "HelperOnly",
+				Name:  "HelperOnly",
 				Input: []Input{{Name: "src", Type: "QuestionnaireResponse", Mode: "source"}},
 				Rule: []Rule{{
 					Source: []Source{{Context: "src", Element: []string{"item"}, Variable: "item", Condition: "linkId = 'missing'"}},

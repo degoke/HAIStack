@@ -33,17 +33,17 @@ type Builder struct {
 	remoteTerminologyURL       string
 	remoteTerminologyHeaders   map[string]string
 	remoteTerminologyAuthorize func(*http.Request) error
-	syncHubURL            string
-	syncHub               hasync.Hub
-	syncServer            hasync.HubServer
-	syncNodeID            string
-	syncMiddleware        func(http.Handler) http.Handler
-	httpMiddleware        func(http.Handler) http.Handler
-	httpPrincipalResolver hahttp.PrincipalResolver
-	httpAuthChecker       hahttp.AuthChecker
-	httpRateLimit         hahttp.RateLimitConfig
-	moduleAuthorizer      modules.InstallAuthorizer
-	moduleVerifier        modules.ModuleVerifier
+	syncHubURL                 string
+	syncHub                    hasync.Hub
+	syncServer                 hasync.HubServer
+	syncNodeID                 string
+	syncMiddleware             func(http.Handler) http.Handler
+	httpMiddleware             func(http.Handler) http.Handler
+	httpPrincipalResolver      hahttp.PrincipalResolver
+	httpAuthChecker            hahttp.AuthChecker
+	httpRateLimit              hahttp.RateLimitConfig
+	moduleAuthorizer           modules.InstallAuthorizer
+	moduleVerifier             modules.ModuleVerifier
 
 	modulePaths     []string
 	packageInstalls []packages.InstallSpec

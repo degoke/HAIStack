@@ -99,8 +99,12 @@ func (m *memTerminologyStore) FindResource(_ context.Context, scopeID, resourceT
 	return nil, nil
 }
 
-func (m *memTerminologyStore) PutResource(context.Context, store.TerminologyResourceRecord) error { return nil }
-func (m *memTerminologyStore) DeleteResource(context.Context, string, string, string, string) error { return nil }
+func (m *memTerminologyStore) PutResource(context.Context, store.TerminologyResourceRecord) error {
+	return nil
+}
+func (m *memTerminologyStore) DeleteResource(context.Context, string, string, string, string) error {
+	return nil
+}
 func (m *memTerminologyStore) ListResources(context.Context, string, string) ([]store.TerminologyResourceRecord, error) {
 	return nil, nil
 }

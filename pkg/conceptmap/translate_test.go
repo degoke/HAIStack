@@ -121,11 +121,11 @@ func TestTranslatorAppliesUnmappedOnlyOnceAcrossGroups(t *testing.T) {
 		URL: "http://example.org/maps/status",
 		Group: []Group{
 			{
-				Target: "http://example.org/target-a",
+				Target:   "http://example.org/target-a",
 				Unmapped: &Unmapped{Mode: "provided"},
 			},
 			{
-				Target: "http://example.org/target-b",
+				Target:   "http://example.org/target-b",
 				Unmapped: &Unmapped{Mode: "provided"},
 			},
 		},

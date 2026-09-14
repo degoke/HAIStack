@@ -13,9 +13,9 @@ type Map struct {
 }
 
 type Group struct {
-	Source  string    `json:"source,omitempty"`
-	Target  string    `json:"target,omitempty"`
-	Element []Element `json:"element,omitempty"`
+	Source   string    `json:"source,omitempty"`
+	Target   string    `json:"target,omitempty"`
+	Element  []Element `json:"element,omitempty"`
 	Unmapped *Unmapped `json:"unmapped,omitempty"`
 }
 

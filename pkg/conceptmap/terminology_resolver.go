@@ -33,4 +33,3 @@ func (r *TerminologyStoreResolver) Resolve(ctx context.Context, canonical string
 	}
 	return m, nil
 }
-

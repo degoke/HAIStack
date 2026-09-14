@@ -48,7 +48,7 @@ func ExtractorRun(cfg Config) func(context.Context, sdc.Questionnaire, sdc.Quest
 			return nil, fmt.Errorf("decode questionnaire response: %w", err)
 		}
 		inputs := ExecuteInput{
-			"questionnaire": qMap,
+			"questionnaire":         qMap,
 			"questionnaireResponse": rMap,
 			"src":                   rMap,
 			"q":                     qMap,
