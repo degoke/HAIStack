@@ -186,10 +186,7 @@ func (e *Executor) evalColumnValues(ctx context.Context, col ColumnSpec, rootRes
 		return col.compiled.Eval(ctx, rootResource)
 	}
 	focus := focusValue(contextResource)
-	expr := col.Path
-	if strings.HasPrefix(expr, "$this.") {
-		expr = strings.TrimPrefix(expr, "$this.")
-	}
+	expr := strings.TrimPrefix(col.Path, "$this.")
 	return e.cfg.Engine.EvalWithEnv(ctx, "%i."+expr, rootResource, map[string]any{"i": focus})
 }
 

@@ -136,12 +136,6 @@ func canonicalizeQuantity(qty map[string]any) (map[string]any, error) {
 
 	system := stringOrEmpty(qty["system"])
 	code := normalizeUCUMCode(stringOrEmpty(qty["code"]), stringOrEmpty(qty["unit"]))
-	unit := stringOrEmpty(qty["unit"])
-
-	canonicalCode := code
-	canonicalUnit := unit
-	canonicalSystem := system
-	converted := new(big.Rat).Set(rat)
 
 	if system != "" && system != ucumSystem {
 		return nil, nil
@@ -150,10 +144,10 @@ func canonicalizeQuantity(qty map[string]any) (map[string]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	converted = conv.convert(rat)
-	canonicalCode = conv.canonicalCode
-	canonicalUnit = conv.canonicalUnit
-	canonicalSystem = ucumSystem
+	converted := conv.convert(rat)
+	canonicalCode := conv.canonicalCode
+	canonicalUnit := conv.canonicalUnit
+	canonicalSystem := ucumSystem
 
 	canonicalValue := converted.FloatString(6)
 	canonicalValue = strings.TrimRight(strings.TrimRight(canonicalValue, "0"), ".")

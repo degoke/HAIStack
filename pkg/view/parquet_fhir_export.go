@@ -127,19 +127,6 @@ func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, re
 	return written, stats, nil
 }
 
-func (e *Executor) forEachMatchingResource(
-	ctx context.Context,
-	req ExecuteRequest,
-	limit, offset int,
-	fn func(map[string]any) error,
-) (int, MatchingResourceStats, error) {
-	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
-	if err != nil {
-		return 0, MatchingResourceStats{}, err
-	}
-	return e.forEachMatchingResourcePlan(ctx, plan, fn)
-}
-
 func (e *Executor) forEachMatchingResourcePlan(
 	ctx context.Context,
 	plan *matchingResourcePlan,
