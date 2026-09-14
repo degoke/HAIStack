@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path"
-	"strings"
 	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -29,72 +27,25 @@ func (s *warehouseSink) WriteRows(ctx context.Context, result *view.Result) erro
 	return s.target.Write(ctx, result)
 }
 
-// LakehouseConfig configures partitioned lakehouse export.
-type LakehouseConfig struct {
-	Root        io.Writer
-	PartitionBy func(*view.Result) string
-}
-
-type lakehouseSink struct {
-	root        io.Writer
-	partitionBy func(*view.Result) string
-	mu          sync.Mutex
-}
-
-// NewLakehouseSink returns a sink that writes partitioned parquet-compatible JSON.
-func NewLakehouseSink(cfg LakehouseConfig) LakehouseSink {
-	partitionBy := cfg.PartitionBy
-	if partitionBy == nil {
-		partitionBy = defaultLakehousePartition
-	}
-	return &lakehouseSink{
-		root:        cfg.Root,
-		partitionBy: partitionBy,
-	}
-}
-
-func defaultLakehousePartition(result *view.Result) string {
-	if result == nil {
-		return "view=unknown"
-	}
-	return path.Join("view="+sanitizePartition(result.ViewName), "version="+sanitizePartition(result.Version))
-}
-
-func sanitizePartition(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.ReplaceAll(value, "/", "_")
-	if value == "" {
-		return "unknown"
-	}
-	return value
-}
-
-func (s *lakehouseSink) WriteRows(ctx context.Context, result *view.Result) error {
-	if s == nil || s.root == nil {
-		return fmt.Errorf("%w: lakehouse writer is required", ErrUnsupportedDestination)
-	}
-	partition := s.partitionBy(result)
-	header := []byte("{\"partition\":\"" + partition + "\",\"format\":\"haistack-lakehouse-v1\"}\n")
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := s.root.Write(header); err != nil {
-		return fmt.Errorf("write lakehouse partition header: %w", err)
-	}
-	return NewParquetSink(s.root).WriteRows(ctx, result)
-}
-
 // ManifestExportConfig configures cursor-based manifest export.
 type ManifestExportConfig struct {
-	Root      io.Writer
-	Watermark *WatermarkStore
-	Format    ExportFormat
+	Root          io.Writer
+	Watermark     *WatermarkStore
+	Format        ExportFormat
+	ParquetLayout view.ParquetLayout
+	Executor      *view.Executor
+	Actor         string
 }
 
 type manifestExportSink struct {
-	root      io.Writer
-	watermark *WatermarkStore
-	format    ExportFormat
-	mu        sync.Mutex
+	root          io.Writer
+	watermark     *WatermarkStore
+	format        ExportFormat
+	parquetLayout view.ParquetLayout
+	executor      *view.Executor
+	actor         string
+	mu            sync.Mutex
+	lastRowCount  int
 }
 
 // NewManifestExportSink returns a sink that writes export payloads and advances watermarks.
@@ -103,10 +54,17 @@ func NewManifestExportSink(cfg ManifestExportConfig) ManifestExportSink {
 	if format == "" {
 		format = FormatNDJSON
 	}
+	layout := cfg.ParquetLayout
+	if layout == "" {
+		layout = view.ParquetLayoutFlat
+	}
 	return &manifestExportSink{
-		root:      cfg.Root,
-		watermark: cfg.Watermark,
-		format:    format,
+		root:          cfg.Root,
+		watermark:     cfg.Watermark,
+		format:        format,
+		parquetLayout: layout,
+		executor:      cfg.Executor,
+		actor:         cfg.Actor,
 	}
 }
 
@@ -116,6 +74,7 @@ func (s *manifestExportSink) WriteRows(ctx context.Context, result *view.Result)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastRowCount = 0
 	if err := s.writeFormatted(ctx, result); err != nil {
 		return err
 	}
@@ -125,12 +84,32 @@ func (s *manifestExportSink) WriteRows(ctx context.Context, result *view.Result)
 	return nil
 }
 
+// LastExportRowCount implements ExportRowCountSink.
+func (s *manifestExportSink) LastExportRowCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastRowCount
+}
+
 func (s *manifestExportSink) writeFormatted(ctx context.Context, result *view.Result) error {
 	switch s.format {
 	case FormatCSV:
 		return NewCSVSink(s.root).WriteRows(ctx, result)
 	case FormatParquet:
-		return NewParquetSink(s.root).WriteRows(ctx, result)
+		sink := NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
+			Writer:   s.root,
+			Layout:   s.parquetLayout,
+			Executor: s.executor,
+			Actor:    s.actor,
+		})
+		if err := sink.WriteRows(ctx, result); err != nil {
+			return err
+		}
+		s.lastRowCount = sink.LastExportRowCount()
+		return nil
 	default:
 		return NewNDJSONSink(s.root).WriteRows(ctx, result)
 	}

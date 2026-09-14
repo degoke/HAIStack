@@ -3,6 +3,9 @@ package view
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -10,6 +13,7 @@ import (
 type ExportFileStore interface {
 	Put(ctx context.Context, jobID, filename string, data []byte, contentType string) error
 	Get(ctx context.Context, jobID, filename string) ([]byte, string, error)
+	DeleteJob(ctx context.Context, jobID string) error
 }
 
 type inMemoryExportFileStore struct {
@@ -49,6 +53,113 @@ func (s *inMemoryExportFileStore) Get(_ context.Context, jobID, filename string)
 		return nil, "", fmt.Errorf("view export file not found: %s/%s", jobID, filename)
 	}
 	return append([]byte(nil), file.data...), file.contentType, nil
+}
+
+func (s *inMemoryExportFileStore) DeleteJob(_ context.Context, jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prefix := jobID + "/"
+	for key := range s.files {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.files, key)
+		}
+	}
+	return nil
+}
+
+// LocalExportFileStore persists view export artifacts on the local filesystem.
+type LocalExportFileStore struct {
+	root string
+	mu   sync.Mutex
+}
+
+// NewLocalExportFileStore creates a filesystem-backed ExportFileStore.
+func NewLocalExportFileStore(root string) (*LocalExportFileStore, error) {
+	if root == "" {
+		return nil, fmt.Errorf("view: export root path is required")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("view: create export root: %w", err)
+	}
+	return &LocalExportFileStore{root: root}, nil
+}
+
+func (s *LocalExportFileStore) filePath(jobID, filename string) (string, error) {
+	jobSeg, err := safeLocalPathSegment(jobID)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid export job id: %w", err)
+	}
+	fileSeg, err := safeLocalPathSegment(filename)
+	if err != nil {
+		return "", fmt.Errorf("view: invalid export filename: %w", err)
+	}
+	full := filepath.Join(s.root, jobSeg, fileSeg)
+	if err := ensurePathWithinRoot(s.root, full); err != nil {
+		return "", err
+	}
+	return full, nil
+}
+
+func (s *LocalExportFileStore) metaPath(jobID, filename string) (string, error) {
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return "", err
+	}
+	return full + ".meta", nil
+}
+
+func (s *LocalExportFileStore) Put(_ context.Context, jobID, filename string, data []byte, contentType string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(full, data, 0o644); err != nil {
+		return err
+	}
+	meta, err := s.metaPath(jobID, filename)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(meta, []byte(contentType), 0o644)
+}
+
+func (s *LocalExportFileStore) Get(_ context.Context, jobID, filename string) ([]byte, string, error) {
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return nil, "", fmt.Errorf("view export file not found: %s/%s", jobID, filename)
+	}
+	contentType := "application/octet-stream"
+	meta, err := s.metaPath(jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	if metaBytes, err := os.ReadFile(meta); err == nil {
+		contentType = strings.TrimSpace(string(metaBytes))
+	}
+	return data, contentType, nil
+}
+
+func (s *LocalExportFileStore) DeleteJob(_ context.Context, jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	jobSeg, err := safeLocalPathSegment(jobID)
+	if err != nil {
+		return fmt.Errorf("view: invalid export job id: %w", err)
+	}
+	dir := filepath.Join(s.root, jobSeg)
+	if err := ensurePathWithinRoot(s.root, dir); err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }
 
 // FileExportWriter stores export artifacts in an ExportFileStore scoped to one job.
@@ -91,7 +202,7 @@ func contentTypeForFormat(format OutputFormat) string {
 	case FormatCSV:
 		return "text/csv"
 	case FormatParquet:
-		return "application/octet-stream"
+		return ParquetContentType
 	case FormatJSON:
 		return "application/json"
 	default:

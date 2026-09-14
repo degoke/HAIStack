@@ -232,7 +232,11 @@ func TestRunner_RejectsCustomDefinitionUsingBuiltInName(t *testing.T) {
 
 func TestDeferredSinksRequireConfiguration(t *testing.T) {
 	ctx := context.Background()
-	result := &view.Result{ViewName: analytics.ViewPatientSummary, Version: "1.0.0"}
+	result := &view.Result{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Columns:  []view.ColumnInfo{{Name: "patient_id", Type: "string"}},
+	}
 
 	reporting := newMemReportingTableStore()
 	if err := analytics.NewWarehouseSink(reporting).WriteRows(ctx, result); err != nil {
@@ -255,7 +259,7 @@ func TestDeferredSinksRequireConfiguration(t *testing.T) {
 	}
 }
 
-func TestParquetSinkWritesColumnarDocument(t *testing.T) {
+func TestParquetSinkWritesBinaryParquet(t *testing.T) {
 	var buf bytes.Buffer
 	sink := analytics.NewParquetSink(&buf)
 	result := &view.Result{
@@ -267,7 +271,7 @@ func TestParquetSinkWritesColumnarDocument(t *testing.T) {
 	if err := sink.WriteRows(context.Background(), result); err != nil {
 		t.Fatalf("WriteRows: %v", err)
 	}
-	if !strings.Contains(buf.String(), "haistack-parquet-v1") {
-		t.Fatalf("output = %s", buf.String())
+	if !view.IsParquetFile(buf.Bytes()) {
+		t.Fatal("expected parquet binary output")
 	}
 }

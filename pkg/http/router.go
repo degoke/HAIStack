@@ -11,6 +11,7 @@ import (
 )
 
 var fhirIDPattern = regexp.MustCompile(`^[A-Za-z0-9\-\.]{1,64}$`)
+var exportFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9_\-\.]{1,128}$`)
 
 type routeKind int
 
@@ -71,8 +72,8 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 			if err := validateID(parts[2]); err != nil {
 				return parsedRoute{}, err
 			}
-			if parts[3] == "" {
-				return parsedRoute{}, fmt.Errorf("export filename is required")
+			if err := validateExportFilename(parts[3]); err != nil {
+				return parsedRoute{}, err
 			}
 			return parsedRoute{kind: routeBulkExportFile, jobID: parts[2], filename: parts[3]}, nil
 		}
@@ -95,6 +96,9 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 		}
 		if len(parts) != 5 || parts[4] == "" {
 			return parsedRoute{}, fmt.Errorf("export filename is required")
+		}
+		if err := validateExportFilename(parts[4]); err != nil {
+			return parsedRoute{}, err
 		}
 		return parsedRoute{kind: routeViewExportFile, jobID: parts[3], filename: parts[4]}, nil
 	}
@@ -212,6 +216,22 @@ func validateID(id string) error {
 	}
 	if !fhirIDPattern.MatchString(id) {
 		return fmt.Errorf("id %q does not match FHIR id syntax", id)
+	}
+	return nil
+}
+
+func validateExportFilename(filename string) error {
+	if filename == "" {
+		return fmt.Errorf("export filename is required")
+	}
+	if filename == "." || filename == ".." {
+		return fmt.Errorf("export filename %q is invalid", filename)
+	}
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		return fmt.Errorf("export filename %q is invalid", filename)
+	}
+	if !exportFilenamePattern.MatchString(filename) {
+		return fmt.Errorf("export filename %q does not match allowed syntax", filename)
 	}
 	return nil
 }

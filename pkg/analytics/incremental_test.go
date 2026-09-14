@@ -2,6 +2,7 @@ package analytics_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -34,38 +35,45 @@ func (m *memCursorStore) DeleteCursor(_ context.Context, name string) error {
 	return nil
 }
 
-func TestIncrementalTargetTracksCursor(t *testing.T) {
+func TestIncrementalTargetUsesWatermarkAfterRefreshHandler(t *testing.T) {
 	ctx := context.Background()
 	resources := newMemResourceStore()
 	resources.Seed(t, patientJane(t))
 	reporting := newMemReportingTableStore()
 	cursors := &memCursorStore{}
-	target := analytics.NewIncrementalTarget(analytics.NewReportingTarget(reporting), cursors)
+	watermarks := analytics.NewWatermarkStore(cursors)
+	target := analytics.NewIncrementalTarget(analytics.NewReportingTarget(reporting), watermarks)
 
-	runner, err := analytics.NewRunner(analytics.Config{Executor: newTestExecutor(t, resources)})
-	if err != nil {
-		t.Fatalf("NewRunner: %v", err)
-	}
-
-	firstAt := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	_, err = runner.Run(ctx, analytics.RunRequest{
-		ViewName: analytics.ViewPatientSummary,
-		Mode:     analytics.ModeRefresh,
-		Destination: analytics.Destination{
-			Reporting: target,
-		},
-		Incremental: true,
+	refreshAt := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	runnerWithClock, err := analytics.NewRunner(analytics.Config{
+		Executor: newTestExecutor(t, resources),
+		Now:      func() time.Time { return refreshAt },
 	})
 	if err != nil {
-		t.Fatalf("first Run: %v", err)
+		t.Fatalf("NewRunner clock: %v", err)
 	}
 
-	since, err := target.Since(ctx, analytics.ViewPatientSummary, "1.0.0")
+	payload, _ := json.Marshal(analytics.RefreshPayload{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+	})
+	handler := analytics.RefreshHandler(runnerWithClock, target, watermarks)
+	if err := handler.HandleJob(ctx, store.JobRecord{Payload: payload}); err != nil {
+		t.Fatalf("HandleJob: %v", err)
+	}
+
+	since, err := watermarks.Since(ctx, analytics.ViewPatientSummary, "1.0.0")
 	if err != nil {
 		t.Fatalf("Since: %v", err)
 	}
-	if since.IsZero() {
-		t.Fatal("expected cursor after refresh")
+	if !since.Equal(refreshAt) {
+		t.Fatalf("watermark = %v, want %v", since, refreshAt)
 	}
-	_ = firstAt
+	sinceViaTarget, err := target.Since(ctx, analytics.ViewPatientSummary, "1.0.0")
+	if err != nil {
+		t.Fatalf("target Since: %v", err)
+	}
+	if !sinceViaTarget.Equal(refreshAt) {
+		t.Fatalf("target Since = %v, want %v", sinceViaTarget, refreshAt)
+	}
 }
