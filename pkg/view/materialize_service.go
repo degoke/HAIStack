@@ -32,25 +32,25 @@ type MaterializeRequest struct {
 
 // MaterializeJob is a durable materialize job record.
 type MaterializeJob struct {
-	ID          string              `json:"id"`
-	Status      MaterializeStatus   `json:"status"`
-	Request     MaterializeRequest  `json:"request"`
-	RowCount    int                 `json:"rowCount,omitempty"`
-	Progress    string              `json:"progress,omitempty"`
-	LastError   string              `json:"lastError,omitempty"`
-	CreatedAt   time.Time           `json:"createdAt"`
-	CompletedAt time.Time           `json:"completedAt,omitempty"`
-	Cancelled   bool                `json:"cancelled,omitempty"`
+	ID          string             `json:"id"`
+	Status      MaterializeStatus  `json:"status"`
+	Request     MaterializeRequest `json:"request"`
+	RowCount    int                `json:"rowCount,omitempty"`
+	Progress    string             `json:"progress,omitempty"`
+	LastError   string             `json:"lastError,omitempty"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	CompletedAt time.Time          `json:"completedAt,omitempty"`
+	Cancelled   bool               `json:"cancelled,omitempty"`
 }
 
 // MaterializeResult is returned when a materialize job completes.
 type MaterializeResult struct {
-	ViewName   string            `json:"viewName"`
-	Version    string            `json:"version"`
-	TargetName string            `json:"targetName"`
-	RowCount   int               `json:"rowCount"`
-	Metadata   ResultMetadata    `json:"metadata"`
-	UpdatedAt  time.Time         `json:"updatedAt"`
+	ViewName   string         `json:"viewName"`
+	Version    string         `json:"version"`
+	TargetName string         `json:"targetName"`
+	RowCount   int            `json:"rowCount"`
+	Metadata   ResultMetadata `json:"metadata"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
 }
 
 // MaterializeJobStore persists materialize jobs.
@@ -92,12 +92,12 @@ func (s *inMemoryMaterializeJobStore) Update(_ context.Context, job MaterializeJ
 
 // MaterializeServiceConfig configures MaterializeService.
 type MaterializeServiceConfig struct {
-	Jobs      MaterializeJobStore
-	Executor  *Executor
-	JobQueue  store.JobStore
-	BasePath  string
-	Now       func() time.Time
-	NewID     func() string
+	Jobs     MaterializeJobStore
+	Executor *Executor
+	JobQueue store.JobStore
+	BasePath string
+	Now      func() time.Time
+	NewID    func() string
 }
 
 // MaterializeService orchestrates ViewDefinition $materialize operations.
@@ -156,11 +156,11 @@ func (s *MaterializeService) Kickoff(ctx context.Context, req MaterializeRequest
 	id := s.newID()
 	now := s.now()
 	job := MaterializeJob{
-		ID: id,
-		Status: MaterializeInProgress,
-		Request: req,
+		ID:        id,
+		Status:    MaterializeInProgress,
+		Request:   req,
 		CreatedAt: now,
-		Progress: "0%",
+		Progress:  "0%",
 	}
 	if err := s.jobs.Create(ctx, job); err != nil {
 		return nil, err

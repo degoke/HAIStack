@@ -101,7 +101,7 @@ type ResultMetadata struct {
 	// MaxLastUpdated is the latest resource LastUpdated among rows/resources included
 	// in the result. Flat Execute counts expanded view rows; FHIR export counts
 	// matching source resources written to parquet.
-	MaxLastUpdated     time.Time     `json:"maxLastUpdated,omitempty"`
+	MaxLastUpdated time.Time `json:"maxLastUpdated,omitempty"`
 }
 
 // NewExecutor validates the configuration and returns an Executor.

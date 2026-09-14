@@ -45,8 +45,8 @@ func newFakeViewExportService() *fakeViewExportService {
 func (f *fakeViewExportService) Kickoff(_ context.Context, req view.ViewExportRequest) (*view.ViewExportJob, error) {
 	f.last = req
 	job := &view.ViewExportJob{
-		ID:     "export-job-1",
-		Status: view.ExportComplete,
+		ID:      "export-job-1",
+		Status:  view.ExportComplete,
 		Request: req,
 		Files: []view.ExportFile{{
 			ViewName: "patient_summary_view",

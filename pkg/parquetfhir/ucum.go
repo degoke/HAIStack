@@ -163,10 +163,10 @@ func canonicalizeQuantity(qty map[string]any) (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"value":                   canonicalValue,
-		"code":                    canonicalCode,
-		"system":                  canonicalSystem,
-		"unit":                    canonicalUnit,
+		"value":                     canonicalValue,
+		"code":                      canonicalCode,
+		"system":                    canonicalSystem,
+		"unit":                      canonicalUnit,
 		quantityValueNumericField(): numeric,
 	}, nil
 }

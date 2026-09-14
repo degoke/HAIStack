@@ -48,26 +48,26 @@ type ViewExportTarget struct {
 
 // ViewExportJob tracks async export progress.
 type ViewExportJob struct {
-	ID          string           `json:"id"`
-	Status      ExportStatus     `json:"status"`
+	ID          string            `json:"id"`
+	Status      ExportStatus      `json:"status"`
 	Request     ViewExportRequest `json:"request"`
-	Files       []ExportFile     `json:"files,omitempty"`
-	Progress    string           `json:"progress,omitempty"`
-	LastError   string           `json:"lastError,omitempty"`
-	CreatedAt   time.Time        `json:"createdAt"`
-	CompletedAt time.Time        `json:"completedAt,omitempty"`
-	Cancelled   bool             `json:"cancelled,omitempty"`
+	Files       []ExportFile      `json:"files,omitempty"`
+	Progress    string            `json:"progress,omitempty"`
+	LastError   string            `json:"lastError,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	CompletedAt time.Time         `json:"completedAt,omitempty"`
+	Cancelled   bool              `json:"cancelled,omitempty"`
 }
 
 // ExportFile describes one exported artifact.
 type ExportFile struct {
-	ViewName       string        `json:"viewName"`
-	Version        string        `json:"version"`
-	OutputName     string        `json:"outputName"`
-	Filename       string        `json:"filename"`
-	RowCount       int           `json:"rowCount"`
-	Format         string        `json:"format"`
-	ParquetLayout  ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName      string        `json:"viewName"`
+	Version       string        `json:"version"`
+	OutputName    string        `json:"outputName"`
+	Filename      string        `json:"filename"`
+	RowCount      int           `json:"rowCount"`
+	Format        string        `json:"format"`
+	ParquetLayout ParquetLayout `json:"parquetLayout,omitempty"`
 }
 
 // ViewExportJobStore persists export jobs.

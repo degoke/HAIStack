@@ -1,8 +1,8 @@
 package parquetfhir
 
 import (
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/parquet-go/parquet-go"

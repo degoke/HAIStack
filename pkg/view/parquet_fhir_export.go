@@ -30,10 +30,10 @@ func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequ
 }
 
 type matchingResourcePlan struct {
-	spec     *ViewSpec
-	execReq  ExecuteRequest
-	limit    int
-	offset   int
+	spec    *ViewSpec
+	execReq ExecuteRequest
+	limit   int
+	offset  int
 }
 
 func (e *Executor) prepareMatchingResourcePlan(ctx context.Context, req ExecuteRequest, limit, offset int) (*matchingResourcePlan, error) {

@@ -230,9 +230,9 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 			r.URL.Query().Get("_parquetLayout"),
 			r.URL.Query().Get("parquetLayout"),
 		)),
-		Header:   strings.EqualFold(r.URL.Query().Get("header"), "true"),
-		Actor:    strings.TrimSpace(r.URL.Query().Get("_actor")),
-		Subject:  strings.TrimSpace(r.URL.Query().Get("_subject")),
+		Header:  strings.EqualFold(r.URL.Query().Get("header"), "true"),
+		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
+		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)

@@ -144,10 +144,10 @@ func TestWriteResourcesObservationPartialEffectiveDateTime(t *testing.T) {
 	sd := bundledSD(t, "Observation")
 	resources := []map[string]any{
 		{
-			"resourceType":       "Observation",
-			"id":                 "obs-date",
-			"status":             "final",
-			"effectiveDateTime":  "2022-02-10",
+			"resourceType":      "Observation",
+			"id":                "obs-date",
+			"status":            "final",
+			"effectiveDateTime": "2022-02-10",
 		},
 	}
 	data := writeParquet(t, sd, resources)
@@ -185,7 +185,7 @@ func TestWriteResourcesExtensionValueInteger(t *testing.T) {
 			"id":           "ext-int",
 			"extension": []any{
 				map[string]any{
-					"url":           "http://example.org/ext",
+					"url":          "http://example.org/ext",
 					"valueInteger": 42,
 				},
 			},
