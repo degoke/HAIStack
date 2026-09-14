@@ -71,7 +71,7 @@ func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.Str
 	if err != nil {
 		return 0, fmt.Errorf("parquetfhir: open resource spill file: %w", err)
 	}
-	defer spill.Close()
+	defer func() { _ = spill.Close() }()
 
 	written := 0
 	batch := make([]map[string]any, 0, DefaultRowGroupSize)

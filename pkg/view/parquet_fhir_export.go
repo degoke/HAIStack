@@ -30,10 +30,10 @@ func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequ
 }
 
 type matchingResourcePlan struct {
-	spec     *ViewSpec
-	execReq  ExecuteRequest
-	limit    int
-	offset   int
+	spec    *ViewSpec
+	execReq ExecuteRequest
+	limit   int
+	offset  int
 }
 
 func (e *Executor) prepareMatchingResourcePlan(ctx context.Context, req ExecuteRequest, limit, offset int) (*matchingResourcePlan, error) {
@@ -125,19 +125,6 @@ func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, re
 	}
 	stats.Written = written
 	return written, stats, nil
-}
-
-func (e *Executor) forEachMatchingResource(
-	ctx context.Context,
-	req ExecuteRequest,
-	limit, offset int,
-	fn func(map[string]any) error,
-) (int, MatchingResourceStats, error) {
-	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
-	if err != nil {
-		return 0, MatchingResourceStats{}, err
-	}
-	return e.forEachMatchingResourcePlan(ctx, plan, fn)
 }
 
 func (e *Executor) forEachMatchingResourcePlan(

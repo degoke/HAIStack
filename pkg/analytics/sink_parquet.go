@@ -14,14 +14,10 @@ func sinkParquetLayout(sink RowSink) (view.ParquetLayout, bool) {
 	switch s := sink.(type) {
 	case *ParquetFileSink:
 		return s.layout, true
-	case LakehouseSink:
-		if typed, ok := s.(*lakehouseSink); ok {
-			return typed.cfg.ParquetLayout, true
-		}
-	case ManifestExportSink:
-		if typed, ok := s.(*manifestExportSink); ok {
-			return typed.parquetLayout, true
-		}
+	case *lakehouseSink:
+		return s.cfg.ParquetLayout, true
+	case *manifestExportSink:
+		return s.parquetLayout, true
 	}
 	return view.ParquetLayoutFlat, false
 }

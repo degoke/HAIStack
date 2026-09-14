@@ -67,6 +67,17 @@ func TestFHIRXMLNegotiationAndRequestParsing(t *testing.T) {
 	}
 }
 
+func TestOperationOutputFormatQueryDoesNotFailNegotiation(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	handler := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, handler, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view&_format=parquet",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRateLimitMiddlewareReturnsStructured429(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService: &fakeResourceService{

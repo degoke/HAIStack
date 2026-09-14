@@ -48,7 +48,7 @@ func (e *SQLQueryEngine) Query(ctx context.Context, sqlText string, tables []Rep
 	if err != nil {
 		return nil, fmt.Errorf("open sql engine: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	for _, ref := range tables {
 		if err := e.loadTable(ctx, db, ref); err != nil {
@@ -60,7 +60,7 @@ func (e *SQLQueryEngine) Query(ctx context.Context, sqlText string, tables []Rep
 	if err != nil {
 		return nil, fmt.Errorf("execute sql: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	columns, err := rows.Columns()
 	if err != nil {

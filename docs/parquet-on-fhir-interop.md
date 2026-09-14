@@ -35,6 +35,8 @@ Manual verification recommended for your target stack:
 
 View export and analytics FHIR parquet paths honor `ExecuteRequest.Since`. Analytics runner populates `Result.ExecRequest` when skipping flat view execution so lakehouse/manifest sinks apply watermark filters. Background export jobs (`ExportPayload.since`) auto-fill from `WatermarkStore` when configured.
 
+Watermarks are stored at the exported `maxLastUpdated` (inclusive). Search prefilters apply `_lastUpdated=gt{watermark}`; envelope re-checks use strict `Before(since)`.
+
 ## Memory behavior
 
 `WriteResourcesStreaming` performs one candidate scan, observes schema from each resource, spills raw JSON to a temp NDJSON file, then encodes parquet in bounded row groups. Lakehouse blob uploads write parquet to a temp file before `BlobStore.Put` to avoid duplicating an in-memory buffer during encoding.
