@@ -239,6 +239,28 @@ func TestViewDefinitionRunParsesQuerySubject(t *testing.T) {
 	}
 }
 
+func TestViewDefinitionRunBodyOverridesQuerySubject(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"subject","valueString":{"valueString":"Patient/body-subject"}},
+		{"name":"actor","valueString":{"valueString":"Practitioner/body"}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?_subject=Patient%2Fquery-subject&_actor=Practitioner%2Fquery",
+		body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.Subject != "Patient/body-subject" {
+		t.Fatalf("Subject=%q, want body to override query", runSvc.last.Subject)
+	}
+	if runSvc.last.Actor != "Practitioner/body" {
+		t.Fatalf("Actor=%q, want body to override query", runSvc.last.Actor)
+	}
+}
+
 func TestViewDefinitionExportParsesActorFromBody(t *testing.T) {
 	exportSvc := newFakeViewExportService()
 	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
@@ -306,5 +328,29 @@ func TestViewDefinitionExportParsesQuerySubject(t *testing.T) {
 	}
 	if exportSvc.last.Subject != "Patient/query-subject" {
 		t.Fatalf("Subject=%q, want Patient/query-subject", exportSvc.last.Subject)
+	}
+}
+
+func TestViewDefinitionExportBodyOverridesQuerySubject(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"subject","valueString":{"valueString":"Patient/body-subject"}},
+		{"name":"actor","valueString":{"valueString":"Practitioner/body"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?_subject=Patient%2Fquery-subject&_actor=Practitioner%2Fquery",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Subject != "Patient/body-subject" {
+		t.Fatalf("Subject=%q, want body to override query", exportSvc.last.Subject)
+	}
+	if exportSvc.last.Actor != "Practitioner/body" {
+		t.Fatalf("Actor=%q, want body to override query", exportSvc.last.Actor)
 	}
 }

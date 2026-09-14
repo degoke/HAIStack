@@ -256,6 +256,7 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 		}
 		return req, nil
 	}
+	// Query _subject/_actor are seeded above; non-empty Parameters body fields override them.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
@@ -368,6 +369,7 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 		}
 		return req, nil
 	}
+	// Query _subject/_actor are seeded above; non-empty Parameters body fields override them.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
@@ -442,6 +444,7 @@ type operationParameter struct {
 }
 
 func parseOperationContextFromParameters(parameters []operationParameter, reserved ...string) (subject, actor string, operationParams map[string]any) {
+	// TODO: support typed FHIR parameter values (valueReference, valueCode, etc.); valueString only today.
 	reservedNames := make(map[string]struct{}, len(reserved))
 	for _, name := range reserved {
 		reservedNames[name] = struct{}{}

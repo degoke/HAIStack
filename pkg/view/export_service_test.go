@@ -23,6 +23,20 @@ func (m *memWatermark) Advance(context.Context, string, string, time.Time) error
 	return nil
 }
 
+type recordWatermark struct {
+	since    time.Time
+	advanced time.Time
+}
+
+func (m *recordWatermark) Since(context.Context, string, string) (time.Time, error) {
+	return m.since.UTC(), nil
+}
+
+func (m *recordWatermark) Advance(_ context.Context, _, _ string, at time.Time) error {
+	m.advanced = at.UTC()
+	return nil
+}
+
 func TestExportServiceAdvancesWatermarkAfterAllViewsSucceed(t *testing.T) {
 	ctx := context.Background()
 	engine, err := fhirpath.NewEngine(fhirpath.Config{})
@@ -308,5 +322,55 @@ func TestExportServiceParquetFHIRRecordsLayoutMetadata(t *testing.T) {
 	}
 	if !view.IsParquetFile(data) {
 		t.Fatal("expected parquet artifact")
+	}
+}
+
+func TestExportServiceAdvancesWatermarkToMaxLastUpdatedFlatParquet(t *testing.T) {
+	ctx := context.Background()
+	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	jane := patientJane(t)
+	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	john := patientJohn(t)
+	john.LastUpdated = time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	reg := view.NewRegistry()
+	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resources := newMemResourceStore()
+	resources.Seed(t, jane, john)
+	exec, err := view.NewExecutor(view.Config{
+		Resources: resources,
+		Engine:    engine,
+		Registry:  reg,
+	})
+	if err != nil {
+		t.Fatalf("executor: %v", err)
+	}
+	wm := &recordWatermark{since: cutoff}
+	svc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:      view.NewInMemoryViewExportJobStore(),
+		Files:     view.NewInMemoryExportFileStore(),
+		Executor:  exec,
+		Watermark: wm,
+	})
+	if err != nil {
+		t.Fatalf("NewExportService: %v", err)
+	}
+	job, err := svc.Kickoff(ctx, view.ViewExportRequest{
+		Format: view.FormatParquet,
+		Views:  []view.ViewExportTarget{{ViewName: "patient_summary_view", Version: "1.0.0"}},
+	})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	if job.Status != view.ExportComplete {
+		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
+	}
+	if !wm.advanced.Equal(jane.LastUpdated.UTC()) {
+		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, jane.LastUpdated.UTC())
 	}
 }

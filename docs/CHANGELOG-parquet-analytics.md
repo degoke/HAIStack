@@ -24,3 +24,8 @@
 
 - INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42).
 - Blob lakehouse and async export artifacts buffer the full parquet file at upload time (`BlobStore` API).
+- HTTP `$viewdefinition-run` / `$viewdefinition-export` Parameters parsing accepts `valueString` only (see `pkg/view/README.md`).
+
+### Review notes
+
+- Functional changes for HTTP run/export parity and watermark tests are in commit `4301dac`; later commits on the same branch are CI housekeeping (gofmt, golangci-lint, `go mod tidy`) and lint-driven dead-code removal.

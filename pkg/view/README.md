@@ -197,7 +197,9 @@ When comparing flat refresh metrics to FHIR lakehouse exports, treat `filtered` 
 
 Incremental watermarks prefer `maxLastUpdated` (data clock) over process time when exported resources carry `LastUpdated`. Stored watermarks are inclusive at that timestamp; search prefilters use `_lastUpdated=gt{watermark}` while envelope checks use strict `LastUpdated.Before(since)`, so a resource whose `LastUpdated` equals the saved watermark is excluded on the next search-driven pass.
 
-HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters).
+HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters). Query `_subject`/`_actor` are applied first; non-empty Parameters body fields override them.
+
+TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FHIR parameter values (`valueReference`, `valueCode`, etc.) are not yet supported.
 
 ## Parquet export sizing
 

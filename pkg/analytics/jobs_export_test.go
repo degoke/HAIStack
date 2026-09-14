@@ -167,6 +167,51 @@ func TestExportHandlerUsesWatermarkSince(t *testing.T) {
 	}
 }
 
+func TestExportHandlerFlatParquetUsesWatermarkSince(t *testing.T) {
+	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	jane := patientJane(t)
+	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	john := patientJohn(t)
+	john.LastUpdated = time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	resources := newMemResourceStore()
+	resources.Seed(t, jane, john)
+	exec := newFHIRExecutorWithStore(t, resources)
+	runner, err := analytics.NewRunner(analytics.Config{Executor: exec})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	watermarks := analytics.NewWatermarkStore(&testMemCursorStore{byName: make(map[string]store.Cursor)})
+	if err := watermarks.Advance(context.Background(), analytics.ViewPatientSummary, "1.0.0", cutoff); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	var buf bytes.Buffer
+	handler := analytics.ExportHandlerWithConfig(runner, analytics.ExportHandlerConfig{
+		Writer:   &buf,
+		Executor: exec,
+	}, watermarks)
+	payload, err := json.Marshal(analytics.ExportPayload{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Format:   analytics.FormatParquet,
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
+		t.Fatalf("HandleJob: %v", err)
+	}
+	if !view.IsParquetFile(buf.Bytes()) {
+		t.Fatal("expected flat parquet output")
+	}
+	since, err := watermarks.Since(context.Background(), analytics.ViewPatientSummary, "1.0.0")
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if !since.Equal(jane.LastUpdated.UTC()) {
+		t.Fatalf("watermark since=%v, want %v", since, jane.LastUpdated.UTC())
+	}
+}
+
 func parquetPatientIDs(t *testing.T, data []byte) []string {
 	t.Helper()
 	type patientRow struct {
