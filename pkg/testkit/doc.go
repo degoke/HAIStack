@@ -20,7 +20,7 @@
 //   - synctest — fake sync.Hub, device nodes, and push/pull scenario runners
 //   - conflicttest — conflict detection and resolution scenarios on top of synctest
 //   - golden — canonical OperationOutcome JSON comparison (inline/embedded goldens)
-//   - fhirpathtest — FHIRPath evaluation and assertion helpers over fixtures
+//   - parquettest — parquet export byte assertions for analytics/view/http tests
 //   - aitest — reusable ai.Executor harness with optional search, views, and core wiring
 //     (including shared resource/search stores and approval/model fakes)
 //

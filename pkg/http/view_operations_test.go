@@ -43,6 +43,9 @@ func newFakeViewExportService() *fakeViewExportService {
 }
 
 func (f *fakeViewExportService) Kickoff(_ context.Context, req view.ViewExportRequest) (*view.ViewExportJob, error) {
+	if req.Format == "" {
+		req.Format = view.FormatNDJSON
+	}
 	f.last = req
 	job := &view.ViewExportJob{
 		ID:      "export-job-1",
@@ -336,6 +339,20 @@ func TestViewDefinitionExportParsesSubjectAndParameters(t *testing.T) {
 	}
 	if exportSvc.last.Parameters["tenant"] != "demo" {
 		t.Fatalf("Parameters=%v, want tenant=demo", exportSvc.last.Parameters)
+	}
+}
+
+func TestViewDefinitionExportDefaultsToNDJSONFormat(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Format != view.FormatNDJSON {
+		t.Fatalf("Format=%q, want ndjson default", exportSvc.last.Format)
 	}
 }
 

@@ -25,3 +25,14 @@ func ParseOutputFormat(raw string) OutputFormat {
 		return FormatJSON
 	}
 }
+
+// IsOperationOutputFormat reports whether raw selects a SQL-on-FHIR operation
+// artifact encoding rather than a FHIR response envelope (json/xml).
+func IsOperationOutputFormat(raw string) bool {
+	switch ParseOutputFormat(raw) {
+	case FormatCSV, FormatNDJSON, FormatParquet:
+		return true
+	default:
+		return false
+	}
+}

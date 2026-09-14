@@ -32,7 +32,7 @@ func negotiateResponseFormat(r *http.Request) (responseFormat, error) {
 		if parsed, ok := formatValue(format); ok {
 			return parsed, nil
 		}
-		if isOperationOutputFormat(format) {
+		if view.IsOperationOutputFormat(format) {
 			return responseFormatJSON, nil
 		}
 		return responseFormatJSON, &notAcceptableError{value: format}
@@ -134,17 +134,5 @@ func formatValue(value string) (responseFormat, bool) {
 		return responseFormatXML, true
 	default:
 		return "", false
-	}
-}
-
-// isOperationOutputFormat reports SQL-on-FHIR operation artifact formats. These
-// select export/run encoding, not the HTTP response envelope, so negotiation
-// falls back to JSON for the operation response itself.
-func isOperationOutputFormat(raw string) bool {
-	switch view.ParseOutputFormat(raw) {
-	case view.FormatCSV, view.FormatNDJSON, view.FormatParquet:
-		return true
-	default:
-		return false
 	}
 }

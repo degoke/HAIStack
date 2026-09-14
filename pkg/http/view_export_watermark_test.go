@@ -3,7 +3,6 @@ package http_test
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -11,9 +10,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
+	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
 	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
 	"github.com/degoke/health-ai-stack/pkg/view"
-	"github.com/parquet-go/parquet-go"
 )
 
 type httpRecordWatermark struct {
@@ -125,7 +124,7 @@ func TestViewDefinitionExportHTTPAdvancesWatermarkFlatParquet(t *testing.T) {
 	if !view.IsParquetFile(data) {
 		t.Fatal("expected parquet artifact")
 	}
-	ids := flatParquetPatientIDs(t, data)
+	ids := parquettest.IDs(t, data)
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
@@ -133,31 +132,4 @@ func TestViewDefinitionExportHTTPAdvancesWatermarkFlatParquet(t *testing.T) {
 	if !wm.advanced.Equal(want) {
 		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, want)
 	}
-}
-
-func flatParquetPatientIDs(t *testing.T, data []byte) []string {
-	t.Helper()
-	type patientRow struct {
-		ID string `parquet:"id"`
-	}
-	rows, err := parquet.Read[patientRow](parquetBytesReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	ids := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if row.ID != "" {
-			ids = append(ids, row.ID)
-		}
-	}
-	return ids
-}
-
-type parquetBytesReader []byte
-
-func (b parquetBytesReader) ReadAt(p []byte, off int64) (int, error) {
-	if off >= int64(len(b)) {
-		return 0, io.EOF
-	}
-	return copy(p, b[off:]), nil
 }

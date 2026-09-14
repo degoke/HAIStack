@@ -37,6 +37,51 @@ func (m *recordWatermark) Advance(_ context.Context, _, _ string, at time.Time) 
 	return nil
 }
 
+func TestExportServiceDefaultsToNDJSONFormat(t *testing.T) {
+	ctx := context.Background()
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	reg := view.NewRegistry()
+	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resources := newMemResourceStore()
+	resources.Seed(t, patientJane(t))
+	exec, err := view.NewExecutor(view.Config{
+		Resources: resources,
+		Engine:    engine,
+		Registry:  reg,
+	})
+	if err != nil {
+		t.Fatalf("executor: %v", err)
+	}
+	svc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:     view.NewInMemoryViewExportJobStore(),
+		Files:    view.NewInMemoryExportFileStore(),
+		Executor: exec,
+	})
+	if err != nil {
+		t.Fatalf("NewExportService: %v", err)
+	}
+	job, err := svc.Kickoff(ctx, view.ViewExportRequest{
+		Views: []view.ViewExportTarget{{ViewName: "patient_summary_view", Version: "1.0.0"}},
+	})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	if job.Status != view.ExportComplete {
+		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
+	}
+	if job.Request.Format != view.FormatNDJSON {
+		t.Fatalf("request format=%q, want ndjson default", job.Request.Format)
+	}
+	if len(job.Files) != 1 || job.Files[0].Filename != "patient_summary_view-1.0.0.ndjson" {
+		t.Fatalf("files=%v", job.Files)
+	}
+}
+
 func TestExportServiceAdvancesWatermarkAfterAllViewsSucceed(t *testing.T) {
 	ctx := context.Background()
 	engine, err := fhirpath.NewEngine(fhirpath.Config{})

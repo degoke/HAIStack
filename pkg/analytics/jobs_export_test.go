@@ -4,16 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/view"
-	"github.com/parquet-go/parquet-go"
 )
 
 func TestRunnerSkipsFlatExecuteForFHIRParquetExport(t *testing.T) {
@@ -82,7 +81,7 @@ func TestRunnerFHIRParquetExportRespectsSince(t *testing.T) {
 	if result.RowCount != 1 {
 		t.Fatalf("rowCount=%d, want 1 after since filter", result.RowCount)
 	}
-	ids := parquetPatientIDs(t, buf.Bytes())
+	ids := parquettest.IDs(t, buf.Bytes())
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
@@ -136,7 +135,7 @@ func TestExportHandlerUsesWatermarkSince(t *testing.T) {
 	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
 		t.Fatalf("HandleJob: %v", err)
 	}
-	ids := parquetPatientIDs(t, buf.Bytes())
+	ids := parquettest.IDs(t, buf.Bytes())
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
@@ -197,33 +196,6 @@ func assertExportHandlerWatermarkSince(t *testing.T, watermarks *analytics.Water
 	if !since.Equal(want) {
 		t.Fatalf("watermark since=%v, want %v", since, want)
 	}
-}
-
-func parquetPatientIDs(t *testing.T, data []byte) []string {
-	t.Helper()
-	type patientRow struct {
-		ID string `parquet:"id"`
-	}
-	rows, err := parquet.Read[patientRow](bytesReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	ids := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if row.ID != "" {
-			ids = append(ids, row.ID)
-		}
-	}
-	return ids
-}
-
-type bytesReader []byte
-
-func (b bytesReader) ReadAt(p []byte, off int64) (int, error) {
-	if off >= int64(len(b)) {
-		return 0, io.EOF
-	}
-	return copy(p, b[off:]), nil
 }
 
 type testMemCursorStore struct {
