@@ -341,13 +341,15 @@ func parseSQLQueryRequest(r *http.Request) (view.SQLQueryRequest, error) {
 
 func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExportRequest, error) {
 	req := view.ViewExportRequest{
-		Format: view.ParseOutputFormat(r.URL.Query().Get("_format")),
 		ParquetLayout: view.ParseParquetLayout(firstNonEmpty(
 			r.URL.Query().Get("_parquetLayout"),
 			r.URL.Query().Get("parquetLayout"),
 		)),
 		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
 		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
+	}
+	if formatParam := strings.TrimSpace(r.URL.Query().Get("_format")); formatParam != "" {
+		req.Format = view.ParseOutputFormat(formatParam)
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
@@ -374,7 +376,7 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
-	views, subject, actor, params, err := parseExportParametersBody(body)
+	views, subject, actor, format, params, err := parseExportParametersBody(body)
 	if err != nil {
 		return req, err
 	}
@@ -387,6 +389,9 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if len(params) > 0 {
 		req.Parameters = params
 	}
+	if format != "" {
+		req.Format = format
+	}
 	if len(views) > 0 {
 		req.Views = views
 	}
@@ -396,14 +401,15 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	return req, nil
 }
 
-func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, map[string]any, error) {
+func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, view.OutputFormat, map[string]any, error) {
 	var params struct {
 		Parameter []operationParameter `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return nil, "", "", nil, invalidRequest("invalid Parameters body", err)
+		return nil, "", "", "", nil, invalidRequest("invalid Parameters body", err)
 	}
 	var views []view.ViewExportTarget
+	var format view.OutputFormat
 	for _, p := range params.Parameter {
 		if p.Name != "view" {
 			continue
@@ -426,8 +432,14 @@ func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, st
 			views = append(views, target)
 		}
 	}
-	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view")
-	return views, subject, actor, operationParams, nil
+	for _, p := range params.Parameter {
+		if p.Name != "format" || len(p.Part) > 0 || p.Value == nil {
+			continue
+		}
+		format = view.ParseOutputFormat(p.Value.String)
+	}
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view", "format")
+	return views, subject, actor, format, operationParams, nil
 }
 
 type operationParameter struct {

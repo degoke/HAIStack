@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/view"
 	"github.com/parquet-go/parquet-go"
 )
@@ -121,27 +123,7 @@ func TestRunnerFHIRParquetExportPopulatesMetadata(t *testing.T) {
 }
 
 func TestExportHandlerUsesWatermarkSince(t *testing.T) {
-	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	jane := patientJane(t)
-	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	john := patientJohn(t)
-	john.LastUpdated = time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	resources := newMemResourceStore()
-	resources.Seed(t, jane, john)
-	exec := newFHIRExecutorWithStore(t, resources)
-	runner, err := analytics.NewRunner(analytics.Config{Executor: exec})
-	if err != nil {
-		t.Fatalf("NewRunner: %v", err)
-	}
-	watermarks := analytics.NewWatermarkStore(&testMemCursorStore{byName: make(map[string]store.Cursor)})
-	if err := watermarks.Advance(context.Background(), analytics.ViewPatientSummary, "1.0.0", cutoff); err != nil {
-		t.Fatalf("Advance: %v", err)
-	}
-	var buf bytes.Buffer
-	handler := analytics.ExportHandlerWithConfig(runner, analytics.ExportHandlerConfig{
-		Writer:   &buf,
-		Executor: exec,
-	}, watermarks)
+	jane, buf, watermarks, handler := setupExportHandlerWatermarkFixture(t)
 	payload, err := json.Marshal(analytics.ExportPayload{
 		ViewName:      analytics.ViewPatientSummary,
 		Version:       "1.0.0",
@@ -158,16 +140,30 @@ func TestExportHandlerUsesWatermarkSince(t *testing.T) {
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
-	since, err := watermarks.Since(context.Background(), analytics.ViewPatientSummary, "1.0.0")
-	if err != nil {
-		t.Fatalf("Since: %v", err)
-	}
-	if !since.Equal(jane.LastUpdated.UTC()) {
-		t.Fatalf("watermark since=%v, want %v", since, jane.LastUpdated.UTC())
-	}
+	assertExportHandlerWatermarkSince(t, watermarks, jane.LastUpdated.UTC())
 }
 
 func TestExportHandlerFlatParquetUsesWatermarkSince(t *testing.T) {
+	jane, buf, watermarks, handler := setupExportHandlerWatermarkFixture(t)
+	payload, err := json.Marshal(analytics.ExportPayload{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Format:   analytics.FormatParquet,
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
+		t.Fatalf("HandleJob: %v", err)
+	}
+	if !view.IsParquetFile(buf.Bytes()) {
+		t.Fatal("expected flat parquet output")
+	}
+	assertExportHandlerWatermarkSince(t, watermarks, jane.LastUpdated.UTC())
+}
+
+func setupExportHandlerWatermarkFixture(t *testing.T) (*types.ResourceEnvelope, *bytes.Buffer, *analytics.WatermarkStore, jobs.Handler) {
+	t.Helper()
 	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	jane := patientJane(t)
 	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -189,26 +185,17 @@ func TestExportHandlerFlatParquetUsesWatermarkSince(t *testing.T) {
 		Writer:   &buf,
 		Executor: exec,
 	}, watermarks)
-	payload, err := json.Marshal(analytics.ExportPayload{
-		ViewName: analytics.ViewPatientSummary,
-		Version:  "1.0.0",
-		Format:   analytics.FormatParquet,
-	})
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
-		t.Fatalf("HandleJob: %v", err)
-	}
-	if !view.IsParquetFile(buf.Bytes()) {
-		t.Fatal("expected flat parquet output")
-	}
+	return jane, &buf, watermarks, handler
+}
+
+func assertExportHandlerWatermarkSince(t *testing.T, watermarks *analytics.WatermarkStore, want time.Time) {
+	t.Helper()
 	since, err := watermarks.Since(context.Background(), analytics.ViewPatientSummary, "1.0.0")
 	if err != nil {
 		t.Fatalf("Since: %v", err)
 	}
-	if !since.Equal(jane.LastUpdated.UTC()) {
-		t.Fatalf("watermark since=%v, want %v", since, jane.LastUpdated.UTC())
+	if !since.Equal(want) {
+		t.Fatalf("watermark since=%v, want %v", since, want)
 	}
 }
 

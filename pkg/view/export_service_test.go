@@ -370,6 +370,23 @@ func TestExportServiceAdvancesWatermarkToMaxLastUpdatedFlatParquet(t *testing.T)
 	if job.Status != view.ExportComplete {
 		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
 	}
+	if len(job.Files) != 1 {
+		t.Fatalf("files=%v", job.Files)
+	}
+	if job.Files[0].RowCount != 1 {
+		t.Fatalf("rowCount=%d, want 1 after since filter", job.Files[0].RowCount)
+	}
+	data, _, err := svc.GetFile(ctx, job.ID, job.Files[0].Filename)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	rows, err := view.ParquetFileRowCount(data)
+	if err != nil {
+		t.Fatalf("ParquetFileRowCount: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("parquet rows=%d, want 1", rows)
+	}
 	if !wm.advanced.Equal(jane.LastUpdated.UTC()) {
 		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, jane.LastUpdated.UTC())
 	}

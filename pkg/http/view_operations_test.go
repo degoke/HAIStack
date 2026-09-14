@@ -261,6 +261,28 @@ func TestViewDefinitionRunBodyOverridesQuerySubject(t *testing.T) {
 	}
 }
 
+func TestViewDefinitionRunEmptyBodySubjectPreservesQuery(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"subject","valueString":{"valueString":""}},
+		{"name":"actor","valueString":{"valueString":""}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?_subject=Patient%2Fquery-subject&_actor=Practitioner%2Fquery",
+		body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.Subject != "Patient/query-subject" {
+		t.Fatalf("Subject=%q, want query preserved when body subject is empty", runSvc.last.Subject)
+	}
+	if runSvc.last.Actor != "Practitioner/query" {
+		t.Fatalf("Actor=%q, want query preserved when body actor is empty", runSvc.last.Actor)
+	}
+}
+
 func TestViewDefinitionExportParsesActorFromBody(t *testing.T) {
 	exportSvc := newFakeViewExportService()
 	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
@@ -317,6 +339,26 @@ func TestViewDefinitionExportParsesSubjectAndParameters(t *testing.T) {
 	}
 }
 
+func TestViewDefinitionExportParsesFormatFromBody(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"format","valueString":{"valueString":"parquet"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Format != view.FormatParquet {
+		t.Fatalf("Format=%q, want parquet", exportSvc.last.Format)
+	}
+}
+
 func TestViewDefinitionExportParsesQuerySubject(t *testing.T) {
 	exportSvc := newFakeViewExportService()
 	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
@@ -352,5 +394,29 @@ func TestViewDefinitionExportBodyOverridesQuerySubject(t *testing.T) {
 	}
 	if exportSvc.last.Actor != "Practitioner/body" {
 		t.Fatalf("Actor=%q, want body to override query", exportSvc.last.Actor)
+	}
+}
+
+func TestViewDefinitionExportEmptyBodySubjectPreservesQuery(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"subject","valueString":{"valueString":""}},
+		{"name":"actor","valueString":{"valueString":""}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?_subject=Patient%2Fquery-subject&_actor=Practitioner%2Fquery",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Subject != "Patient/query-subject" {
+		t.Fatalf("Subject=%q, want query preserved when body subject is empty", exportSvc.last.Subject)
+	}
+	if exportSvc.last.Actor != "Practitioner/query" {
+		t.Fatalf("Actor=%q, want query preserved when body actor is empty", exportSvc.last.Actor)
 	}
 }
