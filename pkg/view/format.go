@@ -27,7 +27,11 @@ func ParseOutputFormat(raw string) OutputFormat {
 }
 
 // IsOperationOutputFormat reports whether raw selects a SQL-on-FHIR operation
-// artifact encoding rather than a FHIR response envelope (json/xml).
+// artifact encoding (csv, ndjson, parquet) rather than a FHIR response envelope.
+//
+// ParseOutputFormat("json") returns FormatJSON because json is a valid FHIR
+// envelope for Parameters/Binary responses, but IsOperationOutputFormat("json")
+// is false so Accept-header negotiation still applies to json/xml envelopes.
 func IsOperationOutputFormat(raw string) bool {
 	switch ParseOutputFormat(raw) {
 	case FormatCSV, FormatNDJSON, FormatParquet:

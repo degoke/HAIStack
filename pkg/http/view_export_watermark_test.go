@@ -7,11 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
 	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
+	"github.com/degoke/health-ai-stack/pkg/testkit/viewtest"
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
@@ -32,33 +30,7 @@ func (m *httpRecordWatermark) Advance(_ context.Context, _, _ string, at time.Ti
 func newHTTPExportServiceWithWatermark(t *testing.T) (http.Handler, *httpRecordWatermark) {
 	t.Helper()
 	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	janeUpdated := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	johnUpdated := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	jane := fixtures.PatientJane(t)
-	jane.LastUpdated = janeUpdated
-	john := fixtures.PatientJohn(t)
-	john.LastUpdated = johnUpdated
-	resources := storetest.NewResourceStore()
-	ctx := context.Background()
-	if err := resources.Seed(ctx, jane, john); err != nil {
-		t.Fatalf("seed resources: %v", err)
-	}
-	engine, err := fhirpath.NewEngine(fhirpath.Config{})
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-	reg := view.NewRegistry()
-	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	exec, err := view.NewExecutor(view.Config{
-		Resources: resources,
-		Engine:    engine,
-		Registry:  reg,
-	})
-	if err != nil {
-		t.Fatalf("NewExecutor: %v", err)
-	}
+	exec := viewtest.NewPatientSummaryExecutor(t, viewtest.IncrementalPatientSummaryPatients(t))
 	wm := &httpRecordWatermark{since: cutoff}
 	svc, err := view.NewExportService(view.ExportServiceConfig{
 		BasePath:  "/fhir",
