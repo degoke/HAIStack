@@ -37,7 +37,7 @@ func readStringColumn(data []byte, column string) ([]string, error) {
 	}
 	var values []string
 	pages := col.Pages()
-	defer pages.Close()
+	defer func() { _ = pages.Close() }()
 	for {
 		page, err := pages.ReadPage()
 		if err != nil {
