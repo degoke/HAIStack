@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
 type notAcceptableError struct{ value string }
@@ -29,6 +31,9 @@ func negotiateResponseFormat(r *http.Request) (responseFormat, error) {
 	if format := strings.TrimSpace(r.URL.Query().Get("_format")); format != "" {
 		if parsed, ok := formatValue(format); ok {
 			return parsed, nil
+		}
+		if view.IsOperationOutputFormat(format) {
+			return responseFormatJSON, nil
 		}
 		return responseFormatJSON, &notAcceptableError{value: format}
 	}

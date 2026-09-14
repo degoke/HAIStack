@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 )
 
 func referenceStringFromValue(v fhirpath.Value) (string, bool) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 )
@@ -105,17 +106,23 @@ func (b bytesReader) ReadAt(p []byte, off int64) (int, error) {
 	return copy(p, b[off:]), nil
 }
 
+// ParquetExportResult summarizes a streamed flat view parquet export.
+type ParquetExportResult struct {
+	RowCount       int
+	MaxLastUpdated time.Time
+}
+
 // WriteParquetExport streams a view export through paginated executor calls.
-func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest, pageSize int) (int, error) {
+func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req ExecuteRequest, pageSize int) (ParquetExportResult, error) {
 	if exec == nil {
-		return 0, fmt.Errorf("view: executor is required")
+		return ParquetExportResult{}, fmt.Errorf("view: executor is required")
 	}
 	if pageSize <= 0 {
 		pageSize = DefaultParquetPageSize
 	}
 
 	var writer *ParquetRowWriter
-	totalRows := 0
+	result := ParquetExportResult{}
 	offset := req.Offset
 	if offset < 0 {
 		offset = 0
@@ -125,39 +132,40 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 			if writer != nil {
 				_ = writer.Close()
 			}
-			return totalRows, err
+			return result, err
 		}
 		pageReq := req
 		pageReq.Limit = pageSize
 		pageReq.Offset = offset
-		result, err := exec.Execute(ctx, pageReq)
+		page, err := exec.Execute(ctx, pageReq)
 		if err != nil {
 			if writer != nil {
 				_ = writer.Close()
 			}
-			return totalRows, err
+			return result, err
 		}
+		result.MaxLastUpdated = LatestTimestamp(result.MaxLastUpdated, page.Metadata.MaxLastUpdated)
 		if writer == nil {
-			writer, err = NewParquetRowWriter(w, result)
+			writer, err = NewParquetRowWriter(w, page)
 			if err != nil {
-				return totalRows, err
+				return result, err
 			}
 		}
-		if err := writer.WriteRows(result.Rows); err != nil {
+		if err := writer.WriteRows(page.Rows); err != nil {
 			_ = writer.Close()
-			return totalRows, err
+			return result, err
 		}
-		totalRows += len(result.Rows)
-		if result.NextOffset == nil {
+		result.RowCount += len(page.Rows)
+		if page.NextOffset == nil {
 			break
 		}
-		offset = *result.NextOffset
+		offset = *page.NextOffset
 	}
 	if writer == nil {
 		// Empty export still produces a valid parquet file with schema from view metadata.
 		spec, err := exec.ResolveView(req.ViewName, req.Version)
 		if err != nil {
-			return 0, err
+			return ParquetExportResult{}, err
 		}
 		empty := &Result{
 			ViewName: req.ViewName,
@@ -167,11 +175,11 @@ func WriteParquetExport(ctx context.Context, w io.Writer, exec *Executor, req Ex
 		}
 		writer, err = NewParquetRowWriter(w, empty)
 		if err != nil {
-			return 0, err
+			return ParquetExportResult{}, err
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return totalRows, err
+		return result, err
 	}
-	return totalRows, nil
+	return result, nil
 }

@@ -60,15 +60,15 @@ func TestWriteParquetExportStreamsPages(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rowCount, err := view.WriteParquetExport(context.Background(), &buf, exec, view.ExecuteRequest{
+	exportResult, err := view.WriteParquetExport(context.Background(), &buf, exec, view.ExecuteRequest{
 		ViewName: "patient_summary_view",
 		Version:  "1.0.0",
 	}, 1)
 	if err != nil {
 		t.Fatalf("WriteParquetExport: %v", err)
 	}
-	if rowCount != 1 {
-		t.Fatalf("rowCount=%d, want 1", rowCount)
+	if exportResult.RowCount != 1 {
+		t.Fatalf("rowCount=%d, want 1", exportResult.RowCount)
 	}
 	if !view.IsParquetFile(buf.Bytes()) {
 		t.Fatal("expected parquet output")

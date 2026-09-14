@@ -6,6 +6,7 @@ require (
 	github.com/google/fhir/go v0.7.4
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/parquet-go/parquet-go v0.32.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/cobra v0.0.5
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.35.0
@@ -64,7 +65,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
-	github.com/parquet-go/parquet-go v0.32.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

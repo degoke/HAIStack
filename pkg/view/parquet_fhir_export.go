@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -16,19 +17,23 @@ type MatchingResourceStats struct {
 	Filtered           int
 	Written            int
 	SourceResourceType string
+	MaxLastUpdated     time.Time
 }
 
 // CollectMatchingResources returns full FHIR resources matching a view's filters.
+//
+// Deprecated: prefer WriteParquetFHIRExport for large exports. This helper materializes
+// every matching resource in memory and is not suitable for lakehouse-scale datasets.
 func (e *Executor) CollectMatchingResources(ctx context.Context, req ExecuteRequest) ([]map[string]any, string, error) {
 	resources, resourceType, _, err := e.collectMatchingResources(ctx, req, 0, 0)
 	return resources, resourceType, err
 }
 
 type matchingResourcePlan struct {
-	spec     *ViewSpec
-	execReq  ExecuteRequest
-	limit    int
-	offset   int
+	spec    *ViewSpec
+	execReq ExecuteRequest
+	limit   int
+	offset  int
 }
 
 func (e *Executor) prepareMatchingResourcePlan(ctx context.Context, req ExecuteRequest, limit, offset int) (*matchingResourcePlan, error) {
@@ -122,19 +127,6 @@ func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, re
 	return written, stats, nil
 }
 
-func (e *Executor) forEachMatchingResource(
-	ctx context.Context,
-	req ExecuteRequest,
-	limit, offset int,
-	fn func(map[string]any) error,
-) (int, MatchingResourceStats, error) {
-	plan, err := e.prepareMatchingResourcePlan(ctx, req, limit, offset)
-	if err != nil {
-		return 0, MatchingResourceStats{}, err
-	}
-	return e.forEachMatchingResourcePlan(ctx, plan, fn)
-}
-
 func (e *Executor) forEachMatchingResourcePlan(
 	ctx context.Context,
 	plan *matchingResourcePlan,
@@ -191,6 +183,9 @@ func (e *Executor) forEachMatchingResourcePlan(
 		if err := fn(raw); err != nil {
 			stats.Written = written
 			return written, stats, err
+		}
+		if !env.LastUpdated.IsZero() && env.LastUpdated.After(stats.MaxLastUpdated) {
+			stats.MaxLastUpdated = env.LastUpdated
 		}
 		matched++
 		written++

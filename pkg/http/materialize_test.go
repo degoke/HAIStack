@@ -17,8 +17,8 @@ type fakeMaterializeService struct {
 func (f *fakeMaterializeService) Kickoff(_ context.Context, req view.MaterializeRequest) (*view.MaterializeJob, error) {
 	f.last = req
 	return &view.MaterializeJob{
-		ID:     "mat-job-1",
-		Status: view.MaterializeComplete,
+		ID:      "mat-job-1",
+		Status:  view.MaterializeComplete,
 		Request: req,
 	}, nil
 }

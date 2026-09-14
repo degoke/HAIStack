@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
+	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/view"
-	"github.com/parquet-go/parquet-go"
 )
 
 func TestRunnerSkipsFlatExecuteForFHIRParquetExport(t *testing.T) {
@@ -80,7 +81,7 @@ func TestRunnerFHIRParquetExportRespectsSince(t *testing.T) {
 	if result.RowCount != 1 {
 		t.Fatalf("rowCount=%d, want 1 after since filter", result.RowCount)
 	}
-	ids := parquetPatientIDs(t, buf.Bytes())
+	ids := parquettest.IDs(t, buf.Bytes())
 	if len(ids) != 1 || ids[0] != "pat-jane" {
 		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
 	}
@@ -121,6 +122,47 @@ func TestRunnerFHIRParquetExportPopulatesMetadata(t *testing.T) {
 }
 
 func TestExportHandlerUsesWatermarkSince(t *testing.T) {
+	jane, buf, watermarks, handler := setupExportHandlerWatermarkFixture(t)
+	payload, err := json.Marshal(analytics.ExportPayload{
+		ViewName:      analytics.ViewPatientSummary,
+		Version:       "1.0.0",
+		Format:        analytics.FormatParquet,
+		ParquetLayout: view.ParquetLayoutFHIR,
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
+		t.Fatalf("HandleJob: %v", err)
+	}
+	ids := parquettest.IDs(t, buf.Bytes())
+	if len(ids) != 1 || ids[0] != "pat-jane" {
+		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
+	}
+	assertExportHandlerWatermarkSince(t, watermarks, jane.LastUpdated.UTC())
+}
+
+func TestExportHandlerFlatParquetUsesWatermarkSince(t *testing.T) {
+	jane, buf, watermarks, handler := setupExportHandlerWatermarkFixture(t)
+	payload, err := json.Marshal(analytics.ExportPayload{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Format:   analytics.FormatParquet,
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
+		t.Fatalf("HandleJob: %v", err)
+	}
+	if !view.IsParquetFile(buf.Bytes()) {
+		t.Fatal("expected flat parquet output")
+	}
+	assertExportHandlerWatermarkSince(t, watermarks, jane.LastUpdated.UTC())
+}
+
+func setupExportHandlerWatermarkFixture(t *testing.T) (*types.ResourceEnvelope, *bytes.Buffer, *analytics.WatermarkStore, jobs.Handler) {
+	t.Helper()
 	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	jane := patientJane(t)
 	jane.LastUpdated = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -142,49 +184,18 @@ func TestExportHandlerUsesWatermarkSince(t *testing.T) {
 		Writer:   &buf,
 		Executor: exec,
 	}, watermarks)
-	payload, err := json.Marshal(analytics.ExportPayload{
-		ViewName:      analytics.ViewPatientSummary,
-		Version:       "1.0.0",
-		Format:        analytics.FormatParquet,
-		ParquetLayout: view.ParquetLayoutFHIR,
-	})
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	if err := handler.HandleJob(context.Background(), store.JobRecord{Payload: payload}); err != nil {
-		t.Fatalf("HandleJob: %v", err)
-	}
-	ids := parquetPatientIDs(t, buf.Bytes())
-	if len(ids) != 1 || ids[0] != "pat-jane" {
-		t.Fatalf("parquet ids=%v, want [pat-jane]", ids)
-	}
+	return jane, &buf, watermarks, handler
 }
 
-func parquetPatientIDs(t *testing.T, data []byte) []string {
+func assertExportHandlerWatermarkSince(t *testing.T, watermarks *analytics.WatermarkStore, want time.Time) {
 	t.Helper()
-	type patientRow struct {
-		ID string `parquet:"id"`
-	}
-	rows, err := parquet.Read[patientRow](bytesReader(data), int64(len(data)))
+	since, err := watermarks.Since(context.Background(), analytics.ViewPatientSummary, "1.0.0")
 	if err != nil {
-		t.Fatalf("Read: %v", err)
+		t.Fatalf("Since: %v", err)
 	}
-	ids := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if row.ID != "" {
-			ids = append(ids, row.ID)
-		}
+	if !since.Equal(want) {
+		t.Fatalf("watermark since=%v, want %v", since, want)
 	}
-	return ids
-}
-
-type bytesReader []byte
-
-func (b bytesReader) ReadAt(p []byte, off int64) (int, error) {
-	if off >= int64(len(b)) {
-		return 0, io.EOF
-	}
-	return copy(p, b[off:]), nil
 }
 
 type testMemCursorStore struct {

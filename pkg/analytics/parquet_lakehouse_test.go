@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/testkit/viewtest"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
@@ -30,31 +30,17 @@ func bundledPatientCatalog(t *testing.T) validate.MemoryProfileCatalog {
 
 func newFHIRExecutor(t *testing.T) *view.Executor {
 	t.Helper()
-	resources := newMemResourceStore()
-	resources.Seed(t, patientJane(t), patientJohn(t))
-	return newFHIRExecutorWithStore(t, resources)
+	return viewtest.NewPatientSummaryExecutorWithConfig(t, viewtest.DefaultPatientSummaryPatients(t), viewtest.ExecutorConfig{
+		ProfileCatalog: bundledPatientCatalog(t),
+	})
 }
 
 func newFHIRExecutorWithStore(t *testing.T, resources *memResourceStore) *view.Executor {
 	t.Helper()
-	engine, err := fhirpath.NewEngine(fhirpath.Config{})
-	if err != nil {
-		t.Fatalf("engine: %v", err)
-	}
-	reg := view.NewRegistry()
-	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	exec, err := view.NewExecutor(view.Config{
+	return viewtest.NewPatientSummaryExecutorWithConfig(t, viewtest.PatientSummaryPatients{}, viewtest.ExecutorConfig{
 		Resources:      resources,
-		Engine:         engine,
-		Registry:       reg,
 		ProfileCatalog: bundledPatientCatalog(t),
 	})
-	if err != nil {
-		t.Fatalf("NewExecutor: %v", err)
-	}
-	return exec
 }
 
 func TestLakehouseSinkWritesPartitionedParquetFile(t *testing.T) {

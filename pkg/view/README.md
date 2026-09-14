@@ -183,5 +183,33 @@ Configure the FHIRPath engine with `Resolve` and `Terminology` (runtime wiring d
 - Search-driven execution requires search wiring; `searchMode=index` fails without index.
 - `ExecuteRequest.Parameters` is passed to auth and audit only (no FHIRPath substitution yet).
 
+## Execution metadata
+
+`ResultMetadata` fields differ slightly by export mode:
+
+| Field | Flat `Execute` | FHIR parquet export (`_parquetLayout=fhir`) |
+|-------|----------------|---------------------------------------------|
+| `scanned` | Candidate IDs considered | Same |
+| `filtered` | Expanded **view row** count after filters | Matching **source resource** count |
+| `maxLastUpdated` | Latest `LastUpdated` among returned view rows | Latest `LastUpdated` among exported resources |
+
+When comparing flat refresh metrics to FHIR lakehouse exports, treat `filtered` as mode-specific rather than interchangeable.
+
+Incremental watermarks prefer `maxLastUpdated` (data clock) over process time when exported resources carry `LastUpdated`. Stored watermarks are inclusive at that timestamp; search prefilters use `_lastUpdated=gt{watermark}` while envelope checks use strict `LastUpdated.Before(since)`, so a resource whose `LastUpdated` equals the saved watermark is excluded on the next search-driven pass.
+
+HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters). Query `_subject`/`_actor` are applied first; non-empty Parameters body fields override them. Export output format can be set via query `_format` or body `format` (for example `parquet`, `ndjson`, `csv`); body `format` overrides query when both are present. Query-only export requests with no `_format` or body `format` default to NDJSON artifacts in `ExportService.Kickoff`.
+
+TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FHIR parameter values (`valueReference`, `valueCode`, etc.) are not yet supported.
+
+## Parquet export sizing
+
+Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse **filesystem** partitions stream directly to disk. **Blob** uploads and `$viewdefinition-export` artifact writes still buffer the finished parquet file in memory for `BlobStore.Put` / filesystem artifact storage.
+
+Practical guidance:
+
+- Plan for roughly **2× compressed parquet size** peak RAM at blob upload time (file bytes loaded for `Put`).
+- Very large exports (multi-GB) should target filesystem lakehouse partitions or a streaming blob backend; see `docs/parquet-on-fhir-interop.md`.
+- Prefer `WriteParquetFHIRExport` over `CollectMatchingResources` for large datasets; the latter materializes every match in memory.
+
 See [doc.go](./doc.go) for the full API, package boundaries, and integration
 points.

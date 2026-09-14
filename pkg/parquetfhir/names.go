@@ -28,10 +28,6 @@ func isAnnotationField(name string) bool {
 	return strings.HasPrefix(name, "__") && strings.Contains(name[2:], "_")
 }
 
-func isPrimitiveWrapperField(name string) bool {
-	return strings.HasPrefix(name, "_") && !strings.HasPrefix(name, "__")
-}
-
 func annotationStartField(fieldName string) string {
 	return "__" + fieldName + "_start"
 }

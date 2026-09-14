@@ -230,7 +230,9 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 			r.URL.Query().Get("_parquetLayout"),
 			r.URL.Query().Get("parquetLayout"),
 		)),
-		Header:   strings.EqualFold(r.URL.Query().Get("header"), "true"),
+		Header:  strings.EqualFold(r.URL.Query().Get("header"), "true"),
+		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
+		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
@@ -254,21 +256,27 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 		}
 		return req, nil
 	}
+	// Query _subject/_actor are seeded above; non-empty Parameters body fields override them.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
 	var params struct {
-		Parameter []struct {
-			Name  string `json:"name"`
-			Value *struct {
-				String string `json:"valueString"`
-			} `json:"valueString"`
-		} `json:"parameter"`
-		Resource json.RawMessage `json:"resource"`
+		Parameter []operationParameter `json:"parameter"`
+		Resource  json.RawMessage      `json:"resource"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
 		return req, invalidRequest("invalid Parameters body", err)
+	}
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "viewName", "version")
+	if subject != "" {
+		req.Subject = subject
+	}
+	if actor != "" {
+		req.Actor = actor
+	}
+	if len(operationParams) > 0 {
+		req.Parameters = operationParams
 	}
 	for _, p := range params.Parameter {
 		if p.Value == nil {
@@ -333,11 +341,15 @@ func parseSQLQueryRequest(r *http.Request) (view.SQLQueryRequest, error) {
 
 func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExportRequest, error) {
 	req := view.ViewExportRequest{
-		Format: view.ParseOutputFormat(r.URL.Query().Get("_format")),
 		ParquetLayout: view.ParseParquetLayout(firstNonEmpty(
 			r.URL.Query().Get("_parquetLayout"),
 			r.URL.Query().Get("parquetLayout"),
 		)),
+		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
+		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
+	}
+	if formatParam := strings.TrimSpace(r.URL.Query().Get("_format")); formatParam != "" {
+		req.Format = view.ParseOutputFormat(formatParam)
 	}
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
@@ -359,24 +371,45 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 		}
 		return req, nil
 	}
+	// Query _subject/_actor are seeded above; non-empty Parameters body fields override them.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
+	views, subject, actor, format, params, err := parseExportParametersBody(body)
+	if err != nil {
+		return req, err
+	}
+	if subject != "" {
+		req.Subject = subject
+	}
+	if actor != "" {
+		req.Actor = actor
+	}
+	if len(params) > 0 {
+		req.Parameters = params
+	}
+	if format != "" {
+		req.Format = format
+	}
+	if len(views) > 0 {
+		req.Views = views
+	}
+	if len(req.Views) == 0 {
+		return req, invalidRequest("at least one view parameter is required", nil)
+	}
+	return req, nil
+}
+
+func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, view.OutputFormat, map[string]any, error) {
 	var params struct {
-		Parameter []struct {
-			Name    string `json:"name"`
-			Part    []struct {
-				Name  string `json:"name"`
-				Value *struct {
-					String string `json:"valueString"`
-				} `json:"valueString"`
-			} `json:"part"`
-		} `json:"parameter"`
+		Parameter []operationParameter `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return req, invalidRequest("invalid Parameters body", err)
+		return nil, "", "", "", nil, invalidRequest("invalid Parameters body", err)
 	}
+	var views []view.ViewExportTarget
+	var format view.OutputFormat
 	for _, p := range params.Parameter {
 		if p.Name != "view" {
 			continue
@@ -396,11 +429,59 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 			}
 		}
 		if target.ViewName != "" {
-			req.Views = append(req.Views, target)
+			views = append(views, target)
 		}
 	}
-	if len(req.Views) == 0 {
-		return req, invalidRequest("at least one view parameter is required", nil)
+	for _, p := range params.Parameter {
+		if p.Name != "format" || len(p.Part) > 0 || p.Value == nil {
+			continue
+		}
+		format = view.ParseOutputFormat(p.Value.String)
 	}
-	return req, nil
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view", "format")
+	return views, subject, actor, format, operationParams, nil
+}
+
+type operationParameter struct {
+	Name  string `json:"name"`
+	Value *struct {
+		String string `json:"valueString"`
+	} `json:"valueString"`
+	Part []struct {
+		Name  string `json:"name"`
+		Value *struct {
+			String string `json:"valueString"`
+		} `json:"valueString"`
+	} `json:"part"`
+}
+
+func parseOperationContextFromParameters(parameters []operationParameter, reserved ...string) (subject, actor string, operationParams map[string]any) {
+	// TODO: support typed FHIR parameter values (valueReference, valueCode, etc.); valueString only today.
+	reservedNames := make(map[string]struct{}, len(reserved))
+	for _, name := range reserved {
+		reservedNames[name] = struct{}{}
+	}
+	for _, p := range parameters {
+		if len(p.Part) > 0 {
+			continue
+		}
+		if p.Value == nil {
+			continue
+		}
+		if _, skip := reservedNames[p.Name]; skip {
+			continue
+		}
+		switch p.Name {
+		case "subject":
+			subject = p.Value.String
+		case "actor":
+			actor = p.Value.String
+		default:
+			if operationParams == nil {
+				operationParams = make(map[string]any)
+			}
+			operationParams[p.Name] = p.Value.String
+		}
+	}
+	return subject, actor, operationParams
 }

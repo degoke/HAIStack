@@ -50,7 +50,7 @@ func RefreshHandler(runner *Runner, target reportingWriter, watermark *Watermark
 		if version == "" {
 			version = "1.0.0"
 		}
-		_, err := runner.Run(ctx, RunRequest{
+		runResult, err := runner.Run(ctx, RunRequest{
 			ViewName:    payload.ViewName,
 			Version:     version,
 			Mode:        ModeRefresh,
@@ -67,7 +67,8 @@ func RefreshHandler(runner *Runner, target reportingWriter, watermark *Watermark
 			if runner != nil && runner.now != nil {
 				refreshedAt = runner.now().UTC()
 			}
-			return watermark.Advance(ctx, payload.ViewName, version, refreshedAt)
+			advanceAt := view.WatermarkAdvanceTime(runResult.Metadata.MaxLastUpdated, refreshedAt)
+			return watermark.Advance(ctx, payload.ViewName, version, advanceAt)
 		}
 		return nil
 	})
@@ -123,7 +124,7 @@ func runExportJob(ctx context.Context, runner *Runner, sink RowSink, watermark *
 		}
 		since = wmSince
 	}
-	_, err := runner.Run(ctx, RunRequest{
+	runResult, err := runner.Run(ctx, RunRequest{
 		ViewName: payload.ViewName,
 		Version:  version,
 		Mode:     ModeExport,
@@ -143,7 +144,8 @@ func runExportJob(ctx context.Context, runner *Runner, sink RowSink, watermark *
 		if runner != nil && runner.now != nil {
 			refreshedAt = runner.now().UTC()
 		}
-		return watermark.Advance(ctx, payload.ViewName, version, refreshedAt)
+		advanceAt := view.WatermarkAdvanceTime(runResult.Metadata.MaxLastUpdated, refreshedAt)
+		return watermark.Advance(ctx, payload.ViewName, version, advanceAt)
 	}
 	return nil
 }
