@@ -262,8 +262,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		invalidators = append(invalidators, globalLocal)
 	}
 	terminologyCache := terminology.ChainInvalidator{Providers: invalidators}
+	var termStore = pc.terminology
 	var termProviders []terminology.Provider
 	if tenantLocal != nil {
+		termStore = tenantLocal.Store
 		termProviders = append(termProviders, tenantLocal)
 	}
 	if b.remoteTerminologyURL != "" {
@@ -694,7 +696,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 					Engine: structuremap.Engine{
 						FHIRPath:    engine,
 						Strict:      true,
-						Translator:  b.structureMapTranslator(pc, termScope),
+						Translator:  b.structureMapTranslator(pc, termScope, termStore),
 						Cardinality: &structuremap.StoreCardinalityResolver{Store: registry.DefinitionStoreWithEmbeddedBase(pc.definitions)},
 					},
 				}),
@@ -764,10 +766,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	return nil
 }
 
-func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string) conceptmap.Translator {
+func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string, termStore store.TerminologyStore) conceptmap.Translator {
 	translator := conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
 		&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
-		&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
+		&conceptmap.TerminologyStoreResolver{Store: termStore, ScopeID: termScope},
 	}}}
 	if b.remoteTerminologyURL != "" {
 		translator.Remote = b.remoteTranslateClient()
