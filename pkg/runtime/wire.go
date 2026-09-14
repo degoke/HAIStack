@@ -308,10 +308,46 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		return fmt.Errorf("runtime: enable Subscription: %w", err)
 	}
 
+	engine := b.fhirPathEngine
+	if engine == nil {
+		fpCfg := fhirpath.Config{}
+		readFn := func(ctx context.Context, resourceType, id string) (any, error) {
+			return pc.resources.Read(ctx, resourceType, id)
+		}
+		fpCfg.Resolve = fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{
+			BaseURL:          "/fhir",
+			Read:             readFn,
+			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
+		})
+		if state.services.TerminologyService != nil {
+			termSvc := state.services.TerminologyService
+			fpCfg.Terminology = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+				result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
+					ScopeID: termScope,
+					URL:     valueSetURL,
+					Coding:  terminology.Coding{System: system, Code: code},
+				})
+				if err != nil {
+					return false, err
+				}
+				return result != nil && result.Status == terminology.Valid, nil
+			})
+		}
+		var err error
+		engine, err = fhirpath.NewEngine(fpCfg)
+		if err != nil {
+			return fmt.Errorf("runtime: fhirpath engine: %w", err)
+		}
+	}
+	state.services.FHIRPathEngine = engine
+	viewRegistry := view.NewRegistry()
+
 	if len(b.packageInstalls) > 0 {
 		pkgInstaller := &packages.Installer{
-			Registry:    regManager,
-			EnableTypes: true,
+			Registry:     regManager,
+			EnableTypes:  true,
+			ViewRegistry: viewRegistry,
+			FHIRPath:     engine,
 		}
 		if err := packages.InstallConfigured(ctx, pkgInstaller, b.packageInstalls); err != nil {
 			return fmt.Errorf("runtime: install configured packages: %w", err)
@@ -340,38 +376,6 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		return fmt.Errorf("runtime: rebuild registry snapshot: %w", err)
 	}
 	state.services.RegistrySnapshot = snapshot
-
-	engine := b.fhirPathEngine
-	if engine == nil {
-		fpCfg := fhirpath.Config{}
-		readFn := func(ctx context.Context, resourceType, id string) (any, error) {
-			return pc.resources.Read(ctx, resourceType, id)
-		}
-		fpCfg.Resolve = fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{
-			BaseURL:          "/fhir",
-			Read:             readFn,
-			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
-		})
-		if state.services.TerminologyService != nil {
-			termSvc := state.services.TerminologyService
-			fpCfg.Terminology = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
-				result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
-					ScopeID: termScope,
-					URL:     valueSetURL,
-					Coding:  terminology.Coding{System: system, Code: code},
-				})
-				if err != nil {
-					return false, err
-				}
-				return result != nil && result.Status == terminology.Valid, nil
-			})
-		}
-		engine, err = fhirpath.NewEngine(fpCfg)
-		if err != nil {
-			return fmt.Errorf("runtime: fhirpath engine: %w", err)
-		}
-	}
-	state.services.FHIRPathEngine = engine
 
 	var indexer search.Indexer
 	var searchRegistry *search.SnapshotRegistry
@@ -539,7 +543,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 
-	packageInstaller := b.newPackageInstaller(regManager, conformanceRuntime, engine)
+	packageInstaller := b.newPackageInstaller(regManager, conformanceRuntime, engine, viewRegistry)
 	state.services.ViewRegistry = packageInstaller.ViewRegistry
 	viewCtx := wireAnalyticsContext{
 		engine:           engine,
@@ -995,7 +999,11 @@ func (b *Builder) newPackageInstaller(
 	regManager *registry.Manager,
 	conformanceRuntime *ConformanceRuntime,
 	engine fhirpath.Engine,
+	viewRegistry *view.Registry,
 ) *packages.Installer {
+	if viewRegistry == nil {
+		viewRegistry = view.NewRegistry()
+	}
 	return &packages.Installer{
 		Registry: regManager,
 		Refresh: func(ctx context.Context) error {
@@ -1003,7 +1011,7 @@ func (b *Builder) newPackageInstaller(
 			return err
 		},
 		EnableTypes:  true,
-		ViewRegistry: view.NewRegistry(),
+		ViewRegistry: viewRegistry,
 		FHIRPath:     engine,
 	}
 }
