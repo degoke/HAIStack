@@ -262,7 +262,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		invalidators = append(invalidators, globalLocal)
 	}
 	terminologyCache := terminology.ChainInvalidator{Providers: invalidators}
-	var termStore store.TerminologyStore = pc.terminology
+	var termStore = pc.terminology
 	var termProviders []terminology.Provider
 	if tenantLocal != nil {
 		termStore = tenantLocal.Store
