@@ -359,6 +359,40 @@ func TestViewDefinitionExportParsesFormatFromBody(t *testing.T) {
 	}
 }
 
+func TestViewDefinitionExportParsesFormatParquetQuery(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view&_format=parquet",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Format != view.FormatParquet {
+		t.Fatalf("Format=%q, want parquet from query _format", exportSvc.last.Format)
+	}
+}
+
+func TestViewDefinitionExportBodyFormatOverridesQuery(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"format","valueString":{"valueString":"parquet"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?_format=ndjson",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.Format != view.FormatParquet {
+		t.Fatalf("Format=%q, want body format to override query _format", exportSvc.last.Format)
+	}
+}
+
 func TestViewDefinitionExportParsesQuerySubject(t *testing.T) {
 	exportSvc := newFakeViewExportService()
 	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})

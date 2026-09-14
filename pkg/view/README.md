@@ -197,7 +197,7 @@ When comparing flat refresh metrics to FHIR lakehouse exports, treat `filtered` 
 
 Incremental watermarks prefer `maxLastUpdated` (data clock) over process time when exported resources carry `LastUpdated`. Stored watermarks are inclusive at that timestamp; search prefilters use `_lastUpdated=gt{watermark}` while envelope checks use strict `LastUpdated.Before(since)`, so a resource whose `LastUpdated` equals the saved watermark is excluded on the next search-driven pass.
 
-HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters). Query `_subject`/`_actor` are applied first; non-empty Parameters body fields override them. Export also accepts a body `format` parameter (for example `parquet`) when `_format` cannot be used on the query string due to response negotiation.
+HTTP `$viewdefinition-run` and `$viewdefinition-export` accept `_subject`, `_actor`, and matching Parameters body fields (`subject`, `actor`, plus custom operation parameters). Query `_subject`/`_actor` are applied first; non-empty Parameters body fields override them. Export output format can be set via query `_format` or body `format` (for example `parquet`, `ndjson`, `csv`); body `format` overrides query when both are present. Query-only export requests with no `_format` or body `format` default to NDJSON artifacts in `ExportService.Kickoff`.
 
 TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FHIR parameter values (`valueReference`, `valueCode`, etc.) are not yet supported.
 
