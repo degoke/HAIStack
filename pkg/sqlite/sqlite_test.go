@@ -27,6 +27,7 @@ var (
 	_ store.ModuleStore               = (*sqlite.ModuleStore)(nil)
 	_ store.DefinitionStore           = (*sqlite.DefinitionStore)(nil)
 	_ store.RegistryInstallStore      = (*sqlite.RegistryInstallStore)(nil)
+	_ store.PackageInstallStore       = (*sqlite.PackageInstallStore)(nil)
 	_ store.AuthStore                 = (*sqlite.AuthStore)(nil)
 	_ store.JobStore                  = (*sqlite.JobStore)(nil)
 	_ store.AuditStore                = (*sqlite.AuditStore)(nil)

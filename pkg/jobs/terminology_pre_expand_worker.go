@@ -1,0 +1,63 @@
+package jobs
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/terminology"
+)
+
+// TerminologyPreExpandWorker handles registry.terminology.pre_expand_valuesets jobs.
+type TerminologyPreExpandWorker struct {
+	Terminology  store.TerminologyStore
+	Definitions  store.DefinitionStore
+	TenantScope  string
+	MaxExpansion int
+	Installs     store.TerminologyInstallStore
+	JobStore     store.JobStore
+}
+
+// HandleJob pre-expands eligible ValueSets from one installed package version.
+func (w *TerminologyPreExpandWorker) HandleJob(ctx context.Context, job store.JobRecord) error {
+	if w == nil || w.Terminology == nil {
+		return fmt.Errorf("terminology pre-expand worker is not configured")
+	}
+	if w.Definitions == nil {
+		return fmt.Errorf("definition store is required for pack pre-expand")
+	}
+	var payload TerminologyPreExpandPayload
+	if err := UnmarshalPayload(job.Payload, &payload); err != nil {
+		return err
+	}
+	if payload.PackName == "" || payload.PackVersion == "" {
+		return fmt.Errorf("packName and packVersion are required for terminology pre-expand")
+	}
+	scope := payload.ScopeID
+	if scope == "" {
+		scope = w.TenantScope
+	}
+	if scope == "" {
+		return fmt.Errorf("terminology pre-expand scope is required")
+	}
+	composeStore := terminology.StoreForScope(w.Terminology, w.TenantScope, w.Installs, scope)
+	reporter := NewReporter(w.JobStore, job)
+	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Message: payload.PackName})
+
+	opts := terminology.PreExpandOptions{
+		MaxExpansion: w.MaxExpansion,
+		Installs:     w.Installs,
+	}
+	results, err := terminology.PreExpandPack(ctx, w.Terminology, composeStore, w.Definitions, scope, payload.PackName, payload.PackVersion, opts)
+	if err != nil {
+		return err
+	}
+	expanded := 0
+	for _, r := range results {
+		if !r.Skipped {
+			expanded++
+		}
+	}
+	_ = reporter.Update(ctx, Progress{Phase: "pre-expand", Current: expanded, Total: len(results), Message: payload.PackName})
+	return reporter.Complete(ctx, map[string]any{"expanded": expanded, "packName": payload.PackName, "results": results})
+}

@@ -104,26 +104,55 @@ func marshalSearchBundle(bundle *search.SearchBundle) ([]byte, error) {
 	return json.Marshal(obj)
 }
 
+var platformCapabilityResourceTypes = []string{
+	"CodeSystem",
+	"ValueSet",
+	"Basic",
+	"CapabilityStatement",
+}
+
+func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) (registry.CapabilitySnapshot, map[string]bool) {
+	seen := make(map[string]bool, len(snapshot.Resources))
+	injected := make(map[string]bool, len(platformCapabilityResourceTypes))
+	for _, res := range snapshot.Resources {
+		seen[res.ResourceType] = true
+	}
+	for _, typ := range platformCapabilityResourceTypes {
+		if seen[typ] {
+			continue
+		}
+		snapshot.Resources = append(snapshot.Resources, registry.ResourceCapability{ResourceType: typ})
+		seen[typ] = true
+		injected[typ] = true
+	}
+	return snapshot, injected
+}
+
 func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta ServerMetadata, searchEnabled bool) ([]byte, error) {
+	snapshot, platformOnly := augmentCapabilitySnapshot(snapshot)
 	rest := make([]map[string]interface{}, 0, 1)
 	resourceEntries := make([]map[string]interface{}, 0, len(snapshot.Resources))
 	for _, res := range snapshot.Resources {
-		interactions := []map[string]string{
-			{"code": "read"},
-			{"code": "create"},
-			{"code": "update"},
-			{"code": "patch"},
-			{"code": "delete"},
-			{"code": "history-instance"},
-		}
-		if searchEnabled {
-			interactions = append(interactions, map[string]string{"code": "search-type"})
+		var interactions []map[string]string
+		if !platformOnly[res.ResourceType] {
+			interactions = []map[string]string{
+				{"code": "read"},
+				{"code": "create"},
+				{"code": "update"},
+				{"code": "patch"},
+				{"code": "delete"},
+				{"code": "history-instance"},
+			}
+			if searchEnabled {
+				interactions = append(interactions, map[string]string{"code": "search-type"})
+			}
 		}
 		operations := []map[string]string{{
 			"name":       "validate",
 			"definition": "http://hl7.org/fhir/OperationDefinition/Resource-validate",
 		}}
-		if res.ResourceType == "ImplementationGuide" {
+		switch res.ResourceType {
+		case "ImplementationGuide":
 			operations = append(operations,
 				map[string]string{
 					"name":       "install",
@@ -134,16 +163,67 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 					"definition": "http://hl7.org/fhir/OperationDefinition/ImplementationGuide-package",
 				},
 			)
+		case "CodeSystem":
+			operations = append(operations,
+				map[string]string{
+					"name":       "lookup",
+					"definition": "http://hl7.org/fhir/OperationDefinition/CodeSystem-lookup",
+				},
+				map[string]string{
+					"name":       "validate-code",
+					"definition": "http://hl7.org/fhir/OperationDefinition/CodeSystem-validate-code",
+				},
+			)
+		case "ValueSet":
+			operations = append(operations,
+				map[string]string{
+					"name":       "expand",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ValueSet-expand",
+				},
+				map[string]string{
+					"name":       "validate-code",
+					"definition": "http://hl7.org/fhir/OperationDefinition/ValueSet-validate-code",
+				},
+			)
+		case "Basic":
+			operations = append(operations,
+				map[string]string{
+					"name":       "install",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-install",
+				},
+				map[string]string{
+					"name":       "status",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-status",
+				},
+				map[string]string{
+					"name":       "terminology-install",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-terminology-install",
+				},
+				map[string]string{
+					"name":       "terminology-enable",
+					"definition": "http://hl7.org/fhir/OperationDefinition/Basic-terminology-enable",
+				},
+			)
+		case "CapabilityStatement":
+			operations = append(operations, map[string]string{
+				"name":       "refresh",
+				"definition": "http://hl7.org/fhir/OperationDefinition/CapabilityStatement-refresh",
+			})
 		}
-		resourceEntries = append(resourceEntries, map[string]interface{}{
+		entry := map[string]interface{}{
 			"type":         res.ResourceType,
 			"interaction":  interactions,
 			"operation":    operations,
-			"searchParam":  searchParamsForCapability(res.SearchParameters),
-			"versioning":   "versioned",
-			"readHistory":  true,
 			"updateCreate": false,
-		})
+		}
+		if platformOnly[res.ResourceType] {
+			entry["readHistory"] = false
+		} else {
+			entry["searchParam"] = searchParamsForCapability(res.SearchParameters)
+			entry["versioning"] = "versioned"
+			entry["readHistory"] = true
+		}
+		resourceEntries = append(resourceEntries, entry)
 	}
 	rest = append(rest, map[string]interface{}{
 		"mode":     "server",

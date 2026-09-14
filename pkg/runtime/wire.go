@@ -126,24 +126,28 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 	}
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:      db.DefinitionStore(),
-		installs:         db.RegistryInstallStore(),
-		moduleStore:      db.ModuleStore(),
-		jobStore:         db.JobStore(),
-		resources:        db.ResourceStore(),
-		history:          db.HistoryStore(),
-		searchStore:      db.SearchStore(),
-		sessions:         db,
-		outboxEvents:     db.OutboxStore(),
-		syncTenantID:     syncTenantID,
-		terminologyScope: terminologyScope,
-		syncEvents:       db.OutboxStore(),
-		syncCursors:      db.CursorStore(),
-		syncInbox:        db.InboxStore(),
-		syncConflicts:    db.ConflictStore(),
-		syncAudit:        db.AuditStore(),
-		terminology:      db.TerminologyStore(),
-		reindexJobs:      false,
+		definitions:               db.DefinitionStore(),
+		packageInstalls:           db.PackageInstallStore(),
+		installs:                  db.RegistryInstallStore(),
+		moduleStore:               db.ModuleStore(),
+		jobStore:                  db.JobStore(),
+		resources:                 db.ResourceStore(),
+		history:                   db.HistoryStore(),
+		searchStore:               db.SearchStore(),
+		sessions:                  db,
+		outboxEvents:              db.OutboxStore(),
+		syncTenantID:              syncTenantID,
+		terminologyScope:          terminologyScope,
+		syncEvents:                db.OutboxStore(),
+		syncCursors:               db.CursorStore(),
+		syncInbox:                 db.InboxStore(),
+		syncConflicts:             db.ConflictStore(),
+		syncAudit:                 db.AuditStore(),
+		terminology:               db.TerminologyStore(),
+		globalTerminology:         db.GlobalTerminologyStore(),
+		terminologyInstalls:       db.TerminologyInstallStore(syncTenantID),
+		terminologyInstallFactory: sqlite.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:               false,
 	})
 }
 
@@ -177,46 +181,54 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 	state.services.TenantDB = tdb
 
 	return b.wireCommon(ctx, state, persistenceContext{
-		definitions:      db.DefinitionStore(),
-		installs:         tdb.RegistryInstallStore(),
-		moduleStore:      tdb.ModuleStore(),
-		jobStore:         tdb.JobStore(),
-		resources:        tdb.ResourceStore(),
-		history:          tdb.HistoryStore(),
-		searchStore:      tdb.SearchStore(),
-		sessions:         tdb,
-		outboxEvents:     tdb.EventStore(),
-		syncTenantID:     b.tenantID,
-		terminologyScope: b.tenantID,
-		syncEvents:       tdb.EventStore(),
-		syncCursors:      tdb.CursorStore(),
-		syncInbox:        tdb.InboxStore(),
-		syncConflicts:    tdb.ConflictStore(),
-		syncAudit:        tdb.AuditStore(),
-		terminology:      tdb.TerminologyStore(),
-		reindexJobs:      b.searchEnabled,
+		definitions:               db.DefinitionStore(),
+		packageInstalls:           db.PackageInstallStore(),
+		installs:                  tdb.RegistryInstallStore(),
+		moduleStore:               tdb.ModuleStore(),
+		jobStore:                  tdb.JobStore(),
+		resources:                 tdb.ResourceStore(),
+		history:                   tdb.HistoryStore(),
+		searchStore:               tdb.SearchStore(),
+		sessions:                  tdb,
+		outboxEvents:              tdb.EventStore(),
+		syncTenantID:              b.tenantID,
+		terminologyScope:          b.tenantID,
+		syncEvents:                tdb.EventStore(),
+		syncCursors:               tdb.CursorStore(),
+		syncInbox:                 tdb.InboxStore(),
+		syncConflicts:             tdb.ConflictStore(),
+		syncAudit:                 tdb.AuditStore(),
+		terminology:               tdb.TerminologyStore(),
+		globalTerminology:         db.GlobalTerminologyStore(),
+		terminologyInstalls:       tdb.TerminologyInstallStore(),
+		terminologyInstallFactory: postgres.NewTerminologyInstallStoreFactory(db),
+		reindexJobs:               b.searchEnabled,
 	})
 }
 
 type persistenceContext struct {
-	definitions      store.DefinitionStore
-	installs         store.RegistryInstallStore
-	moduleStore      store.ModuleStore
-	jobStore         store.JobStore
-	resources        store.ResourceStore
-	history          store.HistoryStore
-	searchStore      store.SearchStore
-	sessions         store.WriteSessionProvider
-	outboxEvents     store.EventStore
-	syncTenantID     string
-	syncEvents       store.EventStore
-	syncCursors      store.CursorStore
-	syncInbox        store.InboxStore
-	syncConflicts    store.ConflictStore
-	syncAudit        store.AuditStore
-	reindexJobs      bool
-	terminology      store.TerminologyStore
-	terminologyScope string
+	definitions               store.DefinitionStore
+	packageInstalls           store.PackageInstallStore
+	installs                  store.RegistryInstallStore
+	moduleStore               store.ModuleStore
+	jobStore                  store.JobStore
+	resources                 store.ResourceStore
+	history                   store.HistoryStore
+	searchStore               store.SearchStore
+	sessions                  store.WriteSessionProvider
+	outboxEvents              store.EventStore
+	syncTenantID              string
+	syncEvents                store.EventStore
+	syncCursors               store.CursorStore
+	syncInbox                 store.InboxStore
+	syncConflicts             store.ConflictStore
+	syncAudit                 store.AuditStore
+	reindexJobs               bool
+	terminology               store.TerminologyStore
+	globalTerminology         store.TerminologyStore
+	terminologyInstalls       store.TerminologyInstallStore
+	terminologyInstallFactory store.TerminologyInstallStoreFactory
+	terminologyScope          string
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
@@ -225,8 +237,46 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if termScope == "" {
 		termScope = pc.syncTenantID
 	}
-	if pc.terminology != nil {
-		state.services.TerminologyService = &terminology.LocalService{Store: pc.terminology, ScopeID: termScope}
+	tenantTerminology := pc.terminology
+	var tenantLocal *terminology.LocalService
+	var globalLocal *terminology.LocalService
+	var invalidators []terminology.Invalidator
+	maxExpansion := b.maxExpansion
+	if maxExpansion <= 0 {
+		maxExpansion = 10000
+	}
+	if tenantTerminology != nil {
+		layered := terminology.NewLayeredStore(tenantTerminology, termScope)
+		layered.Installs = pc.terminologyInstalls
+		tenantLocal = terminology.NewLocalService(layered, termScope)
+		tenantLocal.MaxExpansion = maxExpansion
+		invalidators = append(invalidators, tenantLocal)
+	}
+	if pc.globalTerminology != nil {
+		globalLocal = terminology.NewLocalService(pc.globalTerminology, terminology.GlobalScopeID)
+		invalidators = append(invalidators, globalLocal)
+	}
+	terminologyCache := terminology.ChainInvalidator{Providers: invalidators}
+	var termProviders []terminology.Provider
+	if tenantLocal != nil {
+		termProviders = append(termProviders, tenantLocal)
+	}
+	if b.remoteTerminologyURL != "" {
+		remoteProvider, err := terminology.NewRemoteProvider(terminology.RemoteConfig{
+			BaseURL:  b.remoteTerminologyURL,
+			CacheTTL: 5 * time.Minute,
+		})
+		if err != nil {
+			return fmt.Errorf("runtime: remote terminology: %w", err)
+		}
+		var remote terminology.Provider = remoteProvider
+		if pc.terminologyInstalls != nil && pc.globalTerminology != nil {
+			remote = terminology.NewOptInRemoteGate(remoteProvider, pc.globalTerminology, pc.terminologyInstalls)
+		}
+		termProviders = append(termProviders, remote)
+	}
+	if len(termProviders) > 0 {
+		state.services.TerminologyService = terminology.Chain{Providers: termProviders}
 	}
 
 	var reindexNotifier registry.SearchReindexNotifier
@@ -235,13 +285,18 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	regManager := registry.NewManager(registry.Config{
-		Definitions:      pc.definitions,
-		Installs:         pc.installs,
-		Now:              now,
-		SearchReindex:    reindexNotifier,
-		Terminology:      pc.terminology,
-		TerminologyScope: termScope,
-		TerminologyCache: state.services.TerminologyService.(terminology.Invalidator),
+		Definitions:         pc.definitions,
+		PackageInstalls:     pc.packageInstalls,
+		Installs:            pc.installs,
+		Now:                 now,
+		SearchReindex:       reindexNotifier,
+		Terminology:         pc.terminology,
+		TerminologyScope:    termScope,
+		GlobalTerminology:   pc.globalTerminology,
+		TerminologyInstalls: pc.terminologyInstalls,
+		TerminologyCache:    terminologyCache,
+		JobStore:            pc.jobStore,
+		PreExpandValueSets:  b.preExpandValueSets,
 	})
 	if err := regManager.SeedBundled(ctx); err != nil {
 		return fmt.Errorf("runtime: seed registry: %w", err)
@@ -251,6 +306,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	// not depend on an unrelated demo/module selection.
 	if err := regManager.EnableResource(ctx, "Subscription"); err != nil {
 		return fmt.Errorf("runtime: enable Subscription: %w", err)
+	}
+
+	if len(b.packageInstalls) > 0 {
+		pkgInstaller := &packages.Installer{
+			Registry:    regManager,
+			EnableTypes: true,
+		}
+		if err := packages.InstallConfigured(ctx, pkgInstaller, b.packageInstalls); err != nil {
+			return fmt.Errorf("runtime: install configured packages: %w", err)
+		}
 	}
 
 	modManager := modules.NewManager(modules.Config{
@@ -376,17 +441,18 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	coreSvc, err := core.NewResourceService(core.ResourceServiceConfig{
-		Resources:          pc.resources,
-		History:            pc.history,
-		Sessions:           pc.sessions,
-		IDPolicy:           core.DefaultIDPolicy{},
-		Validator:          validator,
-		Indexer:            indexer,
-		Outbox:             &hasync.EventStoreOutbox{Events: pc.outboxEvents},
-		Terminology:        pc.terminology,
-		TerminologyScope:   termScope,
-		TerminologyCache:   state.services.TerminologyService.(terminology.Invalidator),
-		DefinitionIngestor: regManager,
+		Resources:              pc.resources,
+		History:                pc.history,
+		Sessions:               pc.sessions,
+		IDPolicy:               core.DefaultIDPolicy{},
+		Validator:              validator,
+		Indexer:                indexer,
+		Outbox:                 &hasync.EventStoreOutbox{Events: pc.outboxEvents},
+		Terminology:            pc.terminology,
+		TerminologyScope:       termScope,
+		GlobalTerminologyScope: terminology.GlobalScopeID,
+		TerminologyCache:       terminologyCache,
+		DefinitionIngestor:     regManager,
 		ConformanceRefresh: func(ctx context.Context) error {
 			snap, err := conformanceRuntime.Refresh(ctx)
 			if err != nil {
@@ -494,7 +560,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := b.wireAnalytics(ctx, state, viewCtx); err != nil {
 			return fmt.Errorf("runtime: analytics: %w", err)
 		}
-		packageWorker := &packages.InstallWorker{Installer: packageInstaller}
+		packageWorker := &packages.InstallWorker{
+			Installer:                  packageInstaller,
+			Store:                      pc.jobStore,
+			TerminologyInstalls:        pc.terminologyInstallFactory,
+			DefaultTerminologyTenantID: pc.syncTenantID,
+		}
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
@@ -521,6 +592,38 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return fmt.Errorf("runtime: register bulk export handler: %w", err)
 		}
 		state.services.BulkExportService = exportSvc
+		moduleWorker := &modules.InstallWorker{
+			Manager:                    modManager,
+			Store:                      pc.jobStore,
+			TerminologyInstalls:        pc.terminologyInstallFactory,
+			DefaultTerminologyTenantID: pc.syncTenantID,
+		}
+		if err := runner.Register(jobs.TypeModuleInstall, jobs.HandlerFunc(moduleWorker.HandleJob)); err != nil {
+			return fmt.Errorf("runtime: register module install handler: %w", err)
+		}
+		if pc.terminology != nil {
+			termWorker := &jobs.TerminologyInstallWorker{
+				Terminology:  pc.terminology,
+				ScopeID:      termScope,
+				MaxExpansion: maxExpansion,
+				Installs:     pc.terminologyInstalls,
+				JobStore:     pc.jobStore,
+			}
+			if err := runner.Register(jobs.TypeTerminologyInstall, jobs.HandlerFunc(termWorker.HandleJob)); err != nil {
+				return fmt.Errorf("runtime: register terminology install handler: %w", err)
+			}
+			preExpandWorker := &jobs.TerminologyPreExpandWorker{
+				Terminology:  pc.terminology,
+				Definitions:  pc.definitions,
+				TenantScope:  termScope,
+				MaxExpansion: maxExpansion,
+				Installs:     pc.terminologyInstalls,
+				JobStore:     pc.jobStore,
+			}
+			if err := runner.Register(jobs.TypeTerminologyPreExpand, jobs.HandlerFunc(preExpandWorker.HandleJob)); err != nil {
+				return fmt.Errorf("runtime: register terminology pre-expand handler: %w", err)
+			}
+		}
 		state.jobRunner = runner
 	}
 
@@ -529,6 +632,24 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		packageInstallSvc = hahttp.CorePackageInstallService{JobStore: pc.jobStore}
 	} else {
 		packageInstallSvc = hahttp.DirectPackageInstallService{Installer: packageInstaller}
+	}
+	var moduleInstallSvc hahttp.ModuleInstallService
+	var jobStatusSvc hahttp.JobStatusService
+	var terminologyInstallSvc hahttp.TerminologyInstallService
+	var terminologyEnableSvc hahttp.TerminologyEnableService
+	if pc.jobStore != nil {
+		moduleInstallSvc = hahttp.CoreModuleInstallService{JobStore: pc.jobStore}
+		jobStatusSvc = hahttp.CoreJobStatusService{JobStore: pc.jobStore}
+		terminologyInstallSvc = hahttp.CoreTerminologyInstallService{
+			JobStore:     pc.jobStore,
+			DefaultScope: termScope,
+		}
+		terminologyEnableSvc = hahttp.CoreTerminologyEnableService{
+			InstallFactory:  pc.terminologyInstallFactory,
+			DefaultTenantID: pc.syncTenantID,
+			Global:          pc.globalTerminology,
+			Definitions:     pc.definitions,
+		}
 	}
 
 	var httpSearchSvc hahttp.SearchService
@@ -543,20 +664,44 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
+		fhirPath := sdc.FHIRPathExpressions{Engine: engine}
+		exprProvider := sdc.ExpressionProvider(fhirPath)
+		if state.services.SearchService != nil {
+			exprProvider = sdc.ComposeExpressions(
+				fhirPath,
+				sdc.NewSearchFHIRQueryProvider(state.services.SearchService),
+				nil,
+			)
+		}
 		sdcService = hahttp.CoreSDCService{
 			Resources:   state.services.ResourceService,
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
-			Provider:    sdc.FHIRPathExpressions{Engine: engine},
+			Provider:    exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
-			Extractor:   sdc.QuestionnaireExtractor{Expressions: sdc.FHIRPathExpressions{Engine: engine}},
+			Extractor:   sdc.QuestionnaireExtractor{Expressions: fhirPath},
 			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}
+	conformanceRefresher := NewConformanceRefresher(conformanceRuntime, func() {
+		if snap := conformanceRuntime.Snapshot(); snap != nil {
+			state.services.RegistrySnapshot = snap
+		}
+	})
 	handler, err := hahttp.NewHandler(hahttp.Config{
-		ResourceService:       hahttp.CoreResourceService{Svc: state.services.ResourceService},
-		SearchService:         httpSearchSvc,
-		SDCService:            sdcService,
-		PackageInstallService: packageInstallSvc,
+		ResourceService:            hahttp.CoreResourceService{Svc: state.services.ResourceService},
+		SearchService:              httpSearchSvc,
+		SDCService:                 sdcService,
+		PackageInstallService:      packageInstallSvc,
+		ModuleInstallService:       moduleInstallSvc,
+		ModulePaths:                append([]string(nil), b.modulePaths...),
+		JobStatusService:           jobStatusSvc,
+		TerminologyService:         state.services.TerminologyService,
+		TerminologyScope:           termScope,
+		TerminologyInstallFactory:  pc.terminologyInstallFactory,
+		DefaultTerminologyTenantID: pc.syncTenantID,
+		TerminologyInstallService:  terminologyInstallSvc,
+		TerminologyEnableService:   terminologyEnableSvc,
+		ConformanceRefresher:       conformanceRefresher,
 		ValidateService: hahttp.CoreValidateService{
 			Runtime:   conformanceRuntime,
 			Resources: hahttp.CoreResourceService{Svc: state.services.ResourceService},
@@ -587,9 +732,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if err != nil {
 		return fmt.Errorf("runtime: http handler: %w", err)
 	}
-	rootCfg := hahttp.RootConfig{
-		FHIR: handler,
-	}
+	rootCfg := hahttp.RootConfig{FHIR: handler}
 	if hubServer, ok := b.syncHub.(hasync.HubServer); ok {
 		rootCfg.Sync = hubServer
 		rootCfg.SyncMiddleware = b.syncMiddleware

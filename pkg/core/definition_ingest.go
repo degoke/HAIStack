@@ -24,6 +24,7 @@ var definitionResourceTypes = map[string]struct{}{
 // DefinitionIngestor installs FHIR definition resources into the registry catalog.
 type DefinitionIngestor interface {
 	InstallDefinition(ctx context.Context, jsonData []byte, provenance registry.InstallProvenance) error
+	CompletePackageInstall(ctx context.Context, provenance registry.InstallProvenance) error
 	DeleteDefinition(ctx context.Context, canonicalURL, version string) error
 }
 
@@ -42,13 +43,23 @@ func (s *ResourceService) removeDefinitionResource(ctx context.Context, env *typ
 }
 
 func (s *ResourceService) syncDefinitionCatalog(ctx context.Context, written, deleted []*types.ResourceEnvelope) error {
+	pending := make(map[string]registry.InstallProvenance)
 	for _, env := range written {
-		if err := s.ingestDefinitionResourceWithoutRefresh(ctx, env); err != nil {
+		provenance, err := s.installDefinitionWithoutRefresh(ctx, env)
+		if err != nil {
 			return err
+		}
+		if provenance != nil {
+			pending[definitionProvenanceKey(*provenance)] = *provenance
 		}
 	}
 	for _, env := range deleted {
 		if err := s.removeDefinitionResourceWithoutRefresh(ctx, env); err != nil {
+			return err
+		}
+	}
+	for _, provenance := range pending {
+		if err := s.definitionIngestor.CompletePackageInstall(ctx, provenance); err != nil {
 			return err
 		}
 	}
@@ -63,15 +74,23 @@ func (s *ResourceService) refreshConformance(ctx context.Context) error {
 }
 
 func (s *ResourceService) ingestDefinitionResourceWithoutRefresh(ctx context.Context, env *types.ResourceEnvelope) error {
+	provenance, err := s.installDefinitionWithoutRefresh(ctx, env)
+	if err != nil || provenance == nil {
+		return err
+	}
+	return s.definitionIngestor.CompletePackageInstall(ctx, *provenance)
+}
+
+func (s *ResourceService) installDefinitionWithoutRefresh(ctx context.Context, env *types.ResourceEnvelope) (*registry.InstallProvenance, error) {
 	if s.definitionIngestor == nil || env == nil {
-		return nil
+		return nil, nil
 	}
 	if !isDefinitionResourceType(env.ResourceType) {
-		return nil
+		return nil, nil
 	}
 	meta, err := definitionMetaFromEnvelope(env)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	provenance := registry.InstallProvenance{
 		PackageName:    fhirAPIDefinitionModule,
@@ -79,7 +98,14 @@ func (s *ResourceService) ingestDefinitionResourceWithoutRefresh(ctx context.Con
 		ModuleName:     fhirAPIDefinitionModule,
 		SourceModule:   fhirAPIDefinitionModule,
 	}
-	return s.definitionIngestor.InstallDefinition(ctx, env.JSON, provenance)
+	if err := s.definitionIngestor.InstallDefinition(ctx, env.JSON, provenance); err != nil {
+		return nil, err
+	}
+	return &provenance, nil
+}
+
+func definitionProvenanceKey(provenance registry.InstallProvenance) string {
+	return provenance.PackageName + "|" + provenance.PackageVersion
 }
 
 func (s *ResourceService) removeDefinitionResourceWithoutRefresh(ctx context.Context, env *types.ResourceEnvelope) error {
