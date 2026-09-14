@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
@@ -29,17 +30,20 @@ type Builder struct {
 	sdcService     hahttp.SDCService
 	searchEnabled  bool
 
-	syncHubURL            string
-	syncHub               hasync.Hub
-	syncServer            hasync.HubServer
-	syncNodeID            string
-	syncMiddleware        func(http.Handler) http.Handler
-	httpMiddleware        func(http.Handler) http.Handler
-	httpPrincipalResolver hahttp.PrincipalResolver
-	httpAuthChecker       hahttp.AuthChecker
-	httpRateLimit         hahttp.RateLimitConfig
-	moduleAuthorizer      modules.InstallAuthorizer
-	moduleVerifier        modules.ModuleVerifier
+	remoteTerminologyURL       string
+	remoteTerminologyHeaders   map[string]string
+	remoteTerminologyAuthorize func(*http.Request) error
+	syncHubURL                 string
+	syncHub                    hasync.Hub
+	syncServer                 hasync.HubServer
+	syncNodeID                 string
+	syncMiddleware             func(http.Handler) http.Handler
+	httpMiddleware             func(http.Handler) http.Handler
+	httpPrincipalResolver      hahttp.PrincipalResolver
+	httpAuthChecker            hahttp.AuthChecker
+	httpRateLimit              hahttp.RateLimitConfig
+	moduleAuthorizer           modules.InstallAuthorizer
+	moduleVerifier             modules.ModuleVerifier
 
 	modulePaths     []string
 	packageInstalls []packages.InstallSpec
@@ -51,9 +55,8 @@ type Builder struct {
 	viewExportDir          string
 	dataDir                string
 
-	remoteTerminologyURL string
-	preExpandValueSets   bool
-	maxExpansion         int
+	preExpandValueSets bool
+	maxExpansion       int
 }
 
 // New returns a new runtime builder.
@@ -150,6 +153,47 @@ func (b *Builder) WithSDC(service hahttp.SDCService) *Builder { b.sdcService = s
 func (b *Builder) WithSearch() *Builder {
 	b.searchEnabled = true
 	return b
+}
+
+// WithRemoteTerminologyTranslate sets a FHIR server base URL used for ConceptMap/$translate
+// when local ConceptMaps are unavailable. It is an alias for WithRemoteTerminology.
+func (b *Builder) WithRemoteTerminologyTranslate(baseURL string) *Builder {
+	return b.WithRemoteTerminology(baseURL)
+}
+
+// WithRemoteTerminologyTranslateHeader adds a static request header for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyTranslateHeader(key, value string) *Builder {
+	if b.remoteTerminologyHeaders == nil {
+		b.remoteTerminologyHeaders = map[string]string{}
+	}
+	b.remoteTerminologyHeaders[key] = value
+	return b
+}
+
+// WithRemoteTerminologyTranslateAuthorize sets per-request auth for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyTranslateAuthorize(fn func(*http.Request) error) *Builder {
+	b.remoteTerminologyAuthorize = fn
+	return b
+}
+
+// WithRemoteTerminologyBearerToken sets a Bearer token for remote ConceptMap/$translate.
+func (b *Builder) WithRemoteTerminologyBearerToken(token string) *Builder {
+	if strings.TrimSpace(token) == "" {
+		return b
+	}
+	return b.WithRemoteTerminologyTranslateHeader("Authorization", "Bearer "+strings.TrimSpace(token))
+}
+
+func (b *Builder) remoteTranslateClient() conceptmap.RemoteHTTPClient {
+	client := conceptmap.RemoteHTTPClient{BaseURL: b.remoteTerminologyURL}
+	if len(b.remoteTerminologyHeaders) > 0 {
+		client.Headers = map[string]string{}
+		for key, value := range b.remoteTerminologyHeaders {
+			client.Headers[key] = value
+		}
+	}
+	client.Authorize = b.remoteTerminologyAuthorize
+	return client
 }
 
 // WithSync enables device sync against a remote hub URL.

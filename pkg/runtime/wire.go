@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -22,6 +23,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/structuremap"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -250,6 +252,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		layered.Installs = pc.terminologyInstalls
 		tenantLocal = terminology.NewLocalService(layered, termScope)
 		tenantLocal.MaxExpansion = maxExpansion
+		if b.remoteTerminologyURL != "" {
+			tenantLocal.RemoteTranslate = b.remoteTranslateClient()
+		}
 		invalidators = append(invalidators, tenantLocal)
 	}
 	if pc.globalTerminology != nil {
@@ -682,8 +687,19 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
 			Provider:    exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
-			Extractor:   sdc.QuestionnaireExtractor{Expressions: fhirPath},
-			Elements:    sdc.StoreDefinitionElementResolver{Store: pc.definitions},
+			Extractor: sdc.QuestionnaireExtractor{
+				Expressions: exprProvider,
+				StructureMap: structuremap.NewExtractor(structuremap.Config{
+					Resolver: &structuremap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+					Engine: structuremap.Engine{
+						FHIRPath:    engine,
+						Strict:      true,
+						Translator:  b.structureMapTranslator(pc, termScope),
+						Cardinality: &structuremap.StoreCardinalityResolver{Store: registry.DefinitionStoreWithEmbeddedBase(pc.definitions)},
+					},
+				}),
+			},
+			Elements: sdc.StoreDefinitionElementResolver{Store: pc.definitions},
 		}
 	}
 	conformanceRefresher := NewConformanceRefresher(conformanceRuntime, func() {
@@ -746,6 +762,17 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil
+}
+
+func (b *Builder) structureMapTranslator(pc persistenceContext, termScope string) conceptmap.Translator {
+	translator := conceptmap.Translator{Resolver: conceptmap.ChainResolver{Resolvers: []conceptmap.Resolver{
+		&conceptmap.StoreResolver{Resources: pc.resources, Registry: pc.definitions},
+		&conceptmap.TerminologyStoreResolver{Store: pc.terminology, ScopeID: termScope},
+	}}}
+	if b.remoteTerminologyURL != "" {
+		translator.Remote = b.remoteTranslateClient()
+	}
+	return translator
 }
 
 type wireAnalyticsContext struct {

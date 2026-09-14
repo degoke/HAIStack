@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -114,6 +115,7 @@ type LocalService struct {
 	ScopeID           string
 	MaxExpansion      int
 	NegativeLookupTTL time.Duration
+	RemoteTranslate   conceptmap.RemoteTranslateClient
 	mu                sync.RWMutex
 	lookupCache       map[string]lookupCacheEntry
 	expandCache       map[string]*Expansion
