@@ -35,4 +35,12 @@ func TestWatermarkStoreMigratesLegacyViewCursor(t *testing.T) {
 	if migrated == nil || migrated.Position == "" {
 		t.Fatal("expected migrated watermark cursor")
 	}
+
+	legacy, err := cursors.GetCursor(ctx, legacyCursorName("patient_summary_view", "1.0.0"))
+	if err != nil {
+		t.Fatalf("GetCursor legacy: %v", err)
+	}
+	if legacy != nil {
+		t.Fatal("expected legacy cursor to be deleted after migration")
+	}
 }

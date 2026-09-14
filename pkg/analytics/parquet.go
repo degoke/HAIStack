@@ -1,35 +1,50 @@
 package analytics
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
 	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
-// ParquetFileSink writes a minimal columnar Parquet-compatible JSON bundle.
-// v1 stores typed column metadata plus row arrays in a single JSON document
-// with the .parquet extension so downstream pipelines can detect the sink
-// without adding a heavyweight Parquet encoder dependency.
+// ParquetFileSink writes view rows as Apache Parquet binary.
 type ParquetFileSink struct {
-	w io.Writer
+	w            io.Writer
+	layout       view.ParquetLayout
+	executor     *view.Executor
+	actor        string
+	lastRowCount int
 }
 
-// NewParquetFileSink returns a sink that writes columnar JSON to w.
+// ParquetFileSinkConfig configures ParquetFileSink encoding.
+type ParquetFileSinkConfig struct {
+	Writer   io.Writer
+	Layout   view.ParquetLayout
+	Executor *view.Executor
+	Actor    string
+}
+
+// NewParquetFileSink returns a sink that writes flat-view parquet to w.
 func NewParquetFileSink(w io.Writer) *ParquetFileSink {
-	return &ParquetFileSink{w: w}
+	return &ParquetFileSink{w: w, layout: view.ParquetLayoutFlat}
 }
 
-type parquetDocument struct {
-	Format  string           `json:"format"`
-	Columns []view.ColumnInfo `json:"columns"`
-	Rows    []map[string]any `json:"rows"`
+// NewParquetFileSinkWithConfig returns a sink with optional Parquet-on-FHIR layout.
+func NewParquetFileSinkWithConfig(cfg ParquetFileSinkConfig) *ParquetFileSink {
+	layout := cfg.Layout
+	if layout == "" {
+		layout = view.ParquetLayoutFlat
+	}
+	return &ParquetFileSink{
+		w:        cfg.Writer,
+		layout:   layout,
+		executor: cfg.Executor,
+		actor:    cfg.Actor,
+	}
 }
 
-// WriteRows encodes view rows as a columnar JSON document.
+// WriteRows encodes view rows as Apache Parquet.
 func (s *ParquetFileSink) WriteRows(ctx context.Context, result *view.Result) error {
 	if s == nil || s.w == nil {
 		return fmt.Errorf("%w: parquet writer is required", ErrUnsupportedDestination)
@@ -40,21 +55,20 @@ func (s *ParquetFileSink) WriteRows(ctx context.Context, result *view.Result) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	doc := parquetDocument{
-		Format:  "haistack-parquet-v1",
-		Columns: append([]view.ColumnInfo(nil), result.Columns...),
-		Rows:    append([]map[string]any(nil), result.Rows...),
+	rowCount, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor)
+	if err != nil {
+		return fmt.Errorf("write parquet: %w", err)
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(doc); err != nil {
-		return fmt.Errorf("encode parquet document: %w", err)
-	}
-	if _, err := s.w.Write(buf.Bytes()); err != nil {
-		return fmt.Errorf("write parquet document: %w", err)
-	}
+	s.lastRowCount = rowCount
 	return ctx.Err()
+}
+
+// LastExportRowCount implements ExportRowCountSink.
+func (s *ParquetFileSink) LastExportRowCount() int {
+	if s == nil {
+		return 0
+	}
+	return s.lastRowCount
 }
 
 // NewParquetSink returns a ParquetFileSink-compatible RowSink.

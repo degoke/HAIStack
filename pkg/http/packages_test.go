@@ -18,12 +18,26 @@ type fakePackageService struct {
 
 func (f *fakePackageService) EnqueueRegistryInstall(context.Context, string, string) (store.JobRecord, error) {
 	f.enqueued = true
-	return store.JobRecord{ID: "job-1"}, nil
+	return store.JobRecord{ID: "job-1", Status: store.JobStatusPending}, nil
 }
 
 func (f *fakePackageService) EnqueueArchiveInstall(context.Context, string, string, io.Reader) (store.JobRecord, error) {
 	f.enqueued = true
-	return store.JobRecord{ID: "job-2"}, nil
+	return store.JobRecord{ID: "job-2", Status: store.JobStatusPending}, nil
+}
+
+type syncPackageService struct {
+	called bool
+}
+
+func (s *syncPackageService) EnqueueRegistryInstall(context.Context, string, string) (store.JobRecord, error) {
+	s.called = true
+	return store.JobRecord{ID: "install-hl7.fhir.us.core-6.1.0", Status: store.JobStatusCompleted}, nil
+}
+
+func (s *syncPackageService) EnqueueArchiveInstall(context.Context, string, string, io.Reader) (store.JobRecord, error) {
+	s.called = true
+	return store.JobRecord{ID: "install-upload-pkg", Status: store.JobStatusCompleted}, nil
 }
 
 func TestDirectPackageInstallServiceNotConfigured(t *testing.T) {
@@ -48,6 +62,22 @@ func TestImplementationGuideInstallEnqueuesJob(t *testing.T) {
 		t.Fatal("expected async enqueue")
 	}
 	assertParametersStatus(t, rec.Body.Bytes(), "accepted")
+}
+
+func TestImplementationGuideInstallReturnsCompletedForSyncInstall(t *testing.T) {
+	svc := &syncPackageService{}
+	h := newTestHandler(t, hahttp.Config{
+		ResourceService:       &fakeResourceService{},
+		PackageInstallService: svc,
+	})
+	rec := doRequest(t, h, http.MethodPost, "/fhir/ImplementationGuide/$install?packageId=hl7.fhir.us.core&version=6.1.0", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !svc.called {
+		t.Fatal("expected sync install")
+	}
+	assertParametersStatus(t, rec.Body.Bytes(), "completed")
 }
 
 func TestImplementationGuidePackageExportNotImplemented(t *testing.T) {
@@ -107,3 +137,4 @@ func assertParametersStatus(t *testing.T, body []byte, want string) {
 }
 
 var _ hahttp.PackageInstallService = (*fakePackageService)(nil)
+var _ hahttp.PackageInstallService = (*syncPackageService)(nil)

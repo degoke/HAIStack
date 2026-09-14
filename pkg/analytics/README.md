@@ -126,15 +126,14 @@ CSV rows are written directly to the supplied `io.Writer`, with no additional
 whole-export buffer. The view executor still materializes the complete result
 set in v1.
 
-### Deferred sinks (interface only)
+### Parquet and lakehouse sinks
 
-Constructors exist for wiring tests and future work; all return
-`ErrSinkNotImplemented`:
-
-- `NewParquetSink()`
-- `NewWarehouseSink()`
-- `NewLakehouseSink()`
-- `NewManifestExportSink()`
+- `NewParquetSink(w)` writes flat view Apache Parquet binary to `w`.
+- `NewParquetFileSinkWithConfig(ParquetFileSinkConfig{Writer, Layout, Executor})` supports `_parquetLayout=fhir` nested resources.
+- `NewLakehouseSink(LakehouseConfig{RootDir, ParquetLayout, Executor})` writes `{partition}/{view}-{version}.parquet` files on disk (flat or FHIR layout).
+- `NewLakehouseSink(LakehouseConfig{Blob, BlobPrefix, ParquetLayout, Executor})` stores parquet objects via `store.BlobStore`.
+- `NewManifestExportSink(ManifestExportConfig{Format: FormatParquet, ParquetLayout, Executor})` supports flat or FHIR parquet manifest exports.
+- `NewWarehouseSink()` refreshes Postgres reporting tables.
 
 ## Background jobs
 
@@ -148,13 +147,15 @@ Runs are synchronous by default but integrate with `pkg/jobs`:
 ```go
 jobRunner := jobs.NewRunner(tdb.JobStore())
 jobRunner.Register(analytics.TypeRefresh, analytics.RefreshHandler(runner, target))
-jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink))
+jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink, watermarkStore))
 
 _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.RefreshPayload{
     ViewName: analytics.ViewPatientSummary,
     Version:  "1.0.0",
 }, jobs.EnqueueOptions{})
 ```
+
+`ExportHandler` and `ExportHandlerWithConfig` take an optional `*WatermarkStore` third argument (`nil` disables watermark auto-fill/advance). When configured, watermarks advance using `ResultMetadata.maxLastUpdated` from exported resources when present. See [CHANGELOG-parquet-analytics.md](../docs/CHANGELOG-parquet-analytics.md).
 
 ## Where it fits
 
@@ -169,11 +170,11 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 
 ## MVP limits
 
-- **Postgres only** for reporting tables and `$sqlquery-run`; SQLite runtimes still get view run/export HTTP operations when a job store is wired.
+- **Postgres only** for reporting tables and `$sqlquery-run`; SQLite runtimes get view run/export HTTP operations whenever storage is wired (async export/materialize when a job runner is present).
 - **Incremental refresh** uses a single `WatermarkStore` for `_since` cursors and export chaining; watermarks advance only after a successful refresh or export completes. Legacy `analytics.view.*` cursor names are migrated to `analytics.watermark.*` on first read.
 - **View export artifacts** persist on the local filesystem (`{sqlite-dir}/view-exports` or `view-exports/{tenantId}`) and roll back on multi-view failure.
 - **Three views** at the Runner allow-list layer.
-- **CSV** is the primary production cloud sink; warehouse/lake/Parquet sinks write haistack-parquet-v1 JSON envelopes and partition header lines (compatibility shims, not Apache Parquet binary or object-store paths).
+- **CSV** is the primary production cloud sink; warehouse/lake/Parquet sinks write flat view Apache Parquet binary files (`application/vnd.apache.parquet`).
 
 ## Errors
 

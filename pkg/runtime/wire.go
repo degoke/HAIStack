@@ -283,8 +283,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return pc.resources.Read(ctx, resourceType, id)
 		}
 		fpCfg.Resolve = fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{
-			BaseURL: "/fhir",
-			Read:    readFn,
+			BaseURL:          "/fhir",
+			Read:             readFn,
 			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
 		})
 		if state.services.TerminologyService != nil {
@@ -636,12 +636,17 @@ func (b *Builder) wireViewServices(ctx context.Context, state *wireState, ac wir
 		},
 		fhirpath.DefaultLogicalIDResourceTypes,
 	)
+	var profileCatalog validate.ProfileCatalog
+	if state.services.ConformanceRuntime != nil {
+		profileCatalog = state.services.ConformanceRuntime.ProfileCatalog()
+	}
 	viewCfg := view.Config{
 		Resources:        readResources,
 		Engine:           ac.engine,
 		Registry:         viewReg,
 		BaseURL:          "/fhir",
 		ResolveLogicalID: resolveLogicalID,
+		ProfileCatalog:   profileCatalog,
 	}
 	if state.services.TenantDB != nil {
 		viewCfg.MaterializedViews = state.services.TenantDB.MaterializedViewStore()

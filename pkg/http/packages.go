@@ -140,14 +140,17 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func installJobParameters(jobID, packageID, version string) *types.ResourceEnvelope {
+func installJobParameters(jobID, packageID, version, status string) *types.ResourceEnvelope {
+	if status == "" {
+		status = "accepted"
+	}
 	payload := map[string]any{
 		"resourceType": "Parameters",
 		"parameter": []map[string]any{
 			{"name": "jobId", "valueString": jobID},
 			{"name": "packageId", "valueString": packageID},
 			{"name": "version", "valueString": version},
-			{"name": "status", "valueString": "accepted"},
+			{"name": "status", "valueString": status},
 		},
 	}
 	raw, _ := json.Marshal(payload)
