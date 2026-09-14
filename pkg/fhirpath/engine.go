@@ -11,14 +11,14 @@ import (
 )
 
 type engine struct {
-	codec            proto.ProtoCodec
-	customFunctions  map[string]any
-	cache            *exprCache
-	defaultTimeout   time.Duration
-	maxExpressionLen int
-	maxResultItems   int
-	resolve          ResolveFunc
-	terminology      TerminologyValidator
+	codec              proto.ProtoCodec
+	customFunctions    map[string]any
+	cache              *exprCache
+	defaultTimeout     time.Duration
+	maxExpressionLen   int
+	maxResultItems     int
+	resolve            ResolveFunc
+	terminology        TerminologyValidator
 	enableExperimental bool
 }
 

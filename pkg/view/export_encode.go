@@ -35,7 +35,7 @@ func encodeRunResult(ctx context.Context, result *Result, format OutputFormat, h
 		case layout == ParquetLayoutFHIR && exec == nil:
 			return nil, "", fmt.Errorf("view: executor is required for Parquet-on-FHIR layout")
 		case layout == ParquetLayoutFHIR:
-			if _, err := WriteParquetFHIRExport(ctx, &buf, exec, execReq); err != nil {
+			if _, _, err := WriteParquetFHIRExport(ctx, &buf, exec, execReq); err != nil {
 				return nil, "", err
 			}
 		default:

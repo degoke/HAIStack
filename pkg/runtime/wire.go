@@ -283,8 +283,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return pc.resources.Read(ctx, resourceType, id)
 		}
 		fpCfg.Resolve = fhirpath.EnhancedResourceStoreResolver(fhirpath.ResourceResolverConfig{
-			BaseURL: "/fhir",
-			Read:    readFn,
+			BaseURL:          "/fhir",
+			Read:             readFn,
 			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
 		})
 		if state.services.TerminologyService != nil {

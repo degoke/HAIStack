@@ -147,13 +147,15 @@ Runs are synchronous by default but integrate with `pkg/jobs`:
 ```go
 jobRunner := jobs.NewRunner(tdb.JobStore())
 jobRunner.Register(analytics.TypeRefresh, analytics.RefreshHandler(runner, target))
-jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink))
+jobRunner.Register(analytics.TypeExport, analytics.ExportHandler(runner, csvSink, watermarkStore))
 
 _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.RefreshPayload{
     ViewName: analytics.ViewPatientSummary,
     Version:  "1.0.0",
 }, jobs.EnqueueOptions{})
 ```
+
+`ExportHandler` and `ExportHandlerWithConfig` take an optional `*WatermarkStore` third argument (`nil` disables watermark auto-fill/advance). When configured, watermarks advance using `ResultMetadata.maxLastUpdated` from exported resources when present. See [CHANGELOG-parquet-analytics.md](../docs/CHANGELOG-parquet-analytics.md).
 
 ## Where it fits
 

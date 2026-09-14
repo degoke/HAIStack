@@ -257,8 +257,3 @@ func (s *ViewSpec) compileSelectOnce(engine fhirpath.Engine) error {
 	s.mu.RUnlock()
 	return s.compileSelectTree(engine)
 }
-
-// syncColumnsFromRoot updates the legacy Columns slice from the select tree.
-func (s *ViewSpec) syncColumnsFromRoot() {
-	s.Columns = s.RootSelect.FlattenColumns()
-}

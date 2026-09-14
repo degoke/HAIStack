@@ -5,13 +5,13 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/view"
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/health-ai-stack/pkg/view"
 )
 
 // ServiceContainer exposes the wired service graph for embedding and testing.

@@ -52,7 +52,7 @@ Configure durable view export artifacts and async job metadata with `runtime.Bui
 
 Parquet export supports two layouts via `_parquetLayout`:
 - `flat` (default): ViewDefinition column schemas streamed through `WriteParquetExport`.
-- `fhir`: Full Parquet-on-FHIR nested resource layout from base StructureDefinitions (`pkg/parquetfhir`), including LIST/GROUP nesting, choice types, extensions, primitive wrappers (`_field`), contained resources, UCUM quantity canonical groups, and annotations (`__field_start/end`, `__field_numeric`, `__fieldQuantity_canonical`). Timestamp annotations use Parquet TIMESTAMP(MILLIS) on INT64 (compatible with spec INT96 semantics).
+- `fhir`: Full Parquet-on-FHIR nested resource layout from base StructureDefinitions (`pkg/parquetfhir`), including LIST/GROUP nesting, choice types, extensions, primitive wrappers (`_field`), contained resources, UCUM quantity canonical groups, and annotations (`__field_start/end`, `__field_numeric`, `__valueQuantity_canonical`). Timestamp annotations use Parquet TIMESTAMP(MILLIS) on INT64 (compatible with spec INT96 semantics; see [issue #42](https://github.com/degoke/HAIStack/issues/42)).
 
 Analytics lakehouse and manifest parquet sinks accept `ParquetLayout` / `ParquetLayout` + `Executor` on `LakehouseConfig` and `ManifestExportConfig` for the same FHIR layout.
 

@@ -35,6 +35,8 @@ type ViewExportRequest struct {
 	Format        OutputFormat       `json:"format"`
 	ParquetLayout ParquetLayout      `json:"parquetLayout,omitempty"`
 	Actor         string             `json:"actor,omitempty"`
+	Subject       string             `json:"subject,omitempty"`
+	Parameters    map[string]any     `json:"parameters,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
@@ -46,26 +48,26 @@ type ViewExportTarget struct {
 
 // ViewExportJob tracks async export progress.
 type ViewExportJob struct {
-	ID          string           `json:"id"`
-	Status      ExportStatus     `json:"status"`
+	ID          string            `json:"id"`
+	Status      ExportStatus      `json:"status"`
 	Request     ViewExportRequest `json:"request"`
-	Files       []ExportFile     `json:"files,omitempty"`
-	Progress    string           `json:"progress,omitempty"`
-	LastError   string           `json:"lastError,omitempty"`
-	CreatedAt   time.Time        `json:"createdAt"`
-	CompletedAt time.Time        `json:"completedAt,omitempty"`
-	Cancelled   bool             `json:"cancelled,omitempty"`
+	Files       []ExportFile      `json:"files,omitempty"`
+	Progress    string            `json:"progress,omitempty"`
+	LastError   string            `json:"lastError,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	CompletedAt time.Time         `json:"completedAt,omitempty"`
+	Cancelled   bool              `json:"cancelled,omitempty"`
 }
 
 // ExportFile describes one exported artifact.
 type ExportFile struct {
-	ViewName       string        `json:"viewName"`
-	Version        string        `json:"version"`
-	OutputName     string        `json:"outputName"`
-	Filename       string        `json:"filename"`
-	RowCount       int           `json:"rowCount"`
-	Format         string        `json:"format"`
-	ParquetLayout  ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName      string        `json:"viewName"`
+	Version       string        `json:"version"`
+	OutputName    string        `json:"outputName"`
+	Filename      string        `json:"filename"`
+	RowCount      int           `json:"rowCount"`
+	Format        string        `json:"format"`
+	ParquetLayout ParquetLayout `json:"parquetLayout,omitempty"`
 }
 
 // ViewExportJobStore persists export jobs.
@@ -279,7 +281,7 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 
 	var files []ExportFile
 	writer := NewFileExportWriter(s.files, jobID)
-	var execErr error
+	var exportMaxUpdated time.Time
 	failJob := func(err error) error {
 		_ = s.files.DeleteJob(ctx, jobID)
 		job.Status = ExportError
@@ -298,20 +300,25 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 		filename := exportFilename(outputName, target.Version, job.Request.Format)
 		var rowCount int
 		if job.Request.Format == FormatParquet {
-			rowCount, execErr = s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request.Actor, job.Request.ParquetLayout)
-			if execErr != nil {
-				return failJob(execErr)
+			parquetResult, err := s.writeParquetExportFile(ctx, jobID, filename, target, since, job.Request, job.Request.ParquetLayout, exportMaxUpdated)
+			if err != nil {
+				return failJob(err)
 			}
+			exportMaxUpdated = parquetResult.MaxLastUpdated
+			rowCount = parquetResult.RowCount
 		} else {
 			result, execErr := s.executor.Execute(ctx, ExecuteRequest{
-				ViewName: target.ViewName,
-				Version:  target.Version,
-				Actor:    job.Request.Actor,
-				Since:    since,
+				ViewName:   target.ViewName,
+				Version:    target.Version,
+				Actor:      job.Request.Actor,
+				Subject:    job.Request.Subject,
+				Parameters: job.Request.Parameters,
+				Since:      since,
 			})
 			if execErr != nil {
 				return failJob(execErr)
 			}
+			exportMaxUpdated = LatestTimestamp(exportMaxUpdated, result.Metadata.MaxLastUpdated)
 			rowCount = len(result.Rows)
 			if err := writer.WriteExport(ctx, filename, result, job.Request.Format); err != nil {
 				return failJob(err)
@@ -337,9 +344,9 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 	}
 
 	if s.watermark != nil {
-		now := s.now()
+		advanceAt := WatermarkAdvanceTime(exportMaxUpdated, s.now())
 		for _, target := range job.Request.Views {
-			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, now); err != nil {
+			if err := s.watermark.Advance(ctx, target.ViewName, target.Version, advanceAt); err != nil {
 				return failJob(err)
 			}
 		}
@@ -373,41 +380,49 @@ func (s *ExportService) writeParquetExportFile(
 	jobID, filename string,
 	target ViewExportTarget,
 	since time.Time,
-	actor string,
+	req ViewExportRequest,
 	layout ParquetLayout,
-) (int, error) {
+	maxUpdated time.Time,
+) (ParquetExportResult, error) {
 	tmp, err := os.CreateTemp("", "haistack-view-export-*.parquet")
 	if err != nil {
-		return 0, fmt.Errorf("create temp parquet file: %w", err)
+		return ParquetExportResult{MaxLastUpdated: maxUpdated}, fmt.Errorf("create temp parquet file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	execReq := ExecuteRequest{
-		ViewName: target.ViewName,
-		Version:  target.Version,
-		Actor:    actor,
-		Since:    since,
+		ViewName:   target.ViewName,
+		Version:    target.Version,
+		Actor:      req.Actor,
+		Subject:    req.Subject,
+		Parameters: req.Parameters,
+		Since:      since,
 	}
-	var rowCount int
+	var exportResult ParquetExportResult
 	if layout == ParquetLayoutFHIR {
-		rowCount, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		var stats MatchingResourceStats
+		exportResult.RowCount, stats, err = WriteParquetFHIRExport(ctx, tmp, s.executor, execReq)
+		exportResult.MaxLastUpdated = LatestTimestamp(maxUpdated, stats.MaxLastUpdated)
 	} else {
-		rowCount, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+		var flatResult ParquetExportResult
+		flatResult, err = WriteParquetExport(ctx, tmp, s.executor, execReq, DefaultParquetPageSize)
+		exportResult.RowCount = flatResult.RowCount
+		exportResult.MaxLastUpdated = LatestTimestamp(maxUpdated, flatResult.MaxLastUpdated)
 	}
 	if err != nil {
 		_ = tmp.Close()
-		return rowCount, err
+		return exportResult, err
 	}
 	if err := tmp.Close(); err != nil {
-		return rowCount, err
+		return exportResult, err
 	}
 	data, err := os.ReadFile(tmpPath)
 	if err != nil {
-		return rowCount, err
+		return exportResult, err
 	}
 	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
-		return rowCount, err
+		return exportResult, err
 	}
-	return rowCount, nil
+	return exportResult, nil
 }
