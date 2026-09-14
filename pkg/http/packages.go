@@ -10,6 +10,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/packages"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -26,11 +27,40 @@ type CorePackageInstallService struct {
 	JobStore store.JobStore
 }
 
+// DirectPackageInstallService runs package installs synchronously when no job store is wired.
+type DirectPackageInstallService struct {
+	Installer *packages.Installer
+}
+
+func (s DirectPackageInstallService) EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error) {
+	if s.Installer == nil {
+		return store.JobRecord{}, notConfigured("package installer")
+	}
+	_, err := s.Installer.InstallFromRegistry(ctx, packageID, version)
+	jobID := fmt.Sprintf("install-%s-%s", packageID, version)
+	if err != nil {
+		return store.JobRecord{ID: jobID, Status: store.JobStatusFailed}, err
+	}
+	return store.JobRecord{ID: jobID, Status: store.JobStatusCompleted}, nil
+}
+
+func (s DirectPackageInstallService) EnqueueArchiveInstall(ctx context.Context, packageID, version string, r io.Reader) (store.JobRecord, error) {
+	if s.Installer == nil {
+		return store.JobRecord{}, notConfigured("package installer")
+	}
+	_, err := s.Installer.InstallFromArchive(ctx, packageID, version, r)
+	jobID := fmt.Sprintf("install-upload-%s", packageID)
+	if err != nil {
+		return store.JobRecord{ID: jobID, Status: store.JobStatusFailed}, err
+	}
+	return store.JobRecord{ID: jobID, Status: store.JobStatusCompleted}, nil
+}
+
 func (s CorePackageInstallService) EnqueueRegistryInstall(ctx context.Context, packageID, version string) (store.JobRecord, error) {
 	if s.JobStore == nil {
 		return store.JobRecord{}, notConfigured("job store")
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
 		Source:    "registry",
 		PackageID: packageID,
 		Version:   version,
@@ -45,7 +75,7 @@ func (s CorePackageInstallService) EnqueueArchiveInstall(ctx context.Context, pa
 	if err != nil {
 		return store.JobRecord{}, err
 	}
-	return jobs.Enqueue(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
+	return enqueueJob(ctx, s.JobStore, jobs.TypeRegistryPackageInstall, jobs.PackageInstallPayload{
 		Source:    "upload",
 		PackageID: packageID,
 		Version:   version,
@@ -110,14 +140,17 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func installJobParameters(jobID, packageID, version string) *types.ResourceEnvelope {
+func installJobParameters(jobID, packageID, version, status string) *types.ResourceEnvelope {
+	if status == "" {
+		status = "accepted"
+	}
 	payload := map[string]any{
 		"resourceType": "Parameters",
 		"parameter": []map[string]any{
 			{"name": "jobId", "valueString": jobID},
 			{"name": "packageId", "valueString": packageID},
 			{"name": "version", "valueString": version},
-			{"name": "status", "valueString": "accepted"},
+			{"name": "status", "valueString": status},
 		},
 	}
 	raw, _ := json.Marshal(payload)

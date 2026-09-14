@@ -1,7 +1,6 @@
 package sdc
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -147,7 +146,7 @@ func validateItemInvariantConstraints(o *Outcome, item *Item, q Questionnaire, r
 		return
 	}
 	ancestors := questionnaireAncestors(q, item.LinkID)
-	provider := expressionProviderWithAncestors(context.Background(), opts.Expressions, ancestors, response)
+	provider := expressionProviderWithAncestors(validationContext(opts), opts.Expressions, ancestors, response)
 	if provider == nil {
 		for _, constraint := range item.Constraints {
 			if constraint.Expression != "" {
@@ -161,7 +160,7 @@ func validateItemInvariantConstraints(o *Outcome, item *Item, q Questionnaire, r
 		if constraint.Expression == "" {
 			continue
 		}
-		values, err := provider.Evaluate(context.Background(), Expression{
+		values, err := provider.Evaluate(validationContext(opts), Expression{
 			Language:   "text/fhirpath",
 			Expression: constraint.Expression,
 		}, response)

@@ -3,30 +3,27 @@
 //
 // # Scope
 //
-// v1 is intentionally narrow so the package is useful on its own while remaining
-// composable with the rest of Health AI Stack:
+// The package executes SQL-on-FHIR ViewDefinition projections in-process:
 //
-//   - Single-resource views only.
+//   - Single root resource type per view.
 //   - Scan-based execution via store.ResourceStore.ListIDs and Read.
-//   - View-local FHIRPath filters and flat column extraction.
-//   - JSON row output.
-//   - Optional pluggable authorization and audit hooks.
-//   - No joins, nested projections, materialization, incremental refresh, or
-//     warehouse sinks.
+//   - Flat and nested selects with forEach, forEachOrNull, unionAll, and
+//     reference joins resolved through the resource store.
+//   - JSON row output with row-level pagination for expanded results.
+//   - Optional pluggable authorization, audit hooks, and materialized view persistence.
 //
 // # ViewDefinition support
 //
-// The canonical input is a FHIR ViewDefinition resource serialized as JSON. v1
-// supports a constrained executable subset:
+// The canonical input is a FHIR ViewDefinition resource serialized as JSON. Supported
+// constructs include:
 //
 //   - One source resource type per view (the top-level "resource" field).
-//   - A single root select containing a flat list of columns.
-//   - Each column has a stable output name and a FHIRPath expression.
+//   - Root and nested select trees with column, select, forEach, forEachOrNull,
+//     and unionAll blocks.
 //   - Optional root filters expressed as FHIRPath predicates in "where" clauses.
-//   - Declared permissions as a top-level "permissions" array; this is a v1
-//     extension used by Authorizer; auth.ViewAuthorizer is the stack adapter.
-//   - Unsupported constructs such as nested selects, forEach, forEachOrNull,
-//     unionAll, and materialization directives are rejected at parse time.
+//   - Materialization metadata: metadata.materialize and metadata.materializeKey.
+//   - Declared permissions as a top-level "permissions" array; auth.ViewAuthorizer
+//     is the stack adapter.
 //
 // # Public API
 //
@@ -63,11 +60,11 @@
 // # Execution model
 //
 // Execute resolves the view, applies the optional authorizer, scans the source
-// resource type, evaluates the compiled filter FHIRPath for each resource,
-// extracts the columns for matching resources, and returns rows.
+// resource type, evaluates filter FHIRPath for each resource, expands the select
+// tree into zero or more rows per resource, and returns rows.
 //
-// Result.Total is the number of matching resources across the entire scan, not
-// just the returned page. NextOffset is set when additional rows are available.
+// Result.Total is the number of output rows across the entire scan, not just the
+// returned page. NextOffset is set when additional rows are available.
 //
 // # Authorization and audit
 //
@@ -80,13 +77,10 @@
 // # Integration points
 //
 //   - haistack-modules: views are declared by name in module metadata today;
-//     future installers can register packaged ViewDefinition resources into a
-//     view registry.
+//     installers register packaged ViewDefinition resources into a view registry.
 //   - haistack-ai: consumes Result.Rows directly as structured context.
 //   - haistack-auth: auth.ViewAuthorizer implements Authorizer.
-//   - haistack-analytics: can reuse the same Executor before materialization
-//     exists.
-//   - store.MaterializedViewStore: v1 does not refresh materialized views, but
-//     ViewSpec and Result metadata are shaped so a future materializer can
-//     reuse the same parsed definitions.
+//   - haistack-analytics: reuses the same Executor for reporting-table refresh.
+//   - store.MaterializedViewStore: optional persistence when metadata.materialize
+//     is set and Executor.Config.MaterializedViews is wired.
 package view

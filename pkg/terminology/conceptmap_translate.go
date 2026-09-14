@@ -50,13 +50,3 @@ func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateReq
 	}
 	return out, nil
 }
-
-func stringValue(value any) string {
-	if value == nil {
-		return ""
-	}
-	if s, ok := value.(string); ok {
-		return s
-	}
-	return ""
-}

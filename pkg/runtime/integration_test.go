@@ -310,6 +310,36 @@ func TestPostgresEdgeIntegrationBuildStartHTTPShutdown(t *testing.T) {
 	}
 }
 
+func TestPostgresAnalyticsWiring(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres analytics integration in short mode")
+	}
+	ctx := context.Background()
+	dsn, cleanup := openPostgresDSN(t)
+	defer cleanup()
+
+	tenantID := fmt.Sprintf("analytics-%d", time.Now().UnixNano())
+	rt, err := runtime.New().
+		WithPostgresAllInOne(dsn, tenantID).
+		WithAnalytics().
+		WithAnalyticsConcurrency(1).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = rt.Shutdown(ctx) }()
+
+	if rt.Services().AnalyticsRunner == nil {
+		t.Fatal("expected analytics runner")
+	}
+	if rt.Services().ViewRegistry == nil {
+		t.Fatal("expected view registry")
+	}
+	if rt.Services().AnalyticsCDC == nil {
+		t.Fatal("expected analytics CDC processor")
+	}
+}
+
 func TestPostgresCustomSchema(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres schema wiring in short mode")

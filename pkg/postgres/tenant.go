@@ -11,6 +11,7 @@ import (
 // TenantDB scopes all store operations to one tenant.
 type TenantDB struct {
 	pool     *pgxpool.Pool
+	readPool *pgxpool.Pool
 	tenantID string
 }
 
@@ -137,6 +138,11 @@ func (tdb *TenantDB) RegistryInstallStore() *RegistryInstallStore {
 // TerminologyStore returns a tenant-scoped terminology projection store.
 func (tdb *TenantDB) TerminologyStore() *TerminologyStore {
 	return newTerminologyStore(tdb.pool, tdb.tenantID)
+}
+
+// TerminologyInstallStore returns a tenant-scoped terminology pack opt-in store.
+func (tdb *TenantDB) TerminologyInstallStore() *TerminologyInstallStore {
+	return newTerminologyInstallStore(tdb.pool, tdb.tenantID)
 }
 
 // AuthStore returns a tenant-scoped auth persistence adapter.

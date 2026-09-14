@@ -64,17 +64,10 @@ func TestParseDefinition_RequiresResourceAndNameAndVersion(t *testing.T) {
 	}
 }
 
-func TestParseDefinition_UnsupportedNestedSelect(t *testing.T) {
-	_, err := view.ParseDefinition(viewWithNestedSelect(), defaultEngine(t))
-	if !errors.Is(err, view.ErrUnsupportedFeature) {
-		t.Fatalf("err = %v, want ErrUnsupportedFeature", err)
-	}
-}
-
-func TestParseDefinition_UnsupportedForEach(t *testing.T) {
+func TestParseDefinition_ForEachRootSelects(t *testing.T) {
 	_, err := view.ParseDefinition(viewWithUnsupportedJoin(), defaultEngine(t))
-	if !errors.Is(err, view.ErrUnsupportedFeature) {
-		t.Fatalf("err = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("ParseDefinition forEach root selects: %v", err)
 	}
 }
 
@@ -410,6 +403,33 @@ func TestExecutor_AuthorizerAllows(t *testing.T) {
 	}
 	if records[0].ViewName != "patient_summary_view" {
 		t.Errorf("ViewName = %q, want patient_summary_view", records[0].ViewName)
+	}
+}
+
+func TestExecuteInline_AuditsSuccessfulRun(t *testing.T) {
+	ctx := context.Background()
+	store := newMemResourceStore()
+	store.Seed(t, patientJane(t))
+	audit := &fakeAuditLogger{}
+	exec, err := view.NewExecutor(view.Config{
+		Resources: store,
+		Engine:    defaultEngine(t),
+		Audit:     audit,
+	})
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+
+	_, err = exec.ExecuteInline(ctx, view.ExecuteRequest{Actor: "nurse-1"}, view.PatientSummaryView())
+	if err != nil {
+		t.Fatalf("ExecuteInline: %v", err)
+	}
+	records := audit.Records()
+	if len(records) != 1 {
+		t.Fatalf("Audit records = %d, want 1", len(records))
+	}
+	if records[0].Outcome != "success" {
+		t.Errorf("Outcome = %q, want success", records[0].Outcome)
 	}
 }
 

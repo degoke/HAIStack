@@ -56,8 +56,13 @@ func (h *handler) handleSDCOperation(w http.ResponseWriter, r *http.Request, rou
 	case "$populate":
 		result, err = h.cfg.SDCService.Populate(r.Context(), req)
 	case "$validate":
+		ctx, terr := h.withTerminologyContext(r.Context())
+		if terr != nil {
+			writeError(w, terr)
+			return
+		}
 		var outcome *types.OperationOutcome
-		outcome, err = h.cfg.SDCService.Validate(r.Context(), req)
+		outcome, err = h.cfg.SDCService.Validate(ctx, req)
 		if err == nil {
 			writeOperationOutcome(w, http.StatusOK, outcome)
 			return

@@ -70,10 +70,17 @@ func (m *Manager) notifyChange(ctx context.Context) error {
 func (m *Manager) Install(ctx context.Context, path string) (InstallResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.installLocked(ctx, path)
+	return m.installLocked(ctx, path, nil)
 }
 
-func (m *Manager) installLocked(ctx context.Context, path string) (InstallResult, error) {
+// InstallWithProgress loads a module and reports incremental install progress.
+func (m *Manager) InstallWithProgress(ctx context.Context, path string, progress ProgressFunc) (InstallResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.installLocked(ctx, path, progress)
+}
+
+func (m *Manager) installLocked(ctx context.Context, path string, progress ProgressFunc) (InstallResult, error) {
 	mod, err := m.loader.Load(path)
 	if err != nil {
 		return InstallResult{}, err
@@ -91,7 +98,9 @@ func (m *Manager) installLocked(ctx context.Context, path string) (InstallResult
 	if err := m.authorizeInstall(ctx, path, mod, plan); err != nil {
 		return InstallResult{}, err
 	}
-	result, err := m.installer.Install(ctx, mod)
+	installer := *m.installer
+	installer.OnProgress = progress
+	result, err := installer.Install(ctx, mod)
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -112,7 +121,7 @@ func (m *Manager) InstallAll(ctx context.Context, paths ...string) error {
 		return err
 	}
 	for _, path := range paths {
-		if _, err := m.installLocked(ctx, path); err != nil {
+		if _, err := m.installLocked(ctx, path, nil); err != nil {
 			return errors.Join(err, m.installer.restoreState(state))
 		}
 	}
@@ -124,7 +133,17 @@ func (m *Manager) InstallAll(ctx context.Context, paths ...string) error {
 func (m *Manager) Upgrade(ctx context.Context, path string) (UpgradeResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.upgradeLocked(ctx, path, nil)
+}
 
+// UpgradeWithProgress upgrades a module and reports incremental progress.
+func (m *Manager) UpgradeWithProgress(ctx context.Context, path string, progress ProgressFunc) (UpgradeResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.upgradeLocked(ctx, path, progress)
+}
+
+func (m *Manager) upgradeLocked(ctx context.Context, path string, progress ProgressFunc) (UpgradeResult, error) {
 	mod, err := m.loader.Load(path)
 	if err != nil {
 		return UpgradeResult{}, err
@@ -142,7 +161,9 @@ func (m *Manager) Upgrade(ctx context.Context, path string) (UpgradeResult, erro
 	if err := m.authorizeInstall(ctx, path, mod, plan); err != nil {
 		return UpgradeResult{}, err
 	}
-	result, err := m.installer.Upgrade(ctx, mod)
+	installer := *m.installer
+	installer.OnProgress = progress
+	result, err := installer.Upgrade(ctx, mod)
 	if err != nil {
 		return UpgradeResult{}, err
 	}

@@ -1,7 +1,6 @@
 package sdc
 
 import (
-	"context"
 	"fmt"
 )
 
@@ -59,7 +58,7 @@ func validateQuestionnaireTargetConstraints(o *Outcome, q Questionnaire, r Quest
 			o.add("error", "exception", "targetConstraint expression provider is unavailable", "Questionnaire.extension.targetConstraint")
 			continue
 		}
-		values, err := opts.Expressions.Evaluate(context.Background(), Expression{Language: "text/fhirpath", Expression: constraint.Expression}, r)
+		values, err := opts.Expressions.Evaluate(validationContext(opts), Expression{Language: "text/fhirpath", Expression: constraint.Expression}, r)
 		if err != nil {
 			o.add("error", "exception", err.Error(), "Questionnaire.extension.targetConstraint")
 			continue

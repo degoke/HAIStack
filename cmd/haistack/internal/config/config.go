@@ -40,11 +40,20 @@ type StorageConfig struct {
 	TenantID               string `yaml:"tenantID" json:"tenantID"`
 }
 
+// PackageInstallConfig declares a FHIR package or local IG directory to install at server startup.
+type PackageInstallConfig struct {
+	PackageID string `yaml:"packageId" json:"packageId"`
+	Version   string `yaml:"version" json:"version"`
+	Path      string `yaml:"path" json:"path"`
+}
+
 // RuntimeConfig controls local runtime capabilities.
 type RuntimeConfig struct {
-	HTTPAddr     string   `yaml:"httpAddr" json:"httpAddr"`
-	EnableSearch bool     `yaml:"enableSearch" json:"enableSearch"`
-	ModulePaths  []string `yaml:"modulePaths" json:"modulePaths"`
+	HTTPAddr           string                 `yaml:"httpAddr" json:"httpAddr"`
+	EnableSearch       bool                   `yaml:"enableSearch" json:"enableSearch"`
+	PreExpandValueSets bool                   `yaml:"preExpandValueSets" json:"preExpandValueSets"`
+	ModulePaths        []string               `yaml:"modulePaths" json:"modulePaths"`
+	Packages           []PackageInstallConfig `yaml:"packages" json:"packages"`
 }
 
 // SyncConfig configures device-to-hub synchronization.
@@ -93,6 +102,27 @@ func (c Config) Validate() error {
 	if c.Sync.HubURL != "" && strings.TrimSpace(c.Sync.NodeID) == "" {
 		return fmt.Errorf("sync.nodeID is required when sync.hubURL is set")
 	}
+	for i, pkg := range c.Runtime.Packages {
+		if err := validatePackageInstallConfig(pkg); err != nil {
+			return fmt.Errorf("runtime.packages[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validatePackageInstallConfig(pkg PackageInstallConfig) error {
+	path := strings.TrimSpace(pkg.Path)
+	packageID := strings.TrimSpace(pkg.PackageID)
+	version := strings.TrimSpace(pkg.Version)
+	if path != "" {
+		if version == "" {
+			return fmt.Errorf("local package path requires version")
+		}
+		return nil
+	}
+	if packageID == "" || version == "" {
+		return fmt.Errorf("registry package requires packageId and version")
+	}
 	return nil
 }
 
@@ -114,6 +144,11 @@ func (c *Config) Normalize() {
 		c.Runtime.ModulePaths = []string{}
 	} else {
 		c.Runtime.ModulePaths = append([]string(nil), c.Runtime.ModulePaths...)
+	}
+	if c.Runtime.Packages == nil {
+		c.Runtime.Packages = []PackageInstallConfig{}
+	} else {
+		c.Runtime.Packages = append([]PackageInstallConfig(nil), c.Runtime.Packages...)
 	}
 }
 
@@ -178,6 +213,11 @@ func resolveFileRelativePaths(cfg *Config, path string) {
 		}
 		cfg.Runtime.ModulePaths[i] = filepath.Join(baseDir, modulePath)
 	}
+	for i, pkg := range cfg.Runtime.Packages {
+		if pkg.Path != "" && !filepath.IsAbs(pkg.Path) {
+			cfg.Runtime.Packages[i].Path = filepath.Join(baseDir, pkg.Path)
+		}
+	}
 }
 
 // StarterYAML returns the default haistack.yaml contents for haistack init.
@@ -193,6 +233,8 @@ runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
   modulePaths: []
+  packages: []
+  preExpandValueSets: false
 sync:
   hubURL: ""
   nodeID: runtime-node
@@ -227,6 +269,13 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("HAISTACK_ENABLE_SEARCH must be true or false: %w", err)
 		}
 		cfg.Runtime.EnableSearch = parsed
+	}
+	if v := os.Getenv("HAISTACK_PRE_EXPAND_VALUESETS"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_PRE_EXPAND_VALUESETS must be true or false: %w", err)
+		}
+		cfg.Runtime.PreExpandValueSets = parsed
 	}
 	if v := os.Getenv("HAISTACK_MODULE_PATHS"); v != "" {
 		cfg.Runtime.ModulePaths = splitList(v)

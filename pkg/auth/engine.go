@@ -15,6 +15,7 @@ type PolicyEngine interface {
 	CanPushDeviceEvent(ctx context.Context, req DevicePushRequest) (Decision, error)
 	CanInstallModule(ctx context.Context, req ModuleInstallRequest) (Decision, error)
 	CheckPatientScope(ctx context.Context, req PatientScopeRequest) (Decision, error)
+	CanBulkExport(ctx context.Context, req BulkExportRequest) (Decision, error)
 }
 
 // Config configures an Engine.
@@ -331,6 +332,37 @@ func (e *Engine) CheckPatientScope(ctx context.Context, req PatientScopeRequest)
 		PatientID:    req.PatientID,
 		ResourceType: "Patient",
 		ResourceID:   req.PatientID,
+	}), nil
+}
+
+// CanBulkExport implements PolicyEngine.
+func (e *Engine) CanBulkExport(ctx context.Context, req BulkExportRequest) (Decision, error) {
+	if err := requirePrincipalTenant(req.Principal, req.Tenant); err != nil {
+		return Decision{}, err
+	}
+	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
+		return d, nil
+	}
+	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
+	if err != nil {
+		return Decision{}, err
+	}
+	required := req.RequiredPermissions
+	if len(required) == 0 {
+		required = []string{"bulk-export"}
+	}
+	if d := checkRequiredPermissions(perms, required); !d.Allowed {
+		return d, nil
+	}
+	return e.policy.Evaluate(evalInput{
+		Principal:           req.Principal,
+		Tenant:              req.Tenant,
+		Permissions:         perms,
+		Roles:               roles,
+		Action:              ActionBulkExport,
+		ResourceType:        "Group",
+		ResourceID:          req.GroupID,
+		RequiredPermissions: required,
 	}), nil
 }
 

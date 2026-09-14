@@ -105,7 +105,7 @@ func (a CoreSDCService) Validate(ctx context.Context, req SDCRequest) (*types.Op
 	if e != nil {
 		return nil, e
 	}
-	o := sdc.ValidateResponse(q, r, validationOptions(a, req))
+	o := sdc.ValidateResponse(q, r, validationOptions(a, ctx, req))
 	outcome := sdc.ToOperationOutcome(o)
 	return &outcome, nil
 }
