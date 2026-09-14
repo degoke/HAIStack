@@ -14,6 +14,9 @@ type ConceptMapTranslateRequest struct {
 
 // Translate performs ConceptMap translation using local projections, with optional remote fallback.
 func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateRequest) ([]Coding, error) {
+	if s == nil {
+		return nil, conceptmap.ErrNotFound(req.URL)
+	}
 	source := map[string]any{"code": req.Coding.Code}
 	if req.Coding.System != "" {
 		source["system"] = req.Coding.System
@@ -26,7 +29,7 @@ func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateReq
 		canonical = req.URL + "|" + req.Version
 	}
 	translator := conceptmap.Translator{Remote: s.RemoteTranslate}
-	if s != nil && s.Store != nil {
+	if s.Store != nil {
 		translator.Resolver = &conceptmap.TerminologyStoreResolver{Store: s.Store, ScopeID: s.ScopeID}
 	}
 	if translator.Resolver == nil && translator.Remote == nil {

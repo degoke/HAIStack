@@ -593,9 +593,7 @@ func evaluateSimplePath(value any, expr string) (any, bool) {
 		if part == "" {
 			continue
 		}
-		if strings.HasSuffix(part, "()") {
-			part = strings.TrimSuffix(part, "()")
-		}
+		part = strings.TrimSuffix(part, "()")
 		switch part {
 		case "first":
 			items := flattenValue(current)
@@ -776,9 +774,7 @@ func parseDayDuration(value string) (int, error) {
 	value = strings.TrimSpace(value)
 	if strings.HasPrefix(value, "P") {
 		value = strings.TrimPrefix(value, "P")
-		if strings.HasSuffix(value, "D") {
-			value = strings.TrimSuffix(value, "D")
-		}
+		value = strings.TrimSuffix(value, "D")
 	}
 	days, err := strconv.Atoi(value)
 	if err != nil {

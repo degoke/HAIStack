@@ -431,11 +431,6 @@ func (s *Snapshot) CapabilitySnapshot() CapabilitySnapshot {
 	}
 }
 
-// loadR4Bundle reads embedded base R4 definitions.
-func loadR4Bundle() ([][]byte, error) {
-	return LoadDefinitionJSONs(r4BundleFS, "internal/bundles/r4")
-}
-
 // LoadDefinitionJSONs reads every .json file under root from fsys in walk order.
 func LoadDefinitionJSONs(fsys fs.FS, root string) ([][]byte, error) {
 	var out [][]byte

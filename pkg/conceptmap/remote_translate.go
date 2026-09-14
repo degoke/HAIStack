@@ -78,7 +78,7 @@ func (c RemoteHTTPClient) Translate(ctx context.Context, req TranslateRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("remote ConceptMap/$translate: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
