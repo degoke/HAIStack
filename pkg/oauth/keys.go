@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -98,8 +97,4 @@ func randomKeyID() string {
 		return "key-1"
 	}
 	return base64URLEncode(b)
-}
-
-func marshalJSON(v any) ([]byte, error) {
-	return json.Marshal(v)
 }

@@ -31,11 +31,13 @@ func TestOAuthServer_LaunchContextAndUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.RegisterClient(oauth.Client{
+	if err := server.RegisterClient(oauth.Client{
 		ClientID:     "launch-client",
 		RedirectURIs: []string{"https://localhost/callback"},
 		Scopes:       []string{"patient/Patient.rs launch/patient"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	mux.Handle("/", server.Handler())
 
 	launchResp, err := http.Get(base + "/oauth/launch?launch=tok-1&iss=" + base)

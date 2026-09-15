@@ -56,6 +56,11 @@ func (c ScopePolicyAuthChecker) AuthorizeExport(ctx context.Context, principal a
 	if c.Engine == nil {
 		return auth.Deny("auth engine not configured"), nil
 	}
+	if bundle, ok := c.bundleFor(ctx, principal, tenant); ok {
+		if actorForKind(bundle.Principal.Kind, bundle.Scopes) != ActorSystem {
+			return auth.Deny("scope does not grant bulk export access"), nil
+		}
+	}
 	return c.Engine.CanBulkExport(ctx, auth.BulkExportRequest{
 		Principal: principal,
 		Tenant:    tenant,

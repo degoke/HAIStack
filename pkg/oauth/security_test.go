@@ -22,7 +22,9 @@ func TestOAuthServer_RejectsEmptyRedirectURIList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.RegisterClient(oauth.Client{ClientID: "bad-client", RedirectURIs: nil})
+	if err := server.RegisterClient(oauth.Client{ClientID: "bad-client", RedirectURIs: nil}); err != nil {
+		t.Fatal(err)
+	}
 	mux.Handle("/", server.Handler())
 	httpClient, _ := client.New(client.Config{BaseURL: base})
 	cfg, _ := httpClient.SMART().Discover(context.Background(), base)
@@ -125,10 +127,12 @@ func TestOAuthServer_ConsentCSRFRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.RegisterClient(oauth.Client{
+	if err := server.RegisterClient(oauth.Client{
 		ClientID: "csrf-client", RedirectURIs: []string{"https://localhost/callback"},
 		Scopes: []string{"patient/Patient.rs"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	mux.Handle("/", server.Handler())
 	httpClient, _ := client.New(client.Config{BaseURL: base})
 	cfg, _ := httpClient.SMART().Discover(context.Background(), base)

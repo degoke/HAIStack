@@ -39,7 +39,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer stack.Close()
+	defer func() { _ = stack.Close() }()
 
 	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("OAuth", "Demo", "+1-555-0200"))
 	if err != nil {
@@ -172,8 +172,8 @@ func followConsentAndAuthorize(client *http.Client, authURL string) (string, err
 	if err != nil {
 		return "", err
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusFound {
 		return "", fmt.Errorf("authorize status = %d", resp.StatusCode)
 	}
@@ -184,15 +184,15 @@ func followConsentAndAuthorize(client *http.Client, authURL string) (string, err
 			return "", err
 		}
 		pageBody, _ := io.ReadAll(pageResp.Body)
-		pageResp.Body.Close()
+		_ = pageResp.Body.Close()
 		csrf := extractConsentCSRF(string(pageBody))
 		consentResp, err := client.Post(loc, "application/x-www-form-urlencoded",
 			strings.NewReader("approve=yes&csrf_token="+url.QueryEscape(csrf)))
 		if err != nil {
 			return "", err
 		}
-		io.Copy(io.Discard, consentResp.Body)
-		consentResp.Body.Close()
+		_, _ = io.Copy(io.Discard, consentResp.Body)
+		_ = consentResp.Body.Close()
 		if consentResp.StatusCode != http.StatusFound {
 			return "", fmt.Errorf("consent status = %d", consentResp.StatusCode)
 		}
