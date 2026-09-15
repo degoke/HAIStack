@@ -49,7 +49,7 @@ server, err := oauthstore.NewPostgresServer(oauth.Config{
 - `ReplayStore` — backend/client-assertion `jti` replay protection
 - `RevocationStore` — revoked access-token `jti` denylist
 
-Schema: migration `0015_oauth.sql`.
+Schema: migration `0017_oauth.sql` (Postgres) or `0014_oauth.sql` (SQLite).
 
 ### Why file stores existed
 
@@ -135,4 +135,4 @@ All access tokens include a `client_id` claim; revoke rejects tokens without it.
 4. Keep `AutoApprove: false` in production.
 5. Enable `AllowDynamicRegistration` only when required.
 
-See `examples/smart-oauth` for a runnable demo.
+See `examples/smart-oauth` for a runnable demo, or `haistack serve` for built-in OAuth with SQLite/Postgres stores (`runtime.WithBuiltinOAuth`). Operations guidance: `OPERATIONS.md`.

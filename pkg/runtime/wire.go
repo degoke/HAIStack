@@ -92,6 +92,10 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	}
 
 	rt.services = state.services
+	if b.oauthIssuerURL != "" {
+		rt.config.OAuthEnabled = true
+		rt.config.OAuthIssuer = b.oauthIssuerURL
+	}
 	rt.handler = hahttp.WithHealthEndpoints(state.httpHandler, rt.IsStarted)
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
@@ -744,6 +748,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,
 		PrincipalResolver:        b.httpPrincipalResolver,
+		AuthBundleResolver:       b.httpAuthBundleResolver,
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
 		ViewMaterializeService:   state.services.MaterializeService,

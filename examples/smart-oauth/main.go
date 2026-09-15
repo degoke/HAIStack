@@ -16,7 +16,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/client"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
+	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
@@ -55,9 +57,22 @@ func run() error {
 	defer asServer.Close()
 	issuer := asServer.URL
 
-	oauthServer, err := oauth.NewProductionServer(oauth.Config{
+	oauthDB, err := sqlite.Open(filepath.Join(tempDir, "oauth.db"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = oauthDB.Close() }()
+	if err := oauthDB.Migrate(ctx); err != nil {
+		return err
+	}
+	keySet, err := oauth.NewKeySet(2048)
+	if err != nil {
+		return err
+	}
+	oauthCfg := oauth.Config{
 		Issuer:             issuer,
 		FHIRAudience:       issuer,
+		SigningKey:         keySet,
 		RequireConsentForm: true,
 		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
 			PatientID: created.ID,
@@ -66,15 +81,21 @@ func run() error {
 			Subject:  "practitioner-demo",
 			FHIRUser: "Practitioner/demo",
 		}),
-	}, oauth.DefaultProductionPaths(filepath.Join(tempDir, "oauth")))
-	if err != nil {
+	}
+	if err := oauthstore.ApplySQLiteStores(&oauthCfg, oauthDB.SQL()); err != nil {
 		return err
 	}
-	_ = oauthServer.RegisterClient(oauth.Client{
+	if err := oauthCfg.Clients.Register(oauth.Client{
 		ClientID:     "demo-app",
 		RedirectURIs: []string{"https://localhost/callback"},
 		Scopes:       []string{"patient/Patient.rs", "openid", "fhirUser"},
-	})
+	}); err != nil {
+		return err
+	}
+	oauthServer, err := oauth.NewServer(oauthCfg)
+	if err != nil {
+		return err
+	}
 	asMux.Handle("/", oauthServer.Handler())
 
 	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{

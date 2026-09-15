@@ -1,4 +1,4 @@
--- OAuth authorization server state (JSON payloads mirror Postgres 0015_oauth.sql)
+-- OAuth authorization server state (JSON payloads mirror Postgres 0017_oauth.sql)
 
 CREATE TABLE IF NOT EXISTS hai_oauth_client (
     client_id TEXT PRIMARY KEY,

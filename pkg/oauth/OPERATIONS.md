@@ -8,7 +8,7 @@ This document describes how to run the built-in `pkg/oauth` authorization server
 |---------|----------------------------------------------------------|-----------------------------|
 | Purpose | Inferno STU2 discovery + standalone launch CI | Edge, demo, air-gapped |
 | SQLite | Ephemeral temp DB per process | Persistent DB + migration `0014_oauth.sql` |
-| Postgres | N/A | Persistent DB + migration `0015_oauth.sql` |
+| Postgres | N/A | Persistent DB + migration `0017_oauth.sql` |
 | `store.ApplySQLiteStores` / `ApplyPostgresStores` | Yes | Yes (via `runtime.WithBuiltinOAuth`) |
 | `RegistrationAccessToken` | Unset (open DCR) | Required when `oauth.production` is true |
 | `AutoApprove` | `true` | `false` in production |

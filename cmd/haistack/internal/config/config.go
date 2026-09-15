@@ -357,6 +357,13 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("HAISTACK_OAUTH_ISSUER_URL"); v != "" {
 		cfg.OAuth.IssuerURL = v
 	}
+	if v := os.Getenv("HAISTACK_OAUTH_AUTO_APPROVE"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("HAISTACK_OAUTH_AUTO_APPROVE must be true or false: %w", err)
+		}
+		cfg.OAuth.AutoApprove = &parsed
+	}
 	if os.Getenv("HAISTACK_PRODUCTION") == "1" {
 		cfg.OAuth.Production = boolPtr(true)
 	}

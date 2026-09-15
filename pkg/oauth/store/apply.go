@@ -52,3 +52,11 @@ func NewPostgresServer(cfg oauth.Config, pool *pgxpool.Pool) (*oauth.Server, err
 	}
 	return NewServer(cfg)
 }
+
+// NewSQLiteServer applies SQLite stores and constructs an authorization server.
+func NewSQLiteServer(cfg oauth.Config, db *sql.DB) (*oauth.Server, error) {
+	if err := ApplySQLiteStores(&cfg, db); err != nil {
+		return nil, err
+	}
+	return NewServer(cfg)
+}

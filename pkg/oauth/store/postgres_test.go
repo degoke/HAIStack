@@ -1,4 +1,4 @@
-package postgres_test
+package store_test
 
 import (
 	"testing"
@@ -6,11 +6,14 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
+	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
 )
 
-func TestOAuthPostgresStores_RoundTrip(t *testing.T) {
-	db, cleanup := openTestDB(t)
-	defer cleanup()
+func TestPostgresStores_RoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres store test in short mode")
+	}
+	db := postgrestest.SharedDB(t)
 
 	authStore, clientStore, replayStore, revocationStore := oauthstore.PostgresStores(db.Pool())
 	now := time.Now()

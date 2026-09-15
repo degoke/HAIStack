@@ -556,13 +556,6 @@ func registrationTokenMatches(r *http.Request, expected string) bool {
 	if r == nil || strings.TrimSpace(expected) == "" {
 		return false
 	}
-	if auth := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(auth, "Bearer ") {
-		if strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == expected {
-			return true
-		}
-	}
-	if r.URL.Query().Get("registration_access_token") == expected {
-		return true
-	}
-	return false
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	return strings.HasPrefix(auth, "Bearer ") && strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == expected
 }

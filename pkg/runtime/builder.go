@@ -40,6 +40,7 @@ type Builder struct {
 	syncMiddleware             func(http.Handler) http.Handler
 	httpMiddleware             func(http.Handler) http.Handler
 	httpPrincipalResolver      hahttp.PrincipalResolver
+	httpAuthBundleResolver     hahttp.AuthBundleResolver
 	httpAuthChecker            hahttp.AuthChecker
 	httpRateLimit              hahttp.RateLimitConfig
 	moduleAuthorizer           modules.InstallAuthorizer
@@ -58,8 +59,9 @@ type Builder struct {
 	preExpandValueSets bool
 	maxExpansion       int
 
-	builtinOAuth *BuiltinOAuthConfig
-	oauthHandler   http.Handler
+	builtinOAuth  *BuiltinOAuthConfig
+	oauthHandler    http.Handler
+	oauthIssuerURL  string
 }
 
 // New returns a new runtime builder.

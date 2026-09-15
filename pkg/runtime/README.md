@@ -102,6 +102,23 @@ rt, err := runtime.New().
 
 Postgres mode with `WithSearch` also wires a **background reindex worker** and registers `search.NewReindexNotifier` on the registry manager so SearchParameter changes enqueue reindex jobs.
 
+### Builtin SMART OAuth (`haistack serve`)
+
+When HTTP is enabled, `WithBuiltinOAuth` mounts `pkg/oauth` on the root handler (`/oauth/*`, `/.well-known/*`, mirrored under `/fhir/.well-known/*`). Stores use `oauthstore.ApplySQLiteStores` or `ApplyPostgresStores`; signing keys persist as PEM files under `{data-dir}/oauth` or beside the SQLite database.
+
+```go
+rt, err := runtime.New().
+    WithSQLite("/data/haistack.db").
+    WithHTTP(":8080").
+    WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+        IssuerURL: "https://auth.example.test",
+        TenantID:  "local",
+    }).
+    Build(ctx)
+```
+
+`haistack serve` enables this automatically when `oauth.enabled` is true. See `pkg/oauth/OPERATIONS.md` for production vs Inferno reference profiles.
+
 ### Cloud Postgres + external adapters
 
 ```go
@@ -141,6 +158,7 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithSyncNode(nodeID)` | Device node ID (default: `runtime-node`) |
 | `WithModules(paths...)` | Install local module directories at build time |
 | `WithHTTP(addr)` | Managed HTTP listen address (optional) |
+| `WithBuiltinOAuth(cfg)` | Mount built-in SMART OAuth server with durable stores and FHIR bearer auth |
 | `WithHTTPAuth(...)` / `WithHTTPMiddleware(...)` | Configure managed HTTP authentication and policy middleware |
 | `WithHTTPRateLimit(config)` | Configure process-local managed HTTP rate limiting |
 | `WithModuleAuthorizer(authorizer)` | Authorize module installs and upgrades |

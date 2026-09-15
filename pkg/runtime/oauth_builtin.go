@@ -153,7 +153,9 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 
 	b.oauthHandler = srv.Handler()
+	b.oauthIssuerURL = issuer
 	b.httpPrincipalResolver = hahttp.SMARTBearerPrincipalResolver(bearer)
+	b.httpAuthBundleResolver = hahttp.SMARTBearerBundleResolver(bearer)
 	b.httpAuthChecker = smart.ScopePolicyAuthChecker{Engine: engine, Adapter: adapter}
 	return nil
 }

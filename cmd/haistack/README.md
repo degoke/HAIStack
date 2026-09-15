@@ -107,10 +107,25 @@ runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
   modulePaths: []
+oauth:
+  enabled: true
+  production: false
+  issuerURL: ""                    # defaults to http://{runtime.httpAddr}
+  registrationAccessToken: ""      # or OAUTH_REGISTRATION_TOKEN
+  autoApprove: null                # defaults true in dev, false in production
 sync:
   hubURL: ""
   nodeID: runtime-node
 ```
+
+`haistack serve` mounts the built-in SMART OAuth server when `oauth.enabled` is true (default) and HTTP is configured. SMART discovery is available at `{issuer}/fhir/.well-known/smart-configuration`. Signing keys persist to `{sqlite-dir}/oauth/oauth-signing.pem`.
+
+**Production checklist**
+
+1. Set `oauth.issuerURL` to your public https issuer (pin before first start).
+2. Set `oauth.production: true` and `OAUTH_REGISTRATION_TOKEN`.
+3. Set `oauth.autoApprove: false` (enforced when production is on).
+4. Back up `oauth-signing.pem` beside your database.
 
 ### Precedence
 
@@ -138,6 +153,13 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_MODULE_PATHS` | `runtime.modulePaths` (comma-separated) |
 | `HAISTACK_SYNC_HUB_URL` | `sync.hubURL` |
 | `HAISTACK_SYNC_NODE_ID` | `sync.nodeID` |
+| `HAISTACK_OAUTH_ENABLED` | `oauth.enabled` |
+| `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` |
+| `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+| `HAISTACK_OAUTH_AUTO_APPROVE` | `oauth.autoApprove` |
+| `HAISTACK_OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `HAISTACK_PRODUCTION=1` | enables `oauth.production` |
 
 ### Persistent flags
 

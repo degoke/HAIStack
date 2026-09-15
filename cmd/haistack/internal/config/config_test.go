@@ -216,6 +216,22 @@ func TestPostgresRequiresTenant(t *testing.T) {
 	}
 }
 
+func TestOAuthAutoApproveEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "haistack.yaml")
+	if err := os.WriteFile(path, config.StarterYAML(), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HAISTACK_OAUTH_AUTO_APPROVE", "false")
+	cfg, err := config.Load(path, config.Overrides{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OAuth.AutoApprove == nil || *cfg.OAuth.AutoApprove {
+		t.Fatalf("autoApprove = %v", cfg.OAuth.AutoApprove)
+	}
+}
+
 func TestOAuthEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "haistack.yaml")
