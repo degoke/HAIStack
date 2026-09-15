@@ -3,6 +3,7 @@ package oauth
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,8 +33,21 @@ func DefaultProductionPaths(stateDir string) ProductionPaths {
 	}
 }
 
+// ValidateProductionIssuer requires a non-empty https issuer URL.
+func ValidateProductionIssuer(issuer string) error {
+	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+	if issuer == "" {
+		return fmt.Errorf("oauth: issuer URL is required for production")
+	}
+	u, err := url.Parse(issuer)
+	if err != nil || strings.ToLower(u.Scheme) != "https" || u.Host == "" {
+		return fmt.Errorf("oauth: production issuer must use https")
+	}
+	return nil
+}
+
 // ProductionStores wires file-backed stores for single-host or shared-filesystem deployments.
-// Prefer oauthpostgres.NewServer for multi-instance production clusters.
+// Prefer store.ApplyPostgresStores for multi-instance production clusters.
 func ProductionStores(paths ProductionPaths) (AuthorizationStore, ClientRegistry, smart.ReplayStore, TokenRevocationStore, error) {
 	authStore, err := NewFileAuthorizationStore(paths.Tokens)
 	if err != nil {

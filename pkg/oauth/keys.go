@@ -5,9 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -44,6 +46,59 @@ func LoadKeySetFromPEM(path string, keyID string) (*KeySet, error) {
 		keyID = randomKeyID()
 	}
 	return &KeySet{PrivateKey: privateKey, KeyID: keyID, Algorithm: "RS256"}, nil
+}
+
+// SaveKeySetToPEM writes an RSA private key to path, creating parent directories as needed.
+func SaveKeySetToPEM(path string, key *KeySet) error {
+	if key == nil || key.PrivateKey == nil {
+		return fmt.Errorf("oauth: key set is required")
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("oauth: signing key path required")
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("oauth: marshal signing key: %w", err)
+	}
+	block := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("oauth: create signing key dir: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("oauth: write signing key: %w", err)
+	}
+	defer f.Close()
+	if err := pem.Encode(f, block); err != nil {
+		return fmt.Errorf("oauth: encode signing key: %w", err)
+	}
+	return nil
+}
+
+// LoadOrCreateSigningKey loads a PEM signing key from path or generates and persists one.
+func LoadOrCreateSigningKey(path string, keyID string) (*KeySet, error) {
+	if _, err := os.Stat(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("oauth: stat signing key: %w", err)
+		}
+	} else {
+		key, err := LoadKeySetFromPEM(path, keyID)
+		if err != nil {
+			return nil, err
+		}
+		return key, nil
+	}
+	key, err := NewKeySet(2048)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(keyID) != "" {
+		key.KeyID = keyID
+	}
+	if err := SaveKeySetToPEM(path, key); err != nil {
+		return nil, err
+	}
+	return key, nil
 }
 
 // NewKeySet generates an RSA signing key set.

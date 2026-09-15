@@ -19,20 +19,21 @@ Production-capable OAuth2/OIDC authorization server for SMART on FHIR.
 
 ## Production deployment (recommended: Postgres)
 
-Use `oauthpostgres.NewServer` for multi-instance clusters. Postgres provides transactional
-`DELETE … RETURNING` consume semantics and row-level locking — no shared filesystem required.
+Use `oauthstore.NewPostgresServer` (or `ApplyPostgresStores` + `oauth.NewServer`) for
+multi-instance clusters. Postgres provides transactional `DELETE … RETURNING` consume
+semantics and row-level locking — no shared filesystem required.
 
 ```go
 import (
     "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
+    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
     "github.com/degoke/health-ai-stack/pkg/postgres"
 )
 
 db, _ := postgres.Open(ctx, dsn)
 _ = db.Migrate(ctx)
 
-server, err := oauthpostgres.NewServer(oauth.Config{
+server, err := oauthstore.NewPostgresServer(oauth.Config{
     Issuer:             "https://auth.example",
     FHIRAudience:       "https://fhir.example",
     RequireConsentForm: true,
@@ -41,7 +42,7 @@ server, err := oauthpostgres.NewServer(oauth.Config{
 }, db.Pool())
 ```
 
-`oauthpostgres.Stores` wires:
+`oauthstore.PostgresStores` wires:
 
 - `AuthorizationStore` — auth codes, refresh tokens, consent sessions
 - `ClientRegistry` — clients with bcrypt-hashed secrets
@@ -72,13 +73,13 @@ revocation denylist. **Client registration stays on Postgres or file** — pass 
 ```go
 import (
     "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
+    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
     oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
     goredis "github.com/redis/go-redis/v9"
 )
 
 db, _ := postgres.Open(ctx, dsn)
-_, clientStore, _, _ := oauthpostgres.Stores(db.Pool())
+_, clientStore, _, _ := oauthstore.PostgresStores(db.Pool())
 rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
 server, err := oauthredis.NewServer(oauth.Config{
     Issuer:  "https://auth.example",
@@ -128,7 +129,7 @@ All access tokens include a `client_id` claim; revoke rejects tokens without it.
 
 ## Multi-instance checklist
 
-1. Use `oauthpostgres.NewServer` (recommended) or shared file stores for dev only.
+1. Use `oauthstore.NewPostgresServer` (recommended) or shared file stores for dev only.
 2. Persist `oauth-signing.pem` across restarts (`LoadKeySetFromPEM`).
 3. Set `UserAuthenticator` for end-user consent binding.
 4. Keep `AutoApprove: false` in production.

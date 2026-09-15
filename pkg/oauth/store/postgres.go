@@ -1,4 +1,4 @@
-package postgres
+package store
 
 import (
 	"context"
@@ -283,8 +283,8 @@ func (s *RevocationStore) IsRevoked(jti string) bool {
 	return err == nil && exists
 }
 
-// Stores returns production OAuth stores backed by Postgres.
-func Stores(pool *pgxpool.Pool) (oauth.AuthorizationStore, oauth.ClientRegistry, smart.ReplayStore, oauth.TokenRevocationStore) {
+// PostgresStores returns production OAuth stores backed by Postgres.
+func PostgresStores(pool *pgxpool.Pool) (oauth.AuthorizationStore, oauth.ClientRegistry, smart.ReplayStore, oauth.TokenRevocationStore) {
 	return NewAuthorizationStore(pool),
 		NewClientRegistry(pool),
 		NewReplayStore(pool),

@@ -57,6 +57,9 @@ type Builder struct {
 
 	preExpandValueSets bool
 	maxExpansion       int
+
+	builtinOAuth *BuiltinOAuthConfig
+	oauthHandler   http.Handler
 }
 
 // New returns a new runtime builder.
@@ -320,6 +323,12 @@ func (b *Builder) WithViewExportDir(dir string) *Builder {
 // WithDataDir sets the absolute runtime data directory for view export artifacts and job metadata.
 func (b *Builder) WithDataDir(dir string) *Builder {
 	b.dataDir = dir
+	return b
+}
+
+// WithBuiltinOAuth enables the built-in SMART OAuth authorization server.
+func (b *Builder) WithBuiltinOAuth(cfg BuiltinOAuthConfig) *Builder {
+	b.builtinOAuth = &cfg
 	return b
 }
 
