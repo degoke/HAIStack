@@ -32,6 +32,8 @@ type requestOptions struct {
 	contentType string
 	accept      string
 	headers     map[string]string
+	basicUser   string
+	basicPass   string
 	skipAuth    bool
 	expectEmpty bool
 }
@@ -114,6 +116,9 @@ func (c *Client) doOnce(ctx context.Context, opts requestOptions) (*rawResponse,
 	}
 	for k, v := range opts.headers {
 		req.Header.Set(k, v)
+	}
+	if opts.basicUser != "" {
+		req.SetBasicAuth(opts.basicUser, opts.basicPass)
 	}
 	if !opts.skipAuth && !crossOrigin && c.tokenProvider != nil {
 		auth, err := c.tokenProvider.AuthorizationHeader(ctx)

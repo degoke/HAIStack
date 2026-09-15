@@ -156,17 +156,58 @@ func (s *SMARTClient) BuildAuthURL(req AuthCodeRequest) (string, error) {
 	return req.Config.AuthorizationEndpoint + "?" + values.Encode(), nil
 }
 
+const (
+	ClientAuthSecretPost    = "client_secret_post"
+	ClientAuthSecretBasic   = "client_secret_basic"
+	ClientAuthPrivateKeyJWT = "private_key_jwt"
+)
+
+// ClientJWTAuth configures private_key_jwt authentication at the token endpoint.
+type ClientJWTAuth struct {
+	PrivateKey *rsa.PrivateKey
+	KeyID      string
+	Algorithm  string
+	Expiry     time.Duration
+}
+
+// AuthCodeExchangeRequest exchanges an authorization code for tokens.
+type AuthCodeExchangeRequest struct {
+	TokenEndpoint string
+	ClientID      string
+	ClientSecret  string
+	ClientAuth    string
+	ClientJWT     *ClientJWTAuth
+	RedirectURI   string
+	Code          string
+	PKCE          *PKCEChallenge
+}
+
 // ExchangeAuthCode exchanges an authorization code for tokens.
-func (s *SMARTClient) ExchangeAuthCode(ctx context.Context, tokenEndpoint, clientID, redirectURI, code string, pkce *PKCEChallenge) (*TokenResponse, error) {
+func (s *SMARTClient) ExchangeAuthCode(ctx context.Context, req AuthCodeExchangeRequest) (*TokenResponse, error) {
+	if req.TokenEndpoint == "" {
+		return nil, fmt.Errorf("token endpoint is required")
+	}
+	if req.ClientID == "" {
+		return nil, fmt.Errorf("clientId is required")
+	}
+	if req.RedirectURI == "" {
+		return nil, fmt.Errorf("redirectUri is required")
+	}
+	if req.Code == "" {
+		return nil, fmt.Errorf("code is required")
+	}
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
-	values.Set("code", code)
-	values.Set("redirect_uri", redirectURI)
-	values.Set("client_id", clientID)
-	if pkce != nil {
-		values.Set("code_verifier", pkce.Verifier)
+	values.Set("code", req.Code)
+	values.Set("redirect_uri", req.RedirectURI)
+	basicUser, basicPass, err := applyTokenEndpointClientAuth(values, req.TokenEndpoint, req.ClientID, req.ClientSecret, req.ClientAuth, req.ClientJWT)
+	if err != nil {
+		return nil, err
 	}
-	return s.postToken(ctx, tokenEndpoint, values)
+	if req.PKCE != nil {
+		values.Set("code_verifier", req.PKCE.Verifier)
+	}
+	return s.postToken(ctx, req.TokenEndpoint, values, basicUser, basicPass)
 }
 
 // ExchangeClientAssertion exchanges a backend-service client assertion for tokens.
@@ -199,16 +240,119 @@ func (s *SMARTClient) ExchangeClientAssertion(ctx context.Context, req ClientAss
 	if req.Scope != "" {
 		values.Set("scope", req.Scope)
 	}
-	return s.postToken(ctx, req.TokenEndpoint, values)
+	return s.postToken(ctx, req.TokenEndpoint, values, "", "")
+}
+
+// RefreshTokenRequest refreshes an access token when the server supports it.
+type RefreshTokenRequest struct {
+	TokenEndpoint string
+	ClientID      string
+	ClientSecret  string
+	ClientAuth    string
+	ClientJWT     *ClientJWTAuth
+	RefreshToken  string
+}
+
+// RevokeTokenRequest revokes an access or refresh token when the server supports it.
+type RevokeTokenRequest struct {
+	RevocationEndpoint string
+	ClientID           string
+	ClientSecret       string
+	ClientAuth         string
+	ClientJWT          *ClientJWTAuth
+	Token              string
+	TokenTypeHint      string
 }
 
 // RefreshToken refreshes an access token when the server supports it.
-func (s *SMARTClient) RefreshToken(ctx context.Context, tokenEndpoint, clientID, refreshToken string) (*TokenResponse, error) {
+func (s *SMARTClient) RefreshToken(ctx context.Context, req RefreshTokenRequest) (*TokenResponse, error) {
+	if req.TokenEndpoint == "" {
+		return nil, fmt.Errorf("token endpoint is required")
+	}
+	if req.ClientID == "" {
+		return nil, fmt.Errorf("clientId is required")
+	}
+	if req.RefreshToken == "" {
+		return nil, fmt.Errorf("refresh token is required")
+	}
 	values := url.Values{}
 	values.Set("grant_type", "refresh_token")
-	values.Set("refresh_token", refreshToken)
-	values.Set("client_id", clientID)
-	return s.postToken(ctx, tokenEndpoint, values)
+	values.Set("refresh_token", req.RefreshToken)
+	basicUser, basicPass, err := applyTokenEndpointClientAuth(values, req.TokenEndpoint, req.ClientID, req.ClientSecret, req.ClientAuth, req.ClientJWT)
+	if err != nil {
+		return nil, err
+	}
+	return s.postToken(ctx, req.TokenEndpoint, values, basicUser, basicPass)
+}
+
+// RevokeToken revokes an access or refresh token when the server supports it.
+func (s *SMARTClient) RevokeToken(ctx context.Context, req RevokeTokenRequest) error {
+	if req.RevocationEndpoint == "" {
+		return fmt.Errorf("revocation endpoint is required")
+	}
+	if req.ClientID == "" {
+		return fmt.Errorf("clientId is required")
+	}
+	if req.Token == "" {
+		return fmt.Errorf("token is required")
+	}
+	values := url.Values{}
+	values.Set("token", req.Token)
+	if req.TokenTypeHint != "" {
+		values.Set("token_type_hint", req.TokenTypeHint)
+	}
+	basicUser, basicPass, err := applyTokenEndpointClientAuth(values, req.RevocationEndpoint, req.ClientID, req.ClientSecret, req.ClientAuth, req.ClientJWT)
+	if err != nil {
+		return err
+	}
+	return s.postRevoke(ctx, req.RevocationEndpoint, values, basicUser, basicPass)
+}
+
+func applyTokenEndpointClientAuth(values url.Values, tokenEndpoint, clientID, clientSecret, clientAuth string, jwtAuth *ClientJWTAuth) (string, string, error) {
+	auth := clientAuth
+	if auth == "" {
+		if jwtAuth != nil && jwtAuth.PrivateKey != nil {
+			auth = ClientAuthPrivateKeyJWT
+		} else {
+			auth = ClientAuthSecretPost
+		}
+	}
+	switch auth {
+	case ClientAuthPrivateKeyJWT:
+		if jwtAuth == nil || jwtAuth.PrivateKey == nil {
+			return "", "", fmt.Errorf("private key is required for private_key_jwt")
+		}
+		expiry := jwtAuth.Expiry
+		if expiry <= 0 {
+			expiry = 5 * time.Minute
+		}
+		assertion, err := generateClientAssertion(clientID, tokenEndpoint, jwtAuth.PrivateKey, jwtAuth.KeyID, jwtAuth.Algorithm, expiry)
+		if err != nil {
+			return "", "", err
+		}
+		values.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+		values.Set("client_assertion", assertion)
+		return "", "", nil
+	case ClientAuthSecretPost:
+		values.Set("client_id", clientID)
+		if clientSecret != "" {
+			values.Set("client_secret", clientSecret)
+		}
+		user, pass := tokenClientAuth(clientID, clientSecret, auth)
+		return user, pass, nil
+	case ClientAuthSecretBasic:
+		user, pass := tokenClientAuth(clientID, clientSecret, auth)
+		return user, pass, nil
+	default:
+		return "", "", fmt.Errorf("unsupported client auth method %q", auth)
+	}
+}
+
+func tokenClientAuth(clientID, secret, method string) (string, string) {
+	if method == ClientAuthSecretBasic && clientID != "" && secret != "" {
+		return clientID, secret
+	}
+	return "", ""
 }
 
 // TokenProviderFromResponse returns a TokenProvider backed by a token response.
@@ -221,7 +365,23 @@ func ParseTokenClaims(token string) (smart.TokenClaims, error) {
 	return smart.ParseTokenUnverified(token)
 }
 
-func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, values url.Values) (*TokenResponse, error) {
+func (s *SMARTClient) postRevoke(ctx context.Context, revocationEndpoint string, values url.Values, basicUser, basicPass string) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("smart client is nil")
+	}
+	_, err := s.client.do(ctx, requestOptions{
+		method:      "POST",
+		url:         revocationEndpoint,
+		body:        []byte(values.Encode()),
+		contentType: "application/x-www-form-urlencoded",
+		skipAuth:    true,
+		basicUser:   basicUser,
+		basicPass:   basicPass,
+	})
+	return err
+}
+
+func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, values url.Values, basicUser, basicPass string) (*TokenResponse, error) {
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("smart client is nil")
 	}
@@ -231,6 +391,8 @@ func (s *SMARTClient) postToken(ctx context.Context, tokenEndpoint string, value
 		body:        []byte(values.Encode()),
 		contentType: "application/x-www-form-urlencoded",
 		accept:      "application/json",
+		basicUser:   basicUser,
+		basicPass:   basicPass,
 		skipAuth:    true,
 	})
 	if err != nil {

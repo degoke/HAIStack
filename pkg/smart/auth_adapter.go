@@ -233,6 +233,31 @@ func (a *AuthAdapter) ScopeImplies(bundle AuthBundle, resourceType string, verb 
 	return bundle.Scopes.Allows(actor, resourceType, verb)
 }
 
+// ScopeImpliesOp reports whether the bundle's scopes authorize a CRUDS operation.
+func (a *AuthAdapter) ScopeImpliesOp(bundle AuthBundle, resourceType string, op AccessOp) bool {
+	actor := actorForKind(bundle.Principal.Kind, bundle.Scopes)
+	if actor == "" {
+		for _, sc := range bundle.Scopes.ResourceScopes() {
+			if sc.Matches(resourceType, accessVerbFromOp(op)) {
+				return true
+			}
+		}
+		return false
+	}
+	return bundle.Scopes.AllowsOp(actor, resourceType, op)
+}
+
+func accessVerbFromOp(op AccessOp) AccessVerb {
+	switch op {
+	case OpRead, OpSearch:
+		return VerbRead
+	case OpCreate, OpUpdate, OpDelete:
+		return VerbWrite
+	default:
+		return VerbRead
+	}
+}
+
 func requiredFor(perms []auth.Permission, resourceType string, verb AccessVerb) []string {
 	wantSpecific := resourceType + "." + string(verb)
 	wantWild := "*." + string(verb)

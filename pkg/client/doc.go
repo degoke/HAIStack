@@ -156,7 +156,9 @@
 //	cfg, _ := c.SMART().Discover(ctx, issuer)
 //	pkce, _ := client.NewPKCEChallenge()
 //	authURL, _ := c.SMART().BuildAuthURL(client.AuthCodeRequest{...})
-//	tokens, _ := c.SMART().ExchangeAuthCode(ctx, cfg.TokenEndpoint, clientID, redirectURI, code, pkce)
+//	tokens, _ := c.SMART().ExchangeAuthCode(ctx, client.AuthCodeExchangeRequest{
+//		TokenEndpoint: cfg.TokenEndpoint, ClientID: clientID, RedirectURI: redirectURI, Code: code, PKCE: pkce,
+//	})
 //
 // # Out of scope (v1)
 //

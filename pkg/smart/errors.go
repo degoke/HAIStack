@@ -41,4 +41,7 @@ var (
 
 	// ErrReplay is returned when a JWT assertion identifier has already been used.
 	ErrReplay = errors.New("smart: replayed assertion")
+
+	// ErrUnauthorized is returned when a request lacks valid SMART credentials.
+	ErrUnauthorized = errors.New("smart: unauthorized")
 )

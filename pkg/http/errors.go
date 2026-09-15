@@ -7,6 +7,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -20,6 +21,9 @@ func mapError(err error) (int, *types.OperationOutcome) {
 		return http.StatusInternalServerError, core.OperationOutcomeFromError(errors.New("unknown error"))
 	}
 
+	if errors.Is(err, smart.ErrScopeFilterDenied) {
+		return http.StatusForbidden, deniedOutcome("resource outside granted scope filters")
+	}
 	if errors.Is(err, auth.ErrDenied) {
 		return http.StatusForbidden, deniedOutcome(err.Error())
 	}
@@ -28,6 +32,16 @@ func mapError(err error) (int, *types.OperationOutcome) {
 	}
 	if errors.Is(err, errUnauthenticated) {
 		return http.StatusUnauthorized, unauthorizedOutcome(err.Error())
+	}
+	if errors.Is(err, smart.ErrUnauthorized) ||
+		errors.Is(err, smart.ErrTokenExpired) ||
+		errors.Is(err, smart.ErrTokenNotYetValid) ||
+		errors.Is(err, smart.ErrReplay) ||
+		errors.Is(err, smart.ErrInvalidToken) ||
+		errors.Is(err, smart.ErrIssuerMismatch) ||
+		errors.Is(err, smart.ErrAudienceMismatch) ||
+		errors.Is(err, smart.ErrMissingScopes) {
+		return http.StatusUnauthorized, unauthorizedOutcome(smart.StableAuthDiagnostics(err))
 	}
 	var rateLimited *rateLimitError
 	if errors.As(err, &rateLimited) {

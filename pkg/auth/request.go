@@ -56,7 +56,7 @@ type ModuleInstallRequest struct {
 }
 
 // PatientScopeRequest asks whether a principal may access a patient within
-// their tenant patient-scope stub.
+// their tenant patient compartment.
 type PatientScopeRequest struct {
 	Principal Principal
 	Tenant    TenantContext

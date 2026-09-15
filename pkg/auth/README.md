@@ -14,7 +14,7 @@ and a deny-by-default policy DSL:
 - `CanExecuteAITool` — AI tool execution
 - `CanPushDeviceEvent` — sync device trust for a tenant
 - `CanInstallModule` — module install authorization
-- `CheckPatientScope` — patient-level access stub
+- `CheckPatientScope` — patient-level compartment enforcement
 
 Adapters wire into existing seams:
 
@@ -157,7 +157,7 @@ Permissions treat `appointment.read` and `read-appointment` as equivalent.
 - Explicit allow rules
 - Tenant binding required for user principals
 - Device push requires registered, trusted, active device for the target tenant
-- Patient scope stub: scoped principals may only access their patient id
+- Patient compartment: scoped principals may only access their patient id and linked resources
 - Persistence is application-owned; Catalog is in-memory by default
 
 ## Where it fits
