@@ -11,7 +11,10 @@ Production-capable OAuth2/OIDC authorization server for SMART on FHIR.
 | `/oauth/authorize` | Authorization code + PKCE |
 | `/oauth/token` | Token exchange (auth code, client credentials, refresh) |
 | `/oauth/revoke` | Revoke refresh tokens and JWT access tokens (by `jti`) |
+| `/oauth/introspect` | RFC 7662 token introspection (confidential clients only) |
 | `/oauth/jwks` | Signing key set |
+| `/oauth/login` | Session login for production consent (when `UserAuthenticator` is configured) |
+| `/t/{tenantId}/oauth/*` | Tenant-scoped OAuth routes (via `MultiTenantServer`) |
 | `/oauth/register` | Dynamic client registration (opt-in) |
 | `/oauth/consent` | Built-in HTML consent form |
 | `/oauth/launch` | EHR launch context (JSON) |
@@ -48,8 +51,10 @@ server, err := oauthstore.NewPostgresServer(oauth.Config{
 - `ClientRegistry` — clients with bcrypt-hashed secrets
 - `ReplayStore` — backend/client-assertion `jti` replay protection
 - `RevocationStore` — revoked access-token `jti` denylist
+- `TokenRateLimiter` / `RegisterRateLimiter` — DB-backed endpoint rate limits
+- DB signing keys via `ApplyPostgresSigningKey` / `ApplySQLiteSigningKey` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set
 
-Schema: migration `0017_oauth.sql` (Postgres) or `0014_oauth.sql` (SQLite).
+Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` (SQLite).
 
 ### Why file stores existed
 
@@ -127,12 +132,23 @@ form.Set("code_verifier", pkceVerifier)
 Revoked access tokens are rejected by `server.BearerAuthConfig()` via `TokenValidateOptions.IsJWTRevoked`.
 All access tokens include a `client_id` claim; revoke rejects tokens without it.
 
+## Production environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OAUTH_REGISTRATION_TOKEN` | Bearer token for `POST /oauth/register` |
+| `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | AES key for DB-stored signing keys (required for `haistack serve` production) |
+| `OAUTH_SESSION_SECRET` | HMAC secret for `/oauth/login` session cookies (required for production consent) |
+
+When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem`.
+
 ## Multi-instance checklist
 
 1. Use `oauthstore.NewPostgresServer` (recommended) or shared file stores for dev only.
-2. Persist `oauth-signing.pem` across restarts (`LoadKeySetFromPEM`).
-3. Set `UserAuthenticator` for end-user consent binding.
+2. Persist signing keys in DB (`OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`) or `oauth-signing.pem` across restarts.
+3. Set `UserAuthenticator` (or use `haistack serve` production session login) for end-user consent binding.
 4. Keep `AutoApprove: false` in production.
 5. Enable `AllowDynamicRegistration` only when required.
+6. Mount tenant routes at `/t/{tenantId}/` when using `MultiTenantServer`.
 
 See `examples/smart-oauth` for a runnable demo, or `haistack serve` for built-in OAuth with SQLite/Postgres stores (`runtime.WithBuiltinOAuth`). Operations guidance: `OPERATIONS.md`.

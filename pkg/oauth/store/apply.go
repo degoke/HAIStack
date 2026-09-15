@@ -21,6 +21,8 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 	cfg.Clients = clientStore
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
+	cfg.TokenRateLimiter = &PostgresRateLimitStore{Pool: pool}
+	cfg.RegisterRateLimiter = &PostgresRateLimitStore{Pool: pool}
 	return nil
 }
 
@@ -37,7 +39,51 @@ func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
 	cfg.Clients = clientStore
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
+	cfg.TokenRateLimiter = &SQLiteRateLimitStore{DB: db}
+	cfg.RegisterRateLimiter = &SQLiteRateLimitStore{DB: db}
 	return nil
+}
+
+// ApplyPostgresSigningKey loads or creates DB-backed signing keys for issuer.
+func ApplyPostgresSigningKey(cfg *oauth.Config, pool *pgxpool.Pool, issuer string, opts SigningKeyOptions) error {
+	if cfg == nil {
+		return fmt.Errorf("oauth/store: config is required")
+	}
+	set, err := LoadOrCreatePostgresSigningKeySet(pool, issuer, opts)
+	if err != nil {
+		return err
+	}
+	cfg.SigningKey = set.Active
+	cfg.VerificationKeys = verificationKeysWithoutActive(set)
+	return nil
+}
+
+// ApplySQLiteSigningKey loads or creates DB-backed signing keys for issuer.
+func ApplySQLiteSigningKey(cfg *oauth.Config, db *sql.DB, issuer string, opts SigningKeyOptions) error {
+	if cfg == nil {
+		return fmt.Errorf("oauth/store: config is required")
+	}
+	set, err := LoadOrCreateSQLiteSigningKeySet(db, issuer, opts)
+	if err != nil {
+		return err
+	}
+	cfg.SigningKey = set.Active
+	cfg.VerificationKeys = verificationKeysWithoutActive(set)
+	return nil
+}
+
+func verificationKeysWithoutActive(set SigningKeySet) []*oauth.KeySet {
+	if set.Active == nil {
+		return set.Verification
+	}
+	out := make([]*oauth.KeySet, 0, len(set.Verification))
+	for _, key := range set.Verification {
+		if key == nil || key.KeyID == set.Active.KeyID {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
 }
 
 // NewServer constructs an authorization server after stores are applied to cfg.

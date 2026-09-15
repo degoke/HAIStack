@@ -178,6 +178,7 @@ func NewRootHandlerFromConfig(cfg RootConfig) http.Handler {
 		mux.Handle("/oauth/", cfg.OAuth)
 		mux.Handle("/oauth", cfg.OAuth)
 		mux.Handle("/.well-known/", cfg.OAuth)
+		mux.Handle("/t/", cfg.OAuth)
 		if cfg.FHIR != nil {
 			mux.HandleFunc("/fhir/.well-known/", mirrorOAuthWellKnown(cfg.OAuth))
 		}

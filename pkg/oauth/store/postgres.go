@@ -83,12 +83,26 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 }
 
 func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(token)
+	if !ok {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	now := s.now()
+	tag, err := s.pool.Exec(context.Background(), `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2`, token, now)
+	if err != nil || tag.RowsAffected() == 0 {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	return entry, true
+}
+
+func (s *AuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
 	now := s.now()
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2
-		RETURNING payload`, token, now,
+		SELECT payload FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2`, token, now,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false

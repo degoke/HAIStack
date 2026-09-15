@@ -28,7 +28,36 @@ func (s *Server) handleSMARTConfiguration(w http.ResponseWriter, _ *http.Request
 }
 
 func (s *Server) handleJWKS(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.cfg.SigningKey.JWKS())
+	keys := []map[string]any{}
+	seen := map[string]struct{}{}
+	for _, keySet := range s.verificationKeySets() {
+		doc := keySet.JWKS()
+		raw, _ := doc["keys"].([]map[string]any)
+		for _, entry := range raw {
+			kid, _ := entry["kid"].(string)
+			if kid != "" {
+				if _, ok := seen[kid]; ok {
+					continue
+				}
+				seen[kid] = struct{}{}
+			}
+			keys = append(keys, entry)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
+}
+
+func (s *Server) verificationKeySets() []*KeySet {
+	out := []*KeySet{}
+	if s.cfg.SigningKey != nil {
+		out = append(out, s.cfg.SigningKey)
+	}
+	for _, keySet := range s.cfg.VerificationKeys {
+		if keySet != nil {
+			out = append(out, keySet)
+		}
+	}
+	return out
 }
 
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +107,11 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		authReq.Subject = user.Subject
 		authReq.FHIRUser = user.FHIRUser
 	} else if s.cfg.UserAuthenticator != nil {
+		if loginPath := strings.TrimSpace(s.cfg.LoginPath); loginPath != "" {
+			returnURL := s.cfg.Issuer + r.URL.RequestURI()
+			http.Redirect(w, r, loginPath+"?return="+url.QueryEscape(returnURL), http.StatusFound)
+			return
+		}
 		http.Error(w, "user authentication required", http.StatusUnauthorized)
 		return
 	}
@@ -480,6 +514,7 @@ func (s *Server) openIDConfiguration() map[string]any {
 		"authorization_endpoint":                s.cfg.Issuer + "/oauth/authorize",
 		"token_endpoint":                        s.cfg.Issuer + "/oauth/token",
 		"revocation_endpoint":                   s.cfg.Issuer + "/oauth/revoke",
+		"introspection_endpoint":                s.cfg.Issuer + "/oauth/introspect",
 		"registration_endpoint":                 registration,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "client_credentials", "refresh_token"},

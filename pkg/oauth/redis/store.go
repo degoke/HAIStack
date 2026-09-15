@@ -75,13 +75,23 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 }
 
 func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(token)
+	if !ok {
+		return oauth.RefreshTokenEntry{}, false
+	}
 	key := s.key("refresh:" + token)
-	payload, err := consumeRefreshTokenScript.Run(context.Background(), s.client, []string{key}).Text()
-	if err != nil || payload == "" {
+	_ = s.client.Del(context.Background(), key).Err()
+	return entry, true
+}
+
+func (s *AuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+	key := s.key("refresh:" + token)
+	payload, err := s.client.Get(context.Background(), key).Bytes()
+	if err == goredis.Nil || err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
-	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	if s.now().After(entry.ExpiresAt) {

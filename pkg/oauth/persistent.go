@@ -18,6 +18,7 @@ type AuthorizationStore interface {
 	ConsumeAuthorizationCode(code string) (AuthorizationCode, bool)
 	SaveRefreshToken(token string, entry RefreshTokenEntry) error
 	ConsumeRefreshToken(token string) (RefreshTokenEntry, bool)
+	LookupRefreshToken(token string) (RefreshTokenEntry, bool)
 	SavePendingAuthorization(id string, entry PendingAuthorization) error
 	GetPendingAuthorization(id string) (PendingAuthorization, bool)
 	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
@@ -106,12 +107,20 @@ func (s *MemoryAuthorizationStore) SaveRefreshToken(token string, entry RefreshT
 }
 
 func (s *MemoryAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(token)
+	if !ok {
+		return RefreshTokenEntry{}, false
+	}
+	s.mu.Lock()
+	delete(s.refreshTokens, token)
+	s.mu.Unlock()
+	return entry, true
+}
+
+func (s *MemoryAuthorizationStore) LookupRefreshToken(token string) (RefreshTokenEntry, bool) {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[token]
-	if ok {
-		delete(s.refreshTokens, token)
-	}
 	s.mu.Unlock()
 	if !ok || now.After(entry.ExpiresAt) {
 		return RefreshTokenEntry{}, false
@@ -228,14 +237,25 @@ func (s *FileAuthorizationStore) SaveRefreshToken(token string, entry RefreshTok
 }
 
 func (s *FileAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(token)
+	if !ok {
+		return RefreshTokenEntry{}, false
+	}
+	err := s.update(func(state *fileAuthorizationState) {
+		delete(state.Refresh, token)
+	})
+	if err != nil {
+		return RefreshTokenEntry{}, false
+	}
+	return entry, true
+}
+
+func (s *FileAuthorizationStore) LookupRefreshToken(token string) (RefreshTokenEntry, bool) {
 	now := s.now()
 	var entry RefreshTokenEntry
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, ok = state.Refresh[token]
-		if ok {
-			delete(state.Refresh, token)
-		}
 	})
 	if err != nil || !ok || now.After(entry.ExpiresAt) {
 		return RefreshTokenEntry{}, false

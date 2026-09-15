@@ -76,12 +76,30 @@ func (s *SQLiteAuthorizationStore) SaveRefreshToken(token string, entry oauth.Re
 }
 
 func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(token)
+	if !ok {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(context.Background(), `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = ? AND expires_at > ?`, token, now)
+	if err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	return entry, true
+}
+
+func (s *SQLiteAuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ?
-		RETURNING payload`, token, now,
+		SELECT payload FROM hai_oauth_refresh_token
+		WHERE token = ? AND expires_at > ?`, token, now,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false

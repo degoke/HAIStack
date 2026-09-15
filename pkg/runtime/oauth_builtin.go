@@ -47,6 +47,12 @@ func validateBuiltinOAuthConfig(cfg BuiltinOAuthConfig) error {
 	if cfg.AutoApprove != nil && *cfg.AutoApprove {
 		return fmt.Errorf("runtime: production builtin oauth requires AutoApprove false")
 	}
+	if strings.TrimSpace(os.Getenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET")) == "" {
+		return fmt.Errorf("runtime: production builtin oauth requires OAUTH_SIGNING_KEY_ENCRYPTION_SECRET")
+	}
+	if strings.TrimSpace(os.Getenv("OAUTH_SESSION_SECRET")) == "" {
+		return fmt.Errorf("runtime: production builtin oauth requires OAUTH_SESSION_SECRET")
+	}
 	return nil
 }
 
@@ -66,29 +72,24 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		return err
 	}
 
-	stateDir := strings.TrimSpace(cfg.StateDir)
-	if stateDir == "" {
-		stateDir = defaultOAuthStateDir(b, state)
-	}
-	signingKeyPath := oauth.DefaultProductionPaths(stateDir).SigningKey
-	keySet, err := oauth.LoadOrCreateSigningKey(signingKeyPath, "haistack")
-	if err != nil {
-		return fmt.Errorf("runtime: oauth signing key: %w", err)
-	}
-
 	oauthCfg := oauth.Config{
 		Issuer:       issuer,
 		FHIRAudience: issuer,
-		SigningKey:   keySet,
 	}
 	switch {
 	case state.sqliteDB != nil:
 		if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL()); err != nil {
 			return fmt.Errorf("runtime: oauth sqlite stores: %w", err)
 		}
+		if err := b.applyBuiltinSigningKey(&oauthCfg, state, issuer); err != nil {
+			return fmt.Errorf("runtime: oauth signing key: %w", err)
+		}
 	case state.postgresDB != nil:
 		if err := oauthstore.ApplyPostgresStores(&oauthCfg, state.postgresDB.Pool()); err != nil {
 			return fmt.Errorf("runtime: oauth postgres stores: %w", err)
+		}
+		if err := b.applyBuiltinSigningKey(&oauthCfg, state, issuer); err != nil {
+			return fmt.Errorf("runtime: oauth signing key: %w", err)
 		}
 	default:
 		return fmt.Errorf("runtime: builtin oauth requires sqlite or postgres storage")
@@ -110,10 +111,16 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		oauthCfg.RequireConsentForm = true
 		oauthCfg.AutoApprove = false
 		oauthCfg.AllowDynamicRegistration = true
+		oauthCfg.LoginPath = "/oauth/login"
 		if regToken == "" {
 			return fmt.Errorf("runtime: production builtin oauth requires OAUTH_REGISTRATION_TOKEN")
 		}
 		oauthCfg.RegistrationAccessToken = regToken
+		sessionAuth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{})
+		if err != nil {
+			return fmt.Errorf("runtime: oauth session auth: %w", err)
+		}
+		oauthCfg.UserAuthenticator = sessionAuth
 	} else if regToken != "" {
 		oauthCfg.AllowDynamicRegistration = true
 		oauthCfg.RegistrationAccessToken = regToken
@@ -131,6 +138,29 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	srv, err := oauth.NewServer(oauthCfg)
 	if err != nil {
 		return fmt.Errorf("runtime: oauth server: %w", err)
+	}
+
+	tenantRegistry := oauth.NewTenantRegistry()
+	tenantIssuer := strings.TrimRight(issuer, "/") + "/t/" + tenantID
+	autoApprovePtr := oauthCfg.AutoApprove
+	if err := tenantRegistry.Register(oauth.TenantIssuerConfig{
+		TenantID:          tenantID,
+		Issuer:            tenantIssuer,
+		FHIRAudience:      issuer,
+		SigningKey:        oauthCfg.SigningKey,
+		Clients:           oauthCfg.Clients,
+		UserAuthenticator: oauthCfg.UserAuthenticator,
+		LoginPath:         oauthCfg.LoginPath,
+		AutoApprove:       &autoApprovePtr,
+	}); err != nil {
+		return fmt.Errorf("runtime: oauth tenant registry: %w", err)
+	}
+	multiTenant, err := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
+		Base:    oauthCfg,
+		Tenants: tenantRegistry,
+	})
+	if err != nil {
+		return fmt.Errorf("runtime: oauth multi-tenant server: %w", err)
 	}
 
 	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
@@ -152,7 +182,7 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		return fmt.Errorf("runtime: oauth auth engine: %w", err)
 	}
 
-	b.oauthHandler = srv.Handler()
+	b.oauthHandler = oauth.CombineHandlers(srv.Handler(), multiTenant.Handler())
 	b.oauthIssuerURL = issuer
 	b.httpPrincipalResolver = hahttp.SMARTBearerPrincipalResolver(bearer)
 	b.httpAuthBundleResolver = hahttp.SMARTBearerBundleResolver(bearer)
@@ -160,7 +190,33 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	return nil
 }
 
-func defaultOAuthStateDir(b *Builder, state *wireState) string {
+func (b *Builder) applyBuiltinSigningKey(cfg *oauth.Config, state *wireState, issuer string) error {
+	opts := oauthstore.SigningKeyOptions{
+		ActiveKeyID:      "haistack",
+		EncryptionSecret: oauth.SigningKeyEncryptionSecret(),
+	}
+	if opts.EncryptionSecret != "" {
+		switch {
+		case state.sqliteDB != nil:
+			return oauthstore.ApplySQLiteSigningKey(cfg, state.sqliteDB.SQL(), issuer, opts)
+		case state.postgresDB != nil:
+			return oauthstore.ApplyPostgresSigningKey(cfg, state.postgresDB.Pool(), issuer, opts)
+		}
+	}
+	stateDir := strings.TrimSpace(b.builtinOAuth.StateDir)
+	if stateDir == "" {
+		stateDir = b.defaultOAuthStateDir(state)
+	}
+	signingKeyPath := oauth.DefaultProductionPaths(stateDir).SigningKey
+	keySet, err := oauth.LoadOrCreateSigningKey(signingKeyPath, "haistack")
+	if err != nil {
+		return err
+	}
+	cfg.SigningKey = keySet
+	return nil
+}
+
+func (b *Builder) defaultOAuthStateDir(state *wireState) string {
 	if strings.TrimSpace(b.dataDir) != "" {
 		return filepath.Join(b.dataDir, "oauth")
 	}
