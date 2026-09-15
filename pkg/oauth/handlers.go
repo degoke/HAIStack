@@ -339,6 +339,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
+	if token := strings.TrimSpace(s.cfg.RegistrationAccessToken); token != "" {
+		if !registrationTokenMatches(r, token) {
+			writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "registration token required")
+			return
+		}
+	}
 	var req struct {
 		RedirectURIs            []string `json:"redirect_uris"`
 		GrantTypes              []string `json:"grant_types"`
@@ -544,4 +550,19 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func registrationTokenMatches(r *http.Request, expected string) bool {
+	if r == nil || strings.TrimSpace(expected) == "" {
+		return false
+	}
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(auth, "Bearer ") {
+		if strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == expected {
+			return true
+		}
+	}
+	if r.URL.Query().Get("registration_access_token") == expected {
+		return true
+	}
+	return false
 }

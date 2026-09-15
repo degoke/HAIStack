@@ -33,6 +33,8 @@ type Config struct {
 	RequireConsentForm bool
 	// AllowDynamicRegistration enables POST /oauth/register. Disabled by default.
 	AllowDynamicRegistration bool
+	// RegistrationAccessToken protects POST /oauth/register when set.
+	RegistrationAccessToken string
 	// LaunchResolver resolves EHR launch tokens for /oauth/launch and authorize.
 	LaunchResolver LaunchResolver
 	// UserAuthenticator identifies the end user approving access in production flows.
