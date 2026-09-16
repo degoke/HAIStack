@@ -11,6 +11,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
@@ -52,6 +53,8 @@ type Runtime struct {
 	shutdownErr  error
 
 	backgroundErr error
+
+	oauthAuthStore oauth.AuthorizationStore
 }
 
 // Build constructs a wired runtime from the builder configuration.
@@ -111,12 +114,21 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	}
 	rt.starting = true
 
-	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil {
+	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil || rt.oauthAuthStore != nil {
 		rt.jobCtx, rt.jobCancel = context.WithCancel(ctx)
+	}
+	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil {
 		rt.jobWG.Add(1)
 		go func() {
 			defer rt.jobWG.Done()
 			rt.runJobLoop(rt.jobCtx)
+		}()
+	}
+	if rt.oauthAuthStore != nil {
+		rt.jobWG.Add(1)
+		go func() {
+			defer rt.jobWG.Done()
+			oauth.RunPendingAuthorizationCleanup(rt.jobCtx, rt.oauthAuthStore, oauth.DefaultPendingAuthorizationCleanupInterval)
 		}()
 	}
 

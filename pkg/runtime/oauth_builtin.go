@@ -121,6 +121,9 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 			return fmt.Errorf("runtime: oauth session auth: %w", err)
 		}
 		oauthCfg.UserAuthenticator = sessionAuth
+		if err := oauth.ApplyProductionDefaults(&oauthCfg); err != nil {
+			return fmt.Errorf("runtime: oauth production defaults: %w", err)
+		}
 	} else if regToken != "" {
 		oauthCfg.AllowDynamicRegistration = true
 		oauthCfg.RegistrationAccessToken = regToken
@@ -183,6 +186,7 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 
 	b.oauthHandler = oauth.CombineHandlers(srv.Handler(), multiTenant.Handler())
+	b.oauthAuthStore = oauthCfg.AuthorizationStore
 	b.oauthIssuerURL = issuer
 	b.httpPrincipalResolver = hahttp.SMARTBearerPrincipalResolver(bearer)
 	b.httpAuthBundleResolver = hahttp.SMARTBearerBundleResolver(bearer)
@@ -194,6 +198,7 @@ func (b *Builder) applyBuiltinSigningKey(cfg *oauth.Config, state *wireState, is
 	opts := oauthstore.SigningKeyOptions{
 		ActiveKeyID:      "haistack",
 		EncryptionSecret: oauth.SigningKeyEncryptionSecret(),
+		RotateOnStartup:  oauth.SigningKeyRotateOnStartup(),
 	}
 	if opts.EncryptionSecret != "" {
 		switch {

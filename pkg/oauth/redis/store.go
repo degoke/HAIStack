@@ -124,6 +124,10 @@ func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAu
 	return entry, true
 }
 
+func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	return 0
+}
+
 func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
 	payload, ok := consumeJSONValue(s.client, s.key("pending:"+id))
 	if !ok {

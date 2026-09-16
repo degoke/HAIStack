@@ -33,6 +33,28 @@ func DefaultProductionPaths(stateDir string) ProductionPaths {
 	}
 }
 
+// ApplyProductionDefaults applies safer OAuth defaults for production-like hosts.
+// Call after store wiring and before NewServer.
+func ApplyProductionDefaults(cfg *Config) error {
+	if cfg == nil {
+		return ErrInvalidConfig
+	}
+	if err := ValidateProductionIssuer(cfg.Issuer); err != nil {
+		return err
+	}
+	if cfg.AutoApprove {
+		return fmt.Errorf("%w: AutoApprove must be false for production", ErrInvalidConfig)
+	}
+	if err := RequireSigningKeyEncryptionSecret(); err != nil {
+		return err
+	}
+	cfg.RequirePKCEForAllClients = true
+	if cfg.AllowDynamicRegistration && strings.TrimSpace(cfg.RegistrationAccessToken) == "" {
+		return fmt.Errorf("%w: set RegistrationAccessToken or disable dynamic client registration for production", ErrInvalidConfig)
+	}
+	return nil
+}
+
 // ValidateProductionIssuer requires a non-empty https issuer URL.
 func ValidateProductionIssuer(issuer string) error {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")

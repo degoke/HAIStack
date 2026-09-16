@@ -241,6 +241,8 @@ func TestOAuthEnvOverrides(t *testing.T) {
 	t.Setenv("HAISTACK_OAUTH_PRODUCTION", "true")
 	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
 	t.Setenv("HAISTACK_OAUTH_ISSUER_URL", "https://auth.example.test")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "signing-secret")
+	t.Setenv("OAUTH_SESSION_SECRET", "session-secret")
 
 	cfg, err := config.Load(path, config.Overrides{})
 	if err != nil {
@@ -276,6 +278,14 @@ func TestOAuthProductionRequiresIssuerAndToken(t *testing.T) {
 	}
 
 	t.Setenv("HAISTACK_OAUTH_ISSUER_URL", "https://auth.example.test")
+	if _, err := config.Load(path, config.Overrides{}); err == nil {
+		t.Fatal("expected production config to require OAUTH_SIGNING_KEY_ENCRYPTION_SECRET")
+	}
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "signing-secret")
+	if _, err := config.Load(path, config.Overrides{}); err == nil {
+		t.Fatal("expected production config to require OAUTH_SESSION_SECRET")
+	}
+	t.Setenv("OAUTH_SESSION_SECRET", "session-secret")
 	cfg, err := config.Load(path, config.Overrides{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)

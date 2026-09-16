@@ -37,12 +37,23 @@ Policy deny always overrides an apparently valid SMART scope.
 ### Built-in authorization server (`pkg/oauth`)
 
 ```go
-oauthServer, _ := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: fhirBaseURL})
-http.Handle("/", oauthServer.Handler()) // authorize, token, jwks, register, discovery
+oauthServer, _ := oauth.NewServer(oauth.Config{
+    Issuer: issuer,
+    FHIRAudience: fhirBaseURL,
+    UserAuthenticator: sessionAuth, // production consent login
+    LoginPath: "/oauth/login",
+})
+http.Handle("/", oauthServer.Handler()) // authorize, token, introspect, jwks, register, discovery, login
+
+// Tenant-scoped issuer:
+multi, _ := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{Base: cfg, Tenants: registry})
+http.Handle("/t/", multi.Handler())
 
 adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{...})
 bearer := oauthServer.BearerAuthConfig(adapter)
 ```
+
+Production hosts store signing keys in the database when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set (see `oauthstore.ApplyPostgresSigningKey`). PEM fallback remains for development.
 
 ### FHIR resource server
 

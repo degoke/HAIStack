@@ -73,3 +73,26 @@ func TestOAuthServer_IntrospectAccessToken(t *testing.T) {
 		t.Fatalf("doc = %#v", doc)
 	}
 }
+
+func TestOAuthServer_IntrospectRequiresConfidentialClient(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base := strings.TrimSuffix(srv.URL, "/")
+	server, err := oauth.NewServer(oauth.Config{Issuer: base, FHIRAudience: base, AutoApprove: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux.Handle("/", server.Handler())
+
+	form := url.Values{}
+	form.Set("token", "opaque")
+	resp, err := http.PostForm(base+"/oauth/introspect", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}

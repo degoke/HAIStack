@@ -140,7 +140,7 @@ All access tokens include a `client_id` claim; revoke rejects tokens without it.
 | `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | AES key for DB-stored signing keys (required for `haistack serve` production) |
 | `OAUTH_SESSION_SECRET` | HMAC secret for `/oauth/login` session cookies (required for production consent) |
 
-When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem`.
+When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem`. Set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active DB key.
 
 ## Multi-instance checklist
 

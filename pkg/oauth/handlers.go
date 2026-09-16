@@ -81,9 +81,12 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported response_type", http.StatusBadRequest)
 		return
 	}
-	if challenge := q.Get("code_challenge"); challenge == "" && client.PublicKeyPEM == "" && client.ClientSecret == "" && client.ClientSecretHash == "" {
-		http.Error(w, "code_challenge required for public clients", http.StatusBadRequest)
-		return
+	if challenge := q.Get("code_challenge"); challenge == "" {
+		requirePKCE := s.cfg.RequirePKCEForAllClients || isPublicClient(client)
+		if requirePKCE {
+			http.Error(w, "code_challenge required", http.StatusBadRequest)
+			return
+		}
 	}
 	authReq := AuthorizationRequest{
 		ClientID:            clientID,

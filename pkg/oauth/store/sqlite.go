@@ -145,6 +145,17 @@ func (s *SQLiteAuthorizationStore) GetPendingAuthorization(id string) (oauth.Pen
 	return entry, true
 }
 
+func (s *SQLiteAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(context.Background(), `
+		DELETE FROM hai_oauth_pending_auth WHERE expires_at <= ?`, now)
+	if err != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
+}
+
 func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	var payload string

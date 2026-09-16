@@ -12,11 +12,20 @@ import (
 	"strings"
 )
 
-const signingKeyEncryptionEnv = "OAUTH_SIGNING_KEY_ENCRYPTION_SECRET"
+const (
+	signingKeyEncryptionEnv = "OAUTH_SIGNING_KEY_ENCRYPTION_SECRET"
+	signingKeyRotateEnv     = "OAUTH_SIGNING_KEY_ROTATE"
+)
 
 // SigningKeyEncryptionSecret returns the configured signing-key encryption secret.
 func SigningKeyEncryptionSecret() string {
 	return strings.TrimSpace(os.Getenv(signingKeyEncryptionEnv))
+}
+
+// SigningKeyRotateOnStartup reports whether signing keys should rotate on process start.
+func SigningKeyRotateOnStartup() bool {
+	v := strings.TrimSpace(os.Getenv(signingKeyRotateEnv))
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 // RequireSigningKeyEncryptionSecret returns an error when secret is empty.

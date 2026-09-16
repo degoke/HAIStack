@@ -148,6 +148,16 @@ func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAu
 	return entry, true
 }
 
+func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	now := s.now()
+	tag, err := s.pool.Exec(context.Background(), `
+		DELETE FROM hai_oauth_pending_auth WHERE expires_at <= $1`, now)
+	if err != nil {
+		return 0
+	}
+	return int(tag.RowsAffected())
+}
+
 func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
 	now := s.now()
 	var payload []byte

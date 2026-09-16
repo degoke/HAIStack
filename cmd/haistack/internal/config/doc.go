@@ -31,7 +31,8 @@
 //
 // Validate enforces driver-specific requirements: sqlitePath for SQLite,
 // postgresDSN and tenantID for Postgres, sync.nodeID when sync.hubURL is set,
-// and oauth production settings (https issuerURL, registration token) when
+// and oauth production settings (https issuerURL, registration token,
+// OAUTH_SIGNING_KEY_ENCRYPTION_SECRET, OAUTH_SESSION_SECRET) when
 // oauth.production is enabled.
 //
 // # Environment variables
@@ -53,6 +54,9 @@
 //   - HAISTACK_OAUTH_AUTO_APPROVE
 //   - HAISTACK_OAUTH_REGISTRATION_TOKEN
 //   - OAUTH_REGISTRATION_TOKEN
+//   - OAUTH_SIGNING_KEY_ENCRYPTION_SECRET
+//   - OAUTH_SIGNING_KEY_ROTATE
+//   - OAUTH_SESSION_SECRET
 //   - HAISTACK_PRODUCTION (sets oauth.production when "1")
 //
 // StarterYAML returns the bytes written by haistack init.

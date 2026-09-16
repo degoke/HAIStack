@@ -104,6 +104,7 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
 	rt.postgresDB = state.postgresDB
+	rt.oauthAuthStore = b.oauthAuthStore
 	// Transfer only the cleanup functions. Copying cleanupStack itself would
 	// copy its sync.Once state, which is both unsafe and rejected by vet.
 	rt.cleanup.fns = state.cleanup.fns

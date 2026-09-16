@@ -161,6 +161,7 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
 | `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
 | `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | DB signing key encryption (production) |
+| `OAUTH_SIGNING_KEY_ROTATE` | Set to `1` to rotate the active DB signing key on startup |
 | `OAUTH_SESSION_SECRET` | `/oauth/login` session cookie signing (production) |
 | `HAISTACK_PRODUCTION=1` | enables `oauth.production` |
 

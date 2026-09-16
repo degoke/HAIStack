@@ -169,10 +169,10 @@ func BuildReferenceHandler(ctx context.Context, baseURL string) (http.Handler, R
 	}
 
 	oauthCfg := oauth.Config{
-		Issuer:       meta.BaseURL,
-		FHIRAudience: meta.BaseURL,
-		SigningKey:   keySet,
-		AutoApprove:  true,
+		Issuer:                   meta.BaseURL,
+		FHIRAudience:             meta.BaseURL,
+		SigningKey:               keySet,
+		AutoApprove:              true,
 		AllowDynamicRegistration: true,
 		LaunchResolver: oauth.StaticLaunchResolver(oauth.LaunchContext{
 			PatientID: created.ID,

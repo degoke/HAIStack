@@ -18,8 +18,8 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/health-ai-stack/pkg/sqlite"
 )
 
 func main() {

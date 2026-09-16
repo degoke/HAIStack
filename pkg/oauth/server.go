@@ -49,6 +49,8 @@ type Config struct {
 	RegisterRateLimiter RateLimitStore
 	// VerificationKeys are additional public keys exposed via JWKS (for rotation).
 	VerificationKeys []*KeySet
+	// RequirePKCEForAllClients requires code_challenge for every client at authorize.
+	RequirePKCEForAllClients bool
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.

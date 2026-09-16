@@ -39,5 +39,7 @@ Enable with `oauth.enabled: true` (default). Production checklist:
 4. Set `OAUTH_SESSION_SECRET` for production consent login sessions.
 5. Set `oauth.production: true` and `oauth.autoApprove: false`.
 6. Back up signing keys (DB table `hai_oauth_signing_key` or PEM at `{sqlite-dir}/oauth/oauth-signing.pem`).
+7. Optionally set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active signing key (retired keys remain in JWKS until `retired_at` is set).
+8. Consent sessions are purged in the background every five minutes when using `haistack serve` with SQL stores.
 
-SMART discovery is served at `/.well-known/smart-configuration` and mirrored under `/fhir/.well-known/smart-configuration`.
+SMART discovery is served at `/.well-known/smart-configuration` and mirrored under `/fhir/.well-known/smart-configuration`. Tenant-scoped discovery is also available at `/t/{tenantId}/.well-known/smart-configuration`.

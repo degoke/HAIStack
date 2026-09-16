@@ -9,6 +9,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"github.com/degoke/health-ai-stack/pkg/packages"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
@@ -59,9 +60,10 @@ type Builder struct {
 	preExpandValueSets bool
 	maxExpansion       int
 
-	builtinOAuth  *BuiltinOAuthConfig
-	oauthHandler    http.Handler
-	oauthIssuerURL  string
+	builtinOAuth   *BuiltinOAuthConfig
+	oauthHandler   http.Handler
+	oauthIssuerURL string
+	oauthAuthStore oauth.AuthorizationStore
 }
 
 // New returns a new runtime builder.

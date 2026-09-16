@@ -23,6 +23,8 @@ type AuthorizationStore interface {
 	GetPendingAuthorization(id string) (PendingAuthorization, bool)
 	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
 	DeleteRefreshTokenForClient(token, clientID string) bool
+	// PurgeExpiredPendingAuthorizations removes expired consent sessions.
+	PurgeExpiredPendingAuthorizations() int
 }
 
 // PendingAuthorization stores an in-progress authorize/consent/launch session.
@@ -158,6 +160,20 @@ func (s *MemoryAuthorizationStore) DeleteRefreshTokenForClient(token, clientID s
 	}
 	s.mu.Unlock()
 	return ok
+}
+
+func (s *MemoryAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	now := memoryStoreNow(s)
+	s.mu.Lock()
+	n := 0
+	for id, entry := range s.pending {
+		if now.After(entry.ExpiresAt) {
+			delete(s.pending, id)
+			n++
+		}
+	}
+	s.mu.Unlock()
+	return n
 }
 
 func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
@@ -306,6 +322,20 @@ func (s *FileAuthorizationStore) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func (s *FileAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	now := s.now()
+	var n int
+	_ = s.update(func(state *fileAuthorizationState) {
+		for id, entry := range state.Pending {
+			if now.After(entry.ExpiresAt) {
+				delete(state.Pending, id)
+				n++
+			}
+		}
+	})
+	return n
 }
 
 func (s *FileAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {

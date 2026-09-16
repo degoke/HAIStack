@@ -23,6 +23,7 @@ const defaultOAuthSigningKeyID = "haistack"
 type SigningKeyOptions struct {
 	ActiveKeyID      string
 	EncryptionSecret string
+	RotateOnStartup  bool
 }
 
 // SigningKeySet holds the active signer and verification keys for JWKS.
@@ -40,6 +41,11 @@ func LoadOrCreateSQLiteSigningKeySet(db *sql.DB, issuer string, opts SigningKeyO
 	issuer = trimOAuthIssuer(issuer)
 	secret := signingSecret(opts)
 	keyID := activeKeyID(opts)
+	if opts.RotateOnStartup {
+		if err := rotateSQLiteSigningKey(db, issuer, keyID, secret); err != nil {
+			return SigningKeySet{}, err
+		}
+	}
 	set, err := loadSQLiteSigningKeySet(db, issuer, secret)
 	if err == nil && set.Active != nil {
 		return set, nil
@@ -61,6 +67,11 @@ func LoadOrCreatePostgresSigningKeySet(pool *pgxpool.Pool, issuer string, opts S
 	issuer = trimOAuthIssuer(issuer)
 	secret := signingSecret(opts)
 	keyID := activeKeyID(opts)
+	if opts.RotateOnStartup {
+		if err := rotatePostgresSigningKey(pool, issuer, keyID, secret); err != nil {
+			return SigningKeySet{}, err
+		}
+	}
 	set, err := loadPostgresSigningKeySet(pool, issuer, secret)
 	if err == nil && set.Active != nil {
 		return set, nil
@@ -151,6 +162,70 @@ func scanSigningKeyRows(rows signingKeyRowScanner, secret string) (SigningKeySet
 		return SigningKeySet{}, sql.ErrNoRows
 	}
 	return set, nil
+}
+
+func rotateSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string) error {
+	newID := keyID + "-" + randomSigningKeySuffix()
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := formatOAuthTime(time.Now())
+	if _, err := tx.ExecContext(context.Background(), `
+		UPDATE hai_oauth_signing_key
+		SET active = 0, retired_at = ?
+		WHERE issuer = ? AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		return err
+	}
+	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(context.Background(), `
+		INSERT INTO hai_oauth_signing_key (
+			issuer, key_id, private_key_pem, encryption_nonce, active, created_at, retired_at
+		) VALUES (?, ?, ?, ?, 1, ?, '')`,
+		issuer, keySet.KeyID, pemRaw, nonce, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func rotatePostgresSigningKey(pool *pgxpool.Pool, issuer, keyID, secret string) error {
+	newID := keyID + "-" + randomSigningKeySuffix()
+	tx, err := pool.Begin(context.Background())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	now := formatOAuthTime(time.Now())
+	if _, err := tx.Exec(context.Background(), `
+		UPDATE hai_oauth_signing_key
+		SET active = 0, retired_at = $1
+		WHERE issuer = $2 AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		return err
+	}
+	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(context.Background(), `
+		INSERT INTO hai_oauth_signing_key (
+			issuer, key_id, private_key_pem, encryption_nonce, active, created_at, retired_at
+		) VALUES ($1, $2, $3, $4, 1, $5, '')`,
+		issuer, keySet.KeyID, pemRaw, nonce, now); err != nil {
+		return err
+	}
+	return tx.Commit(context.Background())
+}
+
+func randomSigningKeySuffix() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "rot"
+	}
+	return fmt.Sprintf("%x", b)
 }
 
 func insertSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string) error {

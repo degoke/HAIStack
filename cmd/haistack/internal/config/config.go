@@ -150,6 +150,12 @@ func (c Config) validateOAuthProduction() error {
 	if c.OAuth.AutoApprove != nil && *c.OAuth.AutoApprove {
 		return fmt.Errorf("oauth.autoApprove must be false when oauth.production is enabled")
 	}
+	if strings.TrimSpace(os.Getenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET")) == "" {
+		return fmt.Errorf("oauth.production requires OAUTH_SIGNING_KEY_ENCRYPTION_SECRET")
+	}
+	if strings.TrimSpace(os.Getenv("OAUTH_SESSION_SECRET")) == "" {
+		return fmt.Errorf("oauth.production requires OAUTH_SESSION_SECRET")
+	}
 	return nil
 }
 

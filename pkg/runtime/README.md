@@ -104,7 +104,7 @@ Postgres mode with `WithSearch` also wires a **background reindex worker** and r
 
 ### Builtin SMART OAuth (`haistack serve`)
 
-When HTTP is enabled, `WithBuiltinOAuth` mounts `pkg/oauth` on the root handler (`/oauth/*`, `/.well-known/*`, mirrored under `/fhir/.well-known/*`). Stores use `oauthstore.ApplySQLiteStores` or `ApplyPostgresStores`; signing keys persist as PEM files under `{data-dir}/oauth` or beside the SQLite database.
+When HTTP is enabled, `WithBuiltinOAuth` mounts `pkg/oauth` on the root handler (`/oauth/*`, `/.well-known/*`, mirrored under `/fhir/.well-known/*`, plus tenant routes at `/t/{tenantId}/*`). Stores use `oauthstore.ApplySQLiteStores` or `ApplyPostgresStores` with DB-backed rate limits. Signing keys persist in `hai_oauth_signing_key` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set (optional `OAUTH_SIGNING_KEY_ROTATE=1` on startup); otherwise PEM files under `{data-dir}/oauth` or beside the SQLite database. Production mode also enables `/oauth/login` session cookies via `OAUTH_SESSION_SECRET` and background consent-session purge.
 
 ```go
 rt, err := runtime.New().

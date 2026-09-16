@@ -138,6 +138,38 @@ func TestBuiltinOAuthPersistsSigningKey(t *testing.T) {
 	}
 }
 
+func TestBuiltinOAuthTenantRoute(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-tenant.db")
+	rt, err := runtime.New().
+		WithSQLite(dbPath).
+		WithHTTP("127.0.0.1:8080").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			IssuerURL: "http://127.0.0.1:8080",
+			TenantID:  "local",
+		}).
+		Build(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rt.Shutdown(ctx) }()
+
+	ts := httptest.NewServer(rt.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/t/local/.well-known/smart-configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
 func TestBuiltinOAuthProductionRejectsHTTPDerivedIssuer(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-http-prod.db")
