@@ -19,15 +19,6 @@ redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
 return 1
 `)
 
-	consumeRefreshTokenScript = goredis.NewScript(`
-local payload = redis.call('HGET', KEYS[1], 'payload')
-if not payload then
-  return ''
-end
-redis.call('DEL', KEYS[1])
-return payload
-`)
-
 	deleteRefreshTokenForClientScript = goredis.NewScript(`
 if redis.call('HGET', KEYS[1], 'clientId') == ARGV[1] then
   return redis.call('DEL', KEYS[1])

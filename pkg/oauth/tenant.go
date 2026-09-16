@@ -143,6 +143,14 @@ func NewMultiTenantServer(cfg MultiTenantConfig) (*MultiTenantServer, error) {
 	}, nil
 }
 
+// LookupByIssuer returns tenant configuration for a token issuer URL.
+func (m *MultiTenantServer) LookupByIssuer(issuer string) (TenantIssuerConfig, error) {
+	if m == nil || m.tenants == nil {
+		return TenantIssuerConfig{}, ErrInvalidConfig
+	}
+	return m.tenants.LookupByIssuer(issuer)
+}
+
 // ServerForTenant returns a tenant-scoped authorization server view.
 func (m *MultiTenantServer) ServerForTenant(tenantID string) (*Server, error) {
 	if m == nil {

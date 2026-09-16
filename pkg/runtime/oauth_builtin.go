@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
 	"github.com/degoke/health-ai-stack/pkg/smart"
@@ -170,7 +169,11 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		DefaultTenantID:  tenantID,
 		DefaultUserRoles: []string{"clinician"},
 	})
-	bearer := srv.BearerAuthConfig(adapter)
+	mtBearer := oauth.MultiTenantBearerAuth{
+		Base:    srv,
+		Tenants: multiTenant,
+		Adapter: adapter,
+	}
 	engine, err := auth.NewEngine(auth.Config{
 		Roles: []auth.Role{{Name: "clinician", Permissions: []auth.Permission{"*.read", "*.write", "Patient.read"}}},
 		PolicyBytes: []byte(`{
@@ -188,8 +191,8 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	b.oauthHandler = oauth.CombineHandlers(srv.Handler(), multiTenant.Handler())
 	b.oauthAuthStore = oauthCfg.AuthorizationStore
 	b.oauthIssuerURL = issuer
-	b.httpPrincipalResolver = hahttp.SMARTBearerPrincipalResolver(bearer)
-	b.httpAuthBundleResolver = hahttp.SMARTBearerBundleResolver(bearer)
+	b.httpPrincipalResolver = mtBearer.PrincipalResolver()
+	b.httpAuthBundleResolver = mtBearer.BundleResolver()
 	b.httpAuthChecker = smart.ScopePolicyAuthChecker{Engine: engine, Adapter: adapter}
 	return nil
 }

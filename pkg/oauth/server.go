@@ -51,6 +51,8 @@ type Config struct {
 	VerificationKeys []*KeySet
 	// RequirePKCEForAllClients requires code_challenge for every client at authorize.
 	RequirePKCEForAllClients bool
+	// RegisteredClientScopes limits scopes for dynamic client registration.
+	RegisteredClientScopes []string
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.

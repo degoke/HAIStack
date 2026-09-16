@@ -399,6 +399,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "redirect_uris required for authorization_code grant", http.StatusBadRequest)
 		return
 	}
+	if err := validateRedirectURIs(req.RedirectURIs); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
+		return
+	}
+	scopes, err := normalizeRegisteredClientScopes(s.cfg, strings.Fields(req.Scope))
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope", err.Error())
+		return
+	}
 	clientID := randomToken()
 	secret := generateClientSecret()
 	authMethod := normalizeAuthMethod(req.TokenEndpointAuthMethod)
@@ -409,7 +418,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs:            req.RedirectURIs,
 		GrantTypes:              grantTypes,
 		ResponseTypes:           defaultIfEmpty(req.ResponseTypes, []string{"code"}),
-		Scopes:                  strings.Fields(req.Scope),
+		Scopes:                  scopes,
 		TokenEndpointAuthMethod: authMethod,
 	}
 	if err := s.cfg.Clients.Register(client); err != nil {
@@ -423,7 +432,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		"grant_types":                client.GrantTypes,
 		"response_types":             client.ResponseTypes,
 		"token_endpoint_auth_method": client.TokenEndpointAuthMethod,
-		"scope":                      req.Scope,
+		"scope":                      strings.Join(scopes, " "),
 	})
 }
 

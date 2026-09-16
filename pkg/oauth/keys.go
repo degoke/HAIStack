@@ -68,9 +68,12 @@ func SaveKeySetToPEM(path string, key *KeySet) error {
 	if err != nil {
 		return fmt.Errorf("oauth: write signing key: %w", err)
 	}
-	defer f.Close()
 	if err := pem.Encode(f, block); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("oauth: encode signing key: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("oauth: close signing key: %w", err)
 	}
 	return nil
 }
