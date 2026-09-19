@@ -54,7 +54,7 @@ server, err := oauthstore.NewPostgresServer(oauth.Config{
 - `TokenRateLimiter` / `RegisterRateLimiter` — DB-backed endpoint rate limits
 - DB signing keys via `ApplyPostgresSigningKey` / `ApplySQLiteSigningKey` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set
 
-Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` + `0020_oauth_issuer_binding.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` + `0017_oauth_issuer_binding.sql` (SQLite).
+Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` + `0020_oauth_issuer_binding.sql` + `0021_oauth_issuer_pk.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` + `0017_oauth_issuer_binding.sql` + `0018_oauth_issuer_pk.sql` (SQLite).
 
 Auth codes, refresh tokens, and pending consent rows store an `issuer` column (and JSON `issuer` field) so a shared SQL store can enforce that tokens minted under `/t/{tenantId}/` are only consumed by the matching tenant issuer.
 
@@ -122,11 +122,15 @@ All access tokens include a `client_id` claim; revoke rejects tokens without it.
 | `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | AES key for DB-stored signing keys (required for `haistack serve` production) |
 | `OAUTH_SESSION_SECRET` | HMAC secret for `/oauth/login` session cookies (required for production consent) |
 
-When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem`. Set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active DB key.
+When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem` (`oauth.DefaultSigningKeyPaths`). Set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active DB key.
+
+Embedders that previously used `oauth.NewProductionServer` should call `oauthstore.NewSQLiteServer` or `oauthstore.NewPostgresServer` instead. Those APIs persist clients, authorization codes, refresh tokens, replay JTIs, and revocation across process restarts. `oauth.NewServer` without a store is in-memory only.
+
+`pkg/smart` still has `FileBackendClientStore` / `FileReplayStore` for **SMART backend-service assertion** clients and `jti` replay — they are not the OAuth authorization-server stores.
 
 ## Multi-instance checklist
 
-1. Use `oauthstore.NewPostgresServer` (recommended) or shared file stores for dev only.
+1. Use `oauthstore.NewPostgresServer` (recommended) or `oauthstore.NewSQLiteServer` for single-node.
 2. Persist signing keys in DB (`OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`) or `oauth-signing.pem` across restarts.
 3. Set `UserAuthenticator` (or use `haistack serve` production session login) for end-user consent binding.
 4. Keep `AutoApprove: false` in production.

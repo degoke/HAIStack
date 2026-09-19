@@ -63,6 +63,28 @@ func TestMemoryStore_IsolatesSameCodeAcrossIssuers(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_ConsumeDeletesExpired(t *testing.T) {
+	store := oauth.NewMemoryAuthorizationStore()
+	const issuer = "https://auth.example.test"
+	if err := store.SaveAuthorizationCode("expired", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "c", ExpiresAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.ConsumeAuthorizationCode(issuer, "expired"); ok {
+		t.Fatal("expected expired consume to fail")
+	}
+	if err := store.SaveAuthorizationCode("expired", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "fresh", ExpiresAt: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := store.ConsumeAuthorizationCode(issuer, "expired")
+	if !ok || entry.ClientID != "fresh" {
+		t.Fatalf("expected expired row to have been removed: %+v ok=%v", entry, ok)
+	}
+}
+
 func TestEntryIssuerMatches_RequiresNonEmptyIssuer(t *testing.T) {
 	if oauth.EntryIssuerMatches("", "https://auth.example") {
 		t.Fatal("empty entry issuer must not match")

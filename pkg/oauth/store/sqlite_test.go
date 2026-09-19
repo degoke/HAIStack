@@ -52,6 +52,26 @@ func TestSQLiteStores_RoundTrip(t *testing.T) {
 		t.Fatalf("code = %+v ok=%v", entry, ok)
 	}
 
+	const issuerB = "https://auth.example/t/clinic-b"
+	if err := authStore.SaveAuthorizationCode("shared-code", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "sqlite-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := authStore.SaveAuthorizationCode("shared-code", oauth.AuthorizationCode{
+		Issuer: issuerB, ClientID: "sqlite-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuer, "shared-code"); !ok {
+		t.Fatal("expected code for issuer A")
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuerB, "shared-code"); !ok {
+		t.Fatal("expected code for issuer B")
+	}
+
 	if err := replayStore.CheckAndStore("jti-1", now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}

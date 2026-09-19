@@ -111,6 +111,32 @@ func TestAuthorizationStore_MismatchedJSONIssuerDoesNotBurnCode(t *testing.T) {
 	}
 }
 
+func TestAuthorizationStore_ExpiredJSONDoesNotBurnCode(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	authStore, _, _ := oauthredis.EphemeralStores(client, "test:")
+	const issuer = "https://auth.example.test"
+	if err := authStore.SaveAuthorizationCode("stale", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "redis-client", RedirectURI: "https://localhost/callback",
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuer, "stale"); ok {
+		t.Fatal("expired code must not consume")
+	}
+	seg := base64.RawURLEncoding.EncodeToString([]byte(issuer))
+	key := "test:authcode:" + seg + ":stale"
+	if n, err := client.Exists(context.Background(), key).Result(); err != nil || n != 1 {
+		t.Fatalf("expected expired key retained n=%d err=%v", n, err)
+	}
+}
+
 func TestNewServer_RequiresClientRegistry(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {

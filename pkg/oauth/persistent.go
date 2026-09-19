@@ -101,14 +101,11 @@ func (s *MemoryAuthorizationStore) ConsumeAuthorizationCode(issuer, code string)
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.codes[key]
-	if ok && now.After(entry.ExpiresAt) {
-		ok = false
-	}
 	if ok {
 		delete(s.codes, key)
 	}
 	s.mu.Unlock()
-	if !ok {
+	if !ok || now.After(entry.ExpiresAt) {
 		return AuthorizationCode{}, false
 	}
 	return entry, true
@@ -135,13 +132,16 @@ func (s *MemoryAuthorizationStore) ConsumeRefreshToken(issuer, token string) (Re
 	if err != nil {
 		return RefreshTokenEntry{}, false
 	}
-	entry, ok := s.LookupRefreshToken(issuer, token)
-	if !ok {
+	now := memoryStoreNow(s)
+	s.mu.Lock()
+	entry, ok := s.refreshTokens[key]
+	if ok {
+		delete(s.refreshTokens, key)
+	}
+	s.mu.Unlock()
+	if !ok || now.After(entry.ExpiresAt) {
 		return RefreshTokenEntry{}, false
 	}
-	s.mu.Lock()
-	delete(s.refreshTokens, key)
-	s.mu.Unlock()
 	return entry, true
 }
 
@@ -231,14 +231,11 @@ func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(issuer, id string
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.pending[key]
-	if ok && now.After(entry.ExpiresAt) {
-		ok = false
-	}
 	if ok {
 		delete(s.pending, key)
 	}
 	s.mu.Unlock()
-	if !ok {
+	if !ok || now.After(entry.ExpiresAt) {
 		return PendingAuthorization{}, false
 	}
 	return entry, true

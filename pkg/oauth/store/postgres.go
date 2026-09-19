@@ -42,7 +42,7 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	_, err = s.pool.Exec(context.Background(), `
 		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
 		VALUES ($1, $2, $3::jsonb, $4)
-		ON CONFLICT (code) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		ON CONFLICT (issuer, code) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
 		code, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
@@ -85,7 +85,7 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	_, err = s.pool.Exec(context.Background(), `
 		INSERT INTO hai_oauth_refresh_token (token, issuer, payload, expires_at)
 		VALUES ($1, $2, $3::jsonb, $4)
-		ON CONFLICT (token) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		ON CONFLICT (issuer, token) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
 		token, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
@@ -146,7 +146,7 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	_, err = s.pool.Exec(context.Background(), `
 		INSERT INTO hai_oauth_pending_auth (id, issuer, payload, expires_at)
 		VALUES ($1, $2, $3::jsonb, $4)
-		ON CONFLICT (id) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		ON CONFLICT (issuer, id) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
 		id, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {

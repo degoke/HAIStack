@@ -35,7 +35,7 @@ func (s *SQLiteAuthorizationStore) SaveAuthorizationCode(code string, entry oaut
 	_, err = s.db.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT (code) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		ON CONFLICT (issuer, code) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
 		code, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (s *SQLiteAuthorizationStore) SaveRefreshToken(token string, entry oauth.Re
 	_, err = s.db.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_refresh_token (token, issuer, payload, expires_at)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT (token) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		ON CONFLICT (issuer, token) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
 		token, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -143,7 +143,7 @@ func (s *SQLiteAuthorizationStore) SavePendingAuthorization(id string, entry oau
 	_, err = s.db.ExecContext(context.Background(), `
 		INSERT INTO hai_oauth_pending_auth (id, issuer, payload, expires_at)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		ON CONFLICT (issuer, id) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
 		id, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {

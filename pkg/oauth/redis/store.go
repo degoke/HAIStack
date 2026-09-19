@@ -38,7 +38,7 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(entry)
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode auth code: %w", err)
 	}
@@ -55,7 +55,7 @@ func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oaut
 	if err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	payload, ok := consumeBoundJSONValue(s.client, key, bound)
+	payload, ok := consumeBoundJSONValue(s.client, key, bound, s.now())
 	if !ok {
 		return oauth.AuthorizationCode{}, false
 	}
@@ -79,7 +79,7 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(entry)
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
@@ -104,7 +104,7 @@ func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.Re
 	if err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	payload, ok := consumeBoundRefreshValue(s.client, key, bound)
+	payload, ok := consumeBoundRefreshValue(s.client, key, bound, s.now())
 	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
@@ -151,7 +151,7 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(entry)
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode pending auth: %w", err)
 	}
@@ -195,7 +195,7 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oau
 	if err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	payload, ok := consumeBoundJSONValue(s.client, key, bound)
+	payload, ok := consumeBoundJSONValue(s.client, key, bound, s.now())
 	if !ok {
 		return oauth.PendingAuthorization{}, false
 	}
@@ -209,20 +209,33 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oau
 	return entry, true
 }
 
-func consumeBoundJSONValue(client goredis.Cmdable, key, issuer string) ([]byte, bool) {
-	payload, err := consumeBoundJSONValueScript.Run(context.Background(), client, []string{key}, issuer).Text()
+func consumeBoundJSONValue(client goredis.Cmdable, key, issuer string, now time.Time) ([]byte, bool) {
+	payload, err := consumeBoundJSONValueScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli()).Text()
 	if err != nil || payload == "" {
 		return nil, false
 	}
 	return []byte(payload), true
 }
 
-func consumeBoundRefreshValue(client goredis.Cmdable, key, issuer string) ([]byte, bool) {
-	payload, err := consumeBoundRefreshTokenScript.Run(context.Background(), client, []string{key}, issuer).Text()
+func consumeBoundRefreshValue(client goredis.Cmdable, key, issuer string, now time.Time) ([]byte, bool) {
+	payload, err := consumeBoundRefreshTokenScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli()).Text()
 	if err != nil || payload == "" {
 		return nil, false
 	}
 	return []byte(payload), true
+}
+
+func marshalBoundJSON(v any, expiresAt time.Time) ([]byte, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	obj["exp"] = expiresAt.UnixMilli()
+	return json.Marshal(obj)
 }
 
 func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
