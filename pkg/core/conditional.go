@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -61,6 +62,7 @@ func (s *ResourceService) UpdateIfMatch(ctx context.Context, resource *types.Res
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionUpdate, written, previous)
 	return written, nil
 }
 
@@ -97,6 +99,7 @@ func (s *ResourceService) DeleteIfMatch(ctx context.Context, resourceType, id, e
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionDelete, current, current)
 	return nil
 }
 
@@ -154,5 +157,6 @@ func (s *ResourceService) PatchIfMatch(ctx context.Context, resourceType, id str
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionPatch, written, current)
 	return written, nil
 }

@@ -1,15 +1,22 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 type formattedResponseWriter struct {
 	http.ResponseWriter
-	format responseFormat
+	format    responseFormat
+	hookCtx   context.Context
+	hooks     hooks.Hooks
+	hookEvent *hooks.Event
 }
 
 func withResponseFormat(w http.ResponseWriter, format responseFormat) http.ResponseWriter {
@@ -67,6 +74,30 @@ func writeEnvelope(w http.ResponseWriter, status int, envelope *types.ResourceEn
 	if envelope == nil {
 		writeError(w, invalidRequest("service returned no resource", nil))
 		return
+	}
+	if formatted, ok := w.(*formattedResponseWriter); ok && formatted.hooks != nil {
+		event := &hooks.Event{}
+		if formatted.hookEvent != nil {
+			*event = *formatted.hookEvent
+		}
+		event.Resource = envelope
+		event.ResourceType = envelope.ResourceType
+		event.ID = envelope.ID
+		ctx := formatted.hookCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := formatted.hooks.Run(ctx, hooks.Outgoing, event); err != nil {
+			var svcErr *core.ServiceError
+			if !errors.As(err, &svcErr) {
+				err = invalidRequest("outgoing hook rejected response", err)
+			}
+			writeError(w, err)
+			return
+		}
+		if event.Resource != nil {
+			envelope = event.Resource
+		}
 	}
 	if headers == nil {
 		headers = map[string]string{}
