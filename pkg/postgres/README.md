@@ -145,6 +145,7 @@ Search entries use typed table routing (same convention as sqlite):
 - `token.<name>` → token index
 - `string.<name>` → string index (default when no prefix)
 - `date.<name>`, `number.<name>`, `reference.<name>` / `ref.<name>` → typed tables
+- `uri.<name>` → string index (canonical/URI search parameters)
 
 FHIR search parsing lives outside this package; callers pass prepared `SearchIndexEntry` values on writes.
 

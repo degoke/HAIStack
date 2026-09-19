@@ -67,6 +67,17 @@ func (e *StoreExecutor) Execute(ctx context.Context, plan *Plan) (*ExecuteResult
 		candidateSets = append(candidateSets, ids)
 	}
 
+	for _, hasPlan := range plan.HasPlans {
+		ids, err := e.executeHasPlan(ctx, plan.ResourceType, hasPlan)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return &ExecuteResult{}, nil
+		}
+		candidateSets = append(candidateSets, ids)
+	}
+
 	var scores map[string]float64
 	if plan.FullText != "" {
 		if e.Advanced == nil {
@@ -272,7 +283,13 @@ func (e *StoreExecutor) executeParamPlan(ctx context.Context, resourceType strin
 }
 
 func (e *StoreExecutor) executeChainPlan(ctx context.Context, resourceType string, chain ChainPlan) ([]string, error) {
-	targetIDs, err := e.executeParamPlan(ctx, chain.TargetType, chain.ParamPlan)
+	var targetIDs []string
+	var err error
+	if chain.Nested != nil {
+		targetIDs, err = e.executeChainPlan(ctx, chain.TargetType, *chain.Nested)
+	} else {
+		targetIDs, err = e.executeParamPlan(ctx, chain.TargetType, chain.ParamPlan)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +321,87 @@ func (e *StoreExecutor) executeChainPlan(ctx context.Context, resourceType strin
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func (e *StoreExecutor) executeHasPlan(ctx context.Context, searchType string, has HasPlan) ([]string, error) {
+	var sourceIDs []string
+	var err error
+	switch {
+	case has.Nested != nil:
+		sourceIDs, err = e.executeHasPlan(ctx, has.SourceType, *has.Nested)
+	case has.ChainPlan != nil:
+		sourceIDs, err = e.executeChainPlan(ctx, has.SourceType, *has.ChainPlan)
+	default:
+		sourceIDs, err = e.executeParamPlan(ctx, has.SourceType, has.ParamPlan)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(sourceIDs) == 0 {
+		return nil, nil
+	}
+
+	targetIDs, err := e.referencedTargetIDs(ctx, has.SourceType, has.RefFieldKey, searchType, sourceIDs)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(targetIDs)
+	return targetIDs, nil
+}
+
+func (e *StoreExecutor) referencedTargetIDs(ctx context.Context, sourceType, refFieldKey, targetType string, sourceIDs []string) ([]string, error) {
+	seen := make(map[string]struct{})
+	var ids []string
+	add := func(typ, id string) {
+		if id == "" {
+			return
+		}
+		if targetType != "" && typ != "" && typ != targetType {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+
+	if e.Advanced != nil {
+		refs, err := e.Advanced.LookupReferences(ctx, sourceType, refFieldKey, sourceIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, links := range refs {
+			for _, link := range links {
+				typ := link.TargetType
+				if typ == "" {
+					typ = parseIncludedReference(link.Literal)
+				}
+				add(typ, link.TargetID)
+			}
+		}
+		return ids, nil
+	}
+
+	values, err := e.Backend.FieldValues(ctx, sourceType, refFieldKey, sourceIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range values {
+		link := parseReferenceLink(value)
+		add(link.TargetType, link.TargetID)
+	}
+	return ids, nil
+}
+
+func parseReferenceLink(value string) store.ReferenceLink {
+	if i := strings.Index(value, "|"); i > 0 && i < len(value)-1 {
+		return store.ReferenceLink{TargetType: value[:i], TargetID: value[i+1:], Literal: value}
+	}
+	if i := strings.Index(value, "/"); i > 0 && i < len(value)-1 {
+		return store.ReferenceLink{TargetType: value[:i], TargetID: value[i+1:], Literal: value}
+	}
+	return store.ReferenceLink{TargetID: value, Literal: value}
 }
 
 func referenceLookupValues(targetType, targetID string) []string {
