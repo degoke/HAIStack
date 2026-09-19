@@ -32,6 +32,19 @@ func TestEphemeralStores_RoundTrip(t *testing.T) {
 	if !ok || entry.ClientID != "redis-client" {
 		t.Fatalf("code = %+v ok=%v", entry, ok)
 	}
+	if err := authStore.SaveAuthorizationCode("code-2", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "redis-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode("https://other.example", "code-2"); ok {
+		t.Fatal("cross-issuer consume must fail")
+	}
+	entry, ok = authStore.ConsumeAuthorizationCode(issuer, "code-2")
+	if !ok || entry.ClientID != "redis-client" {
+		t.Fatalf("code-2 = %+v ok=%v", entry, ok)
+	}
 
 	refresh := "refresh-1"
 	if err := authStore.SaveRefreshToken(refresh, oauth.RefreshTokenEntry{

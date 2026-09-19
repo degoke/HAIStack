@@ -108,9 +108,10 @@ func (s *Server) introspectRefreshToken(token string) (IntrospectionResponse, bo
 		return IntrospectionResponse{}, false
 	}
 	record, ok := s.authStore.LookupRefreshToken(s.cfg.Issuer, token)
-	if !ok {
+	if !ok || !EntryIssuerMatches(record.Issuer, s.cfg.Issuer) {
 		return IntrospectionResponse{}, false
 	}
+	iss := NormalizeIssuerURL(record.Issuer)
 	return IntrospectionResponse{
 		Active:    true,
 		Scope:     record.Scope,
@@ -119,7 +120,7 @@ func (s *Server) introspectRefreshToken(token string) (IntrospectionResponse, bo
 		TokenType: "refresh_token",
 		Exp:       record.ExpiresAt.Unix(),
 		Sub:       record.Subject,
-		Iss:       s.cfg.Issuer,
+		Iss:       iss,
 		Patient:   record.Patient,
 		FHIRUser:  record.FHIRUser,
 	}, true

@@ -1,20 +1,28 @@
 package oauth
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // NormalizeIssuerURL trims and removes a trailing slash from an issuer URL.
 func NormalizeIssuerURL(issuer string) string {
 	return strings.TrimRight(strings.TrimSpace(issuer), "/")
 }
 
-// EntryIssuerMatches reports whether a stored row may be used by a server configured
-// with serverIssuer. Legacy rows with an empty stored issuer remain valid for any
-// server (single-issuer deployments before issuer binding).
+// EntryIssuerMatches reports whether a stored row belongs to serverIssuer.
+// Both issuers must be non-empty and equal after normalization.
 func EntryIssuerMatches(entryIssuer, serverIssuer string) bool {
 	entryIssuer = NormalizeIssuerURL(entryIssuer)
 	serverIssuer = NormalizeIssuerURL(serverIssuer)
-	if entryIssuer == "" {
-		return true
+	return entryIssuer != "" && entryIssuer == serverIssuer
+}
+
+// RequireBoundIssuer returns a normalized issuer or an error when missing.
+func RequireBoundIssuer(issuer string) (string, error) {
+	iss := NormalizeIssuerURL(issuer)
+	if iss == "" {
+		return "", fmt.Errorf("oauth: issuer required")
 	}
-	return entryIssuer == serverIssuer
+	return iss, nil
 }

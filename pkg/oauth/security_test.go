@@ -51,7 +51,9 @@ func TestFileAuthorizationStore_PersistsPendingSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const issuer = "https://auth.example.test"
 	if err := store.SavePendingAuthorization("sess-1", oauth.PendingAuthorization{
+		Issuer:    issuer,
 		Request:   oauth.AuthorizationRequest{ClientID: "client", Scope: "patient/*.rs"},
 		ExpiresAt: time.Now().Add(5 * time.Minute),
 	}); err != nil {
@@ -61,7 +63,7 @@ func TestFileAuthorizationStore_PersistsPendingSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := reloaded.ConsumePendingAuthorization("", "sess-1")
+	entry, ok := reloaded.ConsumePendingAuthorization(issuer, "sess-1")
 	if !ok || entry.Request.ClientID != "client" {
 		t.Fatalf("entry = %+v ok=%v", entry, ok)
 	}
@@ -211,13 +213,14 @@ func TestOAuthServer_ConfidentialClientSecretBasic(t *testing.T) {
 }
 
 func TestFileAuthorizationStore_PersistsCodes(t *testing.T) {
+	const issuer = "https://auth.example.test"
 	path := filepath.Join(t.TempDir(), "oauth-auth.json")
 	store, err := oauth.NewFileAuthorizationStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SaveAuthorizationCode("code-1", oauth.AuthorizationCode{
-		ClientID: "client", RedirectURI: "https://app/cb", Scope: "patient/*.rs",
+		Issuer: issuer, ClientID: "client", RedirectURI: "https://app/cb", Scope: "patient/*.rs",
 		ExpiresAt: time.Now().Add(5 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
@@ -226,7 +229,7 @@ func TestFileAuthorizationStore_PersistsCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := reloaded.ConsumeAuthorizationCode("", "code-1")
+	entry, ok := reloaded.ConsumeAuthorizationCode(issuer, "code-1")
 	if !ok || entry.ClientID != "client" {
 		t.Fatalf("entry = %+v ok=%v", entry, ok)
 	}
