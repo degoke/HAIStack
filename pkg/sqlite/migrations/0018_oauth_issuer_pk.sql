@@ -1,7 +1,5 @@
 -- Composite primary keys so two issuers can hold the same code/token/session id.
--- Idempotent: DROP leftover rebuild tables, then replace.
 
-DROP TABLE IF EXISTS hai_oauth_auth_code_new;
 CREATE TABLE hai_oauth_auth_code_new (
     issuer TEXT NOT NULL,
     code TEXT NOT NULL,
@@ -16,7 +14,6 @@ ALTER TABLE hai_oauth_auth_code_new RENAME TO hai_oauth_auth_code;
 CREATE INDEX IF NOT EXISTS hai_oauth_auth_code_expires_idx ON hai_oauth_auth_code (expires_at);
 CREATE INDEX IF NOT EXISTS hai_oauth_auth_code_issuer_expires_idx ON hai_oauth_auth_code (issuer, expires_at);
 
-DROP TABLE IF EXISTS hai_oauth_refresh_token_new;
 CREATE TABLE hai_oauth_refresh_token_new (
     issuer TEXT NOT NULL,
     token TEXT NOT NULL,
@@ -31,7 +28,6 @@ ALTER TABLE hai_oauth_refresh_token_new RENAME TO hai_oauth_refresh_token;
 CREATE INDEX IF NOT EXISTS hai_oauth_refresh_token_expires_idx ON hai_oauth_refresh_token (expires_at);
 CREATE INDEX IF NOT EXISTS hai_oauth_refresh_token_issuer_expires_idx ON hai_oauth_refresh_token (issuer, expires_at);
 
-DROP TABLE IF EXISTS hai_oauth_pending_auth_new;
 CREATE TABLE hai_oauth_pending_auth_new (
     issuer TEXT NOT NULL,
     id TEXT NOT NULL,
