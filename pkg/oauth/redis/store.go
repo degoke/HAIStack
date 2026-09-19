@@ -41,7 +41,7 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	return s.client.Set(context.Background(), s.key("authcode:"+code), payload, ttl).Err()
 }
 
-func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
+func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oauth.AuthorizationCode, bool) {
 	payload, ok := consumeJSONValue(s.client, s.key("authcode:"+code))
 	if !ok {
 		return oauth.AuthorizationCode{}, false
@@ -50,7 +50,7 @@ func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.Author
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) || s.now().After(entry.ExpiresAt) {
 		return oauth.AuthorizationCode{}, false
 	}
 	return entry, true
@@ -74,8 +74,8 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	return err
 }
 
-func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
-	entry, ok := s.LookupRefreshToken(token)
+func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(issuer, token)
 	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
@@ -84,9 +84,9 @@ func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTok
 	return entry, true
 }
 
-func (s *AuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+func (s *AuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
 	key := s.key("refresh:" + token)
-	payload, err := s.client.Get(context.Background(), key).Bytes()
+	payload, err := s.client.HGet(context.Background(), key, "payload").Bytes()
 	if err == goredis.Nil || err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
@@ -94,7 +94,7 @@ func (s *AuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshToke
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) || s.now().After(entry.ExpiresAt) {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -109,7 +109,7 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	return s.client.Set(context.Background(), s.key("pending:"+id), payload, ttl).Err()
 }
 
-func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) GetPendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	payload, err := s.client.Get(context.Background(), s.key("pending:"+id)).Bytes()
 	if err == goredis.Nil || err != nil {
 		return oauth.PendingAuthorization{}, false
@@ -118,7 +118,7 @@ func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAu
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) || s.now().After(entry.ExpiresAt) {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
@@ -128,7 +128,7 @@ func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
 	return 0
 }
 
-func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	payload, ok := consumeJSONValue(s.client, s.key("pending:"+id))
 	if !ok {
 		return oauth.PendingAuthorization{}, false
@@ -137,7 +137,7 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) || s.now().After(entry.ExpiresAt) {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
@@ -151,7 +151,11 @@ func consumeJSONValue(client goredis.Cmdable, key string) ([]byte, bool) {
 	return []byte(payload), true
 }
 
-func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
+	entry, ok := s.LookupRefreshToken(issuer, token)
+	if !ok || entry.ClientID != clientID {
+		return false
+	}
 	key := s.key("refresh:" + token)
 	n, err := deleteRefreshTokenForClientScript.Run(context.Background(), s.client, []string{key}, clientID).Int()
 	return err == nil && n > 0

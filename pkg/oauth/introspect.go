@@ -107,7 +107,7 @@ func (s *Server) introspectRefreshToken(token string) (IntrospectionResponse, bo
 	if s.authStore == nil {
 		return IntrospectionResponse{}, false
 	}
-	record, ok := s.authStore.LookupRefreshToken(token)
+	record, ok := s.authStore.LookupRefreshToken(s.cfg.Issuer, token)
 	if !ok {
 		return IntrospectionResponse{}, false
 	}

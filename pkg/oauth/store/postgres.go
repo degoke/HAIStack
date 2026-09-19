@@ -35,11 +35,12 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	if err != nil {
 		return fmt.Errorf("encode auth code: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_auth_code (code, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (code) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		code, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (code) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		code, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save auth code: %w", err)
@@ -47,19 +48,23 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	return nil
 }
 
-func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
+func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oauth.AuthorizationCode, bool) {
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		DELETE FROM hai_oauth_auth_code
-		WHERE code = $1 AND expires_at > $2
-		RETURNING payload`, code, now,
+		WHERE code = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '')
+		RETURNING payload`, code, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
 	var entry oauth.AuthorizationCode
 	if err := json.Unmarshal(payload, &entry); err != nil {
+		return oauth.AuthorizationCode{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.AuthorizationCode{}, false
 	}
 	return entry, true
@@ -70,11 +75,12 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_refresh_token (token, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (token) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		token, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_refresh_token (token, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (token) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		token, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save refresh token: %w", err)
@@ -82,33 +88,38 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	return nil
 }
 
-func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
-	entry, ok := s.LookupRefreshToken(token)
+func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(issuer, token)
 	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	tag, err := s.pool.Exec(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2`, token, now)
+		WHERE token = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '')`, token, now, issuer)
 	if err != nil || tag.RowsAffected() == 0 {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
 }
 
-func (s *AuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+func (s *AuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		SELECT payload FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2`, token, now,
+		WHERE token = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '')`, token, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
 	if err := json.Unmarshal(payload, &entry); err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -119,11 +130,12 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	if err != nil {
 		return fmt.Errorf("encode pending auth: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_pending_auth (id, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		id, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_pending_auth (id, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (id) DO UPDATE SET issuer = EXCLUDED.issuer, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		id, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save pending auth: %w", err)
@@ -131,18 +143,22 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	return nil
 }
 
-func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) GetPendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		SELECT payload FROM hai_oauth_pending_auth
-		WHERE id = $1 AND expires_at > $2`, id, now,
+		WHERE id = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '')`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
 	if err := json.Unmarshal(payload, &entry); err != nil {
+		return oauth.PendingAuthorization{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
@@ -158,13 +174,14 @@ func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
 	return int(tag.RowsAffected())
 }
 
-func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		DELETE FROM hai_oauth_pending_auth
-		WHERE id = $1 AND expires_at > $2
-		RETURNING payload`, id, now,
+		WHERE id = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '')
+		RETURNING payload`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
@@ -173,15 +190,19 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
+		return oauth.PendingAuthorization{}, false
+	}
 	return entry, true
 }
 
-func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
 	now := s.now()
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	tag, err := s.pool.Exec(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2 AND payload->>'clientId' = $3`,
-		token, now, clientID,
+		WHERE token = $1 AND expires_at > $2 AND (issuer = $3 OR issuer = '') AND payload->>'clientId' = $4`,
+		token, now, issuer, clientID,
 	)
 	if err != nil {
 		return false

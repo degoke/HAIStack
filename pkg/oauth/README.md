@@ -54,7 +54,9 @@ server, err := oauthstore.NewPostgresServer(oauth.Config{
 - `TokenRateLimiter` / `RegisterRateLimiter` — DB-backed endpoint rate limits
 - DB signing keys via `ApplyPostgresSigningKey` / `ApplySQLiteSigningKey` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set
 
-Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` (SQLite).
+Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` + `0020_oauth_issuer_binding.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` + `0017_oauth_issuer_binding.sql` (SQLite).
+
+Auth codes, refresh tokens, and pending consent rows store an `issuer` column (and JSON `issuer` field) so a shared SQL store can enforce that tokens minted under `/t/{tenantId}/` are only consumed by the matching tenant issuer.
 
 ### Why file stores existed
 

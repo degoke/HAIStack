@@ -28,11 +28,12 @@ func (s *SQLiteAuthorizationStore) SaveAuthorizationCode(code string, entry oaut
 	if err != nil {
 		return fmt.Errorf("encode auth code: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.db.ExecContext(context.Background(), `
-		INSERT INTO hai_oauth_auth_code (code, payload, expires_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT (code) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
-		code, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (code) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		code, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("save auth code: %w", err)
@@ -40,19 +41,23 @@ func (s *SQLiteAuthorizationStore) SaveAuthorizationCode(code string, entry oaut
 	return nil
 }
 
-func (s *SQLiteAuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
+func (s *SQLiteAuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oauth.AuthorizationCode, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
 		DELETE FROM hai_oauth_auth_code
-		WHERE code = ? AND expires_at > ?
-		RETURNING payload`, code, now,
+		WHERE code = ? AND expires_at > ? AND (issuer = ? OR issuer = '')
+		RETURNING payload`, code, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
 	var entry oauth.AuthorizationCode
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+		return oauth.AuthorizationCode{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.AuthorizationCode{}, false
 	}
 	return entry, true
@@ -63,11 +68,12 @@ func (s *SQLiteAuthorizationStore) SaveRefreshToken(token string, entry oauth.Re
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.db.ExecContext(context.Background(), `
-		INSERT INTO hai_oauth_refresh_token (token, payload, expires_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT (token) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
-		token, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		INSERT INTO hai_oauth_refresh_token (token, issuer, payload, expires_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (token) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		token, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("save refresh token: %w", err)
@@ -75,15 +81,16 @@ func (s *SQLiteAuthorizationStore) SaveRefreshToken(token string, entry oauth.Re
 	return nil
 }
 
-func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
-	entry, ok := s.LookupRefreshToken(token)
+func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(issuer, token)
 	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	res, err := s.db.ExecContext(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ?`, token, now)
+		WHERE token = ? AND expires_at > ? AND (issuer = ? OR issuer = '')`, token, now, issuer)
 	if err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
@@ -94,18 +101,22 @@ func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(token string) (oauth.Refr
 	return entry, true
 }
 
-func (s *SQLiteAuthorizationStore) LookupRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+func (s *SQLiteAuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
 		SELECT payload FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ?`, token, now,
+		WHERE token = ? AND expires_at > ? AND (issuer = ? OR issuer = '')`, token, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -116,11 +127,12 @@ func (s *SQLiteAuthorizationStore) SavePendingAuthorization(id string, entry oau
 	if err != nil {
 		return fmt.Errorf("encode pending auth: %w", err)
 	}
+	issuer := oauth.NormalizeIssuerURL(entry.Issuer)
 	_, err = s.db.ExecContext(context.Background(), `
-		INSERT INTO hai_oauth_pending_auth (id, payload, expires_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at`,
-		id, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		INSERT INTO hai_oauth_pending_auth (id, issuer, payload, expires_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET issuer = excluded.issuer, payload = excluded.payload, expires_at = excluded.expires_at`,
+		id, issuer, payload, entry.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("save pending auth: %w", err)
@@ -128,18 +140,22 @@ func (s *SQLiteAuthorizationStore) SavePendingAuthorization(id string, entry oau
 	return nil
 }
 
-func (s *SQLiteAuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *SQLiteAuthorizationStore) GetPendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
 		SELECT payload FROM hai_oauth_pending_auth
-		WHERE id = ? AND expires_at > ?`, id, now,
+		WHERE id = ? AND expires_at > ? AND (issuer = ? OR issuer = '')`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+		return oauth.PendingAuthorization{}, false
+	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
@@ -156,13 +172,14 @@ func (s *SQLiteAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
 	return int(n)
 }
 
-func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
 		DELETE FROM hai_oauth_pending_auth
-		WHERE id = ? AND expires_at > ?
-		RETURNING payload`, id, now,
+		WHERE id = ? AND expires_at > ? AND (issuer = ? OR issuer = '')
+		RETURNING payload`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
@@ -171,15 +188,19 @@ func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(id string) (oauth
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
+	if !oauth.EntryIssuerMatches(entry.Issuer, issuer) {
+		return oauth.PendingAuthorization{}, false
+	}
 	return entry, true
 }
 
-func (s *SQLiteAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *SQLiteAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
 	now := s.now().UTC().Format(time.RFC3339Nano)
+	issuer = oauth.NormalizeIssuerURL(issuer)
 	res, err := s.db.ExecContext(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ? AND json_extract(payload, '$.clientId') = ?`,
-		token, now, clientID,
+		WHERE token = ? AND expires_at > ? AND (issuer = ? OR issuer = '') AND json_extract(payload, '$.clientId') = ?`,
+		token, now, issuer, clientID,
 	)
 	if err != nil {
 		return false

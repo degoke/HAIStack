@@ -15,20 +15,21 @@ import (
 // deployments that share a filesystem.
 type AuthorizationStore interface {
 	SaveAuthorizationCode(code string, entry AuthorizationCode) error
-	ConsumeAuthorizationCode(code string) (AuthorizationCode, bool)
+	ConsumeAuthorizationCode(issuer, code string) (AuthorizationCode, bool)
 	SaveRefreshToken(token string, entry RefreshTokenEntry) error
-	ConsumeRefreshToken(token string) (RefreshTokenEntry, bool)
-	LookupRefreshToken(token string) (RefreshTokenEntry, bool)
+	ConsumeRefreshToken(issuer, token string) (RefreshTokenEntry, bool)
+	LookupRefreshToken(issuer, token string) (RefreshTokenEntry, bool)
 	SavePendingAuthorization(id string, entry PendingAuthorization) error
-	GetPendingAuthorization(id string) (PendingAuthorization, bool)
-	ConsumePendingAuthorization(id string) (PendingAuthorization, bool)
-	DeleteRefreshTokenForClient(token, clientID string) bool
+	GetPendingAuthorization(issuer, id string) (PendingAuthorization, bool)
+	ConsumePendingAuthorization(issuer, id string) (PendingAuthorization, bool)
+	DeleteRefreshTokenForClient(issuer, token, clientID string) bool
 	// PurgeExpiredPendingAuthorizations removes expired consent sessions.
 	PurgeExpiredPendingAuthorizations() int
 }
 
 // PendingAuthorization stores an in-progress authorize/consent/launch session.
 type PendingAuthorization struct {
+	Issuer    string               `json:"issuer,omitempty"`
 	Request   AuthorizationRequest `json:"request"`
 	Subject   string               `json:"subject,omitempty"`
 	FHIRUser  string               `json:"fhirUser,omitempty"`
@@ -38,6 +39,7 @@ type PendingAuthorization struct {
 
 // AuthorizationCode is a short-lived authorization code entry.
 type AuthorizationCode struct {
+	Issuer      string    `json:"issuer,omitempty"`
 	ClientID    string    `json:"clientId"`
 	RedirectURI string    `json:"redirectUri"`
 	Scope       string    `json:"scope"`
@@ -52,6 +54,7 @@ type AuthorizationCode struct {
 
 // RefreshTokenEntry stores refresh-token metadata.
 type RefreshTokenEntry struct {
+	Issuer    string    `json:"issuer,omitempty"`
 	ClientID  string    `json:"clientId"`
 	Scope     string    `json:"scope"`
 	Patient   string    `json:"patient,omitempty"`
@@ -87,15 +90,18 @@ func (s *MemoryAuthorizationStore) SaveAuthorizationCode(code string, entry Auth
 	return nil
 }
 
-func (s *MemoryAuthorizationStore) ConsumeAuthorizationCode(code string) (AuthorizationCode, bool) {
+func (s *MemoryAuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (AuthorizationCode, bool) {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.codes[code]
+	if ok && (!EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt)) {
+		ok = false
+	}
 	if ok {
 		delete(s.codes, code)
 	}
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok {
 		return AuthorizationCode{}, false
 	}
 	return entry, true
@@ -108,8 +114,8 @@ func (s *MemoryAuthorizationStore) SaveRefreshToken(token string, entry RefreshT
 	return nil
 }
 
-func (s *MemoryAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTokenEntry, bool) {
-	entry, ok := s.LookupRefreshToken(token)
+func (s *MemoryAuthorizationStore) ConsumeRefreshToken(issuer, token string) (RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(issuer, token)
 	if !ok {
 		return RefreshTokenEntry{}, false
 	}
@@ -119,12 +125,12 @@ func (s *MemoryAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTok
 	return entry, true
 }
 
-func (s *MemoryAuthorizationStore) LookupRefreshToken(token string) (RefreshTokenEntry, bool) {
+func (s *MemoryAuthorizationStore) LookupRefreshToken(issuer, token string) (RefreshTokenEntry, bool) {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[token]
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok || !EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt) {
 		return RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -137,22 +143,22 @@ func (s *MemoryAuthorizationStore) SavePendingAuthorization(id string, entry Pen
 	return nil
 }
 
-func (s *MemoryAuthorizationStore) GetPendingAuthorization(id string) (PendingAuthorization, bool) {
+func (s *MemoryAuthorizationStore) GetPendingAuthorization(issuer, id string) (PendingAuthorization, bool) {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.pending[id]
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok || !EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt) {
 		return PendingAuthorization{}, false
 	}
 	return entry, true
 }
 
-func (s *MemoryAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *MemoryAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[token]
-	if ok && (entry.ClientID != clientID || now.After(entry.ExpiresAt)) {
+	if ok && (!EntryIssuerMatches(entry.Issuer, issuer) || entry.ClientID != clientID || now.After(entry.ExpiresAt)) {
 		ok = false
 	}
 	if ok {
@@ -176,15 +182,18 @@ func (s *MemoryAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
 	return n
 }
 
-func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
+func (s *MemoryAuthorizationStore) ConsumePendingAuthorization(issuer, id string) (PendingAuthorization, bool) {
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.pending[id]
+	if ok && (!EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt)) {
+		ok = false
+	}
 	if ok {
 		delete(s.pending, id)
 	}
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok {
 		return PendingAuthorization{}, false
 	}
 	return entry, true
@@ -227,17 +236,20 @@ func (s *FileAuthorizationStore) SaveAuthorizationCode(code string, entry Author
 	})
 }
 
-func (s *FileAuthorizationStore) ConsumeAuthorizationCode(code string) (AuthorizationCode, bool) {
+func (s *FileAuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (AuthorizationCode, bool) {
 	now := s.now()
 	var entry AuthorizationCode
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, ok = state.Codes[code]
+		if ok && (!EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt)) {
+			ok = false
+		}
 		if ok {
 			delete(state.Codes, code)
 		}
 	})
-	if err != nil || !ok || now.After(entry.ExpiresAt) {
+	if err != nil || !ok {
 		return AuthorizationCode{}, false
 	}
 	return entry, true
@@ -252,8 +264,8 @@ func (s *FileAuthorizationStore) SaveRefreshToken(token string, entry RefreshTok
 	})
 }
 
-func (s *FileAuthorizationStore) ConsumeRefreshToken(token string) (RefreshTokenEntry, bool) {
-	entry, ok := s.LookupRefreshToken(token)
+func (s *FileAuthorizationStore) ConsumeRefreshToken(issuer, token string) (RefreshTokenEntry, bool) {
+	entry, ok := s.LookupRefreshToken(issuer, token)
 	if !ok {
 		return RefreshTokenEntry{}, false
 	}
@@ -266,14 +278,14 @@ func (s *FileAuthorizationStore) ConsumeRefreshToken(token string) (RefreshToken
 	return entry, true
 }
 
-func (s *FileAuthorizationStore) LookupRefreshToken(token string) (RefreshTokenEntry, bool) {
+func (s *FileAuthorizationStore) LookupRefreshToken(issuer, token string) (RefreshTokenEntry, bool) {
 	now := s.now()
 	var entry RefreshTokenEntry
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, ok = state.Refresh[token]
 	})
-	if err != nil || !ok || now.After(entry.ExpiresAt) {
+	if err != nil || !ok || !EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt) {
 		return RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -288,30 +300,33 @@ func (s *FileAuthorizationStore) SavePendingAuthorization(id string, entry Pendi
 	})
 }
 
-func (s *FileAuthorizationStore) GetPendingAuthorization(id string) (PendingAuthorization, bool) {
+func (s *FileAuthorizationStore) GetPendingAuthorization(issuer, id string) (PendingAuthorization, bool) {
 	now := s.now()
 	var entry PendingAuthorization
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, ok = state.Pending[id]
 	})
-	if err != nil || !ok || now.After(entry.ExpiresAt) {
+	if err != nil || !ok || !EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt) {
 		return PendingAuthorization{}, false
 	}
 	return entry, true
 }
 
-func (s *FileAuthorizationStore) ConsumePendingAuthorization(id string) (PendingAuthorization, bool) {
+func (s *FileAuthorizationStore) ConsumePendingAuthorization(issuer, id string) (PendingAuthorization, bool) {
 	now := s.now()
 	var entry PendingAuthorization
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, ok = state.Pending[id]
+		if ok && (!EntryIssuerMatches(entry.Issuer, issuer) || now.After(entry.ExpiresAt)) {
+			ok = false
+		}
 		if ok {
 			delete(state.Pending, id)
 		}
 	})
-	if err != nil || !ok || now.After(entry.ExpiresAt) {
+	if err != nil || !ok {
 		return PendingAuthorization{}, false
 	}
 	return entry, true
@@ -338,12 +353,12 @@ func (s *FileAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
 	return n
 }
 
-func (s *FileAuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *FileAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
 	now := s.now()
 	var ok bool
 	err := s.update(func(state *fileAuthorizationState) {
 		entry, found := state.Refresh[token]
-		if !found || entry.ClientID != clientID || now.After(entry.ExpiresAt) {
+		if !found || !EntryIssuerMatches(entry.Issuer, issuer) || entry.ClientID != clientID || now.After(entry.ExpiresAt) {
 			return
 		}
 		delete(state.Refresh, token)

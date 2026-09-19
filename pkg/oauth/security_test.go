@@ -61,7 +61,7 @@ func TestFileAuthorizationStore_PersistsPendingSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := reloaded.ConsumePendingAuthorization("sess-1")
+	entry, ok := reloaded.ConsumePendingAuthorization("", "sess-1")
 	if !ok || entry.Request.ClientID != "client" {
 		t.Fatalf("entry = %+v ok=%v", entry, ok)
 	}
@@ -226,7 +226,7 @@ func TestFileAuthorizationStore_PersistsCodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := reloaded.ConsumeAuthorizationCode("code-1")
+	entry, ok := reloaded.ConsumeAuthorizationCode("", "code-1")
 	if !ok || entry.ClientID != "client" {
 		t.Fatalf("entry = %+v ok=%v", entry, ok)
 	}

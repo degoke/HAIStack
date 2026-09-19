@@ -121,6 +121,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.RequireConsentForm && s.cfg.ConsentHandler == nil && !s.cfg.AutoApprove {
 		id := randomToken()
 		_ = s.authStore.SavePendingAuthorization(id, PendingAuthorization{
+			Issuer:    s.cfg.Issuer,
 			Request:   authReq,
 			Subject:   authReq.Subject,
 			FHIRUser:  authReq.FHIRUser,
@@ -149,7 +150,7 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		pending, ok := s.authStore.GetPendingAuthorization(id)
+		pending, ok := s.authStore.GetPendingAuthorization(s.cfg.Issuer, id)
 		if !ok {
 			http.Error(w, "consent session expired", http.StatusBadRequest)
 			return
@@ -165,7 +166,7 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	pending, ok := s.authStore.GetPendingAuthorization(id)
+	pending, ok := s.authStore.GetPendingAuthorization(s.cfg.Issuer, id)
 	if !ok {
 		http.Error(w, "consent session expired", http.StatusBadRequest)
 		return
@@ -174,7 +175,7 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid csrf token", http.StatusForbidden)
 		return
 	}
-	pending, ok = s.authStore.ConsumePendingAuthorization(id)
+	pending, ok = s.authStore.ConsumePendingAuthorization(s.cfg.Issuer, id)
 	if !ok {
 		http.Error(w, "consent session expired", http.StatusBadRequest)
 		return
@@ -212,6 +213,7 @@ func (s *Server) issueAuthorizationRedirect(w http.ResponseWriter, r *http.Reque
 		subject = clientID
 	}
 	_ = s.authStore.SaveAuthorizationCode(code, AuthorizationCode{
+		Issuer:      s.cfg.Issuer,
 		ClientID:    clientID,
 		RedirectURI: req.RedirectURI,
 		Scope:       req.Scope,
@@ -281,7 +283,7 @@ func (s *Server) handleAuthorizationCode(w http.ResponseWriter, r *http.Request)
 		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", err.Error())
 		return
 	}
-	entry, ok := s.authStore.ConsumeAuthorizationCode(code)
+	entry, ok := s.authStore.ConsumeAuthorizationCode(s.cfg.Issuer, code)
 	if !ok || entry.ClientID != clientID || entry.RedirectURI != redirectURI {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "invalid authorization code")
 		return
@@ -354,7 +356,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", err.Error())
 		return
 	}
-	entry, ok := s.authStore.ConsumeRefreshToken(token)
+	entry, ok := s.authStore.ConsumeRefreshToken(s.cfg.Issuer, token)
 	if !ok || entry.ClientID != clientID {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "invalid refresh token")
 		return
@@ -472,6 +474,7 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 	}
 	refresh := randomToken()
 	_ = s.authStore.SaveRefreshToken(refresh, RefreshTokenEntry{
+		Issuer:    s.cfg.Issuer,
 		ClientID:  clientID,
 		Scope:     scope,
 		Patient:   patient,

@@ -30,13 +30,14 @@ func TestPostgresStores_RoundTrip(t *testing.T) {
 		t.Fatalf("client = %+v ok=%v", client, ok)
 	}
 
+	const issuer = "https://auth.example.test"
 	if err := authStore.SaveAuthorizationCode("code-1", oauth.AuthorizationCode{
-		ClientID: "pg-client", RedirectURI: "https://localhost/callback",
+		Issuer: issuer, ClientID: "pg-client", RedirectURI: "https://localhost/callback",
 		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := authStore.ConsumeAuthorizationCode("code-1")
+	entry, ok := authStore.ConsumeAuthorizationCode(issuer, "code-1")
 	if !ok || entry.ClientID != "pg-client" {
 		t.Fatalf("code = %+v ok=%v", entry, ok)
 	}
