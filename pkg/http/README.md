@@ -52,10 +52,14 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `DELETE` | `/fhir/{ResourceType}?...` | Conditional delete | 204 No Content |
 | `GET` | `/fhir/{ResourceType}/{id}` | Read resource | 200 + resource, `ETag`, `Last-Modified` |
 | `PUT` | `/fhir/{ResourceType}/{id}` | Update resource | 200 + resource |
-| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch update | 200 + resource |
+| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch or FHIR Patch | 200 + resource |
 | `DELETE` | `/fhir/{ResourceType}/{id}` | Delete resource | 204 No Content |
-| `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history | 200 + history Bundle |
+| `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history (`_since`, `_at`) | 200 + history Bundle |
+| `GET` | `/fhir/{ResourceType}/{id}/_history/{vid}` | vread | 200 + resource, 410 if deleted |
+| `GET` | `/fhir/Patient/{id}/$everything` | Patient compartment bundle | 200 + searchset Bundle |
 | `GET` | `/fhir/$export` | System bulk export kickoff (`Prefer: respond-async`) | 202 + `Content-Location` when `BulkExportService` configured |
+| `GET` | `/fhir/Patient/$export` | All-patient bulk export kickoff | 202 when configured |
+| `GET` | `/fhir/Patient/{id}/$export` | Patient compartment bulk export | 202 when configured |
 | `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 202 + `Content-Location` when configured |
 | `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
