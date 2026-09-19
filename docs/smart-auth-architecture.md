@@ -105,7 +105,7 @@ and `pkg/oauth` authorization-server tests.
 
 ## Built-in OAuth server (`pkg/oauth`)
 
-Production deployment uses `oauthstore.ApplyPostgresStores` or `ApplySQLiteStores` (`pkg/oauth/store`) for clients, tokens, replay, and revocation. `haistack serve` wires builtin OAuth via `runtime.WithBuiltinOAuth`. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and DB-backed signing keys (or PEM fallback under the state dir). See `pkg/oauth/README.md`.
+Production deployment uses `oauthstore.ApplyPostgresStores` or `ApplySQLiteStores` (`pkg/oauth/store`) for clients, tokens, replay, and revocation. `haistack serve` wires builtin OAuth via `runtime.WithBuiltinOAuth`. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and DB-backed signing keys (or PEM fallback via `oauth.DefaultSigningKeyPaths`). `pkg/smart` file stores (`FileBackendClientStore`, `FileReplayStore`) are for SMART backend assertions only, not the authorization server. See `pkg/oauth/README.md`.
 
 ## Non-goals
 

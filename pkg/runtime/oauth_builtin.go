@@ -215,7 +215,7 @@ func (b *Builder) applyBuiltinSigningKey(cfg *oauth.Config, state *wireState, is
 	if stateDir == "" {
 		stateDir = b.defaultOAuthStateDir(state)
 	}
-	signingKeyPath := oauth.DefaultProductionPaths(stateDir).SigningKey
+	signingKeyPath := oauth.DefaultSigningKeyPaths(stateDir).SigningKey
 	keySet, err := oauth.LoadOrCreateSigningKey(signingKeyPath, "haistack")
 	if err != nil {
 		return err

@@ -9,18 +9,18 @@ import (
 	"strings"
 )
 
-// ProductionPaths names durable OAuth state locations on disk.
+// SigningKeyPaths names the PEM signing-key fallback on disk.
 // Token, client, replay, and revocation state use pkg/oauth/store (SQLite or Postgres).
-type ProductionPaths struct {
+type SigningKeyPaths struct {
 	StateDir   string
 	SigningKey string
 	SigningKID string
 }
 
-// DefaultProductionPaths returns conventional paths under stateDir (PEM signing key fallback).
-func DefaultProductionPaths(stateDir string) ProductionPaths {
+// DefaultSigningKeyPaths returns the conventional PEM path under stateDir.
+func DefaultSigningKeyPaths(stateDir string) SigningKeyPaths {
 	stateDir = strings.TrimSpace(stateDir)
-	return ProductionPaths{
+	return SigningKeyPaths{
 		StateDir:   stateDir,
 		SigningKey: filepath.Join(stateDir, "oauth-signing.pem"),
 	}
@@ -62,7 +62,7 @@ func ValidateProductionIssuer(issuer string) error {
 }
 
 // LoadSigningKey loads a persistent signing key when the PEM file exists.
-func LoadSigningKey(paths ProductionPaths) (*KeySet, error) {
+func LoadSigningKey(paths SigningKeyPaths) (*KeySet, error) {
 	if strings.TrimSpace(paths.SigningKey) == "" {
 		return nil, nil
 	}

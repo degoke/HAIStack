@@ -32,6 +32,13 @@ func TestApplyProductionDefaultsRejectsAutoApprove(t *testing.T) {
 	}
 }
 
+func TestDefaultSigningKeyPaths(t *testing.T) {
+	paths := oauth.DefaultSigningKeyPaths("/var/lib/haistack")
+	if paths.SigningKey != "/var/lib/haistack/oauth-signing.pem" {
+		t.Fatalf("signing key path = %q", paths.SigningKey)
+	}
+}
+
 func TestSigningKeyRotateOnStartupEnv(t *testing.T) {
 	t.Setenv("OAUTH_SIGNING_KEY_ROTATE", "1")
 	if !oauth.SigningKeyRotateOnStartup() {
