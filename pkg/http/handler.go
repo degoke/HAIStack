@@ -7,9 +7,12 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -70,9 +73,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleHistory(w, r, route.resourceType, route.id)
+	case routeVRead:
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, r.Method, http.MethodGet)
+			return
+		}
+		h.handleVRead(w, r, route.resourceType, route.id, route.versionID)
 	case routeOperation:
 		if route.operation == "$export" {
 			h.handleBulkExport(w, r, route)
+			return
+		}
+		if route.operation == "$everything" {
+			h.handleEverything(w, r, route)
 			return
 		}
 		if route.operation == "$materialize" && route.resourceType == "ViewDefinition" {
@@ -335,7 +348,7 @@ func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot := h.cfg.CapabilitySource.CapabilitySnapshot()
-	data, err := marshalCapabilityStatement(snapshot, h.cfg.ServerMetadata, h.cfg.SearchService != nil)
+	data, err := marshalCapabilityStatement(snapshot, h.cfg.ServerMetadata, capabilityFromConfig(h.cfg))
 	if err != nil {
 		writeError(w, invalidRequest("build CapabilityStatement", err))
 		return
@@ -502,9 +515,12 @@ func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceTy
 		writeError(w, err)
 		return
 	}
-	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
-	if contentType == "" || (contentType != "application/json-patch+json" && !strings.HasPrefix(contentType, "application/json-patch+json;")) {
-		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json", nil))
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	switch contentType {
+	case "application/json-patch+json":
+	case "application/fhir+json", "application/json", "application/fhir+xml", "application/xml":
+	default:
+		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json or application/fhir+json", nil))
 		return
 	}
 	if err := h.enforceDeleteScopeFilters(r.Context(), resourceType, id, smart.OpUpdate); err != nil {
@@ -594,6 +610,12 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, err)
 		return
 	}
+	query, err := parseHistoryQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	versions = core.FilterHistory(versions, query)
 	versions, err = h.filterHistoryVersions(r.Context(), resourceType, versions)
 	if err != nil {
 		writeError(w, scopeFilterError(err))
@@ -605,6 +627,108 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		return
 	}
 	writeResource(w, http.StatusOK, data, nil)
+}
+
+func (h *handler) handleVRead(w http.ResponseWriter, r *http.Request, resourceType, id, versionID string) {
+	if err := h.authorizeRead(r.Context(), resourceType, id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.cfg.PatientReferenceResolver != nil {
+		if _, tenant, ok := identityFromContext(r.Context()); ok && tenant.PatientScope != "" {
+			current, readErr := h.cfg.ResourceService.Read(r.Context(), resourceType, id)
+			if readErr != nil && !core.IsNotFound(readErr) {
+				writeError(w, readErr)
+				return
+			}
+			if current != nil {
+				if scopeErr := h.enforcePatientScopeOnEnvelope(r.Context(), current); scopeErr != nil {
+					writeError(w, scopeErr)
+					return
+				}
+			}
+		}
+	}
+	envelope, err := h.vread(r.Context(), resourceType, id, versionID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.enforcePatientScopeOnEnvelope(r.Context(), envelope); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.enforceScopeFiltersOnEnvelope(r.Context(), resourceType, smart.OpRead, envelope); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
+	writeEnvelope(w, http.StatusOK, envelope, nil)
+}
+
+func (h *handler) vread(ctx context.Context, resourceType, id, versionID string) (*types.ResourceEnvelope, error) {
+	if svc, ok := h.cfg.ResourceService.(interface {
+		VRead(context.Context, string, string, string) (*types.ResourceEnvelope, error)
+	}); ok {
+		return svc.VRead(ctx, resourceType, id, versionID)
+	}
+	versions, err := h.cfg.ResourceService.History(ctx, resourceType, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, version := range versions {
+		if version.VersionID != versionID {
+			continue
+		}
+		if version.Deleted || version.Action == store.VersionActionDelete {
+			return nil, &core.ServiceError{
+				Kind:    core.ErrorKindGone,
+				Message: "resource version was deleted: " + resourceType + "/" + id + "/_history/" + versionID,
+			}
+		}
+		if version.Resource == nil {
+			break
+		}
+		return version.Resource, nil
+	}
+	return nil, &core.ServiceError{
+		Kind:    core.ErrorKindNotFound,
+		Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
+	}
+}
+
+func parseHistoryQuery(values url.Values) (core.HistoryQuery, error) {
+	var q core.HistoryQuery
+	if raw := strings.TrimSpace(values.Get("_since")); raw != "" {
+		ts, err := parseFHIRInstant(raw)
+		if err != nil {
+			return q, invalidRequest("invalid _since parameter", err)
+		}
+		q.Since = &ts
+	}
+	if raw := strings.TrimSpace(values.Get("_at")); raw != "" {
+		ts, err := parseFHIRInstant(raw)
+		if err != nil {
+			return q, invalidRequest("invalid _at parameter", err)
+		}
+		q.At = &ts
+	}
+	return q, nil
+}
+
+func parseFHIRInstant(raw string) (time.Time, error) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts.UTC(), nil
+		}
+	}
+	return time.Time{}, invalidRequest("invalid FHIR instant "+raw, nil)
 }
 
 func (h *handler) handleSearch(w http.ResponseWriter, r *http.Request, resourceType string) {

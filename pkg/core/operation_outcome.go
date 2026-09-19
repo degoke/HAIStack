@@ -37,6 +37,8 @@ func OperationOutcomeFromError(err error) *types.OperationOutcome {
 		code = "not-supported"
 	case ErrorKindPrecondition:
 		code = "processing"
+	case ErrorKindGone:
+		code = "deleted"
 	case ErrorKindException:
 		code = "exception"
 	}

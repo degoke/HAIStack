@@ -1017,6 +1017,10 @@ func (f *fakeJobStore) ClaimNext(context.Context, string) (*store.JobRecord, err
 func (f *fakeJobStore) Update(context.Context, store.JobRecord) error               { return nil }
 func (f *fakeJobStore) Get(context.Context, string) (*store.JobRecord, error)       { return &f.job, nil }
 
+type stubConformanceRefresh struct{}
+
+func (stubConformanceRefresh) Refresh(context.Context) error { return nil }
+
 type fakeTerminologyInstallStore struct {
 	enabled []store.TerminologyInstallRecord
 }
@@ -1237,7 +1241,13 @@ func TestValueSetValidateCodeUsesValueSetVersion(t *testing.T) {
 
 func TestCapabilityStatementAdvertisesPlatformOperationsWithoutEnabledTypes(t *testing.T) {
 	handler := newTestHandler(t, hahttp.Config{
-		ResourceService: &fakeResourceService{},
+		ResourceService:           &fakeResourceService{},
+		TerminologyService:        terminologyTestService(t, "tenant-a"),
+		ModuleInstallService:      hahttp.CoreModuleInstallService{JobStore: &fakeJobStore{}},
+		JobStatusService:          hahttp.CoreJobStatusService{JobStore: &fakeJobStore{}},
+		TerminologyInstallService: hahttp.CoreTerminologyInstallService{JobStore: &fakeJobStore{}, DefaultScope: "tenant-a"},
+		TerminologyEnableService:  hahttp.CoreTerminologyEnableService{DefaultTenantID: "tenant-a"},
+		ConformanceRefresher:      stubConformanceRefresh{},
 		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
 			FHIRVersion: "4.0.1",
 			Resources: []registry.ResourceCapability{
@@ -1254,6 +1264,9 @@ func TestCapabilityStatementAdvertisesPlatformOperationsWithoutEnabledTypes(t *t
 		if !strings.Contains(body, want) {
 			t.Fatalf("metadata missing %q: %s", want, body)
 		}
+	}
+	if strings.Contains(body, `"name":"package"`) {
+		t.Fatal("metadata must not advertise unimplemented $package")
 	}
 	var cap map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &cap); err != nil {
