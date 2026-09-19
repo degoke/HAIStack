@@ -63,9 +63,6 @@ func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oaut
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
-		return oauth.AuthorizationCode{}, false
-	}
 	return entry, true
 }
 
@@ -110,9 +107,6 @@ func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.Re
 	}
 	var entry oauth.RefreshTokenEntry
 	if err := json.Unmarshal(payload, &entry); err != nil {
-		return oauth.RefreshTokenEntry{}, false
-	}
-	if s.now().After(entry.ExpiresAt) {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -201,9 +195,6 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oau
 	}
 	var entry oauth.PendingAuthorization
 	if err := json.Unmarshal(payload, &entry); err != nil {
-		return oauth.PendingAuthorization{}, false
-	}
-	if s.now().After(entry.ExpiresAt) {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true

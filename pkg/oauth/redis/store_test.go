@@ -137,6 +137,39 @@ func TestAuthorizationStore_ExpiredJSONDoesNotBurnCode(t *testing.T) {
 	}
 }
 
+func TestAuthorizationStore_LuaExpiryWinsOverExpiresAt(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	authStore, _, _ := oauthredis.EphemeralStores(client, "test:")
+	const issuer = "https://auth.example.test"
+	seg := base64.RawURLEncoding.EncodeToString([]byte(issuer))
+	key := "test:authcode:" + seg + ":skew"
+	raw, err := json.Marshal(map[string]any{
+		"issuer":    issuer,
+		"clientId":  "redis-client",
+		"expiresAt": time.Now().Add(-time.Minute),
+		"exp":       time.Now().Add(time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Set(context.Background(), key, raw, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := authStore.ConsumeAuthorizationCode(issuer, "skew")
+	if !ok || entry.ClientID != "redis-client" {
+		t.Fatalf("Lua-unexpired payload must consume even if expiresAt is past: %+v ok=%v", entry, ok)
+	}
+	if n, err := client.Exists(context.Background(), key).Result(); err != nil || n != 0 {
+		t.Fatalf("expected key deleted after consume n=%d err=%v", n, err)
+	}
+}
+
 func TestNewServer_RequiresClientRegistry(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {
