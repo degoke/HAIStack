@@ -179,7 +179,7 @@ func lookupByCanonical(snapshot *registry.Snapshot, canonicalURL string) (regist
 
 func isSearchableType(paramType string) bool {
 	switch paramType {
-	case "token", "string", "date", "reference", "number", "composite", "quantity":
+	case "token", "string", "date", "reference", "number", "composite", "quantity", "uri":
 		return true
 	default:
 		return false

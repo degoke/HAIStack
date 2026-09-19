@@ -197,7 +197,7 @@ Build failures roll back partially opened resources before returning an error.
 | SQLite | Embedded/basic search via local `SearchStore` executor |
 | Postgres | Full search service + background reindex worker |
 
-Advanced FHIR search features (`_include`, chained search, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
+Advanced FHIR search features (`_include` wildcards, `_has`, two-hop chains, uri, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
 
 ## Sync by mode
 

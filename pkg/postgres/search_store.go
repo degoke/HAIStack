@@ -56,6 +56,8 @@ func parseSearchFieldKey(key string) (searchTable, string, error) {
 		return searchTableComposite, parts[1], nil
 	case "text":
 		return searchTableText, parts[1], nil
+	case "uri":
+		return searchTableString, parts[1], nil
 	default:
 		return searchTableString, key, nil
 	}
@@ -191,6 +193,18 @@ func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) 
 			SELECT resource_id FROM %s
 			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3
 			  AND (value LIKE $4 || '/%%' OR value LIKE $4 || '|%%')
+			ORDER BY resource_id`, table)
+		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
+	case (table == searchTableString) && op == "below":
+		query = fmt.Sprintf(`
+			SELECT resource_id FROM %s
+			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND value LIKE $4 || '%%'
+			ORDER BY resource_id`, table)
+		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
+	case (table == searchTableString) && op == "above":
+		query = fmt.Sprintf(`
+			SELECT resource_id FROM %s
+			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND $4 LIKE value || '%%'
 			ORDER BY resource_id`, table)
 		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
 	case (table == searchTableDate || table == searchTableNumber) && isComparator(op):

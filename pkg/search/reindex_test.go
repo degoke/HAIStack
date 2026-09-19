@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/search"
@@ -39,6 +40,10 @@ func (m *memSearchBackend) QueryPrepared(context.Context, store.PreparedQuery, m
 }
 
 func (m *memSearchBackend) LookupMatch(_ context.Context, match store.SearchMatch) ([]string, error) {
+	op := match.Operator
+	if op == "" {
+		op = "eq"
+	}
 	seen := make(map[string]struct{})
 	var ids []string
 	for _, entry := range m.entries {
@@ -46,16 +51,37 @@ func (m *memSearchBackend) LookupMatch(_ context.Context, match store.SearchMatc
 			continue
 		}
 		for key, value := range entry.Fields {
-			if key == match.FieldKey && value == match.Value {
-				if _, ok := seen[entry.ID]; ok {
-					continue
-				}
-				seen[entry.ID] = struct{}{}
-				ids = append(ids, entry.ID)
+			if key != match.FieldKey {
+				continue
 			}
+			if !memMatchValue(op, value, match.Value) {
+				continue
+			}
+			if _, ok := seen[entry.ID]; ok {
+				continue
+			}
+			seen[entry.ID] = struct{}{}
+			ids = append(ids, entry.ID)
 		}
 	}
 	return ids, nil
+}
+
+func memMatchValue(op, have, want string) bool {
+	switch op {
+	case "", "eq", "=":
+		return have == want
+	case "below":
+		return strings.HasPrefix(have, want)
+	case "above":
+		return strings.HasPrefix(want, have)
+	case "contains":
+		return strings.Contains(strings.ToLower(have), strings.ToLower(want))
+	case "exact":
+		return have == want
+	default:
+		return have == want
+	}
 }
 
 func (m *memSearchBackend) FieldValues(_ context.Context, resourceType, fieldKey string, resourceIDs []string) (map[string]string, error) {
@@ -78,6 +104,79 @@ func (m *memSearchBackend) FieldValues(_ context.Context, resourceType, fieldKey
 		}
 	}
 	return out, nil
+}
+
+type memAdvancedSearchBackend struct {
+	memSearchBackend
+}
+
+func (m *memAdvancedSearchBackend) LookupReferences(_ context.Context, resourceType, fieldKey string, sourceIDs []string) (map[string][]store.ReferenceLink, error) {
+	wanted := make(map[string]struct{}, len(sourceIDs))
+	for _, id := range sourceIDs {
+		wanted[id] = struct{}{}
+	}
+	out := make(map[string][]store.ReferenceLink)
+	for _, entry := range m.entries {
+		if resourceType != "" && entry.ResourceType != resourceType {
+			continue
+		}
+		if _, ok := wanted[entry.ID]; !ok {
+			continue
+		}
+		for key, value := range entry.Fields {
+			if key != fieldKey {
+				continue
+			}
+			link := store.ReferenceLink{Literal: value}
+			if i := strings.Index(value, "/"); i > 0 && i < len(value)-1 {
+				link.TargetType = value[:i]
+				link.TargetID = value[i+1:]
+			} else if i := strings.Index(value, "|"); i > 0 && i < len(value)-1 {
+				link.TargetType = value[:i]
+				link.TargetID = value[i+1:]
+			} else {
+				link.TargetID = value
+			}
+			out[entry.ID] = append(out[entry.ID], link)
+		}
+	}
+	return out, nil
+}
+
+func (m *memAdvancedSearchBackend) LookupReferencing(_ context.Context, sourceType, fieldKey, targetType, targetID string) ([]string, error) {
+	values := []string{targetID}
+	if targetType != "" {
+		values = append(values, targetType+"/"+targetID, targetType+"|"+targetID)
+	}
+	wanted := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		wanted[v] = struct{}{}
+	}
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, entry := range m.entries {
+		if sourceType != "" && entry.ResourceType != sourceType {
+			continue
+		}
+		for key, value := range entry.Fields {
+			if key != fieldKey {
+				continue
+			}
+			if _, ok := wanted[value]; !ok {
+				continue
+			}
+			if _, ok := seen[entry.ID]; ok {
+				continue
+			}
+			seen[entry.ID] = struct{}{}
+			ids = append(ids, entry.ID)
+		}
+	}
+	return ids, nil
+}
+
+func (m *memAdvancedSearchBackend) LookupFullText(context.Context, string, string) (store.FullTextMatch, error) {
+	return store.FullTextMatch{}, nil
 }
 
 type memResourceStore struct {

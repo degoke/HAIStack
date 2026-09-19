@@ -35,6 +35,8 @@ func fieldKeyForParam(code, paramType string) string {
 		return "number." + code
 	case "composite":
 		return "composite." + code
+	case "uri":
+		return "uri." + code
 	default:
 		return ""
 	}
@@ -81,6 +83,8 @@ func normalizeValue(code, paramType string, v fhirpath.Value) []string {
 		return normalizeReferenceValue(v)
 	case "number", "quantity":
 		return normalizeNumberValue(v)
+	case "uri":
+		return normalizeUriValue(v)
 	default:
 		return nil
 	}
@@ -258,6 +262,13 @@ func dateIndexVariants(value string) []string {
 		return []string{value, value[:i]}
 	}
 	return []string{value}
+}
+
+func normalizeUriValue(v fhirpath.Value) []string {
+	if s, err := v.String(); err == nil && s != "" {
+		return []string{s}
+	}
+	return nil
 }
 
 func normalizeReferenceValue(v fhirpath.Value) []string {

@@ -53,6 +53,8 @@ func parseSearchFieldKey(key string) (searchTable, string, error) {
 		return searchTableNumber, parts[1], nil
 	case "reference", "ref":
 		return searchTableReference, parts[1], nil
+	case "uri":
+		return searchTableString, parts[1], nil
 	default:
 		return searchTableString, key, nil
 	}
