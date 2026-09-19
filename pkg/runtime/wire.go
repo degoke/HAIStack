@@ -92,6 +92,10 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	}
 
 	rt.services = state.services
+	if b.oauthIssuerURL != "" {
+		rt.config.OAuthEnabled = true
+		rt.config.OAuthIssuer = b.oauthIssuerURL
+	}
 	rt.handler = hahttp.WithHealthEndpoints(state.httpHandler, rt.IsStarted)
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
@@ -100,6 +104,7 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
 	rt.postgresDB = state.postgresDB
+	rt.oauthAuthStore = b.oauthAuthStore
 	// Transfer only the cleanup functions. Copying cleanupStack itself would
 	// copy its sync.Once state, which is both unsafe and rejected by vet.
 	rt.cleanup.fns = state.cleanup.fns
@@ -709,6 +714,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			state.services.RegistrySnapshot = snap
 		}
 	})
+	if b.builtinOAuth != nil {
+		if err := b.wireBuiltinOAuth(ctx, state); err != nil {
+			return err
+		}
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:            hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:              httpSearchSvc,
@@ -739,6 +749,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,
 		PrincipalResolver:        b.httpPrincipalResolver,
+		AuthBundleResolver:       b.httpAuthBundleResolver,
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
 		ViewMaterializeService:   state.services.MaterializeService,
@@ -761,6 +772,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	} else if b.syncServer != nil {
 		rootCfg.Sync = b.syncServer
 		rootCfg.SyncMiddleware = b.syncMiddleware
+	}
+	if b.oauthHandler != nil {
+		rootCfg.OAuth = b.oauthHandler
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
 	return nil

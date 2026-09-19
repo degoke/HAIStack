@@ -374,8 +374,10 @@ See **[cmd/haistack/README.md](cmd/haistack/README.md)** for the full command re
 ```bash
 go build -o bin/haistack ./cmd/haistack
 haistack init
-haistack serve
+haistack serve   # builtin SMART OAuth enabled by default; see oauth.* in haistack.yaml
 ```
+
+For Inferno conformance checks, run `go test ./pkg/testkit/infernotest/...` or `go run ./cmd/inferno-reference`.
 
 ## Examples
 

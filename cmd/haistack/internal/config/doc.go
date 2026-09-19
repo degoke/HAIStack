@@ -10,6 +10,7 @@
 //
 //   - storage — driver (sqlite or postgres), paths, DSN, and tenant namespaces
 //   - runtime — HTTP address, search enablement, module install paths
+//   - oauth — built-in SMART authorization server for haistack serve
 //   - sync — hub URL and device node ID
 //
 // Defaults target a local SQLite workspace at .haistack/haistack.db with
@@ -29,8 +30,10 @@
 // # Validation
 //
 // Validate enforces driver-specific requirements: sqlitePath for SQLite,
-// postgresDSN and tenantID for Postgres, and sync.nodeID when sync.hubURL
-// is set.
+// postgresDSN and tenantID for Postgres, sync.nodeID when sync.hubURL is set,
+// and oauth production settings (https issuerURL, registration token,
+// OAUTH_SIGNING_KEY_ENCRYPTION_SECRET, OAUTH_SESSION_SECRET) when
+// oauth.production is enabled.
 //
 // # Environment variables
 //
@@ -45,6 +48,16 @@
 //   - HAISTACK_MODULE_PATHS (comma-separated)
 //   - HAISTACK_SYNC_HUB_URL
 //   - HAISTACK_SYNC_NODE_ID
+//   - HAISTACK_OAUTH_ENABLED
+//   - HAISTACK_OAUTH_PRODUCTION
+//   - HAISTACK_OAUTH_ISSUER_URL
+//   - HAISTACK_OAUTH_AUTO_APPROVE
+//   - HAISTACK_OAUTH_REGISTRATION_TOKEN
+//   - OAUTH_REGISTRATION_TOKEN
+//   - OAUTH_SIGNING_KEY_ENCRYPTION_SECRET
+//   - OAUTH_SIGNING_KEY_ROTATE
+//   - OAUTH_SESSION_SECRET
+//   - HAISTACK_PRODUCTION (sets oauth.production when "1")
 //
 // StarterYAML returns the bytes written by haistack init.
 package config

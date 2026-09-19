@@ -42,7 +42,7 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revokeRefreshToken(token, clientID string) bool {
-	return s.authStore.DeleteRefreshTokenForClient(token, clientID)
+	return s.authStore.DeleteRefreshTokenForClient(s.cfg.Issuer, token, clientID)
 }
 
 func (s *Server) revokeAccessToken(token, clientID string) {

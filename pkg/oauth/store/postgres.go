@@ -1,4 +1,4 @@
-package postgres
+package store
 
 import (
 	"context"
@@ -31,15 +31,19 @@ func NewAuthorizationStore(pool *pgxpool.Pool) *AuthorizationStore {
 }
 
 func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.AuthorizationCode) error {
+	issuer, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode auth code: %w", err)
 	}
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_auth_code (code, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (code) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		code, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (issuer, code) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		code, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save auth code: %w", err)
@@ -47,13 +51,17 @@ func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.Auth
 	return nil
 }
 
-func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
+func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oauth.AuthorizationCode, bool) {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return oauth.AuthorizationCode{}, false
+	}
 	now := s.now()
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		DELETE FROM hai_oauth_auth_code
-		WHERE code = $1 AND expires_at > $2
-		RETURNING payload`, code, now,
+		WHERE code = $1 AND expires_at > $2 AND issuer = $3
+		RETURNING payload`, code, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.AuthorizationCode{}, false
@@ -66,15 +74,19 @@ func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.Author
 }
 
 func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshTokenEntry) error {
+	issuer, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_refresh_token (token, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (token) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		token, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_refresh_token (token, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (issuer, token) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		token, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save refresh token: %w", err)
@@ -82,13 +94,35 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	return nil
 }
 
-func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
+func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	entry, ok := s.LookupRefreshToken(issuer, token)
+	if !ok {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	now := s.now()
+	tag, err := s.pool.Exec(context.Background(), `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2 AND issuer = $3`, token, now, issuer)
+	if err != nil || tag.RowsAffected() == 0 {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	return entry, true
+}
+
+func (s *AuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return oauth.RefreshTokenEntry{}, false
+	}
 	now := s.now()
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2
-		RETURNING payload`, token, now,
+		SELECT payload FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2 AND issuer = $3`, token, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false
@@ -101,15 +135,19 @@ func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTok
 }
 
 func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.PendingAuthorization) error {
+	issuer, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode pending auth: %w", err)
 	}
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_pending_auth (id, payload, expires_at)
-		VALUES ($1, $2::jsonb, $3)
-		ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
-		id, payload, entry.ExpiresAt,
+		INSERT INTO hai_oauth_pending_auth (id, issuer, payload, expires_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+		ON CONFLICT (issuer, id) DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at`,
+		id, issuer, payload, entry.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("save pending auth: %w", err)
@@ -117,12 +155,16 @@ func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.Pen
 	return nil
 }
 
-func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) GetPendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return oauth.PendingAuthorization{}, false
+	}
 	now := s.now()
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		SELECT payload FROM hai_oauth_pending_auth
-		WHERE id = $1 AND expires_at > $2`, id, now,
+		WHERE id = $1 AND expires_at > $2 AND issuer = $3`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
@@ -134,13 +176,27 @@ func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAu
 	return entry, true
 }
 
-func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
+func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	now := s.now()
+	tag, err := s.pool.Exec(context.Background(), `
+		DELETE FROM hai_oauth_pending_auth WHERE expires_at <= $1`, now)
+	if err != nil {
+		return 0
+	}
+	return int(tag.RowsAffected())
+}
+
+func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return oauth.PendingAuthorization{}, false
+	}
 	now := s.now()
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
 		DELETE FROM hai_oauth_pending_auth
-		WHERE id = $1 AND expires_at > $2
-		RETURNING payload`, id, now,
+		WHERE id = $1 AND expires_at > $2 AND issuer = $3
+		RETURNING payload`, id, now, issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.PendingAuthorization{}, false
@@ -152,12 +208,16 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.Pendi
 	return entry, true
 }
 
-func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if issuer == "" {
+		return false
+	}
 	now := s.now()
 	tag, err := s.pool.Exec(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2 AND payload->>'clientId' = $3`,
-		token, now, clientID,
+		WHERE token = $1 AND expires_at > $2 AND issuer = $3 AND payload->>'clientId' = $4`,
+		token, now, issuer, clientID,
 	)
 	if err != nil {
 		return false
@@ -283,8 +343,8 @@ func (s *RevocationStore) IsRevoked(jti string) bool {
 	return err == nil && exists
 }
 
-// Stores returns production OAuth stores backed by Postgres.
-func Stores(pool *pgxpool.Pool) (oauth.AuthorizationStore, oauth.ClientRegistry, smart.ReplayStore, oauth.TokenRevocationStore) {
+// PostgresStores returns production OAuth stores backed by Postgres.
+func PostgresStores(pool *pgxpool.Pool) (oauth.AuthorizationStore, oauth.ClientRegistry, smart.ReplayStore, oauth.TokenRevocationStore) {
 	return NewAuthorizationStore(pool),
 		NewClientRegistry(pool),
 		NewReplayStore(pool),

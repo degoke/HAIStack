@@ -1,0 +1,88 @@
+package store_test
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/degoke/health-ai-stack/pkg/oauth"
+	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
+	"github.com/degoke/health-ai-stack/pkg/sqlite"
+)
+
+func TestSQLiteStores_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "oauth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	authStore, clientStore, replayStore, revocationStore := oauthstore.SQLiteStores(db.SQL())
+	now := time.Now()
+	if err := clientStore.Register(oauth.Client{
+		ClientID:     "sqlite-client",
+		ClientSecret: "sqlite-secret",
+		RedirectURIs: []string{"https://localhost/callback"},
+		Scopes:       []string{"patient/Patient.rs"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client, ok := clientStore.Get("sqlite-client")
+	if !ok || client.ClientID != "sqlite-client" || client.ClientSecretHash == "" {
+		t.Fatalf("client = %+v ok=%v", client, ok)
+	}
+
+	const issuer = "https://auth.example.test"
+	if err := authStore.SaveAuthorizationCode("code-1", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "sqlite-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode("https://other.example", "code-1"); ok {
+		t.Fatal("expected cross-issuer consume to fail")
+	}
+	entry, ok := authStore.ConsumeAuthorizationCode(issuer, "code-1")
+	if !ok || entry.ClientID != "sqlite-client" {
+		t.Fatalf("code = %+v ok=%v", entry, ok)
+	}
+
+	const issuerB = "https://auth.example/t/clinic-b"
+	if err := authStore.SaveAuthorizationCode("shared-code", oauth.AuthorizationCode{
+		Issuer: issuer, ClientID: "sqlite-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := authStore.SaveAuthorizationCode("shared-code", oauth.AuthorizationCode{
+		Issuer: issuerB, ClientID: "sqlite-client", RedirectURI: "https://localhost/callback",
+		Scope: "patient/Patient.rs", ExpiresAt: now.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuer, "shared-code"); !ok {
+		t.Fatal("expected code for issuer A")
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuerB, "shared-code"); !ok {
+		t.Fatal("expected code for issuer B")
+	}
+
+	if err := replayStore.CheckAndStore("jti-1", now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := replayStore.CheckAndStore("jti-1", now.Add(5*time.Minute)); err == nil {
+		t.Fatal("expected replay rejection")
+	}
+
+	if err := revocationStore.Revoke("access-jti-1", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if !revocationStore.IsRevoked("access-jti-1") {
+		t.Fatal("expected revoked jti")
+	}
+}

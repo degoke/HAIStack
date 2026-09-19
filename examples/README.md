@@ -101,9 +101,11 @@ go run ./examples/smart-authz
 
 Production-shaped SMART OAuth + FHIR demo:
 
-- `oauth.NewProductionServer` with file-backed client/token/replay stores
+- `oauthstore.ApplySQLiteStores` + `oauth.NewServer` (JSON payload tables)
 - HTML consent with CSRF, EHR launch resolver, and end-user identity
 - PKCE auth-code flow and FHIR read via issued bearer token
+
+For zero-config local serving with the same stack, use `haistack serve` (see `cmd/haistack/README.md`).
 
 ```bash
 go run ./examples/smart-oauth

@@ -2,8 +2,24 @@ package oauth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 )
+
+// ErrInvalidConfig indicates invalid OAuth server configuration.
+var ErrInvalidConfig = errors.New("oauth: invalid config")
+
+// ErrInvalidScope indicates a requested OAuth scope is not allowed.
+var ErrInvalidScope = errors.New("oauth: invalid scope")
+
+func writeMethodNotAllowed(w http.ResponseWriter, allowed ...string) {
+	msg := "method not allowed"
+	if len(allowed) > 0 {
+		msg = "method not allowed; use " + strings.Join(allowed, " or ")
+	}
+	writeOAuthError(w, http.StatusMethodNotAllowed, "invalid_request", msg)
+}
 
 func writeOAuthError(w http.ResponseWriter, status int, code, description string) {
 	w.Header().Set("Content-Type", "application/json")

@@ -17,8 +17,11 @@ v1 centers on interpretation and adaptation:
 - `ClientRegistration` — minimal static client metadata for later expansion
 
 Hosts may use `NewFileBackendClientStore` and `NewFileReplayStore` for persisted
-single-instance deployments, or inject shared transactional implementations via
-`BackendClientStore` and `ReplayStore` for multi-instance deployments.
+single-instance **backend-service** deployments (JWT client assertions and `jti`
+replay). These are not OAuth authorization-server stores: `pkg/oauth` persists AS
+clients, codes, and refresh tokens in SQLite or Postgres via `pkg/oauth/store`.
+Multi-instance SMART hosts should inject transactional `BackendClientStore` and
+`ReplayStore` implementations instead of JSON files.
 
 Explicitly out of v1: EHR/standalone launch orchestration, refresh-token
 lifecycle, SMART UI/session management, and HTTP middleware as the package center.

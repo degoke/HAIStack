@@ -101,3 +101,12 @@ func isPublicClient(client Client) bool {
 		strings.TrimSpace(client.ClientSecret) == "" &&
 		strings.TrimSpace(client.PublicKeyPEM) == ""
 }
+
+func (s *Server) requireConfidentialClient(w http.ResponseWriter, r *http.Request) (Client, bool) {
+	client, _, err := s.lookupAuthenticatedClient(r, r.Form.Get("client_id"))
+	if err != nil || isPublicClient(client) {
+		writeOAuthError(w, http.StatusUnauthorized, "invalid_client", "confidential client authentication required")
+		return Client{}, false
+	}
+	return client, true
+}
