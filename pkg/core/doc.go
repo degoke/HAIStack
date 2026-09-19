@@ -57,6 +57,8 @@
 //   - Indexer   — search.Indexer invoked after resource/history persistence in session.
 //   - Outbox    — sync.Outbox; when non-nil, events are appended via
 //     sync.WithWriteSession during each write (transactional through session EventStore).
+//   - Hooks     — optional four-point intercept SPI; core runs pre-storage before persist
+//     and post-commit after a successful session commit.
 //
 // Methods:
 //

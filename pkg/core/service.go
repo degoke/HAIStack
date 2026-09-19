@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
@@ -37,12 +39,13 @@ type ResourceService struct {
 	terminologyCache        terminology.Invalidator
 	definitionIngestor      DefinitionIngestor
 	conformanceRefresh      func(ctx context.Context) error
+	hooks                   hooks.Hooks
 }
 
 // ResourceServiceConfig configures a ResourceService.
 //
 // Resources, History, and Sessions are required. IDPolicy and Codec default when nil.
-// Validator, Indexer, and Outbox are optional no-ops when nil.
+// Validator, Indexer, Outbox, and Hooks are optional no-ops when nil.
 type ResourceServiceConfig struct {
 	Resources store.ResourceStore
 	History   store.HistoryStore
@@ -60,6 +63,7 @@ type ResourceServiceConfig struct {
 	TerminologyCache        terminology.Invalidator
 	DefinitionIngestor      DefinitionIngestor
 	ConformanceRefresh      func(ctx context.Context) error
+	Hooks                   hooks.Hooks
 }
 
 // NewResourceService constructs a ResourceService with required dependencies.
@@ -98,6 +102,7 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 		terminologyCache:        cfg.TerminologyCache,
 		definitionIngestor:      cfg.DefinitionIngestor,
 		conformanceRefresh:      cfg.ConformanceRefresh,
+		hooks:                   cfg.Hooks,
 	}, nil
 }
 
@@ -168,6 +173,7 @@ func (s *ResourceService) Create(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionCreate, written, nil)
 	if err := s.ingestDefinitionResource(ctx, written); err != nil {
 		return written, exceptionErr("ingest definition into registry catalog", err)
 	}
@@ -250,6 +256,7 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionUpdate, written, previous)
 	if err := s.ingestDefinitionResource(ctx, written); err != nil {
 		return written, exceptionErr("ingest definition into registry catalog", err)
 	}
@@ -291,6 +298,7 @@ func (s *ResourceService) Delete(ctx context.Context, resourceType, id string) e
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionDelete, current, current)
 	if err := s.removeDefinitionResource(ctx, current); err != nil {
 		return exceptionErr("remove definition from registry catalog", err)
 	}
@@ -377,6 +385,10 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
+	envelope, err := s.runPreStorage(ctx, hooksAction(action), envelope, nil)
+	if err != nil {
+		return nil, err
+	}
 	prepared, err := s.withVersionMeta(envelope, versionID, now)
 	if err != nil {
 		return nil, err
@@ -447,6 +459,10 @@ func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSe
 func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope, expectedVersion string) error {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
+
+	if _, err := s.runPreStorage(ctx, hooks.ActionDelete, current, current); err != nil {
+		return err
+	}
 
 	if expectedVersion != "" {
 		conditional, ok := session.ResourceStore().(store.ConditionalResourceStore)
@@ -686,6 +702,61 @@ func cloneEnvelope(src *types.ResourceEnvelope) *types.ResourceEnvelope {
 		out.JSON = append([]byte(nil), src.JSON...)
 	}
 	return &out
+}
+
+func hooksAction(action store.VersionAction) hooks.Action {
+	switch action {
+	case store.VersionActionCreate:
+		return hooks.ActionCreate
+	case store.VersionActionUpdate:
+		return hooks.ActionUpdate
+	case store.VersionActionDelete:
+		return hooks.ActionDelete
+	default:
+		return hooks.Action(action)
+	}
+}
+
+func (s *ResourceService) runPreStorage(ctx context.Context, action hooks.Action, resource, previous *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if s == nil || s.hooks == nil {
+		return resource, nil
+	}
+	event := &hooks.Event{
+		Action:   action,
+		Resource: resource,
+		Previous: previous,
+	}
+	if resource != nil {
+		event.ResourceType = resource.ResourceType
+		event.ID = resource.ID
+	}
+	if err := s.hooks.Run(ctx, hooks.PreStorage, event); err != nil {
+		var svcErr *ServiceError
+		if errors.As(err, &svcErr) {
+			return nil, err
+		}
+		return nil, invalidErr("pre-storage hook rejected write", err)
+	}
+	if event.Resource != nil {
+		return event.Resource, nil
+	}
+	return resource, nil
+}
+
+func (s *ResourceService) runPostCommit(ctx context.Context, action hooks.Action, resource, previous *types.ResourceEnvelope) {
+	if s == nil || s.hooks == nil {
+		return
+	}
+	event := &hooks.Event{
+		Action:   action,
+		Resource: resource,
+		Previous: previous,
+	}
+	if resource != nil {
+		event.ResourceType = resource.ResourceType
+		event.ID = resource.ID
+	}
+	_ = s.hooks.Run(ctx, hooks.PostCommit, event)
 }
 
 func isStoreNotFound(err error) bool {

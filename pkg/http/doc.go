@@ -57,7 +57,7 @@
 //   - NewHandler(Config) (net/http.Handler, error) — constructs the FHIR REST
 //     handler tree.
 //   - Config — BasePath (default /fhir), ResourceService, optional SearchService,
-//     CapabilitySource, ServerMetadata, Codec, auth hooks, and RateLimit.
+//     CapabilitySource, ServerMetadata, Codec, auth hooks, RateLimit, and Hooks.
 //   - ServerMetadata — software name/version and server description for
 //     CapabilityStatement generation.
 //   - PrincipalResolver — extracts auth.Principal and auth.TenantContext from a

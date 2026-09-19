@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -57,6 +58,7 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionTransaction, &types.ResourceEnvelope{ResourceType: "Bundle"}, nil)
 
 	if err := s.syncDefinitionCatalog(ctx, writtenDefinitions, deletedDefinitions); err != nil {
 		return nil, exceptionErr("sync definition catalog from transaction bundle", err)

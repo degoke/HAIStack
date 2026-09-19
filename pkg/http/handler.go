@@ -38,6 +38,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 		return
 	}
+	w = withHookContext(w, r.Context(), h.cfg.Hooks, route, r.Method)
+	if err := h.runIncoming(r.Context(), route, r.Method); err != nil {
+		writeError(w, err)
+		return
+	}
 
 	switch route.kind {
 	case routeMetadata:
