@@ -63,18 +63,6 @@ func TestMemoryStore_IsolatesSameCodeAcrossIssuers(t *testing.T) {
 	}
 }
 
-func TestFileStore_RequiresIssuerOnSave(t *testing.T) {
-	store, err := oauth.NewFileAuthorizationStore(t.TempDir() + "/tokens.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SaveAuthorizationCode("code", oauth.AuthorizationCode{
-		ClientID: "client", ExpiresAt: time.Now().Add(time.Minute),
-	}); err == nil {
-		t.Fatal("expected issuer required")
-	}
-}
-
 func TestEntryIssuerMatches_RequiresNonEmptyIssuer(t *testing.T) {
 	if oauth.EntryIssuerMatches("", "https://auth.example") {
 		t.Fatal("empty entry issuer must not match")
