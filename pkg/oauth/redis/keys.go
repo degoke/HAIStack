@@ -2,7 +2,6 @@ package redis
 
 import (
 	"encoding/base64"
-	"fmt"
 
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 )
@@ -37,12 +36,4 @@ func refreshRedisKey(prefix, issuer, token string) (string, error) {
 		return "", err
 	}
 	return prefix + "refresh:" + seg + ":" + token, nil
-}
-
-func normalizeConsumeIssuer(issuer string) (string, error) {
-	iss, err := oauth.RequireBoundIssuer(issuer)
-	if err != nil {
-		return "", fmt.Errorf("oauth: issuer required")
-	}
-	return iss, nil
 }

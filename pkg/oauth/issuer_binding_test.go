@@ -13,6 +13,68 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/oauth"
 )
 
+func TestRequireBoundIssuer_RejectsEmpty(t *testing.T) {
+	if _, err := oauth.RequireBoundIssuer(""); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestMemoryStore_RequiresIssuerOnSave(t *testing.T) {
+	store := oauth.NewMemoryAuthorizationStore()
+	if err := store.SaveAuthorizationCode("code", oauth.AuthorizationCode{
+		ClientID: "client", ExpiresAt: time.Now().Add(time.Minute),
+	}); err == nil {
+		t.Fatal("expected issuer required")
+	}
+	if err := store.SaveRefreshToken("rt", oauth.RefreshTokenEntry{
+		ClientID: "client", ExpiresAt: time.Now().Add(time.Minute),
+	}); err == nil {
+		t.Fatal("expected issuer required")
+	}
+	if err := store.SavePendingAuthorization("p", oauth.PendingAuthorization{
+		ExpiresAt: time.Now().Add(time.Minute),
+	}); err == nil {
+		t.Fatal("expected issuer required")
+	}
+}
+
+func TestMemoryStore_IsolatesSameCodeAcrossIssuers(t *testing.T) {
+	store := oauth.NewMemoryAuthorizationStore()
+	issuerA := "https://auth.example/t/clinic-a"
+	issuerB := "https://auth.example/t/clinic-b"
+	now := time.Now().Add(5 * time.Minute)
+	if err := store.SaveAuthorizationCode("same-code", oauth.AuthorizationCode{
+		Issuer: issuerA, ClientID: "a", RedirectURI: "https://a/cb", ExpiresAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAuthorizationCode("same-code", oauth.AuthorizationCode{
+		Issuer: issuerB, ClientID: "b", RedirectURI: "https://b/cb", ExpiresAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entryA, ok := store.ConsumeAuthorizationCode(issuerA, "same-code")
+	if !ok || entryA.ClientID != "a" {
+		t.Fatalf("issuer A = %+v ok=%v", entryA, ok)
+	}
+	entryB, ok := store.ConsumeAuthorizationCode(issuerB, "same-code")
+	if !ok || entryB.ClientID != "b" {
+		t.Fatalf("issuer B = %+v ok=%v", entryB, ok)
+	}
+}
+
+func TestFileStore_RequiresIssuerOnSave(t *testing.T) {
+	store, err := oauth.NewFileAuthorizationStore(t.TempDir() + "/tokens.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAuthorizationCode("code", oauth.AuthorizationCode{
+		ClientID: "client", ExpiresAt: time.Now().Add(time.Minute),
+	}); err == nil {
+		t.Fatal("expected issuer required")
+	}
+}
+
 func TestEntryIssuerMatches_RequiresNonEmptyIssuer(t *testing.T) {
 	if oauth.EntryIssuerMatches("", "https://auth.example") {
 		t.Fatal("empty entry issuer must not match")

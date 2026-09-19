@@ -6,6 +6,12 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
+// ClientRegistry stores registered OAuth clients.
+type ClientRegistry interface {
+	Get(clientID string) (Client, bool)
+	Register(client Client) error
+}
+
 // Client describes a registered OAuth client.
 type Client struct {
 	ClientID                string

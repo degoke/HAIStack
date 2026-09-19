@@ -97,7 +97,6 @@ func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(issuer, token string) (oa
 		return oauth.RefreshTokenEntry{}, false
 	}
 	now := s.now().UTC().Format(time.RFC3339Nano)
-	issuer = oauth.NormalizeIssuerURL(issuer)
 	res, err := s.db.ExecContext(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
 		WHERE token = ? AND expires_at > ? AND issuer = ?`, token, now, issuer)

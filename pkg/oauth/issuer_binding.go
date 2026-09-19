@@ -26,3 +26,14 @@ func RequireBoundIssuer(issuer string) (string, error) {
 	}
 	return iss, nil
 }
+
+const issuerScopedKeySep = "\x1f"
+
+// IssuerScopedKey returns a map key unique to one issuer and token/code/session id.
+func IssuerScopedKey(issuer, id string) (string, error) {
+	iss, err := RequireBoundIssuer(issuer)
+	if err != nil {
+		return "", err
+	}
+	return iss + issuerScopedKeySep + id, nil
+}

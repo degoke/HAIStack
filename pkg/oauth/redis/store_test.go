@@ -1,6 +1,9 @@
 package redis_test
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -74,6 +77,37 @@ func TestEphemeralStores_RoundTrip(t *testing.T) {
 	}
 	if !revocationStore.IsRevoked("access-jti-1") {
 		t.Fatal("expected revoked jti")
+	}
+}
+
+func TestAuthorizationStore_MismatchedJSONIssuerDoesNotBurnCode(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	authStore, _, _ := oauthredis.EphemeralStores(client, "test:")
+	const issuer = "https://auth.example.test"
+	seg := base64.RawURLEncoding.EncodeToString([]byte(issuer))
+	key := "test:authcode:" + seg + ":tampered"
+	payload, err := json.Marshal(oauth.AuthorizationCode{
+		Issuer:    "https://other.example",
+		ClientID:  "redis-client",
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Set(context.Background(), key, payload, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuer, "tampered"); ok {
+		t.Fatal("mismatched JSON issuer must not consume")
+	}
+	if n, err := client.Exists(context.Background(), key).Result(); err != nil || n != 1 {
+		t.Fatalf("expected key retained n=%d err=%v", n, err)
 	}
 }
 

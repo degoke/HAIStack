@@ -105,7 +105,7 @@ and `pkg/oauth` authorization-server tests.
 
 ## Built-in OAuth server (`pkg/oauth`)
 
-Production deployment uses `oauthstore.ApplyPostgresStores` (`pkg/oauth/store`) with Postgres-backed client, token, replay, and revocation stores. `haistack serve` wires builtin OAuth via `runtime.WithBuiltinOAuth`. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and persist `oauth-signing.pem` across restarts. File-backed `oauth.NewProductionServer` remains for single-node dev. See `pkg/oauth/README.md`.
+Production deployment uses `oauthstore.ApplyPostgresStores` or `ApplySQLiteStores` (`pkg/oauth/store`) for clients, tokens, replay, and revocation. `haistack serve` wires builtin OAuth via `runtime.WithBuiltinOAuth`. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and DB-backed signing keys (or PEM fallback under the state dir). See `pkg/oauth/README.md`.
 
 ## Non-goals
 
@@ -116,4 +116,4 @@ Production deployment uses `oauthstore.ApplyPostgresStores` (`pkg/oauth/store`) 
 - `pkg/smart/README.md` — scope formats and v1→v2 mapping
 - `pkg/auth/README.md` — policy DSL
 - `examples/smart-authz` — runnable restricted vs unrestricted principals
-- `examples/smart-oauth` — built-in OAuth server + FHIR read with consent and file-backed tokens
+- `examples/smart-oauth` — built-in OAuth server + FHIR read with consent

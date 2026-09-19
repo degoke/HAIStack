@@ -58,23 +58,10 @@ Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_
 
 Auth codes, refresh tokens, and pending consent rows store an `issuer` column (and JSON `issuer` field) so a shared SQL store can enforce that tokens minted under `/t/{tenantId}/` are only consumed by the matching tenant issuer.
 
-### Why file stores existed
-
-Early iterations used `FileAuthorizationStore` for a **zero-dependency** way to share
-OAuth state across a few AS replicas on a mounted volume. That works for dev/small
-deployments but is a poor fit for production:
-
-- No cross-host locking (NFS latency and corruption risk)
-- Full-file rewrite on every token operation
-- No HA failover semantics
-
-`NewProductionServer` (file-backed) remains for single-node and test environments.
-**Postgres is the recommended production path.**
-
 ### Redis (ephemeral token state)
 
 Use `oauthredis.NewServer` for TTL-backed auth codes, refresh tokens, replay JTIs, and
-revocation denylist. **Client registration stays on Postgres or file** — pass a durable
+revocation denylist. **Client registration stays on Postgres or SQLite** — pass a durable
 `cfg.Clients` registry; Redis does not store clients.
 
 ```go
@@ -95,13 +82,6 @@ server, err := oauthredis.NewServer(oauth.Config{
 ```
 
 `oauthredis.EphemeralStores` wires the three ephemeral interfaces with TTL-based keys.
-
-### File-backed alternative (single node / dev)
-
-```go
-paths := oauth.DefaultProductionPaths("/var/lib/haistack/oauth")
-server, err := oauth.NewProductionServer(oauth.Config{...}, paths)
-```
 
 ## Client authentication at the token endpoint
 

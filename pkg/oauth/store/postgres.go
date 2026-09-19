@@ -104,7 +104,6 @@ func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.Re
 		return oauth.RefreshTokenEntry{}, false
 	}
 	now := s.now()
-	issuer = oauth.NormalizeIssuerURL(issuer)
 	tag, err := s.pool.Exec(context.Background(), `
 		DELETE FROM hai_oauth_refresh_token
 		WHERE token = $1 AND expires_at > $2 AND issuer = $3`, token, now, issuer)

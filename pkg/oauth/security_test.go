@@ -4,10 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/client"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
@@ -42,30 +40,6 @@ func TestOAuthServer_RejectsEmptyRedirectURIList(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d", resp.StatusCode)
-	}
-}
-
-func TestFileAuthorizationStore_PersistsPendingSessions(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "oauth-pending.json")
-	store, err := oauth.NewFileAuthorizationStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const issuer = "https://auth.example.test"
-	if err := store.SavePendingAuthorization("sess-1", oauth.PendingAuthorization{
-		Issuer:    issuer,
-		Request:   oauth.AuthorizationRequest{ClientID: "client", Scope: "patient/*.rs"},
-		ExpiresAt: time.Now().Add(5 * time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reloaded, err := oauth.NewFileAuthorizationStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, ok := reloaded.ConsumePendingAuthorization(issuer, "sess-1")
-	if !ok || entry.Request.ClientID != "client" {
-		t.Fatalf("entry = %+v ok=%v", entry, ok)
 	}
 }
 
@@ -212,25 +186,3 @@ func TestOAuthServer_ConfidentialClientSecretBasic(t *testing.T) {
 	}
 }
 
-func TestFileAuthorizationStore_PersistsCodes(t *testing.T) {
-	const issuer = "https://auth.example.test"
-	path := filepath.Join(t.TempDir(), "oauth-auth.json")
-	store, err := oauth.NewFileAuthorizationStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SaveAuthorizationCode("code-1", oauth.AuthorizationCode{
-		Issuer: issuer, ClientID: "client", RedirectURI: "https://app/cb", Scope: "patient/*.rs",
-		ExpiresAt: time.Now().Add(5 * time.Minute),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reloaded, err := oauth.NewFileAuthorizationStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, ok := reloaded.ConsumeAuthorizationCode(issuer, "code-1")
-	if !ok || entry.ClientID != "client" {
-		t.Fatalf("entry = %+v ok=%v", entry, ok)
-	}
-}
