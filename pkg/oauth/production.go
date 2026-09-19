@@ -12,17 +12,16 @@ import (
 // SigningKeyPaths names the PEM signing-key fallback on disk.
 // Token, client, replay, and revocation state use pkg/oauth/store (SQLite or Postgres).
 type SigningKeyPaths struct {
-	StateDir   string
 	SigningKey string
 	SigningKID string
 }
 
-// DefaultSigningKeyPaths returns the conventional PEM path under stateDir.
+// DefaultSigningKeyPaths returns the conventional PEM path and key id under stateDir.
 func DefaultSigningKeyPaths(stateDir string) SigningKeyPaths {
 	stateDir = strings.TrimSpace(stateDir)
 	return SigningKeyPaths{
-		StateDir:   stateDir,
 		SigningKey: filepath.Join(stateDir, "oauth-signing.pem"),
+		SigningKID: "haistack",
 	}
 }
 

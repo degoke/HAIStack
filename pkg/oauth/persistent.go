@@ -29,6 +29,7 @@ type PendingAuthorization struct {
 	FHIRUser  string               `json:"fhirUser,omitempty"`
 	CSRFToken string               `json:"csrfToken,omitempty"`
 	ExpiresAt time.Time            `json:"expiresAt"`
+	Exp       int64                `json:"exp,omitempty"`
 }
 
 // AuthorizationCode is a short-lived authorization code entry.
@@ -44,6 +45,7 @@ type AuthorizationCode struct {
 	Challenge   string    `json:"challenge,omitempty"`
 	Method      string    `json:"method,omitempty"`
 	ExpiresAt   time.Time `json:"expiresAt"`
+	Exp         int64     `json:"exp,omitempty"`
 }
 
 // RefreshTokenEntry stores refresh-token metadata.
@@ -56,6 +58,7 @@ type RefreshTokenEntry struct {
 	Subject   string    `json:"subject"`
 	FHIRUser  string    `json:"fhirUser,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	Exp       int64     `json:"exp,omitempty"`
 }
 
 // MemoryAuthorizationStore is a process-local AuthorizationStore.
@@ -83,6 +86,7 @@ func (s *MemoryAuthorizationStore) SaveAuthorizationCode(code string, entry Auth
 		return err
 	}
 	entry.Issuer = iss
+	entry.Exp = entry.ExpiresAt.UnixMilli()
 	key, err := IssuerScopedKey(iss, code)
 	if err != nil {
 		return err
@@ -117,6 +121,7 @@ func (s *MemoryAuthorizationStore) SaveRefreshToken(token string, entry RefreshT
 		return err
 	}
 	entry.Issuer = iss
+	entry.Exp = entry.ExpiresAt.UnixMilli()
 	key, err := IssuerScopedKey(iss, token)
 	if err != nil {
 		return err
@@ -153,8 +158,12 @@ func (s *MemoryAuthorizationStore) LookupRefreshToken(issuer, token string) (Ref
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[key]
+	if ok && now.After(entry.ExpiresAt) {
+		delete(s.refreshTokens, key)
+		ok = false
+	}
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok {
 		return RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -166,6 +175,7 @@ func (s *MemoryAuthorizationStore) SavePendingAuthorization(id string, entry Pen
 		return err
 	}
 	entry.Issuer = iss
+	entry.Exp = entry.ExpiresAt.UnixMilli()
 	key, err := IssuerScopedKey(iss, id)
 	if err != nil {
 		return err
@@ -184,8 +194,12 @@ func (s *MemoryAuthorizationStore) GetPendingAuthorization(issuer, id string) (P
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.pending[key]
+	if ok && now.After(entry.ExpiresAt) {
+		delete(s.pending, key)
+		ok = false
+	}
 	s.mu.Unlock()
-	if !ok || now.After(entry.ExpiresAt) {
+	if !ok {
 		return PendingAuthorization{}, false
 	}
 	return entry, true
@@ -199,7 +213,11 @@ func (s *MemoryAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, cl
 	now := memoryStoreNow(s)
 	s.mu.Lock()
 	entry, ok := s.refreshTokens[key]
-	if ok && (entry.ClientID != clientID || now.After(entry.ExpiresAt)) {
+	if ok && now.After(entry.ExpiresAt) {
+		delete(s.refreshTokens, key)
+		ok = false
+	}
+	if ok && entry.ClientID != clientID {
 		ok = false
 	}
 	if ok {
