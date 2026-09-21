@@ -38,7 +38,9 @@ exit-status check.
 [`gold/translations.json`](gold/translations.json) lists expected
 `(source, target, equivalence)` tuples for a synthetic vitals CodeSystem
 (`https://example.org/CodeSystem/haistack-vitals`) onto LOINC. Those
-tuples are the independent truth.
+tuples are the independent truth. `conceptMap` and `conceptMapVersion`
+must match [`gold/conceptmap.json`](gold/conceptmap.json) (the control
+map). They are not compared to the planted fixture map.
 
 [`gold/conceptmap.json`](gold/conceptmap.json) is a **control** map that
 implements the catalogue. Scoring it confirms the translator and scorer:
@@ -66,8 +68,11 @@ Equivalence classes scored:
 | broad | `wider`, `subsumes`, `source-is-narrower-than-target` |
 | unmatched | no acceptable translation / `unmatched` |
 
-Metrics: precision, recall, and F1 against the gold set, plus per-class
-counts and per-tuple mismatches.
+Metrics: precision, recall, and F1 against the gold set, plus per-tuple
+mismatches. CLI fields `exact`, `narrow`, `broad`, and `unmatched` are
+**true-positive counts in that class**, not how many gold tuples carry
+the label. The planted fixture therefore reports `broad: 0` because
+`fever` (gold `broad`) mismatches.
 
 ## Provenance model
 
@@ -81,8 +86,8 @@ Each **fixture** translation records:
 
 Those fields are copied onto `pkg/audit` event details
 (`terminology.translate`) for the planted fixture only. The gold control
-does not emit audit events (nil logger). Analytics and AI pipelines can
-cite which map produced a fixture code.
+does not emit audit events (nil logger). Track E and `pkg/terminology`
+do not consume this provenance; it is CLI/harness output only.
 
 ## Limitations
 

@@ -65,8 +65,11 @@ type Provenance struct {
 
 // MapScore is precision/recall/F1 for one ConceptMap against the gold tuples.
 type MapScore struct {
-	Source     string     `json:"source"`
-	MapVersion string     `json:"mapVersion"`
+	Source     string `json:"source"`
+	MapVersion string `json:"mapVersion"`
+	// Exact, Narrow, Broad, and Unmatched count gold tuples that scored
+	// as a true positive in that class — not how many gold tuples have
+	// that label.
 	Exact      int        `json:"exact"`
 	Narrow     int        `json:"narrow"`
 	Broad      int        `json:"broad"`
@@ -137,6 +140,9 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 	if err := json.Unmarshal(goldJSON, &gold); err != nil {
 		return nil, err
 	}
+	if err := checkGoldMetadata(gold, goldConceptMapJSON); err != nil {
+		return nil, err
+	}
 	goldScore, _, err := scoreMap(ctx, "gold", goldMapID, goldConceptMapJSON, gold, nil)
 	if err != nil {
 		return nil, err
@@ -159,6 +165,23 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 		Provenance:  provenance,
 		AuditEvents: len(events),
 	}, nil
+}
+
+func checkGoldMetadata(gold GoldFile, mapJSON []byte) error {
+	cmap, err := conceptmap.ParseMap(mapJSON)
+	if err != nil {
+		return err
+	}
+	if gold.ConceptMap == "" || gold.ConceptMapVersion == "" {
+		return fmt.Errorf("gold translations.json must set conceptMap and conceptMapVersion")
+	}
+	if gold.ConceptMap != cmap.URL {
+		return fmt.Errorf("gold translations conceptMap %q != gold ConceptMap url %q", gold.ConceptMap, cmap.URL)
+	}
+	if gold.ConceptMapVersion != cmap.Version {
+		return fmt.Errorf("gold translations conceptMapVersion %q != gold ConceptMap version %q", gold.ConceptMapVersion, cmap.Version)
+	}
+	return nil
 }
 
 func scoreMap(ctx context.Context, source, resourceID string, mapJSON []byte, gold GoldFile, logger *audit.StoreAdapter) (*MapScore, []Provenance, error) {
@@ -242,9 +265,9 @@ func scoreMap(ctx context.Context, source, resourceID string, mapJSON []byte, go
 func scoreTranslation(metrics *MapScore, g GoldTranslation, gotCode, gotClass string) {
 	switch g.Equivalence {
 	case "unmatched":
-		metrics.Unmatched++
 		if gotClass == "unmatched" && gotCode == "" {
 			metrics.TruePos++
+			metrics.Unmatched++
 		} else {
 			metrics.FalsePos++
 			metrics.Mismatches = append(metrics.Mismatches, mismatch(g, gotCode, gotClass, "fp"))

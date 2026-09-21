@@ -36,6 +36,8 @@ type FAIRMetadata struct {
 // come from conformance-lock.json (the lock rewrite, not this checkout).
 // CheckoutCommit is the git revision of the tree that ran the pipeline.
 // Mode and Profiles record what the validator ran, not only the lock citation.
+// Mode is `r4-base-and-declared-ig-fast`: R4 base + declared IG profiles
+// under validate.ValidationModeFast (not Full).
 type ValidationProvenance struct {
 	FHIRVersion           string   `json:"fhirVersion"`
 	IGPackage             string   `json:"igPackage"`

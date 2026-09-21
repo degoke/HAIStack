@@ -69,8 +69,8 @@ func TestAIPipelineProvenanceChain(t *testing.T) {
 	if bundle.Validation.CheckoutCommit == "" {
 		t.Fatal("checkout commit missing (lock rewrite is not this tree)")
 	}
-	if bundle.Validation.Mode != "r4-base-and-declared-ig" {
-		t.Fatalf("validation mode = %q, want r4-base-and-declared-ig (actual profiles, not lock citation only)", bundle.Validation.Mode)
+	if bundle.Validation.Mode != "r4-base-and-declared-ig-fast" {
+		t.Fatalf("validation mode = %q, want r4-base-and-declared-ig-fast (profiles + ValidationModeFast, not Full)", bundle.Validation.Mode)
 	}
 	if bundle.Validation.IGResources != "modules/core/ig" {
 		t.Fatalf("ig resources = %q, want compiled modules/core/ig", bundle.Validation.IGResources)

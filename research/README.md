@@ -15,7 +15,7 @@ them as follows:
 | Gap | Track | Artefact |
 |-----|-------|----------|
 | Vendor-neutral FHIR benchmark suite | A | [`benchmarks/`](benchmarks/) |
-| R4/R5/R6 semantic-conversion corpora | B | [`semantic-conversion/`](semantic-conversion/) |
+| R4/R5/R6 semantic-conversion corpora | B | [`semantic-conversion/`](semantic-conversion/) — R4→R5 catalogue only; R6 reserved |
 | Computable consent / policy semantics | C | [`policy-semantics/`](policy-semantics/) |
 | Terminology mapping quality and provenance | D | [`terminology-evaluation/`](terminology-evaluation/) — planted scorer fixture, not a quality study |
 | Reproducible FHIR → AI pipelines | E | [`ai-pipeline/`](ai-pipeline/) |
@@ -78,7 +78,7 @@ All datasets are synthetic. See [`LICENSE`](LICENSE).
 ## Provenance chain (Track E)
 
 ```
-FHIR resources (validated)
+FHIR resources (validated, ValidationModeFast)
   → ViewDefinition projection (pkg/view)
   → authorized view/tool execution (pkg/auth; full authorized view output,
     not per-row ACL filtering)

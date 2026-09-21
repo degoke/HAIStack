@@ -364,7 +364,7 @@ func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, e
 		Canonical:             lock.IGPackage.Canonical,
 		ConformanceLockCommit: lock.GitCommit,
 		CheckoutCommit:        researchutil.CheckoutCommit(root),
-		Mode:                  "r4-base-and-declared-ig",
+		Mode:                  "r4-base-and-declared-ig-fast",
 		Profiles: []string{
 			validate.BaseStructureDefinitionURL("Patient"),
 			validate.BaseStructureDefinitionURL("Observation"),

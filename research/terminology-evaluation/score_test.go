@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+)
 
 func TestScorerDetectsPlantedDefects(t *testing.T) {
 	report, err := Evaluate(t.Context())
@@ -9,6 +14,18 @@ func TestScorerDetectsPlantedDefects(t *testing.T) {
 	}
 	if report.Gold < 1 {
 		t.Fatal("gold set is empty")
+	}
+	var gold GoldFile
+	if err := json.Unmarshal(goldJSON, &gold); err != nil {
+		t.Fatal(err)
+	}
+	cmap, err := conceptmap.ParseMap(goldConceptMapJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gold.ConceptMap != cmap.URL || gold.ConceptMapVersion != cmap.Version {
+		t.Fatalf("gold translations metadata %s@%s != control map %s@%s",
+			gold.ConceptMap, gold.ConceptMapVersion, cmap.URL, cmap.Version)
 	}
 	if report.GoldMap == nil || report.FixtureMap == nil {
 		t.Fatal("expected goldMap and fixtureMap scores")

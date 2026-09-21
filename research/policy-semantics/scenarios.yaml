@@ -11,13 +11,11 @@ version: "1"
 roles:
   - name: clinician
     permissions:
-      - appointment.read
       - patient.read
       - observation.read
   - name: backend
     permissions:
       - "*.read"
-      - patient.read
 principals:
   clinician:
     id: user-clinician
