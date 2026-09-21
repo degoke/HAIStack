@@ -487,10 +487,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		}
 		return nil, nil
 	case "tolist":
-		if len(v) == 0 {
-			return []any{}, nil
-		}
-		return v, nil
+		return toListResult(v), nil
 	case "collapse":
 		return collapseIntervals(v, nil), nil
 	case "expand":

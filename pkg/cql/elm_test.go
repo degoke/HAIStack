@@ -1211,7 +1211,11 @@ func TestELMToListNullAndUnknownType(t *testing.T) {
 		t.Fatalf("ToList should wrap, got %#v", n)
 	}
 	got := evalELMExpr(t, map[string]any{"type": "ToList", "operand": map[string]any{"type": "Null"}})
-	if got == nil || len(got) != 0 {
+	if len(got) != 1 {
+		t.Fatalf("ToList(null) should be singleton empty list, got %#v", got)
+	}
+	list, ok := got[0].([]any)
+	if !ok || len(list) != 0 {
 		t.Fatalf("ToList(null) should be empty list, got %#v", got)
 	}
 	_, err = parseELMExpr(map[string]any{"type": "NotARealOperator", "operand": map[string]any{"type": "Null"}})

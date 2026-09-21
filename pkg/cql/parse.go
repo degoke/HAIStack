@@ -769,7 +769,7 @@ func (p *parser) parseConcat() (Node, error) {
 }
 
 func (p *parser) parseAdd() (Node, error) {
-	left, err := p.parseRatio()
+	left, err := p.parseRatioMul()
 	if err != nil {
 		return nil, err
 	}
@@ -796,6 +796,31 @@ func (p *parser) parseAdd() (Node, error) {
 				return left, nil
 			}
 		}
+		right, err := p.parseRatioMul()
+		if err != nil {
+			return nil, err
+		}
+		left = &binaryNode{nodeBase: nodeBase{src: p.src}, op: op, left: left, right: right}
+	}
+}
+
+func (p *parser) parseRatioMul() (Node, error) {
+	left, err := p.parseRatio()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		op := ""
+		switch p.lex.lookahead().kind {
+		case tStar:
+			op = "*"
+			p.lex.next()
+		case tSlash:
+			op = "/"
+			p.lex.next()
+		default:
+			return left, nil
+		}
 		right, err := p.parseRatio()
 		if err != nil {
 			return nil, err
@@ -805,7 +830,7 @@ func (p *parser) parseAdd() (Node, error) {
 }
 
 func (p *parser) parseRatio() (Node, error) {
-	left, err := p.parseMul()
+	left, err := p.parsePower()
 	if err != nil {
 		return nil, err
 	}
@@ -813,7 +838,7 @@ func (p *parser) parseRatio() (Node, error) {
 		return left, nil
 	}
 	p.acceptKind(tColon)
-	right, err := p.parseMul()
+	right, err := p.parsePower()
 	if err != nil {
 		return nil, err
 	}

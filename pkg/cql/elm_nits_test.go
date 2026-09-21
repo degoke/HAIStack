@@ -1277,7 +1277,8 @@ func TestReviewNitsRound3(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, ok := got[0].(Ratio)
-	if !ok || r.Numerator.Value != 2 || r.Denominator.Value != 2 {
+	want := Ratio{Numerator: Quantity{Value: 2, Unit: "mg"}, Denominator: Quantity{Value: 2, Unit: "mL"}}
+	if !ok || !ratioEqual(r, want) {
 		t.Fatalf("ratio add: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "TruncateQuantity(1.9)", EvalContext{})
@@ -1294,5 +1295,61 @@ func TestReviewNitsRound3(t *testing.T) {
 	q, ok := asQuantity(got[0])
 	if !ok || q.Unit != "kg" || q.Value < 0.45 || q.Value > 0.46 {
 		t.Fatalf("UCUM pound: %#v", got)
+	}
+}
+
+func TestReviewNitsRound4(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ToList(null)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := got[0].([]any)
+	if len(got) != 1 || !ok || len(list) != 0 {
+		t.Fatalf("ToList(null): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' * 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ratio multiply parse/eval: %#v err=%v", got, err)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' + 1 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Value != 6 || r.Denominator.Value != 8 {
+		t.Fatalf("ratio add diff denom: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Repeat(1, 0)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Repeat zero: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{code:'8867', system:'http://loinc.org'} subsumes {code:'8867-4', system:'http://loinc.org'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("subsumes dash guard: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{code:'chi', system:'http://cs'} subsumes {code:'child', system:'http://cs'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("subsumes alpha prefix: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[oz_av]', 'g')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "g" || q.Value < 28.34 || q.Value > 28.35 {
+		t.Fatalf("UCUM ounce: %#v", got)
 	}
 }
