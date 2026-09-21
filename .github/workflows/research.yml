@@ -9,8 +9,10 @@ on:
 permissions:
   contents: read
 
-# Reproducibility checks for research artefacts. Failures fail the PR job.
-# The same `make research` target also runs in ci.yml so it is a blocking check.
+# Reproducibility checks for research artefacts. Failures fail this job.
+# The required CI workflow (.github/workflows/ci.yml) also runs `make research`,
+# so research failures block the PR whether or not this dedicated check is
+# configured in branch protection.
 jobs:
   research:
     runs-on: ubuntu-latest

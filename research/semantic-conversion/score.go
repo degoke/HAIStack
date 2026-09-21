@@ -115,20 +115,38 @@ func scorePair(ctx context.Context, codec *proto.GoogleR4Codec, engine fhirpath.
 				errs = append(errs, fmt.Sprintf("r5 json %s %q: not satisfied (value=%v)", c.Op, c.Path, c.Value))
 			}
 		}
-		for _, flag := range pair.InformationLoss {
-			absent, err := informationLossAbsent(r5env.JSON, pair.ResourceType, flag)
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("informationLoss %q: %v", flag, err))
-				continue
-			}
-			if !absent {
-				errs = append(errs, fmt.Sprintf("informationLoss %q still present on R5", flag))
-			}
-		}
 	} else if len(pair.R5JSON) > 0 {
 		errs = append(errs, "r5 json checks: missing resource")
-	} else if len(pair.InformationLoss) > 0 {
-		errs = append(errs, "informationLoss: missing R5 resource")
+	}
+	if len(pair.InformationLoss) > 0 {
+		if r4env == nil {
+			errs = append(errs, "informationLoss: missing R4 resource")
+		} else {
+			for _, flag := range pair.InformationLoss {
+				present, err := informationLossPresent(r4env.JSON, pair.ResourceType, flag)
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("informationLoss %q on R4: %v", flag, err))
+					continue
+				}
+				if !present {
+					errs = append(errs, fmt.Sprintf("informationLoss %q not present on R4", flag))
+				}
+			}
+		}
+		if r5env == nil {
+			errs = append(errs, "informationLoss: missing R5 resource")
+		} else {
+			for _, flag := range pair.InformationLoss {
+				absent, err := informationLossAbsent(r5env.JSON, pair.ResourceType, flag)
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("informationLoss %q on R5: %v", flag, err))
+					continue
+				}
+				if !absent {
+					errs = append(errs, fmt.Sprintf("informationLoss %q still present on R5", flag))
+				}
+			}
+		}
 	}
 	if pair.Category == "information_loss" && len(pair.InformationLoss) == 0 {
 		errs = append(errs, "information_loss category requires flags")
@@ -164,6 +182,14 @@ func evalJSONCheck(raw []byte, c JSONCheck) (bool, error) {
 	default:
 		return false, fmt.Errorf("unsupported json check op %q", c.Op)
 	}
+}
+
+func informationLossPresent(raw []byte, resourceType, flag string) (bool, error) {
+	absent, err := informationLossAbsent(raw, resourceType, flag)
+	if err != nil {
+		return false, err
+	}
+	return !absent, nil
 }
 
 func informationLossAbsent(raw []byte, resourceType, flag string) (bool, error) {

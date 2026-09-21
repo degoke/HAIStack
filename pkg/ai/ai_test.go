@@ -787,7 +787,7 @@ func TestExecutor_InvokeModelAudits(t *testing.T) {
 	if len(recs) != 1 {
 		t.Fatalf("audit records = %#v", recs)
 	}
-	if recs[0].Action != "invoke-model" || recs[0].ToolName != "stub-v1" || recs[0].Outcome != "success" {
+	if recs[0].Action != audit.ActionInvokeModel || recs[0].CanonicalAction() != audit.ActionInvokeModel || recs[0].ToolName != "stub-v1" || recs[0].Outcome != "success" {
 		t.Fatalf("audit = %#v", recs[0])
 	}
 	if recs[0].Actor != "user-clinician" || recs[0].ConversationID != "conv-1" {

@@ -39,8 +39,9 @@ make research-benchmarks      # Track A
 ```
 
 Each target runs the track's tests and a deterministic CLI (`go run`). No
-network services, API keys, or PHI are required. CI workflow
-`.github/workflows/research.yml` repeats these checks.
+network services, API keys, or PHI are required. The required **CI** workflow
+(`.github/workflows/ci.yml`) runs `make research` as a blocking step. The
+dedicated `.github/workflows/research.yml` workflow runs the same target.
 
 ## How to cite
 

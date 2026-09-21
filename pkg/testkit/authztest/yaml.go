@@ -108,25 +108,20 @@ func ScenariosFromYAML(file YAMLFile) ([]Scenario, error) {
 		out = append(out, Scenario{
 			Name: spec.Name,
 			Doc:  spec.Doc,
-			Run: func(ctx context.Context, kit *Kit) error {
-				return runYAMLScenario(ctx, kit, spec, policy, roles, principals, byName)
+			Run: func(ctx context.Context, _ *Kit) error {
+				return runYAMLScenario(ctx, spec, policy, roles, principals, byName)
 			},
 		})
 	}
 	return out, nil
 }
 
-func runYAMLScenario(ctx context.Context, kit *Kit, spec YAMLScenario, policy auth.PolicyDocument, roles []auth.Role, principals []auth.Principal, byName map[string]YAMLPrincipal) error {
+func runYAMLScenario(ctx context.Context, spec YAMLScenario, policy auth.PolicyDocument, roles []auth.Role, principals []auth.Principal, byName map[string]YAMLPrincipal) error {
 	eng, err := engineForYAMLPolicy(policy, roles, principals)
 	if err != nil {
 		return fmt.Errorf("%s: %w", spec.Name, err)
 	}
-	adapter := kit.Adapter
-	if adapter == nil {
-		adapter = SmartAdapter()
-	}
-
-	bundle, err := bundleForYAML(adapter, spec, byName)
+	adapter, bundle, err := bundleForYAML(spec, byName)
 	if err != nil {
 		return fmt.Errorf("%s: %w", spec.Name, err)
 	}
@@ -329,21 +324,49 @@ func parseYAMLPrincipalKind(kind string) (auth.PrincipalKind, error) {
 }
 
 func engineForYAMLPolicy(doc auth.PolicyDocument, roles []auth.Role, principals []auth.Principal) (*auth.Engine, error) {
-	cfg := BaseConfig()
-	if len(roles) > 0 {
-		cfg.Roles = roles
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("yaml catalogue has no roles")
 	}
-	if len(principals) > 0 {
-		cfg.Principals = principals
+	if len(principals) == 0 {
+		return nil, fmt.Errorf("yaml catalogue has no principals")
 	}
-	cfg.Policy = &doc
-	return auth.NewEngine(cfg)
+	return auth.NewEngine(auth.Config{
+		Roles:      roles,
+		Principals: principals,
+		Policy:     &doc,
+	})
 }
 
-func bundleForYAML(adapter *smart.AuthAdapter, spec YAMLScenario, byName map[string]YAMLPrincipal) (smart.AuthBundle, error) {
+func adapterForYAMLPrincipal(p YAMLPrincipal) (*smart.AuthAdapter, error) {
+	kind, err := parseYAMLPrincipalKind(p.Kind)
+	if err != nil {
+		return nil, err
+	}
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = TenantA
+	}
+	roles := append([]string(nil), p.Roles...)
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("principal %q missing roles", p.ID)
+	}
+	cfg := smart.AuthAdapterConfig{DefaultTenantID: tenant}
+	if kind == auth.KindService {
+		cfg.DefaultServiceRoles = roles
+	} else {
+		cfg.DefaultUserRoles = roles
+	}
+	return smart.NewAuthAdapter(cfg), nil
+}
+
+func bundleForYAML(spec YAMLScenario, byName map[string]YAMLPrincipal) (*smart.AuthAdapter, smart.AuthBundle, error) {
 	p, err := resolveYAMLPrincipal(YAMLFile{Principals: byName}, spec)
 	if err != nil {
-		return smart.AuthBundle{}, err
+		return nil, smart.AuthBundle{}, err
+	}
+	adapter, err := adapterForYAMLPrincipal(p)
+	if err != nil {
+		return nil, smart.AuthBundle{}, err
 	}
 	scopesRaw := spec.Scopes
 	if scopesRaw == "" {
@@ -351,32 +374,40 @@ func bundleForYAML(adapter *smart.AuthAdapter, spec YAMLScenario, byName map[str
 	}
 	scopes, err := smart.ParseScopes(scopesRaw)
 	if err != nil {
-		return smart.AuthBundle{}, err
+		return nil, smart.AuthBundle{}, err
 	}
 	subject := p.ID
 	clientID := p.ClientID
 	kind, err := parseYAMLPrincipalKind(p.Kind)
 	if err != nil {
-		return smart.AuthBundle{}, err
+		return nil, smart.AuthBundle{}, err
+	}
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = TenantA
 	}
 	if kind == auth.KindService && clientID == "" {
 		clientID = subject
 	}
 	claims := smart.TokenClaims{
-		Subject:  subject,
-		ClientID: clientID,
-		Scope:    scopes.SpaceSeparated(),
-		Scopes:   scopes,
-		Patient:  spec.PatientID,
+		Subject:    subject,
+		ClientID:   clientID,
+		TenantHint: tenant,
+		Scope:      scopes.SpaceSeparated(),
+		Scopes:     scopes,
+		Patient:    spec.PatientID,
 	}
 	if clientID != "" && kind == auth.KindService {
-		return adapter.FromBackendService(claims, smart.BackendClient{
+		bundle, err := adapter.FromBackendService(claims, smart.BackendClient{
 			ClientID:      clientID,
+			TenantHint:    tenant,
 			AllowedScopes: []string{scopesRaw},
 		}, smart.LaunchContext{})
+		return adapter, bundle, err
 	}
-	return adapter.ToAuthRequests(claims, smart.BuildLaunchContext(smart.LaunchContextInput{
+	bundle, err := adapter.ToAuthRequests(claims, smart.BuildLaunchContext(smart.LaunchContextInput{
 		Claims: &claims,
 		Scopes: scopes,
 	}))
+	return adapter, bundle, err
 }

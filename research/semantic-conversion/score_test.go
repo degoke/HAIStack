@@ -97,20 +97,35 @@ func TestScoreAll(t *testing.T) {
 	}
 }
 
-func TestInformationLossFlagsAbsentOnR5(t *testing.T) {
+func TestInformationLossFlagsPresentOnR4AbsentOnR5(t *testing.T) {
 	for _, p := range Corpus() {
 		if len(p.InformationLoss) == 0 {
 			continue
 		}
 		for _, flag := range p.InformationLoss {
+			present, err := informationLossPresent(p.R4, p.ResourceType, flag)
+			if err != nil {
+				t.Fatalf("%s flag %q on R4: %v", p.ID, flag, err)
+			}
+			if !present {
+				t.Fatalf("%s flag %q is not present on R4", p.ID, flag)
+			}
 			absent, err := informationLossAbsent(p.R5, p.ResourceType, flag)
 			if err != nil {
-				t.Fatalf("%s flag %q: %v", p.ID, flag, err)
+				t.Fatalf("%s flag %q on R5: %v", p.ID, flag, err)
 			}
 			if !absent {
 				t.Fatalf("%s flag %q is still present on R5", p.ID, flag)
 			}
 		}
+	}
+	neverOnR4 := []byte(`{"resourceType":"Patient","id":"x","gender":"male"}`)
+	present, err := informationLossPresent(neverOnR4, "Patient", "Patient.photo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatal("expected Patient.photo missing on R4 to fail the loss check")
 	}
 	kept := []byte(`{"resourceType":"Patient","id":"x","photo":[{"title":"kept"}]}`)
 	absent, err := informationLossAbsent(kept, "Patient", "Patient.photo")

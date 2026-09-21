@@ -42,10 +42,9 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 ## What the bundle proves
 
 - Each input resource has a canonical JSON hash and was validated against the recorded profile (`hai-patient` for Patient, HL7 R4 base for Observation).
-- Audit events cover view execution, AI tool success, and stub model invocation (`pkg/ai.Executor.InvokeModel`).
 - The view name, version, and row hashes are recorded.
 - The policy document hash is recorded.
 - Tool citations point at the view and source Observation ids.
-- Audit events cover view execution, AI tool success, and stub model invocation.
+- Audit events cover view execution, AI tool success, and stub model invocation (`pkg/ai.Executor.InvokeModel`).
 
 This is an evaluation artefact, not a clinical model.

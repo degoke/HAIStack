@@ -8,7 +8,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-// AuditRecord captures one AI tool invocation for the audit seam.
+// AuditRecord captures one AI tool or model invocation for the audit seam.
 type AuditRecord struct {
 	Action         string            `json:"action,omitempty"`
 	ToolName       string            `json:"toolName"`
@@ -21,8 +21,21 @@ type AuditRecord struct {
 	Timestamp      time.Time         `json:"timestamp"`
 }
 
-// AuditLogger is the pluggable audit seam. It is invoked on success, denial,
-// validation failure, and approval-required outcomes.
+// CanonicalAction is the pkg/audit action for this record. InvokeModel sets
+// audit.ActionInvokeModel; ExecuteTool sets audit.ActionExecuteTool. Empty
+// Action defaults to execute-tool so custom AuditLogger implementations can
+// branch on one field instead of inferring from ToolName.
+func (r AuditRecord) CanonicalAction() string {
+	if r.Action != "" {
+		return r.Action
+	}
+	return audit.ActionExecuteTool
+}
+
+// AuditLogger is the pluggable audit seam. LogToolAccess is invoked for
+// ExecuteTool (success, denial, validation failure, approval-required) and for
+// InvokeModel. Inspect CanonicalAction() to distinguish invoke-model from
+// execute-tool; do not assume every record is a tool call.
 type AuditLogger interface {
 	LogToolAccess(ctx context.Context, rec AuditRecord) error
 }
@@ -59,7 +72,7 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 		Details:        rec.Details,
 		Timestamp:      rec.Timestamp,
 	}
-	if rec.Action == audit.ActionInvokeModel {
+	if rec.CanonicalAction() == audit.ActionInvokeModel {
 		return audit.LogAIModelInvoke(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, ev)
 	}
 	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, ev)

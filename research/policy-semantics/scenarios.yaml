@@ -209,6 +209,9 @@ scenarios:
     principal: clinician
     scopes: user/*.read
     policy: base
+    # Pass the SMART RequiredPermissions gate so deny is unmatched policy, not missing *.read.
+    roleGrants:
+      clinician: ["*.read"]
     action: read
     resourceType: MedicationRequest
     resourceId: rx-1
@@ -219,6 +222,8 @@ scenarios:
     principal: clinician
     scopes: user/*.read
     policy: deny-first
+    roleGrants:
+      clinician: ["*.read"]
     action: read
     resourceType: Appointment
     resourceId: a1

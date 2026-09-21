@@ -52,7 +52,9 @@ For each pair:
 4. Semantic (R5): structural JSON checks (`exists`, `missing`, `count`,
    `equals`) on the expected R5 document. These are **not** FHIRPath —
    `pkg/fhirpath` has no R5 codec.
-5. Record `informationLoss` flags from the pair metadata.
+5. `informationLoss` flags must be **present on R4** and **absent on R5**
+   (including `extension[url]`). A flag for a field that never existed on R4
+   fails the pair.
 
 Relationship to HL7: pairs follow published R4/R5 resource diffs where a
 mapping is defined. They are not a substitute for the HL7 version

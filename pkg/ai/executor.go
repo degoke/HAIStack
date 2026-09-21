@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -72,8 +73,8 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // InvokeModel routes an optional model invocation using the configured ModelRouter.
 // Tool execution does not require a model adapter; this helper is for callers that
 // want to combine tool output with model generation in the same session.
-// When a model is actually invoked, the call is audited as invoke-model
-// (AuditRecord.Action) through the same AuditLogger seam as ExecuteTool.
+// When a model is actually invoked, the call is audited as
+// audit.ActionInvokeModel through the same AuditLogger seam as ExecuteTool.
 func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, context string) (*ModelResponse, error) {
 	if e.cfg.RequireConversationID {
 		if err := validateConversationID(req.ConversationID); err != nil {
@@ -107,7 +108,7 @@ func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, con
 		details["error"] = err.Error()
 	}
 	if auditErr := e.logAuditRecord(ctx, req, AuditRecord{
-		Action:         "invoke-model",
+		Action:         audit.ActionInvokeModel,
 		ToolName:       toolName,
 		Actor:          req.Actor,
 		Tenant:         req.TenantID,
@@ -693,6 +694,7 @@ func filterAllowedFields(requested map[string]any, allowed []string) map[string]
 
 func (e *Executor) logAudit(ctx context.Context, req ToolRequest, toolName, outcome string, details map[string]string) error {
 	return e.logAuditRecord(ctx, req, AuditRecord{
+		Action:         audit.ActionExecuteTool,
 		ToolName:       toolName,
 		Actor:          req.Actor,
 		Tenant:         req.TenantID,
@@ -710,6 +712,9 @@ func (e *Executor) logAuditRecord(ctx context.Context, req ToolRequest, rec Audi
 			return ErrMissingAudit
 		}
 		return nil
+	}
+	if rec.Action == "" {
+		rec.Action = rec.CanonicalAction()
 	}
 	if rec.Timestamp.IsZero() {
 		rec.Timestamp = e.cfg.Now()
