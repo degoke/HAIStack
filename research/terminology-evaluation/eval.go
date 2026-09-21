@@ -14,20 +14,15 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
-// EvalStoreCanonical is the local store key Evaluate uses for $translate
-// lookup. It is not the ConceptMap.url written into audit events.
-const EvalStoreCanonical = "urn:haistack:research:eval-conceptmap"
-
-// Case is one gold translation expectation.
+// Case is one authored translation expectation.
 type Case struct {
 	Code   string `json:"code"`
 	Class  string `json:"class"`
 	Target string `json:"target,omitempty"`
 }
 
-// GoldFile is the published case list. It does not carry ConceptMap URL,
-// version, or source-system version; those come from the ConceptMap resource
-// pkg/terminology.Translate resolves.
+// GoldFile is the published case list. ConceptMap identity comes from the
+// ConceptMap resource pkg/terminology.Translate resolves.
 type GoldFile struct {
 	SourceSystem string `json:"sourceSystem"`
 	Cases        []Case `json:"cases"`
@@ -53,11 +48,10 @@ type ClassScore struct {
 }
 
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
-// Accuracy is the pass rate (class and target). ByClass is one-vs-rest on
-// class labels only; a right class with a wrong target fails accuracy and
-// does not count as a class false positive.
-// Gold conceptmap.json vs cases.json is a consistency check (expected 1.0).
-// Held-out conceptmap vs the same cases is the class-quality evaluation.
+// Accuracy is the pass rate (class and target). ByClass is one-vs-rest on class
+// labels only. Gold conceptmap.json vs cases.json checks that $translate
+// implements that map. Divergent conceptmap vs the same cases is map agreement
+// with authored labels, not a quality headline for the translator.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -69,6 +63,10 @@ type Metrics struct {
 	ByClass    map[string]ClassScore `json:"byClass,omitempty"`
 	Provenance float64               `json:"provenanceCompleteness"`
 	Results    []CaseResult          `json:"results"`
+}
+
+type conceptMapHeader struct {
+	URL string `json:"url"`
 }
 
 type lastEventLogger struct {
@@ -86,9 +84,9 @@ func (l *lastEventLogger) Log(ctx context.Context, event audit.Event) error {
 	return nil
 }
 
-// Evaluate stores the ConceptMap JSON under EvalStoreCanonical (not the
-// resource url), calls $translate with that store key, and scores output
-// against authored cases. Audit url/version come from the ConceptMap body.
+// Evaluate stores the ConceptMap at its FHIR url, calls $translate with that
+// url, and scores output against authored cases. Audit fields come from the
+// ConceptMap Translate resolved.
 func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Metrics, error) {
 	mapJSON, err := os.ReadFile(mapPath)
 	if err != nil {
@@ -106,12 +104,17 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		return Metrics{}, fmt.Errorf("terminology-evaluation: no gold cases")
 	}
 
+	var header conceptMapHeader
+	if err := json.Unmarshal(mapJSON, &header); err != nil {
+		return Metrics{}, err
+	}
+
 	mem := terminology.NewMemoryStore()
 	if err := mem.PutResource(ctx, store.TerminologyResourceRecord{
 		ScopeID:      "research",
 		ResourceType: "ConceptMap",
 		ResourceID:   "eval-map",
-		CanonicalURL: EvalStoreCanonical,
+		CanonicalURL: header.URL,
 		Status:       "active",
 		ResourceJSON: mapJSON,
 	}); err != nil {
@@ -132,7 +135,7 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	classSupport := map[string]int{}
 	for _, c := range gold.Cases {
 		before := logger.n
-		gotClass, target, _ := translateClass(ctx, svc, gold.SourceSystem, c.Code)
+		gotClass, target, _ := translateClass(ctx, svc, header.URL, gold.SourceSystem, c.Code)
 		if logger.n != before+1 {
 			return Metrics{}, fmt.Errorf("terminology-evaluation: Translate did not emit audit for %s", c.Code)
 		}
@@ -215,16 +218,14 @@ func provenanceComplete(ev audit.Event) bool {
 	if ev.Timestamp.IsZero() {
 		return false
 	}
-	if ev.Details["conceptMapUrl"] == "" || ev.Details["conceptMapUrl"] == EvalStoreCanonical {
-		return false
-	}
-	return ev.Details["conceptMapVersion"] != "" &&
+	return ev.Details["conceptMapUrl"] != "" &&
+		ev.Details["conceptMapVersion"] != "" &&
 		ev.Details["sourceSystemVersion"] != ""
 }
 
-func translateClass(ctx context.Context, svc *terminology.LocalService, sourceSystem, code string) (class, target string, err error) {
+func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, sourceSystem, code string) (class, target string, err error) {
 	codings, err := svc.Translate(ctx, terminology.ConceptMapTranslateRequest{
-		URL:    EvalStoreCanonical,
+		URL:    mapURL,
 		Coding: terminology.Coding{System: sourceSystem, Code: code},
 	})
 	if err != nil || len(codings) == 0 {
@@ -261,19 +262,10 @@ func TestdataPaths() (mapPath, casesPath string) {
 	return filepath.Join(dir, "conceptmap.json"), filepath.Join(dir, "cases.json")
 }
 
-// HeldOutMapPath is a ConceptMap that disagrees with authored cases.json
-// (WBC is equivalent instead of wider).
-func HeldOutMapPath() string {
-	return filepath.Join(testdataDir(), "heldout-conceptmap.json")
-}
-
-// SourceFile is the evaluation harness source.
-func SourceFile() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "eval.go"
-	}
-	return file
+// DivergentMapPath is an independently smaller ConceptMap scored against
+// authored cases.json (missing K/CBC-DIFF, WBC equivalent, GLU mapped).
+func DivergentMapPath() string {
+	return filepath.Join(testdataDir(), "divergent-conceptmap.json")
 }
 
 // FixedNow is the deterministic evaluation timestamp.

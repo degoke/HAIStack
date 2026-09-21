@@ -1,8 +1,9 @@
 # Track D — Terminology mapping quality and provenance
 
 Authored translation cases, a gold ConceptMap used as a **consistency**
-check, a held-out ConceptMap scored against those cases, and an
-audit-backed provenance model for `$translate`.
+check that `$translate` implements that map, a **divergent** ConceptMap
+scored against the same cases (map agreement), and an audit-backed
+provenance model for `$translate`.
 
 ## Reproduce
 
@@ -21,11 +22,12 @@ SNOMED CT or LOINC — they exist so the artefact can be redistributed without
 terminology licenses.
 
 [`testdata/cases.json`](./testdata/cases.json) is the **authored** expected
-equivalence class and target. Map URL and version are not taken from this
-file.
+equivalence class and target.
 
-[`testdata/heldout-conceptmap.json`](./testdata/heldout-conceptmap.json)
-is a different map that labels WBC `equivalent` instead of `wider`.
+[`testdata/divergent-conceptmap.json`](./testdata/divergent-conceptmap.json)
+is a smaller, independently written map: it omits K and CBC-DIFF, maps WBC
+as equivalent (cases want broad), and maps GLU (cases want unmatched). It
+is not a one-field edit of the gold file.
 
 | Class | Meaning |
 |-------|---------|
@@ -36,10 +38,8 @@ is a different map that labels WBC `equivalent` instead of `wider`.
 
 ## Metrics
 
-Exact / narrow / broad / unmatched counts are the translator's observed
-class. `$translate` returns target `Coding` values that include
-`equivalence` from the ConceptMap match; `gotClass` is derived from that
-field.
+Exact / narrow / broad / unmatched counts are `$translate` observed
+classes from ConceptMap `equivalence` on the returned coding.
 
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
@@ -48,23 +48,23 @@ The published command prints two objects:
 
 | Key | Source | What it is |
 |-----|--------|------------|
-| `goldConsistency` | gold map × `cases.json` | Pass rate. **1.0 means `$translate` implements this map**, not quality. No `byClass`. |
-| `classMetrics` | **held-out map** × `cases.json` | Quality of a map that disagrees with authored labels (WBC). Accuracy 0.875; exact P=0.75 R=1; broad R=0. |
+| `goldConsistency` | gold map × `cases.json` | Does `$translate` implement this map? **1.0 is expected.** No `byClass`. |
+| `mapAgreement` | **divergent map** × `cases.json` | Agreement of a different map with authored labels. Accuracy 0.5. **Not** `$translate` quality. |
 
 **Accuracy** is the pass rate (`class` and `target` both match).
 
-**Precision** and **recall** are published **only in `classMetrics.byClass`**
-(one-vs-rest on **class labels**). Precision is omitted when a class has no
-predictions; recall is omitted when it has no gold support. A right class
-with a wrong target fails accuracy and is not a class false positive.
+**Precision** and **recall** are published **only in `mapAgreement.byClass`**.
+Precision is omitted when a class has no predictions; recall is omitted when
+it has no gold support. A right class with a wrong target fails accuracy and
+is not a class false positive.
 
 **Provenance completeness** is the share of translations whose
 `terminology.translate` audit event was **emitted by
-`pkg/terminology.Translate`**. The harness stores the file under
-`urn:haistack:research:eval-conceptmap` and calls `$translate` with that
-key. Audit `conceptMapUrl` / `version` / `sourceUri` version come from the
-**ConceptMap body**, not the store key. A body missing `url`, `version`, or
-`sourceUri` scores provenance 0. A failed audit emit aborts the run.
+`pkg/terminology.Translate`**. The harness stores the ConceptMap at its FHIR
+`url` and calls `$translate` with that url (no version parameter). Audit
+`conceptMapUrl` / `version` / `sourceUri` version come from the resolved
+ConceptMap body. A body missing those fields scores provenance 0. A failed
+audit emit aborts the run.
 
 ## Finite ValueSet expansion
 

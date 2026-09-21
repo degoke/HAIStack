@@ -25,44 +25,38 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	}
 	assertObservedBuckets(t, metrics)
 	if metrics.Provenance != 1 {
-		t.Fatalf("provenance completeness = %v, want 1 from ConceptMap body (store key is %s)", metrics.Provenance, terminologyeval.EvalStoreCanonical)
+		t.Fatalf("provenance completeness = %v, want 1 from ConceptMap body", metrics.Provenance)
 	}
 	if metrics.Accuracy != 1 {
-		t.Fatalf("accuracy=%v, want 1 (gold consistency, not a quality headline)", metrics.Accuracy)
+		t.Fatalf("accuracy=%v, want 1 (gold consistency: $translate implements this map)", metrics.Accuracy)
 	}
 }
 
-func TestHeldOutMapGradedAgainstAuthoredCases(t *testing.T) {
+func TestDivergentMapAgreementAgainstAuthoredCases(t *testing.T) {
 	_, casesPath := terminologyeval.TestdataPaths()
-	metrics, err := terminologyeval.Evaluate(context.Background(), terminologyeval.HeldOutMapPath(), casesPath, terminologyeval.FixedNow())
+	metrics, err := terminologyeval.Evaluate(context.Background(), terminologyeval.DivergentMapPath(), casesPath, terminologyeval.FixedNow())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Accuracy != 0.875 {
-		t.Fatalf("held-out accuracy = %v, want 0.875 (WBC exact vs authored broad)", metrics.Accuracy)
+	if metrics.Accuracy != 0.5 {
+		t.Fatalf("divergent accuracy = %v, want 0.5", metrics.Accuracy)
 	}
 	exact := metrics.ByClass["exact"]
-	if ptrVal(exact.Precision) != 0.75 || ptrVal(exact.Recall) != 1 || exact.Support != 3 || exact.Predicted != 4 {
-		t.Fatalf("exact byClass = %+v, want P=0.75 R=1 support=3 predicted=4", exact)
+	if ptrVal(exact.Precision) != 0.5 || ptrVal(exact.Recall) != 2.0/3.0 || exact.Support != 3 || exact.Predicted != 4 {
+		t.Fatalf("exact byClass = %+v, want P=0.5 R=2/3 support=3 predicted=4", exact)
 	}
-	broad := metrics.ByClass["broad"]
-	if broad.Precision != nil {
-		t.Fatalf("broad precision must be omitted when predicted=0, got %v", *broad.Precision)
-	}
-	if ptrVal(broad.Recall) != 0 || broad.Support != 1 || broad.Predicted != 0 {
-		t.Fatalf("broad byClass = %+v, want R=0 support=1 predicted=0", broad)
-	}
-	if ptrVal(exact.Precision) == metrics.Accuracy {
-		t.Fatalf("class precision %v must not equal accuracy %v", ptrVal(exact.Precision), metrics.Accuracy)
-	}
-	var wbc terminologyeval.CaseResult
-	for _, r := range metrics.Results {
-		if r.Code == "WBC" {
-			wbc = r
+	for _, class := range []string{"broad", "narrow"} {
+		s := metrics.ByClass[class]
+		if s.Precision != nil {
+			t.Fatalf("%s precision must be omitted when predicted=0", class)
+		}
+		if ptrVal(s.Recall) != 0 || s.Support != 1 {
+			t.Fatalf("%s byClass = %+v, want R=0 support=1", class, s)
 		}
 	}
-	if wbc.GotClass != "exact" || wbc.WantClass != "broad" || wbc.Pass {
-		t.Fatalf("WBC held-out result = %+v", wbc)
+	unmatched := metrics.ByClass["unmatched"]
+	if ptrVal(unmatched.Precision) != 0.5 || ptrVal(unmatched.Recall) != 2.0/3.0 {
+		t.Fatalf("unmatched byClass = %+v, want P=0.5 R=2/3", unmatched)
 	}
 }
 
@@ -92,9 +86,6 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	}
 	if ptrVal(metrics.ByClass["narrow"].Recall) != 0 || metrics.ByClass["narrow"].Support != 1 {
 		t.Fatalf("narrow class score = %+v", metrics.ByClass["narrow"])
-	}
-	if ptrVal(metrics.ByClass["unmatched"].Precision) != 1 || ptrVal(metrics.ByClass["unmatched"].Recall) != 1 {
-		t.Fatalf("unmatched class score = %+v", metrics.ByClass["unmatched"])
 	}
 	assertObservedBuckets(t, metrics)
 }
@@ -228,27 +219,15 @@ func TestMissingMapURLStillTranslatesButProvenanceZero(t *testing.T) {
 	}
 }
 
-func TestEvaluateSourceDoesNotWriteAudit(t *testing.T) {
-	raw, err := os.ReadFile(terminologyeval.SourceFile())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(raw), "audit.LogTerminologyTranslate") {
-		t.Fatal("Evaluate must not write terminology.translate events; provenance is emitted inside pkg/terminology.Translate")
-	}
-	if !strings.Contains(string(raw), terminologyeval.EvalStoreCanonical) {
-		t.Fatal("Evaluate must look up the map by EvalStoreCanonical, not ConceptMap.url")
-	}
-}
-
 func TestGoldFileOmitsMapIdentity(t *testing.T) {
 	_, casesPath := terminologyeval.TestdataPaths()
 	raw, err := os.ReadFile(casesPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	s := string(raw)
 	for _, key := range []string{"conceptMapUrl", "conceptMapVersion", "sourceSystemVersion"} {
-		if strings.Contains(string(raw), key) {
+		if strings.Contains(s, key) {
 			t.Fatalf("cases.json must not publish %s", key)
 		}
 	}

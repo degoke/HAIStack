@@ -172,7 +172,7 @@ func TestConverterImplementsAuthoredGold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.Failed > 0 {
-		t.Fatalf("converter must satisfy gold remaps (ignoring authored meta.source): %+v", report.Scores)
+		t.Fatalf("converter must satisfy authored constraints: %+v", report.Scores)
 	}
 	var distinguished int
 	for _, pair := range pairs {

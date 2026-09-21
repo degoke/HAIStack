@@ -1,5 +1,5 @@
-// Command research-terminology-evaluation scores gold map consistency and
-// a held-out ConceptMap against the same authored cases.
+// Command research-terminology-evaluation scores gold-map consistency and
+// divergent-map agreement against the same authored cases.
 package main
 
 import (
@@ -24,7 +24,7 @@ type goldBlock struct {
 	Note                   string                       `json:"note"`
 }
 
-type classBlock struct {
+type agreementBlock struct {
 	Accuracy float64                               `json:"accuracy"`
 	Passed   int                                   `json:"passed"`
 	Failed   int                                   `json:"failed"`
@@ -33,8 +33,8 @@ type classBlock struct {
 }
 
 type publishedReport struct {
-	GoldConsistency goldBlock  `json:"goldConsistency"`
-	ClassMetrics    classBlock `json:"classMetrics"`
+	GoldConsistency goldBlock      `json:"goldConsistency"`
+	MapAgreement    agreementBlock `json:"mapAgreement"`
 }
 
 func main() {
@@ -44,9 +44,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: %v\n", err)
 		os.Exit(1)
 	}
-	held, err := terminologyeval.Evaluate(context.Background(), terminologyeval.HeldOutMapPath(), casesPath, terminologyeval.FixedNow())
+	divergent, err := terminologyeval.Evaluate(context.Background(), terminologyeval.DivergentMapPath(), casesPath, terminologyeval.FixedNow())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: held-out: %v\n", err)
+		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: divergent: %v\n", err)
 		os.Exit(1)
 	}
 	report := publishedReport{
@@ -60,14 +60,14 @@ func main() {
 			Accuracy:               gold.Accuracy,
 			ProvenanceCompleteness: gold.Provenance,
 			Results:                gold.Results,
-			Note:                   "accuracy 1.0 means $translate implements conceptmap.json, not an independent quality signal",
+			Note:                   "accuracy 1.0 means $translate implements conceptmap.json",
 		},
-		ClassMetrics: classBlock{
-			Accuracy: held.Accuracy,
-			Passed:   held.Passed,
-			Failed:   held.Failed,
-			ByClass:  held.ByClass,
-			Note:     "held-out ConceptMap (WBC equivalent vs authored wider) scored against cases.json",
+		MapAgreement: agreementBlock{
+			Accuracy: divergent.Accuracy,
+			Passed:   divergent.Passed,
+			Failed:   divergent.Failed,
+			ByClass:  divergent.ByClass,
+			Note:     "divergent ConceptMap vs authored cases.json (map agreement, not $translate quality)",
 		},
 	}
 	enc := json.NewEncoder(os.Stdout)
