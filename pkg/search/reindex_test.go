@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -72,9 +73,12 @@ func memMatchValue(op, have, want string) bool {
 	case "", "eq", "=":
 		return have == want
 	case "below":
-		return strings.HasPrefix(have, want)
+		// Hierarchical uri:below: exact self or a child path (prefix + '/').
+		// "http://example.org/fhirExtra" is not below "http://example.org/fhir".
+		return have == want || strings.HasPrefix(have, want+"/")
 	case "above":
-		return strings.HasPrefix(want, have)
+		// Hierarchical uri:above: exact self or the query URI is a child of value.
+		return want == have || strings.HasPrefix(want, have+"/")
 	case "contains":
 		return strings.Contains(strings.ToLower(have), strings.ToLower(want))
 	case "exact":
@@ -197,7 +201,7 @@ func (m *memResourceStore) Create(_ context.Context, res *types.ResourceEnvelope
 func (m *memResourceStore) Read(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
 	res, ok := m.byKey[m.key(resourceType, id)]
 	if !ok {
-		return nil, errNotFound{}
+		return nil, fmt.Errorf("%w: %s/%s", store.ErrNotFound, resourceType, id)
 	}
 	return res, nil
 }
@@ -234,10 +238,6 @@ func (m *memResourceStore) ListIDs(_ context.Context, resourceType string, limit
 	}
 	return ids[offset:end], nil
 }
-
-type errNotFound struct{}
-
-func (errNotFound) Error() string { return "not found" }
 
 func TestReindexWorkerRebuildsRows(t *testing.T) {
 	ctx := context.Background()

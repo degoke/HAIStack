@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,7 +62,7 @@ func (s *ResourceStore) Read(ctx context.Context, resourceType, id string) (*typ
 		s.tenantID, resourceType, id,
 	).Scan(&versionID, &lastUpdated, &jsonData, &hash)
 	if err == pgx.ErrNoRows {
-		return nil, fmt.Errorf("resource not found: %s/%s", resourceType, id)
+		return nil, fmt.Errorf("%w: %s/%s", store.ErrNotFound, resourceType, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read resource: %w", err)

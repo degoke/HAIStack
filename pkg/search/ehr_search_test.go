@@ -3,6 +3,7 @@ package search_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,10 +142,20 @@ func TestResolveQueryHasUriTwoHopAndWildcards(t *testing.T) {
 	if !codes["subject"] || !codes["encounter"] {
 		t.Fatalf("expanded includes missing subject/encounter: %#v", resolvedInc.Includes)
 	}
+	focusCount := 0
 	for _, inc := range resolvedInc.Includes {
+		if inc.ParamCode == "focus" {
+			focusCount++
+			if inc.TargetType != "" {
+				t.Fatalf("multi-target focus should use empty TargetType, got %#v", inc)
+			}
+		}
 		if inc.TargetType != "" && !reg.IsResourceEnabled(inc.TargetType) {
 			t.Fatalf("include targeted disabled type: %#v", inc)
 		}
+	}
+	if focusCount != 1 {
+		t.Fatalf("focus directives = %d, want 1 (one per param code)", focusCount)
 	}
 
 	revQuery, err := search.ParseQueryValues("Patient", map[string][]string{
@@ -195,6 +206,48 @@ func TestResolveQueryIncludeSkipsDisabledMultiTarget(t *testing.T) {
 		}
 		if inc.TargetType != "" && !reg.IsResourceEnabled(inc.TargetType) {
 			t.Fatalf("wildcard include targeted disabled type: %#v", inc)
+		}
+	}
+}
+
+func TestPlanSearchMultiTargetIncludeOneDirective(t *testing.T) {
+	snapshot := testSnapshot(t, "Patient", "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	planner := search.NewPlanner()
+
+	focus, err := planner.PlanSearch(reg, "Observation", mustValues(t, map[string]string{
+		"_include": "Observation:focus",
+	}))
+	if err != nil {
+		t.Fatalf("PlanSearch Observation:focus: %v", err)
+	}
+	if len(focus.Includes) != 1 || focus.Includes[0].ParamCode != "focus" {
+		t.Fatalf("focus includes = %#v, want one directive", focus.Includes)
+	}
+	if focus.Includes[0].TargetType != "" {
+		t.Fatalf("focus TargetType = %q, want empty for multi-target param", focus.Includes[0].TargetType)
+	}
+
+	star, err := planner.PlanSearch(reg, "Observation", mustValues(t, map[string]string{
+		"_include": "Observation:*",
+	}))
+	if err != nil {
+		t.Fatalf("PlanSearch Observation:*: %v", err)
+	}
+	focusCount := 0
+	seen := map[string]int{}
+	for _, inc := range star.Includes {
+		seen[inc.ParamCode]++
+		if inc.ParamCode == "focus" {
+			focusCount++
+		}
+	}
+	if focusCount != 1 {
+		t.Fatalf("wildcard focus directives = %d, want 1; includes=%#v", focusCount, star.Includes)
+	}
+	for code, n := range seen {
+		if n != 1 {
+			t.Fatalf("param %q expanded to %d directives, want 1", code, n)
 		}
 	}
 }
@@ -287,12 +340,15 @@ func TestStoreExecutorUriBelowAndWildcardInclude(t *testing.T) {
 		entries: []store.SearchIndexEntry{
 			{ResourceType: "Questionnaire", ID: "q-1", Fields: map[string]string{"uri.url": "http://example.org/fhir/Questionnaire/q-1"}},
 			{ResourceType: "Questionnaire", ID: "q-2", Fields: map[string]string{"uri.url": "http://other.org/fhir/Questionnaire/q-2"}},
+			{ResourceType: "Questionnaire", ID: "q-3", Fields: map[string]string{"uri.url": "http://example.org/fhirExtra"}},
+			{ResourceType: "Questionnaire", ID: "q-4", Fields: map[string]string{"uri.url": "http://example.org/fhir"}},
 			{ResourceType: "Observation", ID: "obs-1", Fields: map[string]string{"reference.subject": "Patient/pat-1", "reference.encounter": "Encounter/enc-1"}},
 		},
 	}}
 	resources := newMemResourceStore()
-	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Questionnaire", ID: "q-1"})
-	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Questionnaire", ID: "q-2"})
+	for _, id := range []string{"q-1", "q-2", "q-3", "q-4"} {
+		_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Questionnaire", ID: id})
+	}
 	executor := search.NewStoreExecutor(backend, resources)
 
 	uriPlan := &search.Plan{
@@ -313,8 +369,38 @@ func TestStoreExecutorUriBelowAndWildcardInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute uri:below: %v", err)
 	}
-	if len(uriResult.IDs) != 1 || uriResult.IDs[0] != "q-1" {
-		t.Fatalf("uri:below ids = %v", uriResult.IDs)
+	gotBelow := map[string]bool{}
+	for _, id := range uriResult.IDs {
+		gotBelow[id] = true
+	}
+	if !gotBelow["q-1"] || !gotBelow["q-4"] || gotBelow["q-2"] || gotBelow["q-3"] {
+		t.Fatalf("uri:below ids = %v, want q-1 and q-4 (not q-2/q-3 fhirExtra)", uriResult.IDs)
+	}
+
+	abovePlan := &search.Plan{
+		ResourceType: "Questionnaire",
+		Count:        10,
+		ParamPlans: []search.ParamPlan{{
+			Code:      "url",
+			FieldKey:  "uri.url",
+			ParamType: "uri",
+			Predicates: []search.Predicate{{
+				FieldKey: "uri.url",
+				Value:    "http://example.org/fhir/Questionnaire/q-1",
+				Operator: search.OpAbove,
+			}},
+		}},
+	}
+	aboveResult, err := executor.Execute(ctx, abovePlan)
+	if err != nil {
+		t.Fatalf("Execute uri:above: %v", err)
+	}
+	gotAbove := map[string]bool{}
+	for _, id := range aboveResult.IDs {
+		gotAbove[id] = true
+	}
+	if !gotAbove["q-1"] || !gotAbove["q-4"] || gotAbove["q-3"] {
+		t.Fatalf("uri:above ids = %v, want q-1 and q-4 (not q-3 fhirExtra)", aboveResult.IDs)
 	}
 
 	obsStore := newMemResourceStore()
@@ -382,6 +468,147 @@ func TestServiceSearchOmitsMissingIncludes(t *testing.T) {
 	}
 	if !foundPatient {
 		t.Fatalf("expected Patient include, got %#v", result.Included)
+	}
+}
+
+type includeReadStore struct {
+	*memResourceStore
+	failType string
+	failErr  error
+}
+
+func (s includeReadStore) Read(ctx context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+	if s.failType != "" && resourceType == s.failType {
+		return nil, s.failErr
+	}
+	return s.memResourceStore.Read(ctx, resourceType, id)
+}
+
+type kindedNotFoundError struct{}
+
+func (kindedNotFoundError) Error() string { return "missing resource" }
+func (kindedNotFoundError) Kind() string  { return "not-found" }
+
+func TestServiceSearchDoesNotOmitUnrelatedNotFoundSubstring(t *testing.T) {
+	ctx := context.Background()
+	snapshot := testSnapshot(t, "Patient", "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	backend := &memAdvancedSearchBackend{memSearchBackend: memSearchBackend{
+		entries: []store.SearchIndexEntry{
+			{ResourceType: "Observation", ID: "obs-1", Fields: map[string]string{
+				"token._id":         "obs-1",
+				"reference.subject": "Patient/pat-1",
+			}},
+		},
+	}}
+	base := newMemResourceStore()
+	_ = base.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-1"})
+	resources := includeReadStore{
+		memResourceStore: base,
+		failType:         "Patient",
+		failErr:          errors.New("search index not found in catalog"),
+	}
+
+	svc, err := search.NewService(search.ServiceConfig{
+		Registry:  reg,
+		Executor:  search.NewStoreExecutor(backend, resources),
+		Resources: resources,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	_, err = svc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:subject",
+	}))
+	if err == nil {
+		t.Fatal("expected include read error, not silent omit")
+	}
+	if !strings.Contains(err.Error(), "search index not found in catalog") {
+		t.Fatalf("err = %v, want wrapped catalog error", err)
+	}
+}
+
+func TestServiceSearchOmitsKindedNotFound(t *testing.T) {
+	ctx := context.Background()
+	snapshot := testSnapshot(t, "Patient", "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	backend := &memAdvancedSearchBackend{memSearchBackend: memSearchBackend{
+		entries: []store.SearchIndexEntry{
+			{ResourceType: "Observation", ID: "obs-1", Fields: map[string]string{
+				"token._id":         "obs-1",
+				"reference.subject": "Patient/pat-1",
+			}},
+		},
+	}}
+	base := newMemResourceStore()
+	_ = base.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-1"})
+	resources := includeReadStore{
+		memResourceStore: base,
+		failType:         "Patient",
+		failErr:          kindedNotFoundError{},
+	}
+
+	svc, err := search.NewService(search.ServiceConfig{
+		Registry:  reg,
+		Executor:  search.NewStoreExecutor(backend, resources),
+		Resources: resources,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	result, err := svc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:subject",
+	}))
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(result.Included) != 0 {
+		t.Fatalf("included = %#v, want omitted kinded not-found", result.Included)
+	}
+}
+
+func TestServiceSearchSkipsDisabledIncludeTargets(t *testing.T) {
+	ctx := context.Background()
+	snapshot := testSnapshot(t, "Patient", "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	if reg.IsResourceEnabled("Encounter") {
+		t.Fatal("Encounter should be disabled")
+	}
+	backend := &memAdvancedSearchBackend{memSearchBackend: memSearchBackend{
+		entries: []store.SearchIndexEntry{
+			{ResourceType: "Observation", ID: "obs-1", Fields: map[string]string{
+				"token._id":         "obs-1",
+				"reference.focus":   "Encounter/enc-1",
+				"reference.subject": "Patient/pat-1",
+			}},
+		},
+	}}
+	resources := newMemResourceStore()
+	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Patient", ID: "pat-1"})
+	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-1"})
+	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Encounter", ID: "enc-1"})
+
+	svc, err := search.NewService(search.ServiceConfig{
+		Registry:  reg,
+		Executor:  search.NewStoreExecutor(backend, resources),
+		Resources: resources,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	result, err := svc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:focus",
+	}))
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, inc := range result.Included {
+		if inc.ResourceType == "Encounter" {
+			t.Fatalf("disabled Encounter was included: %#v", result.Included)
+		}
 	}
 }
 

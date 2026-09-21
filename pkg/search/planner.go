@@ -284,10 +284,10 @@ func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode strin
 	return refInfo.Target[0], nil
 }
 
-// maxWildcardIncludeExpansion is the maximum number of concrete include/revinclude
+// maxWildcardIncludeExpansion is the maximum number of include/revinclude
 // directives produced from one _include/_revinclude value, including *:* wildcards.
-// R4 Observation:* can expand past 64 because multi-target params emit one
-// directive per enabled target type. Larger expansions are rejected.
+// Multi-target reference params emit a single directive (empty TargetType);
+// disabled targets are skipped at include-Read time.
 const maxWildcardIncludeExpansion = 512
 
 func resolveIncludes(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
@@ -428,23 +428,31 @@ func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) ([]
 		}}, nil
 	}
 
-	// Multi-target references (e.g. Observation.encounter → Encounter|EpisodeOfCare)
-	// expand only to enabled types so later Search reads never touch disabled types.
-	var out []IncludeDirective
+	// One directive per param code. When several targets are enabled, leave
+	// TargetType empty and skip disabled types at include-Read time. Skip the
+	// include entirely when no target type is enabled (e.g. Observation.encounter
+	// with Encounter and EpisodeOfCare both disabled).
+	enabled := 0
+	var onlyEnabled string
 	for _, target := range info.Target {
 		if !reg.IsResourceEnabled(target) {
 			continue
 		}
-		out = append(out, IncludeDirective{
-			SourceType: resourceType,
-			ParamCode:  inc.ParamCode,
-			TargetType: target,
-		})
+		enabled++
+		onlyEnabled = target
 	}
-	if len(out) == 0 {
+	if enabled == 0 {
 		return nil, ErrResourceTypeDisabled
 	}
-	return out, nil
+	targetType = ""
+	if enabled == 1 {
+		targetType = onlyEnabled
+	}
+	return []IncludeDirective{{
+		SourceType: resourceType,
+		ParamCode:  inc.ParamCode,
+		TargetType: targetType,
+	}}, nil
 }
 
 func resolveRevInclude(reg Registry, targetType string, rev RevIncludeDirective) (RevIncludeDirective, error) {
