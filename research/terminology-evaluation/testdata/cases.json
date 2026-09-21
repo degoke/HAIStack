@@ -1,8 +1,5 @@
 {
-  "conceptMapUrl": "http://haistack.dev/research/ConceptMap/lab-to-panel",
-  "conceptMapVersion": "1.0.0",
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
-  "sourceSystemVersion": "1.0.0",
   "cases": [
     {"code": "HB", "class": "exact", "target": "PANEL-HB"},
     {"code": "NA", "class": "exact", "target": "PANEL-NA"},

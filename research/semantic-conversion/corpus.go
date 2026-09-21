@@ -35,6 +35,7 @@ type Pair struct {
 	R5              json.RawMessage `json:"r5"`
 	Assertions      []Assertion     `json:"assertions"`
 	InformationLoss []string        `json:"informationLoss,omitempty"`
+	Spec            string          `json:"spec,omitempty"`
 }
 
 // LoadCorpus returns the published gold pairs from testdata/corpus.json.

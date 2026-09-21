@@ -10,6 +10,9 @@ import (
 // this system; the converter must emit it rather than minting gold from itself.
 const ParticipantInformantSystem = "http://terminology.hl7.org/CodeSystem/provenance-participant-type"
 
+// ParticipantInformantDisplay is the authored gold display for that coding.
+const ParticipantInformantDisplay = "Informant"
+
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
 // It is scored against authored gold R5 in testdata/corpus.json (the oracle),
 // not used to produce that gold.
@@ -36,8 +39,9 @@ func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []
 			delete(obj, "asserter")
 			obj["participant"] = []any{map[string]any{
 				"function": map[string]any{"coding": []any{map[string]any{
-					"system": ParticipantInformantSystem,
-					"code":   "informant",
+					"system":  ParticipantInformantSystem,
+					"code":    "informant",
+					"display": ParticipantInformantDisplay,
 				}}},
 				"actor": asserter,
 			}}

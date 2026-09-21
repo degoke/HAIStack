@@ -25,9 +25,14 @@ The scorer always emits at least 50 pair results. Categories:
 ## Scoring
 
 Gold pairs live in [`testdata/corpus.json`](./testdata/corpus.json). That file
-is the **authored R5 oracle** (R4/R5 mapping notes, including the HL7
-informant function system on `Condition.participant`). `ConvertR4ToR5` is an
-implementation scored against it. Gold is not generated from the converter.
+is the **authored R5 oracle**: transformed pairs cite the R5 resource diff
+(`spec`) and include mapping fields that are not present on R4 (HL7 informant
+function system **and** display on `Condition.participant`). Unchanged pairs
+are identical in R4 and R5 because those elements did not change. `ConvertR4ToR5`
+is an implementation scored against gold; gold is not generated from the
+converter. Authorship is asserted by inspecting testdata (spec URL, Informant
+display on R5 only). Structural equality is the separate check that the
+converter implements that oracle.
 
 For each pair:
 

@@ -66,7 +66,13 @@ func TestCorpusScore(t *testing.T) {
 func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 	raw := mustReadCorpus(t)
 	if !bytes.Contains(raw, []byte(semanticconversion.ParticipantInformantSystem)) {
-		t.Fatal("gold testdata must author the R5 informant function system; converter follows gold")
+		t.Fatal("gold testdata must author the R5 informant function system")
+	}
+	if !bytes.Contains(raw, []byte(semanticconversion.ParticipantInformantDisplay)) {
+		t.Fatal("gold testdata must author the Informant display from the R5 mapping notes")
+	}
+	if !bytes.Contains(raw, []byte("http://hl7.org/fhir/R5/condition.html#diff")) {
+		t.Fatal("transformed gold pairs must cite the R5 diff spec")
 	}
 	pairs, err := semanticconversion.ParseCorpus(raw)
 	if err != nil {
@@ -82,21 +88,44 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 	if pair.ID == "" {
 		t.Fatal("missing renamed Condition pair")
 	}
+	if pair.Spec == "" {
+		t.Fatal("renamed gold pair must carry a spec URL (authorship), not a converter dump")
+	}
 	if bytes.Contains(pair.R4, []byte("participant")) || !bytes.Contains(pair.R4, []byte("asserter")) {
 		t.Fatalf("R4 gold should keep asserter, got %s", pair.R4)
 	}
 	if bytes.Contains(pair.R5, []byte("asserter")) || !bytes.Contains(pair.R5, []byte("participant")) {
 		t.Fatalf("R5 gold should keep participant, got %s", pair.R5)
 	}
-	if !bytes.Contains(pair.R5, []byte(semanticconversion.ParticipantInformantSystem)) {
-		t.Fatal("authored gold R5 must require the HL7 informant system")
+	if bytes.Contains(pair.R4, []byte(semanticconversion.ParticipantInformantDisplay)) {
+		t.Fatal("R4 must not contain the authored R5 Informant display")
+	}
+	if !bytes.Contains(pair.R5, []byte(semanticconversion.ParticipantInformantDisplay)) {
+		t.Fatal("authored gold R5 must include Informant display")
+	}
+}
+
+func TestConverterImplementsAuthoredGold(t *testing.T) {
+	pairs, err := semanticconversion.LoadCorpus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pair semanticconversion.Pair
+	for _, p := range pairs {
+		if p.Category == semanticconversion.CategoryRenamed && p.ResourceType == "Condition" {
+			pair = p
+			break
+		}
+	}
+	if pair.ID == "" {
+		t.Fatal("missing renamed Condition pair")
 	}
 	got, _, err := semanticconversion.ConvertR4ToR5(pair.ResourceType, pair.R4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytesEqualCanonical(got, pair.R5) {
-		t.Fatalf("converter must implement authored gold, not the reverse\ngot  %s\ngold %s", got, pair.R5)
+		t.Fatalf("converter must implement authored gold\ngot  %s\ngold %s", got, pair.R5)
 	}
 }
 

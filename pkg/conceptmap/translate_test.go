@@ -33,6 +33,16 @@ func TestTranslatorMapsSourceCoding(t *testing.T) {
 	if len(codings) != 1 || codings[0]["code"] != "male" || codings[0]["equivalence"] != "equivalent" {
 		t.Fatalf("unexpected translation: %#v", codings)
 	}
+	codings, resolved, err := translator.TranslateResolved(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"system": "http://example.org/source", "code": "M"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.URL != m.URL {
+		t.Fatalf("resolved map URL = %q", resolved.URL)
+	}
 }
 
 func TestTranslatorRejectsNoMap(t *testing.T) {

@@ -25,33 +25,41 @@ type TranslateRequest struct {
 }
 
 // Translate returns target codings for a source coding.
+// Translate returns target codings for a source coding.
 func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[string]any, error) {
+	codings, _, err := t.TranslateResolved(ctx, req)
+	return codings, err
+}
+
+// TranslateResolved is Translate plus the ConceptMap that was resolved for provenance.
+func (t Translator) TranslateResolved(ctx context.Context, req TranslateRequest) ([]map[string]any, Map, error) {
 	if req.MapCanonical == "" {
-		return nil, fmt.Errorf("ConceptMap canonical URL is required")
+		return nil, Map{}, fmt.Errorf("ConceptMap canonical URL is required")
 	}
 	if t.Resolver != nil {
-		codings, err := t.translateLocal(ctx, req)
+		codings, resolved, err := t.translateLocal(ctx, req)
 		if err == nil {
-			return codings, nil
+			return codings, resolved, nil
 		}
 		if t.Remote == nil || !IsNotFound(err) {
-			return nil, err
+			return nil, resolved, err
 		}
 	}
 	if t.Remote == nil {
-		return nil, fmt.Errorf("ConceptMap resolver is unavailable")
+		return nil, Map{}, fmt.Errorf("ConceptMap resolver is unavailable")
 	}
-	return t.Remote.Translate(ctx, req)
+	codings, err := t.Remote.Translate(ctx, req)
+	return codings, Map{}, err
 }
 
-func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([]map[string]any, error) {
+func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([]map[string]any, Map, error) {
 	m, err := t.Resolver.Resolve(ctx, req.MapCanonical)
 	if err != nil {
-		return nil, err
+		return nil, Map{}, err
 	}
 	sourceSystem, sourceCode, sourceDisplay := codingParts(req.Source)
 	if sourceCode == "" {
-		return nil, fmt.Errorf("translate source coding is required")
+		return nil, m, fmt.Errorf("translate source coding is required")
 	}
 	var matches []map[string]any
 	unmappedApplied := false
@@ -69,7 +77,7 @@ func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([
 			}
 			groupMatched = true
 			if element.NoMap {
-				return nil, fmt.Errorf("ConceptMap %s marks source code %q as no-map", req.MapCanonical, sourceCode)
+				return nil, m, fmt.Errorf("ConceptMap %s marks source code %q as no-map", req.MapCanonical, sourceCode)
 			}
 			for _, target := range element.Target {
 				if !acceptableEquivalence(target.Equivalence, target.Relationship) {
@@ -79,9 +87,9 @@ func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([
 			}
 		}
 		if !groupMatched && !unmappedApplied {
-			unmapped, err := unmappedCoding(group, sourceSystem, sourceCode, sourceDisplay)
-			if err != nil {
-				return nil, err
+			unmapped, unmappedErr := unmappedCoding(group, sourceSystem, sourceCode, sourceDisplay)
+			if unmappedErr != nil {
+				return nil, m, unmappedErr
 			}
 			if unmapped != nil {
 				matches = append(matches, unmapped)
@@ -90,9 +98,9 @@ func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([
 		}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("ConceptMap %s has no translation for code %q", req.MapCanonical, sourceCode)
+		return nil, m, fmt.Errorf("ConceptMap %s has no translation for code %q", req.MapCanonical, sourceCode)
 	}
-	return dedupeCodings(matches), nil
+	return dedupeCodings(matches), m, nil
 }
 
 func dedupeCodings(matches []map[string]any) []map[string]any {

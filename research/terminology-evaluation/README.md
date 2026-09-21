@@ -21,7 +21,8 @@ SNOMED CT or LOINC — they exist so the artefact can be redistributed without
 terminology licenses.
 
 [`testdata/cases.json`](./testdata/cases.json) lists source codes and the
-expected equivalence class:
+expected equivalence class. Map URL and version are **not** taken from this
+file; they come from the ConceptMap `$translate` resolved.
 
 | Class | Meaning |
 |-------|---------|
@@ -35,26 +36,24 @@ expected equivalence class:
 Exact / narrow / broad / unmatched counts are the translator's observed
 class. `$translate` returns target `Coding` values that include
 `equivalence` from the ConceptMap match; `gotClass` is derived from that
-field, not from a second parse of the gold map.
+field.
 
 A case passes when `gotClass` matches gold and the target code matches when
 gold specifies one.
 
-**Precision** and **recall** are micro-averaged **multi-class** scores: a
-wrong label is both a false positive (predicted class) and a false negative
-(gold class). `byClass` reports one-vs-rest precision/recall per
-equivalence class. These are not binary match-vs-unmatched detection rates
-and not the overall pass rate.
+**Accuracy** is the pass rate (`passed / (passed + failed)`).
 
-**Provenance completeness** is the share of attempted translations whose
-emitted `terminology.translate` audit event records ConceptMap URL+version,
-source CodeSystem version, and timestamp taken from the **ConceptMap the
-translator resolved** (`url`, `version`, `sourceUri` version). Fields copied
-from `cases.json` do not count. A failed `LogTerminologyTranslate` aborts
-the run.
+**Precision** and **recall** are **macro-averages** of `byClass`
+one-vs-rest scores (precision over classes with at least one prediction,
+recall over classes with gold support). They are not the pass rate: a
+wrong label is a false positive for the predicted class and a miss for the
+gold class.
 
-Each translation is appended as a `terminology.translate` audit event
-(`pkg/audit.LogTerminologyTranslate`).
+**Provenance completeness** is the share of translations whose
+`terminology.translate` audit event was **emitted by
+`pkg/terminology.Translate`** from the ConceptMap it resolved (`url`,
+`version`, `sourceUri` version, timestamp). The evaluation harness does not
+copy those fields into the event. A failed audit emit aborts the run.
 
 ## Finite ValueSet expansion
 

@@ -26,8 +26,8 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	if metrics.Provenance != 1 {
 		t.Fatalf("provenance completeness = %v, want 1", metrics.Provenance)
 	}
-	if metrics.Precision != 1 || metrics.Recall != 1 {
-		t.Fatalf("precision=%v recall=%v, want 1", metrics.Precision, metrics.Recall)
+	if metrics.Accuracy != 1 || metrics.Precision != 1 || metrics.Recall != 1 {
+		t.Fatalf("accuracy=%v precision=%v recall=%v, want 1", metrics.Accuracy, metrics.Precision, metrics.Recall)
 	}
 }
 
@@ -36,10 +36,7 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	dir := t.TempDir()
 	casesPath := filepath.Join(dir, "cases.json")
 	payload := `{
-  "conceptMapUrl": "http://haistack.dev/research/ConceptMap/lab-to-panel",
-  "conceptMapVersion": "1.0.0",
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
-  "sourceSystemVersion": "1.0.0",
   "cases": [
     {"code": "HB", "class": "narrow", "target": "PANEL-WRONG"},
     {"code": "GLU", "class": "unmatched"}
@@ -53,17 +50,10 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if metrics.Exact != 1 || metrics.Narrow != 0 || metrics.Unmatched != 1 {
-		t.Fatalf("observed buckets exact=%d narrow=%d unmatched=%d (must follow $translate class)", metrics.Exact, metrics.Narrow, metrics.Unmatched)
+		t.Fatalf("observed buckets exact=%d narrow=%d unmatched=%d", metrics.Exact, metrics.Narrow, metrics.Unmatched)
 	}
-	if metrics.Failed != 1 || metrics.Passed != 1 {
-		t.Fatalf("pass/fail = %d/%d, want 1/1", metrics.Passed, metrics.Failed)
-	}
-	// Multi-class: HB is FP for exact and FN for narrow; GLU is TP for unmatched.
-	if metrics.Precision != 0.5 {
-		t.Fatalf("precision = %v, want 0.5", metrics.Precision)
-	}
-	if metrics.Recall != 0.5 {
-		t.Fatalf("recall = %v, want 0.5 (gold narrow is a miss)", metrics.Recall)
+	if metrics.Accuracy != 0.5 {
+		t.Fatalf("accuracy = %v, want 0.5", metrics.Accuracy)
 	}
 	if metrics.ByClass["narrow"].Recall != 0 || metrics.ByClass["narrow"].Support != 1 {
 		t.Fatalf("narrow class score = %+v", metrics.ByClass["narrow"])
@@ -74,11 +64,45 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	assertObservedBuckets(t, metrics)
 }
 
+func TestMacroPrecisionDiffersFromAccuracy(t *testing.T) {
+	mapPath, _ := terminologyeval.TestdataPaths()
+	dir := t.TempDir()
+	casesPath := filepath.Join(dir, "cases.json")
+	// Three exact passes + WBC labeled exact but $translate returns broad.
+	payload := `{
+  "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
+  "cases": [
+    {"code": "HB", "class": "exact", "target": "PANEL-HB"},
+    {"code": "NA", "class": "exact", "target": "PANEL-NA"},
+    {"code": "K", "class": "exact", "target": "PANEL-K"},
+    {"code": "WBC", "class": "exact", "target": "PANEL-CBC"}
+  ]
+}`
+	if err := os.WriteFile(casesPath, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Accuracy != 0.75 {
+		t.Fatalf("accuracy = %v, want 0.75", metrics.Accuracy)
+	}
+	if metrics.Precision == metrics.Accuracy {
+		t.Fatalf("macro precision %v must not equal accuracy %v", metrics.Precision, metrics.Accuracy)
+	}
+	if metrics.Precision != 0.5 {
+		t.Fatalf("macro precision = %v, want 0.5 (exact P=1, broad P=0)", metrics.Precision)
+	}
+	if metrics.Recall != 0.75 {
+		t.Fatalf("macro recall = %v, want 0.75 (exact R=0.75)", metrics.Recall)
+	}
+}
+
 func TestGotClassFromTranslateEquivalence(t *testing.T) {
 	dir := t.TempDir()
 	mapPath := filepath.Join(dir, "conceptmap.json")
 	casesPath := filepath.Join(dir, "cases.json")
-	// Map declares HB as wider; gold still wants exact. Class must follow $translate.
 	if err := os.WriteFile(mapPath, []byte(`{
   "resourceType": "ConceptMap",
   "url": "http://haistack.dev/research/ConceptMap/lab-to-panel",
@@ -91,8 +115,6 @@ func TestGotClassFromTranslateEquivalence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(casesPath, []byte(`{
-  "conceptMapUrl": "http://haistack.dev/research/ConceptMap/lab-to-panel",
-  "conceptMapVersion": "1.0.0",
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
   "cases": [{"code": "HB", "class": "exact", "target": "PANEL-HB"}]
 }`), 0o600); err != nil {
@@ -110,14 +132,11 @@ func TestGotClassFromTranslateEquivalence(t *testing.T) {
 	}
 }
 
-func TestProvenanceFromConceptMapNotCases(t *testing.T) {
+func TestProvenanceFromTranslateNotCases(t *testing.T) {
 	mapPath, _ := terminologyeval.TestdataPaths()
 	dir := t.TempDir()
 	casesPath := filepath.Join(dir, "cases.json")
-	// cases.json omits sourceSystemVersion; provenance must still come from ConceptMap.sourceUri.
 	if err := os.WriteFile(casesPath, []byte(`{
-  "conceptMapUrl": "http://haistack.dev/research/ConceptMap/lab-to-panel",
-  "conceptMapVersion": "1.0.0",
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
   "cases": [{"code": "GLU", "class": "unmatched"}]
 }`), 0o600); err != nil {
@@ -128,7 +147,7 @@ func TestProvenanceFromConceptMapNotCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	if metrics.Provenance != 1 {
-		t.Fatalf("provenance = %v, want 1 from ConceptMap.sourceUri", metrics.Provenance)
+		t.Fatalf("provenance = %v, want 1 from Translate-resolved ConceptMap.sourceUri", metrics.Provenance)
 	}
 }
 
@@ -144,10 +163,7 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(casesPath, []byte(`{
-  "conceptMapUrl": "http://haistack.dev/research/ConceptMap/lab-to-panel",
-  "conceptMapVersion": "1.0.0",
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
-  "sourceSystemVersion": "1.0.0",
   "cases": [{"code": "GLU", "class": "unmatched"}]
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -157,7 +173,7 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if metrics.Provenance != 0 {
-		t.Fatalf("provenance = %v, want 0 when ConceptMap lacks version and sourceUri", metrics.Provenance)
+		t.Fatalf("provenance = %v, want 0 when resolved ConceptMap lacks version and sourceUri", metrics.Provenance)
 	}
 }
 
@@ -177,7 +193,7 @@ func assertObservedBuckets(t *testing.T, metrics terminologyeval.Metrics) {
 		}
 	}
 	if metrics.Exact != exact || metrics.Narrow != narrow || metrics.Broad != broad || metrics.Unmatched != unmatched {
-		t.Fatalf("class counts follow gold not translator: metrics exact=%d narrow=%d broad=%d unmatched=%d results exact=%d narrow=%d broad=%d unmatched=%d",
+		t.Fatalf("class counts: metrics exact=%d narrow=%d broad=%d unmatched=%d results exact=%d narrow=%d broad=%d unmatched=%d",
 			metrics.Exact, metrics.Narrow, metrics.Broad, metrics.Unmatched, exact, narrow, broad, unmatched)
 	}
 	if exact+narrow+broad+unmatched == 0 {
