@@ -116,10 +116,10 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	}
 	rt.starting = true
 
-	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil || rt.subscriptionProcessor != nil || rt.oauthAuthStore != nil {
+	if rt.hasJobLoop() || rt.oauthAuthStore != nil {
 		rt.jobCtx, rt.jobCancel = context.WithCancel(ctx)
 	}
-	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil || rt.subscriptionProcessor != nil {
+	if rt.hasJobLoop() {
 		rt.jobWG.Add(1)
 		go func() {
 			defer rt.jobWG.Done()
@@ -239,6 +239,10 @@ func (rt *Runtime) Shutdown(ctx context.Context) error {
 	close(done)
 	rt.mu.Unlock()
 	return shutdownErr
+}
+
+func (rt *Runtime) hasJobLoop() bool {
+	return rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil || rt.subscriptionProcessor != nil
 }
 
 func (rt *Runtime) runJobLoop(ctx context.Context) {
