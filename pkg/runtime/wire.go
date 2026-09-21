@@ -615,6 +615,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Files:    importFiles,
 			Executor: importExecutor,
 			JobQueue: pc.jobStore,
+			Loader:   bulkimport.NewHTTPLoader(),
 			BasePath: "/fhir",
 		})
 		if err != nil {

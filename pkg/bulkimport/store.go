@@ -61,8 +61,21 @@ func (s *InMemoryJobStore) Update(_ context.Context, job Job) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.jobs[job.ID]; !exists {
+	existing, exists := s.jobs[job.ID]
+	if !exists {
 		return fmt.Errorf("import: job %q not found", job.ID)
+	}
+	// Cancellation wins over complete/in-progress writes that raced after a
+	// stale Get. completeJob re-reads, but this store-level guard closes TOCTOU.
+	if existing.Status == StatusCancelled || existing.CancelRequested {
+		if job.Status != StatusCancelled {
+			existing.Status = StatusCancelled
+			existing.CancelRequested = true
+			s.jobs[job.ID] = existing
+			return nil
+		}
+		job.Status = StatusCancelled
+		job.CancelRequested = true
 	}
 	s.jobs[job.ID] = job
 	return nil

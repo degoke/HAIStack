@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 )
@@ -28,10 +29,6 @@ func (h *handler) handleBulkImport(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, r.Method, http.MethodPost)
 		return
 	}
-	if err := h.authorizeImportWrite(r.Context()); err != nil {
-		writeError(w, err)
-		return
-	}
 	if !prefersRespondAsync(r.Header.Get("Prefer")) {
 		writeError(w, invalidRequest("Prefer: respond-async is required for bulk import kickoff", nil))
 		return
@@ -44,6 +41,10 @@ func (h *handler) handleBulkImport(w http.ResponseWriter, r *http.Request) {
 	req, err := bulkimport.ParseParametersKickoff(body)
 	if err != nil {
 		writeError(w, invalidRequest(err.Error(), err))
+		return
+	}
+	if err := h.authorizeImportKickoff(r.Context(), req); err != nil {
+		writeError(w, err)
 		return
 	}
 	req.RequestURL = r.Method + " " + r.URL.RequestURI()
@@ -138,8 +139,41 @@ func (h *handler) handleBulkImportFile(w http.ResponseWriter, r *http.Request, j
 	_, _ = w.Write(data)
 }
 
-// authorizeImportWrite requires write access for system-level $import. SMART has
-// no dedicated import scope; a read-only export token must not be able to write.
+// authorizeImportKickoff requires create and update grants on every input
+// resource type before $import starts. system/*.write or type-level write on
+// each input type is the bar; a Parameters-only grant must not import arbitrary
+// types. Empty inputs fall back to Parameters-level write.
+func (h *handler) authorizeImportKickoff(ctx context.Context, req bulkimport.KickoffRequest) error {
+	seen := make(map[string]struct{}, len(req.Inputs))
+	var types []string
+	for _, input := range req.Inputs {
+		resourceType := strings.TrimSpace(input.Type)
+		if resourceType == "" {
+			continue
+		}
+		if _, ok := seen[resourceType]; ok {
+			continue
+		}
+		seen[resourceType] = struct{}{}
+		types = append(types, resourceType)
+	}
+	if len(types) == 0 {
+		return h.authorizeImportWrite(ctx)
+	}
+	for _, resourceType := range types {
+		if err := h.authorizeWrite(ctx, "create", resourceType, ""); err != nil {
+			return err
+		}
+		if err := h.authorizeWrite(ctx, "update", resourceType, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// authorizeImportWrite requires write access for system-level $import when input
+// types are not available (empty kickoff or cancel). SMART has no dedicated
+// import scope; a read-only export token must not be able to write.
 func (h *handler) authorizeImportWrite(ctx context.Context) error {
 	return h.authorizeWrite(ctx, "operation", "Parameters", "")
 }

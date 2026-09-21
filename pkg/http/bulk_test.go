@@ -19,12 +19,14 @@ import (
 )
 
 type bulkAuthChecker struct {
-	allowExport bool
-	allowWrite  bool
-	allowRead   bool
-	exportCalls int
-	writeCalls  int
-	readCalls   int
+	allowExport    bool
+	allowWrite     bool
+	allowRead      bool
+	allowWriteType map[string]bool
+	exportCalls    int
+	writeCalls     int
+	readCalls      int
+	writeTypes     []string
 }
 
 func (c *bulkAuthChecker) AuthorizeRead(context.Context, auth.Principal, auth.TenantContext, string, string) (auth.Decision, error) {
@@ -34,8 +36,15 @@ func (c *bulkAuthChecker) AuthorizeRead(context.Context, auth.Principal, auth.Te
 	}
 	return auth.Deny("denied"), nil
 }
-func (c *bulkAuthChecker) AuthorizeWrite(context.Context, auth.Principal, auth.TenantContext, string, string, string) (auth.Decision, error) {
+func (c *bulkAuthChecker) AuthorizeWrite(_ context.Context, _ auth.Principal, _ auth.TenantContext, _, resourceType, _ string) (auth.Decision, error) {
 	c.writeCalls++
+	c.writeTypes = append(c.writeTypes, resourceType)
+	if len(c.allowWriteType) > 0 {
+		if c.allowWriteType[resourceType] {
+			return auth.Allow("ok"), nil
+		}
+		return auth.Deny("denied"), nil
+	}
 	if c.allowWrite {
 		return auth.Allow("ok"), nil
 	}
@@ -295,6 +304,37 @@ func TestCapabilityStatementAdvertisesImportWhenConfigured(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"name":"import"`) {
 		t.Fatalf("expected $import advertised, got %s", rec.Body.String())
+	}
+}
+
+func TestBulkImportDeniedWhenAnyInputTypeUnauthorized(t *testing.T) {
+	writer := &importWriter{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, writer),
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &bulkAuthChecker{
+			allowWrite:     true,
+			allowRead:      true,
+			allowWriteType: map[string]bool{"Patient": true},
+		},
+	})
+	body := `{"resourceType":"Parameters","parameter":[` +
+		`{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{\"resourceType\":\"Patient\",\"id\":\"p1\"}"}]},` +
+		`{"name":"input","part":[{"name":"type","valueCode":"Observation"},{"name":"valueString","valueString":"{\"resourceType\":\"Observation\",\"id\":\"o1\",\"status\":\"final\",\"code\":{\"text\":\"x\"}}"}]}` +
+		`]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if _, err := writer.Read(context.Background(), "Patient", "p1"); err == nil {
+		t.Fatal("kickoff must not import Patient when Observation write is denied")
 	}
 }
 
