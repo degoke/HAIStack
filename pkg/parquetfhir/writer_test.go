@@ -646,7 +646,7 @@ func assertParquetGoCannotReadINT96Timestamp(t *testing.T, data []byte, name str
 		t.Fatalf("column %q not found", name)
 	}
 	pages := col.Pages()
-	defer pages.Close()
+	defer func() { _ = pages.Close() }()
 	_, err = pages.ReadPage()
 	if err == nil {
 		t.Fatal("parquet-go ReadPage succeeded; expected INT64 decode failure on INT96 TIMESTAMP pages")
