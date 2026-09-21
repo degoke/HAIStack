@@ -1043,6 +1043,17 @@ func (m *memBackend) GetHistory(_ context.Context, resourceType, id string) ([]s
 	return out, nil
 }
 
+func (m *memBackend) GetVersion(_ context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, version := range m.history[m.key(resourceType, id)] {
+		if version.VersionID == versionID {
+			return version, nil
+		}
+	}
+	return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
+}
+
 func (m *memBackend) BeginWrite(ctx context.Context) (store.WriteSession, error) {
 	s := &memSession{
 		backend: m,

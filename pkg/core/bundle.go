@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -67,20 +68,22 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 	}
 	committed = true
 
-	if err := s.syncDefinitionCatalog(ctx, writtenDefinitions, deletedDefinitions); err != nil {
-		return nil, exceptionErr("sync definition catalog from transaction bundle", err)
-	}
-
 	responseJSON, err := buildTransactionResponseBundle(responseEntries)
 	if err != nil {
 		return nil, exceptionErr("build transaction response bundle", err)
 	}
-
-	return &types.ResourceEnvelope{
+	response := &types.ResourceEnvelope{
 		ResourceType: "Bundle",
 		JSON:         responseJSON,
 		Hash:         mustHash(responseJSON),
-	}, nil
+	}
+	s.runPostCommit(ctx, hooks.ActionTransaction, response, nil)
+
+	if err := s.syncDefinitionCatalog(ctx, writtenDefinitions, deletedDefinitions); err != nil {
+		return nil, exceptionErr("sync definition catalog from transaction bundle", err)
+	}
+
+	return response, nil
 }
 
 type transactionBundle struct {
@@ -366,7 +369,7 @@ func (s *ResourceService) executeBundleCreate(
 		return bundleExecutionResult{}, conflictErr(fmt.Sprintf("resource already exists: %s/%s", envelope.ResourceType, id), nil)
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate, nil)
 	if err != nil {
 		return bundleExecutionResult{}, err
 	}
@@ -412,33 +415,29 @@ func (s *ResourceService) executeBundleUpdate(
 		}
 	}
 
-	exists, err := session.ResourceStore().Exists(ctx, resourceType, id)
+	previous, err := session.ResourceStore().Read(ctx, resourceType, id)
 	if err != nil {
-		return bundleExecutionResult{}, exceptionErr("check resource existence", err)
-	}
-	if !exists {
-		return bundleExecutionResult{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), nil)
+		if isStoreNotFound(err) {
+			return bundleExecutionResult{}, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), err)
+		}
+		return bundleExecutionResult{}, exceptionErr("read previous resource", err)
 	}
 	if entry.IfMatch != "" {
 		expected, ok := versionFromETag(entry.IfMatch)
 		if !ok {
 			return bundleExecutionResult{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
 		}
-		current, err := session.ResourceStore().Read(ctx, resourceType, id)
-		if err != nil {
-			return bundleExecutionResult{}, exceptionErr("read current resource for ifMatch", err)
-		}
-		if expected != "*" && expected != current.VersionID {
+		if expected != "*" && expected != previous.VersionID {
 			return bundleExecutionResult{}, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expected), nil)
 		}
-		written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expected)
+		written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expected, hooks.ActionUpdate, previous)
 		if err != nil {
 			return bundleExecutionResult{}, err
 		}
 		return bundleExecutionFromWrite("200 OK", written), nil
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate, previous)
 	if err != nil {
 		return bundleExecutionResult{}, err
 	}

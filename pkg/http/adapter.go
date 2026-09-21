@@ -37,6 +37,14 @@ func (a CoreResourceService) History(ctx context.Context, resourceType, id strin
 	return a.Svc.History(ctx, resourceType, id)
 }
 
+func (a CoreResourceService) VRead(ctx context.Context, resourceType, id, versionID string) (*types.ResourceEnvelope, error) {
+	return a.Svc.VRead(ctx, resourceType, id, versionID)
+}
+
+func (a CoreResourceService) Everything(ctx context.Context, patientID string, q core.EverythingQuery) ([]*types.ResourceEnvelope, error) {
+	return a.Svc.Everything(ctx, patientID, q)
+}
+
 func (a CoreResourceService) ProcessTransactionBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
 	return a.Svc.ProcessTransactionBundle(ctx, bundle)
 }

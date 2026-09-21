@@ -33,6 +33,20 @@ func (remoteExpand) ValidateCode(context.Context, ValidateCodeRequest) (*Validat
 	return nil, nil
 }
 
+func TestChainHasTranslate(t *testing.T) {
+	if (Chain{}).HasTranslate() {
+		t.Fatal("empty Chain must not report Translate")
+	}
+	if (Chain{Providers: []Provider{costlyLocal{}}}).HasTranslate() {
+		t.Fatal("Lookup-only provider must not report Translate")
+	}
+	mem := NewMemoryStore()
+	local := NewLocalService(mem, "default")
+	if !(Chain{Providers: []Provider{local}}).HasTranslate() {
+		t.Fatal("Chain wrapping LocalService must report Translate")
+	}
+}
+
 func TestChainExpandTooCostlyIsTerminal(t *testing.T) {
 	chain := Chain{Providers: []Provider{costlyLocal{}, remoteExpand{}}}
 	ex, err := chain.Expand(context.Background(), ExpandRequest{URL: "urn:vs"})

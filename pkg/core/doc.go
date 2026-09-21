@@ -57,6 +57,8 @@
 //   - Indexer   — search.Indexer invoked after resource/history persistence in session.
 //   - Outbox    — sync.Outbox; when non-nil, events are appended via
 //     sync.WithWriteSession during each write (transactional through session EventStore).
+//   - Hooks     — optional four-point intercept SPI; core runs pre-storage before persist
+//     and post-commit after a successful session commit.
 //   - EnforceReferentialIntegrity — HAPI-style enforceReferentialIntegrityOnWrite;
 //     nil or true (NewResourceService default) runs the write-time Exists check;
 //     false skips checkReferentialIntegrity.
@@ -99,7 +101,8 @@
 // 12. Commit session; rollback on any failure before commit.
 //
 // Persist preparation (prepareWrite) is always pre-storage, then referential
-// integrity, then version meta, so a later hook SPI merge cannot run integrity first.
+// integrity, then version meta, so a pre-storage rewrite can satisfy Exists
+// and integrity cannot run first.
 //
 // Delete path reads the current envelope before removal so history tombstones and events
 // reference the last known content hash while receiving a new tombstone versionId.

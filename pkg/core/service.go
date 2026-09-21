@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
@@ -37,24 +39,14 @@ type ResourceService struct {
 	terminologyCache            terminology.Invalidator
 	definitionIngestor          DefinitionIngestor
 	conformanceRefresh          func(ctx context.Context) error
+	hooks                       hooks.Hooks
 	enforceReferentialIntegrity bool
-	// hooks is a local pre-storage SPI so prepareWrite can call optional
-	// pre-storage without importing pkg/hooks. Nil is a no-op. When hook SPI
-	// is merged, keep prepareWrite's order: pre-storage → integrity → version meta.
-	hooks writeHooks
-}
-
-// writeHooks is the unexported pre-storage collaborator used by prepareWrite.
-// A later hooks merge should keep calling runPreStorage from prepareWrite
-// rather than inserting integrity checks before pre-storage.
-type writeHooks interface {
-	preStorage(ctx context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error)
 }
 
 // ResourceServiceConfig configures a ResourceService.
 //
 // Resources, History, and Sessions are required. IDPolicy and Codec default when nil.
-// Validator, Indexer, and Outbox are optional no-ops when nil.
+// Validator, Indexer, Outbox, and Hooks are optional no-ops when nil.
 type ResourceServiceConfig struct {
 	Resources store.ResourceStore
 	History   store.HistoryStore
@@ -72,6 +64,7 @@ type ResourceServiceConfig struct {
 	TerminologyCache        terminology.Invalidator
 	DefinitionIngestor      DefinitionIngestor
 	ConformanceRefresh      func(ctx context.Context) error
+	Hooks                   hooks.Hooks
 
 	// EnforceReferentialIntegrity is the HAPI-style
 	// enforceReferentialIntegrityOnWrite toggle. Nil (the zero value) enables
@@ -120,6 +113,7 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 		terminologyCache:            cfg.TerminologyCache,
 		definitionIngestor:          cfg.DefinitionIngestor,
 		conformanceRefresh:          cfg.ConformanceRefresh,
+		hooks:                       cfg.Hooks,
 		enforceReferentialIntegrity: enforceIntegrity,
 	}, nil
 }
@@ -183,7 +177,7 @@ func (s *ResourceService) Create(ctx context.Context, resource *types.ResourceEn
 		return nil, conflictErr(fmt.Sprintf("resource already exists: %s/%s", envelope.ResourceType, id), nil)
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +185,7 @@ func (s *ResourceService) Create(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionCreate, written, nil)
 	if err := s.ingestDefinitionResource(ctx, written); err != nil {
 		return written, exceptionErr("ingest definition into registry catalog", err)
 	}
@@ -262,7 +257,7 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("read previous resource", err)
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +268,7 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionUpdate, written, previous)
 	if err := s.ingestDefinitionResource(ctx, written); err != nil {
 		return written, exceptionErr("ingest definition into registry catalog", err)
 	}
@@ -314,6 +310,7 @@ func (s *ResourceService) Delete(ctx context.Context, resourceType, id string) e
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
+	s.runPostCommit(ctx, hooks.ActionDelete, current, current)
 	if err := s.removeDefinitionResource(ctx, current); err != nil {
 		return exceptionErr("remove definition from registry catalog", err)
 	}
@@ -383,24 +380,33 @@ func (s *ResourceService) applyWrite(
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	action store.VersionAction,
+	previous *types.ResourceEnvelope,
 ) (*types.ResourceEnvelope, error) {
-	return s.applyWriteExpectedVersion(ctx, session, envelope, action, "")
+	return s.applyWriteExpectedVersion(ctx, session, envelope, action, "", hooksAction(action), previous)
 }
 
 // applyWriteExpectedVersion performs the version comparison in the same write
 // session as the mutation. An empty expected version selects ordinary writes;
 // a non-empty value requires a ConditionalResourceStore implementation.
+// persist action is the store VersionAction (create/update); hookAction is the
+// FHIR interaction seen by pre-storage (for example ActionPatch while persist
+// remains VersionActionUpdate).
 func (s *ResourceService) applyWriteExpectedVersion(
 	ctx context.Context,
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	action store.VersionAction,
 	expectedVersion string,
+	hookAction hooks.Action,
+	previous *types.ResourceEnvelope,
 ) (*types.ResourceEnvelope, error) {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
-	prepared, err := s.prepareWrite(ctx, session, envelope, versionID, now)
+	if hookAction == "" {
+		hookAction = hooksAction(action)
+	}
+	prepared, err := s.prepareWrite(ctx, session, envelope, versionID, now, hookAction, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -470,6 +476,18 @@ func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSe
 func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope, expectedVersion string) error {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
+
+	originalType, originalID := "", ""
+	if current != nil {
+		originalType, originalID = current.ResourceType, current.ID
+	}
+	mutated, err := s.runPreStorage(ctx, hooks.ActionDelete, current, current)
+	if err != nil {
+		return err
+	}
+	if err := rejectIdentityMutation(originalType, originalID, mutated); err != nil {
+		return err
+	}
 
 	if expectedVersion != "" {
 		conditional, ok := session.ResourceStore().(store.ConditionalResourceStore)
@@ -618,32 +636,33 @@ func (s *ResourceService) removePreviousTerminology(ctx context.Context, session
 	return ts.TerminologyStore().DeleteResource(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
 }
 
-// prepareWrite is the single persist-prep path: optional pre-storage, then
+// prepareWrite is the single persist-prep path: pre-storage hooks, then
 // referential integrity, then version meta. Callers must not run integrity
-// before this helper — if runPreStorage is merged from hook SPI, it belongs
-// here so integrity cannot run first.
+// before this helper so a pre-storage rewrite can satisfy Exists.
 func (s *ResourceService) prepareWrite(
 	ctx context.Context,
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	versionID string,
 	now time.Time,
+	hookAction hooks.Action,
+	previous *types.ResourceEnvelope,
 ) (*types.ResourceEnvelope, error) {
-	prepared, err := s.runPreStorage(ctx, envelope)
+	originalType, originalID := "", ""
+	if envelope != nil {
+		originalType, originalID = envelope.ResourceType, envelope.ID
+	}
+	envelope, err := s.runPreStorage(ctx, hookAction, envelope, previous)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkReferentialIntegrity(ctx, session, prepared); err != nil {
+	if err := rejectIdentityMutation(originalType, originalID, envelope); err != nil {
 		return nil, err
 	}
-	return s.withVersionMeta(prepared, versionID, now)
-}
-
-func (s *ResourceService) runPreStorage(ctx context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
-	if s == nil || s.hooks == nil {
-		return envelope, nil
+	if err := s.checkReferentialIntegrity(ctx, session, envelope); err != nil {
+		return nil, err
 	}
-	return s.hooks.preStorage(ctx, envelope)
+	return s.withVersionMeta(envelope, versionID, now)
 }
 
 func (s *ResourceService) withVersionMeta(envelope *types.ResourceEnvelope, versionID string, now time.Time) (*types.ResourceEnvelope, error) {
@@ -737,6 +756,110 @@ func cloneEnvelope(src *types.ResourceEnvelope) *types.ResourceEnvelope {
 		out.JSON = append([]byte(nil), src.JSON...)
 	}
 	return &out
+}
+
+func hooksAction(action store.VersionAction) hooks.Action {
+	switch action {
+	case store.VersionActionCreate:
+		return hooks.ActionCreate
+	case store.VersionActionUpdate:
+		return hooks.ActionUpdate
+	case store.VersionActionDelete:
+		return hooks.ActionDelete
+	default:
+		return hooks.Action(action)
+	}
+}
+
+func (s *ResourceService) runPreStorage(ctx context.Context, action hooks.Action, resource, previous *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if s == nil || s.hooks == nil {
+		return resource, nil
+	}
+	event := &hooks.Event{
+		Action:   action,
+		Resource: resource,
+		Previous: previous,
+	}
+	if resource != nil {
+		event.ResourceType = resource.ResourceType
+		event.ID = resource.ID
+	}
+	if err := s.hooks.Run(ctx, hooks.PreStorage, event); err != nil {
+		var svcErr *ServiceError
+		if errors.As(err, &svcErr) {
+			return nil, err
+		}
+		return nil, invalidErr("pre-storage hook rejected write", err)
+	}
+	if event.Resource != nil {
+		return event.Resource, nil
+	}
+	return resource, nil
+}
+
+func rejectIdentityMutation(originalType, originalID string, env *types.ResourceEnvelope) error {
+	if env == nil {
+		return invalidErr("pre-storage hook removed the resource", nil)
+	}
+	if env.ResourceType != originalType {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change resourceType from %q to %q", originalType, env.ResourceType),
+			nil,
+			"Resource.resourceType",
+		)
+	}
+	if env.ID != originalID {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change id from %q to %q", originalID, env.ID),
+			nil,
+			"Resource.id",
+		)
+	}
+	if len(env.JSON) == 0 {
+		return nil
+	}
+	actualType, err := types.GetResourceType(env.JSON)
+	if err != nil {
+		return invalidErr("pre-storage hook produced invalid resourceType", err, "Resource.resourceType")
+	}
+	if actualType != originalType {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change resourceType from %q to %q", originalType, actualType),
+			nil,
+			"Resource.resourceType",
+		)
+	}
+	if originalID == "" {
+		return nil
+	}
+	actualID, err := types.GetID(env.JSON)
+	if err != nil {
+		return invalidErr("pre-storage hook produced invalid id", err, "Resource.id")
+	}
+	if actualID != originalID {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change id from %q to %q", originalID, actualID),
+			nil,
+			"Resource.id",
+		)
+	}
+	return nil
+}
+
+func (s *ResourceService) runPostCommit(ctx context.Context, action hooks.Action, resource, previous *types.ResourceEnvelope) {
+	if s == nil || s.hooks == nil {
+		return
+	}
+	event := &hooks.Event{
+		Action:   action,
+		Resource: resource,
+		Previous: previous,
+	}
+	if resource != nil {
+		event.ResourceType = resource.ResourceType
+		event.ID = resource.ID
+	}
+	_ = s.hooks.Run(ctx, hooks.PostCommit, event)
 }
 
 func isStoreNotFound(err error) bool {

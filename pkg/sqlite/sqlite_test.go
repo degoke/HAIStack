@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -204,6 +205,18 @@ func TestHistoryStoreAppendAndGet(t *testing.T) {
 	}
 	if last.Resource != nil {
 		t.Error("delete tombstone should not carry resource payload")
+	}
+
+	got, err := history.GetVersion(ctx, "Patient", "pat-1", "1")
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if got.VersionID != "1" || got.Action != store.VersionActionCreate {
+		t.Fatalf("GetVersion = %+v", got)
+	}
+	_, err = history.GetVersion(ctx, "Patient", "pat-1", "missing")
+	if err == nil || !strings.Contains(err.Error(), "resource not found") {
+		t.Fatalf("missing version err = %v", err)
 	}
 }
 

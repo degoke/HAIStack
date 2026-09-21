@@ -5,34 +5,33 @@ import (
 	"context"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
-type rewriteMissingRefHooks struct{}
-
-func (rewriteMissingRefHooks) preStorage(_ context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
-	if envelope == nil {
-		return nil, nil
-	}
-	rewritten := bytes.ReplaceAll(envelope.JSON, []byte("Patient/pat-missing"), []byte("https://example.org/fhir/Patient/ext"))
-	out := *envelope
-	out.JSON = rewritten
-	return &out, nil
-}
-
 func TestPrepareWriteRunsPreStorageBeforeIntegrity(t *testing.T) {
 	ctx := context.Background()
+	reg := hooks.NewRegistry()
+	if err := reg.On(hooks.PreStorage, func(_ context.Context, event *hooks.Event) error {
+		if event == nil || event.Resource == nil {
+			return nil
+		}
+		event.Resource.JSON = bytes.ReplaceAll(event.Resource.JSON, []byte("Patient/pat-missing"), []byte("https://example.org/fhir/Patient/ext"))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	svc, err := NewResourceService(ResourceServiceConfig{
 		Resources: stubResourceStore{},
 		History:   stubHistoryStore{},
 		Sessions:  stubSessionProvider{session: stubWriteSession{}},
+		Hooks:     reg,
 	})
 	if err != nil {
 		t.Fatalf("NewResourceService: %v", err)
 	}
-	svc.hooks = rewriteMissingRefHooks{}
 
 	created, err := svc.Create(ctx, &types.ResourceEnvelope{
 		ResourceType: "Observation",
@@ -140,6 +139,9 @@ type stubHistoryStore struct{}
 func (stubHistoryStore) AppendVersion(context.Context, store.ResourceVersion) error { return nil }
 func (stubHistoryStore) GetHistory(context.Context, string, string) ([]store.ResourceVersion, error) {
 	return nil, nil
+}
+func (stubHistoryStore) GetVersion(context.Context, string, string, string) (store.ResourceVersion, error) {
+	return store.ResourceVersion{}, nil
 }
 
 type stubSearchStore struct{}

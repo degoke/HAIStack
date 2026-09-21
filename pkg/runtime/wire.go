@@ -464,6 +464,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		GlobalTerminologyScope: terminology.GlobalScopeID,
 		TerminologyCache:       terminologyCache,
 		DefinitionIngestor:     regManager,
+		Hooks:                  b.hooks,
 		ConformanceRefresh: func(ctx context.Context) error {
 			snap, err := conformanceRuntime.Refresh(ctx)
 			if err != nil {
@@ -746,6 +747,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		SQLQueryService:          state.services.SQLQueryService,
 		ViewExportService:        state.services.ViewExportService,
 		RateLimit:                b.httpRateLimit,
+		Hooks:                    b.hooks,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
 			SoftwareVersion: "1.0.0",

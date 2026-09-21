@@ -142,6 +142,7 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithModules(paths...)` | Install local module directories at build time |
 | `WithHTTP(addr)` | Managed HTTP listen address (optional) |
 | `WithHTTPAuth(...)` / `WithHTTPMiddleware(...)` | Configure managed HTTP authentication and policy middleware |
+| `WithHooks(...)` | Four-point intercept SPI (incoming, pre-storage, post-commit, outgoing) |
 | `WithHTTPRateLimit(config)` | Configure process-local managed HTTP rate limiting |
 | `WithModuleAuthorizer(authorizer)` | Authorize module installs and upgrades |
 | `WithModuleVerifier(verifier)` | Verify module signatures/content before install and upgrade |
