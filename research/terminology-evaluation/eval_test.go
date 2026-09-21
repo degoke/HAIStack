@@ -219,6 +219,22 @@ func TestMissingMapURLIsUnmatchedAndProvenanceZero(t *testing.T) {
 	}
 }
 
+func TestEvaluateAbortsOnUnexpectedTranslateError(t *testing.T) {
+	mapPath, _ := terminologyeval.TestdataPaths()
+	dir := t.TempDir()
+	casesPath := filepath.Join(dir, "cases.json")
+	if err := os.WriteFile(casesPath, []byte(`{
+  "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
+  "cases": [{"code": "", "class": "unmatched"}]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err == nil || !strings.Contains(err.Error(), "translate") {
+		t.Fatalf("empty source code must abort Evaluate, got %v", err)
+	}
+}
+
 func TestGoldFileOmitsMapIdentity(t *testing.T) {
 	_, casesPath := terminologyeval.TestdataPaths()
 	raw, err := os.ReadFile(casesPath)

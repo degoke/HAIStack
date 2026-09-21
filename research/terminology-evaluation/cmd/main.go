@@ -18,7 +18,7 @@ type publishedReport struct {
 	Unmatched              int                          `json:"unmatched"`
 	Passed                 int                          `json:"passed"`
 	Failed                 int                          `json:"failed"`
-	Accuracy               float64                      `json:"accuracy"`
+	Consistency            float64                      `json:"consistency"`
 	ProvenanceCompleteness float64                      `json:"provenanceCompleteness"`
 	Results                []terminologyeval.CaseResult `json:"results"`
 	Note                   string                       `json:"note"`
@@ -38,10 +38,10 @@ func main() {
 		Unmatched:              gold.Unmatched,
 		Passed:                 gold.Passed,
 		Failed:                 gold.Failed,
-		Accuracy:               gold.Accuracy,
+		Consistency:            gold.Accuracy,
 		ProvenanceCompleteness: gold.Provenance,
 		Results:                gold.Results,
-		Note:                   "accuracy 1.0 means $translate implements conceptmap.json; not translator quality and not an external mapping",
+		Note:                   "consistency 1.0 means $translate implements conceptmap.json; not translator quality and not an external mapping",
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

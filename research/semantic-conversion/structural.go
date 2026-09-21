@@ -5,8 +5,9 @@ import "encoding/json"
 // structuralOK requires Convert output to equal gold R5 except gold-only
 // meta.source (the authored oracle stamp Convert does not emit). Unchanged
 // pairs have no such stamp. Transformed pairs do. Copy-through fields (id,
-// subject, reason, and the rest of the document) are part of that equality,
-// so dropping them fails structural even when remap stamps are present.
+// subject, and the rest of the document) and remaps (reason, participant)
+// are part of that equality, so dropping them fails structural even when
+// remap stamps are present.
 func structuralOK(pair Pair, got json.RawMessage) (bool, string, error) {
 	want, err := goldDocumentForConvert(pair.R5)
 	if err != nil {

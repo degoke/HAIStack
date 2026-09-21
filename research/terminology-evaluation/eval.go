@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/audit"
@@ -48,10 +49,11 @@ type ClassScore struct {
 }
 
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
-// Accuracy is the pass rate (class and target). ByClass is one-vs-rest on class
-// labels only. Gold conceptmap.json vs cases.json checks that $translate
-// implements that map (published artefact). Divergent conceptmap vs the same
-// cases is a unit-test fixture for those class metrics, not a published score.
+// Accuracy is the in-memory pass rate (class and target); JSON encodes it as
+// consistency. ByClass is one-vs-rest on class labels only. Gold
+// conceptmap.json vs cases.json checks that $translate implements that map
+// (published artefact). Divergent conceptmap vs the same cases is a unit-test
+// fixture for those class metrics, not a published score.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -59,7 +61,7 @@ type Metrics struct {
 	Unmatched  int                   `json:"unmatched"`
 	Passed     int                   `json:"passed"`
 	Failed     int                   `json:"failed"`
-	Accuracy   float64               `json:"accuracy"`
+	Accuracy   float64               `json:"consistency"`
 	ByClass    map[string]ClassScore `json:"byClass,omitempty"`
 	Provenance float64               `json:"provenanceCompleteness"`
 	Results    []CaseResult          `json:"results"`
@@ -135,9 +137,12 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	classSupport := map[string]int{}
 	for _, c := range gold.Cases {
 		before := logger.n
-		gotClass, target, _ := translateClass(ctx, svc, header.URL, gold.SourceSystem, c.Code)
+		gotClass, target, transErr := translateClass(ctx, svc, header.URL, gold.SourceSystem, c.Code)
 		if logger.n != before+1 {
 			return Metrics{}, fmt.Errorf("terminology-evaluation: Translate did not emit audit for %s", c.Code)
+		}
+		if transErr != nil && !unmatchedTranslate(transErr) {
+			return Metrics{}, fmt.Errorf("terminology-evaluation: translate %s: %w", c.Code, transErr)
 		}
 		classOK := gotClass == c.Class
 		targetOK := c.Target == "" || c.Target == target
@@ -233,6 +238,17 @@ func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, 
 	}
 	target = codings[0].Code
 	return classFromEquivalence(codings[0].Equivalence), target, nil
+}
+
+func unmatchedTranslate(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "no-map") ||
+		strings.Contains(s, "no translation") ||
+		strings.Contains(s, "canonical URL is required") ||
+		strings.Contains(s, "not found")
 }
 
 func classFromEquivalence(eq string) string {

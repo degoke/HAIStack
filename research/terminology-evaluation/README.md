@@ -48,11 +48,12 @@ classes from ConceptMap `equivalence` on the returned coding.
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
 
-**Accuracy** is the pass rate (`class` and `target` both match).
+**Consistency** is the pass rate (`class` and `target` both match). The
+published JSON key is `consistency`, not `accuracy`. **1.0 is expected.**
 
 **Precision** and **recall** are computed by `Evaluate` as one-vs-rest on
 class labels (omitted when predicted or support is 0). A right class with
-a wrong target fails accuracy and is not a class false positive. Those
+a wrong target fails consistency and is not a class false positive. Those
 scores are asserted in tests, not printed as a published artefact.
 
 **Provenance completeness** is the share of translations whose

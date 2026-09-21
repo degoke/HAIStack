@@ -44,7 +44,7 @@ func TestStructuralOKRejectsDroppedCopyThrough(t *testing.T) {
 	}{
 		{CategoryRenamed, "subject"},
 		{CategoryRenamed, "id"},
-		{CategoryCodeableConcept, "reason"},
+		{CategoryCodeableConcept, "reason"}, // remapped from reasonCode/reasonReference
 		{CategoryCodeableConcept, "subject"},
 		{CategoryRemoved, "id"},
 		{CategoryCardinality, "id"},

@@ -106,6 +106,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			transformed++
 		case semanticconversion.CategoryRenamed:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "clinicalStatus", "code", "subject")
+			assertActorFromAsserter(t, p.ID, r4obj, r5obj)
 			if p.Spec != goldConditionDiff {
 				t.Errorf("%s: spec = %q, want Condition R5 diff", p.ID, p.Spec)
 			}
@@ -136,14 +137,14 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			transformed++
 		case semanticconversion.CategoryCodeableConcept, semanticconversion.CategoryTypeChange:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "status", "intent", "subject")
+			assertReasonFromR4(t, p.ID, r4obj, r5obj)
 			if p.Spec != goldMedicationDiff {
 				t.Errorf("%s: spec = %q, want MedicationRequest R5 diff", p.ID, p.Spec)
 			}
 			if bytes.Contains(p.R5, []byte("medicationCodeableConcept")) || !bytes.Contains(p.R5, []byte(`"medication"`)) {
 				t.Errorf("%s: R5 gold should use medication CodeableReference", p.ID)
 			}
-			if bytes.Contains(p.R4, []byte("medicationCodeableConcept")) && strings.Contains(r4, `"code"`) &&
-				!strings.Contains(r4, goldToyMedication) && !strings.Contains(r5, goldToyMedication) {
+			if r4HasCodedMedication(r4obj) && !goldHasToyMed(r5obj) {
 				t.Errorf("%s: authored gold R5 must stamp toy-med system on coded medication", p.ID)
 			}
 			if p.Category == semanticconversion.CategoryTypeChange {
@@ -317,4 +318,68 @@ func jsonValueEqual(a, b any) bool {
 		return false
 	}
 	return bytes.Equal(ab, bb)
+}
+
+func assertActorFromAsserter(t *testing.T, id string, r4, r5 map[string]any) {
+	t.Helper()
+	parts, _ := r5["participant"].([]any)
+	if len(parts) == 0 {
+		t.Errorf("%s: gold R5 missing participant", id)
+		return
+	}
+	pm, _ := parts[0].(map[string]any)
+	if !jsonValueEqual(r4["asserter"], pm["actor"]) {
+		t.Errorf("%s: gold participant.actor must equal R4 asserter (authorship, no Convert)", id)
+	}
+}
+
+func assertReasonFromR4(t *testing.T, id string, r4, r5 map[string]any) {
+	t.Helper()
+	var want []any
+	if rc, ok := r4["reasonCode"].([]any); ok {
+		for _, item := range rc {
+			want = append(want, map[string]any{"concept": item})
+		}
+	}
+	if rr, ok := r4["reasonReference"].([]any); ok {
+		for _, item := range rr {
+			want = append(want, map[string]any{"reference": item})
+		}
+	}
+	if len(want) == 0 {
+		return
+	}
+	if !jsonValueEqual(want, r5["reason"]) {
+		t.Errorf("%s: gold reason must wrap R4 reasonCode/reasonReference (authorship, no Convert)", id)
+	}
+}
+
+func r4HasCodedMedication(r4 map[string]any) bool {
+	med, _ := r4["medicationCodeableConcept"].(map[string]any)
+	coding, _ := med["coding"].([]any)
+	for _, item := range coding {
+		cm, _ := item.(map[string]any)
+		if _, ok := cm["code"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func goldHasToyMed(r5 map[string]any) bool {
+	meds, _ := r5["medication"].([]any)
+	if len(meds) == 0 {
+		return false
+	}
+	m, _ := meds[0].(map[string]any)
+	concept, _ := m["concept"].(map[string]any)
+	coding, _ := concept["coding"].([]any)
+	for _, item := range coding {
+		cm, _ := item.(map[string]any)
+		sys, _ := cm["system"].(string)
+		if sys == goldToyMedication {
+			return true
+		}
+	}
+	return false
 }

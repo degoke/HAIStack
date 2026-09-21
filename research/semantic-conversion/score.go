@@ -44,7 +44,7 @@ type Report struct {
 // ScoreCorpus converts each R4 instance with ConvertR4ToR5 and requires that
 // output to equal authored gold R5 except gold-only meta.source. Convert does
 // not produce gold; testdata is the oracle. Dropping copy-through fields (id,
-// subject, reason, …) fails structural.
+// subject, …) or remapped fields (reason, participant) fails structural.
 //
 // Semantic R4 checks use pkg/fhirpath. Instances the R4 protobuf codec cannot
 // load (unknown fields such as Patient.animal, singleton JSON for 0..*
