@@ -3,6 +3,8 @@ package cql
 import (
 	"math"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -914,38 +916,675 @@ func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
 		}
 		return Quantity{Value: sec / den, Unit: unit}, true
 	}
-	from, fok := quantitySIFactor(q.Unit)
-	to, tok := quantitySIFactor(unit)
-	if !fok || !tok || to == 0 {
+	from, fromDim, fok := quantitySIFactor(q.Unit)
+	to, toDim, tok := quantitySIFactor(unit)
+	if !fok || !tok || to == 0 || fromDim != toDim {
 		return Quantity{}, false
 	}
 	return Quantity{Value: q.Value * from / to, Unit: unit}, true
 }
 
-func quantitySIFactor(unit string) (float64, bool) {
+func quantitySIFactor(unit string) (float64, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "g", "gm", "gram", "grams":
-		return 1, true
+		return 1, "mass", true
 	case "mg":
-		return 0.001, true
+		return 0.001, "mass", true
 	case "kg":
-		return 1000, true
+		return 1000, "mass", true
 	case "mcg", "ug":
-		return 1e-6, true
+		return 1e-6, "mass", true
 	case "m", "meter", "meters":
-		return 1, true
+		return 1, "length", true
 	case "cm":
-		return 0.01, true
+		return 0.01, "length", true
 	case "mm":
-		return 0.001, true
+		return 0.001, "length", true
 	case "km":
-		return 1000, true
+		return 1000, "length", true
 	case "l", "liter", "liters":
-		return 1, true
+		return 1, "volume", true
 	case "ml":
-		return 0.001, true
+		return 0.001, "volume", true
 	case "dl":
-		return 0.1, true
+		return 0.1, "volume", true
+	}
+	return 0, "", false
+}
+
+func pointFromInterval(iv Interval) ([]any, error) {
+	start := iv.Low
+	if start != nil && !iv.LowClosed {
+		next, ok := successorValue(start, false)
+		if !ok {
+			return nil, nil
+		}
+		start = next
+	}
+	end := iv.High
+	if end != nil && !iv.HighClosed {
+		prev, ok := successorValue(end, true)
+		if !ok {
+			return nil, nil
+		}
+		end = prev
+	}
+	if start == nil || end == nil {
+		return nil, nil
+	}
+	if !cqlEqual(start, end) {
+		return nil, nil
+	}
+	return []any{start}, nil
+}
+
+func valuePrecision(v any) (int, bool) {
+	v = unwrapPrimitive(v)
+	if t, ok := asTime(v); ok {
+		if !isDateOnlyTime(t) {
+			if t.Nanosecond() != 0 {
+				return 17, true
+			}
+			if t.Second() != 0 {
+				return 14, true
+			}
+			if t.Minute() != 0 {
+				return 12, true
+			}
+			return 10, true
+		}
+		if t.Day() != 1 {
+			return 8, true
+		}
+		if t.Month() != 1 {
+			return 6, true
+		}
+		return 4, true
+	}
+	if isIntLike(v) {
+		return 0, true
+	}
+	if f, ok := asFloat(v); ok {
+		return decimalPrecision(f), true
+	}
+	if s, ok := v.(string); ok {
+		if i := strings.IndexByte(s, '.'); i >= 0 {
+			return len(s) - i - 1, true
+		}
+		return 0, true
 	}
 	return 0, false
+}
+
+func decimalPrecision(f float64) int {
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	i := strings.IndexByte(s, '.')
+	if i < 0 {
+		return 0
+	}
+	return len(s) - i - 1
+}
+
+func boundaryValue(args [][]any, high bool) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		return nil, nil
+	}
+	prec := -1
+	if len(args) > 1 && len(args[1]) > 0 {
+		if n, ok := asInt(args[1][0]); ok {
+			prec = int(n)
+		}
+	}
+	if iv, ok := asInterval(item); ok {
+		v := iv.Low
+		if high {
+			v = iv.High
+		}
+		if v == nil {
+			return nil, nil
+		}
+		if prec < 0 {
+			return []any{v}, nil
+		}
+		item = v
+	}
+	if t, ok := asTime(item); ok && prec >= 0 {
+		return []any{temporalBoundary(t, prec, high)}, nil
+	}
+	if f, ok := asFloat(item); ok {
+		if prec < 0 {
+			return []any{item}, nil
+		}
+		return []any{decimalBoundary(f, prec, high, isIntLike(item))}, nil
+	}
+	return []any{item}, nil
+}
+
+func decimalBoundary(f float64, prec int, high, intLike bool) any {
+	if prec < 0 || decimalPrecision(f) <= prec {
+		if intLike && f == float64(int64(f)) {
+			return int64(f)
+		}
+		return f
+	}
+	scale := math.Pow(10, float64(prec))
+	var out float64
+	if high {
+		out = math.Ceil(f*scale-1e-10) / scale
+	} else {
+		out = math.Floor(f*scale+1e-10) / scale
+	}
+	return out
+}
+
+func temporalBoundary(t time.Time, prec int, high bool) time.Time {
+	y, m, d := t.Year(), t.Month(), t.Day()
+	hh, mm, ss, ns := t.Hour(), t.Minute(), t.Second(), t.Nanosecond()
+	loc := t.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	max := high
+	switch {
+	case prec <= 4:
+		if max {
+			m, d, hh, mm, ss, ns = 12, 31, 23, 59, 59, 999000000
+		} else {
+			m, d, hh, mm, ss, ns = 1, 1, 0, 0, 0, 0
+		}
+	case prec <= 6:
+		if max {
+			d = daysInMonth(y, m)
+			hh, mm, ss, ns = 23, 59, 59, 999000000
+		} else {
+			d, hh, mm, ss, ns = 1, 0, 0, 0, 0
+		}
+	case prec <= 8:
+		if max {
+			hh, mm, ss, ns = 23, 59, 59, 999000000
+		} else {
+			hh, mm, ss, ns = 0, 0, 0, 0
+		}
+	case prec <= 10:
+		if max {
+			mm, ss, ns = 59, 59, 999000000
+		} else {
+			mm, ss, ns = 0, 0, 0
+		}
+	case prec <= 12:
+		if max {
+			ss, ns = 59, 999000000
+		} else {
+			ss, ns = 0, 0
+		}
+	case prec <= 14:
+		if max {
+			ns = 999000000
+		} else {
+			ns = 0
+		}
+	}
+	out := time.Date(y, m, d, hh, mm, ss, ns, loc)
+	if isDateOnlyTime(t) && prec <= 8 {
+		return time.Date(out.Year(), out.Month(), out.Day(), 0, 0, 0, 0, dateOnlyLoc)
+	}
+	return out
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+func quantityFromValue(v any) (Quantity, bool) {
+	if q, ok := asQuantity(v); ok {
+		return q, true
+	}
+	if f, ok := asFloat(v); ok {
+		return Quantity{Value: f, Unit: "1"}, true
+	}
+	if s, ok := unwrapPrimitive(v).(string); ok {
+		return parseQuantityString(s)
+	}
+	return Quantity{}, false
+}
+
+func parseQuantityString(s string) (Quantity, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return Quantity{}, false
+	}
+	i := 0
+	if s[0] == '+' || s[0] == '-' {
+		i++
+	}
+	dot := false
+	for i < len(s) {
+		c := s[i]
+		if c >= '0' && c <= '9' {
+			i++
+			continue
+		}
+		if c == '.' && !dot {
+			dot = true
+			i++
+			continue
+		}
+		break
+	}
+	if i == 0 || (i == 1 && (s[0] == '+' || s[0] == '-')) {
+		return Quantity{}, false
+	}
+	f, err := strconv.ParseFloat(s[:i], 64)
+	if err != nil {
+		return Quantity{}, false
+	}
+	rest := strings.TrimSpace(s[i:])
+	unit := "1"
+	if rest != "" {
+		if strings.HasPrefix(rest, "'") {
+			end := strings.Index(rest[1:], "'")
+			if end < 0 {
+				return Quantity{}, false
+			}
+			unit = rest[1 : 1+end]
+			if strings.TrimSpace(rest[2+end:]) != "" {
+				return Quantity{}, false
+			}
+		} else {
+			unit = rest
+		}
+	}
+	if unit == "" {
+		unit = "1"
+	}
+	return Quantity{Value: f, Unit: unit}, true
+}
+
+func booleanFromValue(v any) (bool, bool) {
+	if b := asBool([]any{v}); b != nil {
+		return *b, true
+	}
+	if s, ok := unwrapPrimitive(v).(string); ok {
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "true", "t", "yes", "y", "1":
+			return true, true
+		case "false", "f", "no", "n", "0":
+			return false, true
+		}
+		return false, false
+	}
+	if isIntLike(v) {
+		n, _ := asInt(v)
+		if n == 1 {
+			return true, true
+		}
+		if n == 0 {
+			return false, true
+		}
+		return false, false
+	}
+	if f, ok := asFloat(v); ok {
+		if f == 1 {
+			return true, true
+		}
+		if f == 0 {
+			return false, true
+		}
+	}
+	return false, false
+}
+
+func convertsToResult(name string, args [][]any) ([]any, error) {
+	if len(args) == 0 || args[0] == nil || len(args[0]) == 0 {
+		return nil, nil
+	}
+	if len(args[0]) != 1 {
+		return []any{false}, nil
+	}
+	item := args[0][0]
+	if unwrapPrimitive(item) == nil {
+		return nil, nil
+	}
+	ok := false
+	switch strings.TrimPrefix(name, "convertsto") {
+	case "integer", "long":
+		_, ok = intFromValue(item)
+	case "decimal":
+		_, ok = floatFromValue(item)
+	case "boolean":
+		_, ok = booleanFromValue(item)
+	case "string":
+		_, ok = cqlToString(item)
+	case "quantity":
+		_, ok = quantityFromValue(item)
+	case "date", "datetime":
+		_, ok = timeFromValue(item, false)
+	case "time":
+		_, ok = timeFromValue(item, true)
+	}
+	return []any{ok}, nil
+}
+
+func intFromValue(v any) (int64, bool) {
+	if n, ok := asInt(v); ok {
+		return n, true
+	}
+	if s, ok := unwrapPrimitive(v).(string); ok {
+		n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+		return n, err == nil
+	}
+	return 0, false
+}
+
+func floatFromValue(v any) (float64, bool) {
+	if f, ok := asFloat(v); ok {
+		return f, true
+	}
+	if s, ok := unwrapPrimitive(v).(string); ok {
+		f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		return f, err == nil
+	}
+	return 0, false
+}
+
+func timeFromValue(v any, asTimeOfDay bool) (time.Time, bool) {
+	if t, ok := asTime(v); ok {
+		return t, true
+	}
+	s, ok := unwrapPrimitive(v).(string)
+	if !ok {
+		return time.Time{}, false
+	}
+	if asTimeOfDay {
+		if t, pok := parseELMTimeString(s); pok {
+			return t, true
+		}
+	}
+	t, err := parseCQLDate(s)
+	return t, err == nil
+}
+
+func toConceptValue(v any) []any {
+	if v == nil {
+		return nil
+	}
+	if list, ok := v.([]any); ok {
+		var out []any
+		for _, el := range list {
+			out = append(out, toConceptValue(el)...)
+		}
+		return out
+	}
+	if c, ok := v.(Code); ok {
+		return []any{c}
+	}
+	if c, ok := asCodeLike(v); ok {
+		return []any{Code{Code: c.Code, System: c.System, Display: c.Display}}
+	}
+	return nil
+}
+
+func typeMinMaxValue(args [][]any, min bool) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		return nil, nil
+	}
+	s, ok := unwrapPrimitive(item).(string)
+	if !ok {
+		s = elmTypeBare(elmString(item))
+	}
+	name := strings.ToLower(elmTypeBare(s))
+	switch name {
+	case "integer":
+		if min {
+			return []any{int64(math.MinInt32)}, nil
+		}
+		return []any{int64(math.MaxInt32)}, nil
+	case "long":
+		if min {
+			return []any{int64(math.MinInt64)}, nil
+		}
+		return []any{int64(math.MaxInt64)}, nil
+	case "decimal":
+		if min {
+			return []any{-1e28}, nil
+		}
+		return []any{1e28}, nil
+	case "date":
+		if min {
+			return []any{time.Date(1, 1, 1, 0, 0, 0, 0, dateOnlyLoc)}, nil
+		}
+		return []any{time.Date(9999, 12, 31, 0, 0, 0, 0, dateOnlyLoc)}, nil
+	case "datetime":
+		if min {
+			return []any{time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+		}
+		return []any{time.Date(9999, 12, 31, 23, 59, 59, 999000000, time.UTC)}, nil
+	case "time":
+		if min {
+			return []any{time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+		}
+		return []any{time.Date(1, 1, 1, 23, 59, 59, 999000000, time.UTC)}, nil
+	case "quantity":
+		if min {
+			return []any{Quantity{Value: -1e28, Unit: "1"}}, nil
+		}
+		return []any{Quantity{Value: 1e28, Unit: "1"}}, nil
+	}
+	return nil, nil
+}
+
+func structureChildrenArgs(args [][]any) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		if len(args) > 0 && args[0] != nil {
+			return structureChildren(args[0]), nil
+		}
+		return nil, nil
+	}
+	return structureChildren(item), nil
+}
+
+func structureDescendantsArgs(args [][]any) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		if len(args) > 0 && args[0] != nil {
+			return structureDescendants(args[0]), nil
+		}
+		return nil, nil
+	}
+	return structureDescendants(item), nil
+}
+
+func structureChildren(v any) []any {
+	if v == nil {
+		return nil
+	}
+	if iv, ok := asInterval(v); ok {
+		var out []any
+		if iv.Low != nil {
+			out = append(out, iv.Low)
+		}
+		if iv.High != nil {
+			out = append(out, iv.High)
+		}
+		return out
+	}
+	if list, ok := v.([]any); ok {
+		var out []any
+		for _, el := range list {
+			out = append(out, structureChildren(el)...)
+		}
+		return out
+	}
+	obj, ok := asObject(v)
+	if !ok {
+		return nil
+	}
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		if k == "resourceType" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []any
+	for _, k := range keys {
+		out = append(out, flattenJSON(obj[k])...)
+	}
+	return out
+}
+
+func structureDescendants(v any) []any {
+	kids := structureChildren(v)
+	var out []any
+	for _, k := range kids {
+		out = append(out, k)
+		out = append(out, structureDescendants(k)...)
+	}
+	return out
+}
+
+func listFloats(args [][]any) ([]float64, bool, bool) {
+	if len(args) == 0 || args[0] == nil {
+		return nil, false, false
+	}
+	nums := make([]float64, 0, len(args[0]))
+	intLike := true
+	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
+		f, ok := asFloat(item)
+		if !ok {
+			return nil, false, false
+		}
+		if !isIntLike(item) {
+			intLike = false
+		}
+		nums = append(nums, f)
+	}
+	return nums, intLike, true
+}
+
+func listMedian(args [][]any) ([]any, error) {
+	nums, intLike, ok := listFloats(args)
+	if !ok || len(nums) == 0 {
+		return nil, nil
+	}
+	sort.Float64s(nums)
+	n := len(nums)
+	var mid float64
+	if n%2 == 1 {
+		mid = nums[n/2]
+	} else {
+		mid = (nums[n/2-1] + nums[n/2]) / 2
+	}
+	if intLike && mid == float64(int64(mid)) {
+		return []any{int64(mid)}, nil
+	}
+	return []any{mid}, nil
+}
+
+func listMode(args [][]any) ([]any, error) {
+	if len(args) == 0 || args[0] == nil {
+		return nil, nil
+	}
+	type pair struct {
+		v any
+		n int
+	}
+	var items []pair
+	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
+		found := false
+		for i := range items {
+			if cqlEqual(items[i].v, item) {
+				items[i].n++
+				found = true
+				break
+			}
+		}
+		if !found {
+			items = append(items, pair{v: item, n: 1})
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	best := items[0]
+	for _, it := range items[1:] {
+		if it.n > best.n {
+			best = it
+		}
+	}
+	return []any{best.v}, nil
+}
+
+func listProduct(args [][]any) ([]any, error) {
+	nums, intLike, ok := listFloats(args)
+	if !ok || len(nums) == 0 {
+		return nil, nil
+	}
+	prod := 1.0
+	for _, n := range nums {
+		prod *= n
+	}
+	if intLike && prod == float64(int64(prod)) {
+		return []any{int64(prod)}, nil
+	}
+	return []any{prod}, nil
+}
+
+func listGeometricMean(args [][]any) ([]any, error) {
+	nums, _, ok := listFloats(args)
+	if !ok || len(nums) == 0 {
+		return nil, nil
+	}
+	sum := 0.0
+	for _, n := range nums {
+		if n <= 0 {
+			return nil, nil
+		}
+		sum += math.Log(n)
+	}
+	out := math.Exp(sum / float64(len(nums)))
+	if math.IsNaN(out) || math.IsInf(out, 0) {
+		return nil, nil
+	}
+	return []any{out}, nil
+}
+
+func listVariance(args [][]any) ([]any, error) {
+	nums, _, ok := listFloats(args)
+	if !ok || len(nums) < 2 {
+		return nil, nil
+	}
+	mean := 0.0
+	for _, n := range nums {
+		mean += n
+	}
+	mean /= float64(len(nums))
+	sum := 0.0
+	for _, n := range nums {
+		d := n - mean
+		sum += d * d
+	}
+	return []any{sum / float64(len(nums)-1)}, nil
+}
+
+func listStdDev(args [][]any) ([]any, error) {
+	v, err := listVariance(args)
+	if err != nil || len(v) == 0 {
+		return v, err
+	}
+	f, ok := asFloat(v[0])
+	if !ok || f < 0 {
+		return nil, nil
+	}
+	return []any{math.Sqrt(f)}, nil
 }

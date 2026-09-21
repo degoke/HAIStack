@@ -478,7 +478,7 @@ func isReservedAlias(text string) bool {
 	case "then", "else", "is", "as", "in", "contains", "union", "intersect", "except",
 		"div", "mod", "true", "false", "null", "if", "case", "end", "when", "between",
 		"during", "includes", "overlaps", "starts", "ends", "meets", "before", "after",
-		"of", "duration", "difference", "asc", "desc", "all", "distinct", "year", "years",
+		"of", "duration", "difference", "asc", "desc", "all", "distinct", "minimum", "maximum", "year", "years",
 		"month", "months", "week", "weeks", "day", "days", "hour", "hours", "minute",
 		"minutes", "second", "seconds", "millisecond", "milliseconds":
 		return true
@@ -596,6 +596,16 @@ func (p *parser) parseIn() (Node, error) {
 }
 
 func (p *parser) parseMembershipOp() string {
+	if p.peekKeywordPair("all", "in") {
+		p.lex.next()
+		p.lex.next()
+		return "all in"
+	}
+	if p.peekKeywordPair("any", "in") {
+		p.lex.next()
+		p.lex.next()
+		return "any in"
+	}
 	if p.acceptKeyword("properly") {
 		switch {
 		case p.acceptKeyword("includes"):
@@ -854,6 +864,60 @@ func (p *parser) parseUnary() (Node, error) {
 		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "flatten", x: x}, nil
 	}
+	if p.peekKeywordPair("point", "from") {
+		p.lex.next()
+		p.lex.next()
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "point from", x: x}, nil
+	}
+	if p.peekKeywordPair("precision", "of") {
+		p.lex.next()
+		p.lex.next()
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "precision", x: x}, nil
+	}
+	if p.peekKeywordPair("high", "boundary") || p.peekKeywordPair("low", "boundary") {
+		op := "highboundary"
+		if keywordEq(p.lex.lookahead().text, "low") {
+			op = "lowboundary"
+		}
+		p.lex.next()
+		p.lex.next()
+		var prec Node
+		if p.lex.lookahead().kind == tNumber {
+			t := p.lex.next()
+			prec = &litNode{nodeBase: nodeBase{src: p.src}, value: parseNumber(t.text)}
+		}
+		if !p.acceptKeyword("of") {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'of' after boundary")
+		}
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		args := []Node{x}
+		if prec != nil {
+			args = append(args, prec)
+		}
+		return &callNode{nodeBase: nodeBase{src: p.src}, callee: &identNode{name: op}, args: args}, nil
+	}
+	if p.acceptKeyword("minimum") || p.acceptKeyword("maximum") {
+		name := "minvalue"
+		if keywordEq(p.lex.last.text, "maximum") {
+			name = "maxvalue"
+		}
+		typ, err := p.requireIdent("type name")
+		if err != nil {
+			return nil, err
+		}
+		return &callNode{nodeBase: nodeBase{src: p.src}, callee: &identNode{name: name}, args: []Node{&litNode{nodeBase: nodeBase{src: p.src}, value: typ}}}, nil
+	}
 	if startOf, op := p.peekStartEndWidth(); startOf {
 		p.lex.next()
 		_ = p.acceptKeyword("of")
@@ -904,6 +968,18 @@ func (p *parser) parseUnary() (Node, error) {
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: unit + " from", x: x}, nil
 	}
 	return p.parsePostfix()
+}
+
+func (p *parser) peekKeywordPair(first, second string) bool {
+	t := p.lex.lookahead()
+	if t.kind != tIdent || !keywordEq(t.text, first) {
+		return false
+	}
+	rest := p.src[t.pos:]
+	lx := newLexer(rest)
+	_ = lx.next()
+	next := lx.next()
+	return next.kind == tIdent && keywordEq(next.text, second)
 }
 
 func (p *parser) peekExtractorFrom() (string, bool) {

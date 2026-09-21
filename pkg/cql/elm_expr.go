@@ -230,6 +230,25 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 			return nil, err
 		}
 		return &unaryNode{op: "predecessor", x: x}, nil
+	case "PointFrom":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "point from", x: x}, nil
+	case "Precision":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "precision", x: x}, nil
+	case "MinValue", "MaxValue":
+		name := "minvalue"
+		if strings.EqualFold(typ, "MaxValue") {
+			name = "maxvalue"
+		}
+		tname := firstNonEmpty(elmTypeBare(elmString(obj["valueType"])), elmTypeName(obj["valueTypeSpecifier"]), "Integer")
+		return &callNode{callee: &identNode{name: name}, args: []Node{&litNode{value: tname}}}, nil
 	case "Message":
 		if src, err := parseELMChild(obj, "source"); err == nil {
 			return src, nil
@@ -969,6 +988,13 @@ func elmCallNamedKeys(typ string) []string {
 		return []string{"operand", "string", "pattern", "substitution"}
 	case "round":
 		return []string{"operand", "precision"}
+	case "log":
+		return []string{"operand", "base"}
+	case "highboundary", "lowboundary":
+		return []string{"operand", "precision"}
+	case "median", "mode", "stddev", "stdev", "variance", "product", "geometricmean",
+		"children", "descendants", "toconcept", "tochars":
+		return []string{"source", "operand"}
 	case "collapse", "expand":
 		return []string{"operand", "per"}
 	}
@@ -1170,7 +1196,13 @@ func elmIsBuiltinCall(typ string) bool {
 		"startswith", "endswith", "matches", "matchesfull", "replace", "replacematches",
 		"split", "splitonmatches", "combine",
 		"upper", "lower", "substring", "collapse", "expand",
-		"slice", "tail":
+		"slice", "tail",
+		"toconcept", "tochars", "canconvertquantity",
+		"convertstointeger", "convertstolong", "convertstodecimal", "convertstoboolean",
+		"convertstostring", "convertstoquantity", "convertstodate", "convertstodatetime", "convertstotime",
+		"median", "mode", "stddev", "stdev", "variance", "product", "geometricmean",
+		"highboundary", "lowboundary", "precision", "pointfrom",
+		"children", "descendants":
 		return true
 	}
 	return false

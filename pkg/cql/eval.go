@@ -212,6 +212,9 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 	if cs := st.lookupCodeSystem(name); cs != nil {
 		return []any{*cs}, nil
 	}
+	if cpt := st.lookupConcept(name); cpt != nil {
+		return st.conceptValues(*cpt), nil
+	}
 	if lib := st.lookupLibrary(name); lib != nil {
 		if isFHIRHelpersLibrary(lib) {
 			return []any{builtinNS{name: "FHIRHelpers"}}, nil
@@ -501,6 +504,23 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{out}, nil
+	case "point from":
+		if len(v) != 1 {
+			return nil, nil
+		}
+		if iv, ok := asInterval(v[0]); ok {
+			return pointFromInterval(iv)
+		}
+		return nil, nil
+	case "precision":
+		if len(v) != 1 {
+			return nil, nil
+		}
+		p, ok := valuePrecision(v[0])
+		if !ok {
+			return nil, nil
+		}
+		return []any{int64(p)}, nil
 	}
 	if strings.HasSuffix(n.op, " from") {
 		return st.evalDateComponent(v, strings.TrimSuffix(n.op, " from"))
@@ -1111,19 +1131,11 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if !ok {
 			return nil, nil
 		}
-		b := asBool([]any{item})
-		if b == nil {
-			if s, ok := unwrapPrimitive(item).(string); ok {
-				if strings.EqualFold(s, "true") {
-					return []any{true}, nil
-				}
-				if strings.EqualFold(s, "false") {
-					return []any{false}, nil
-				}
-			}
+		b, ok := booleanFromValue(item)
+		if !ok {
 			return nil, nil
 		}
-		return []any{*b}, nil
+		return []any{b}, nil
 	case "length":
 		return listOrStringLength(args)
 	case "today", "now", "timeofday":
@@ -1154,10 +1166,11 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if !ok {
 			return nil, nil
 		}
-		if q, ok := asQuantity(item); ok {
-			return []any{q}, nil
+		q, ok := quantityFromValue(item)
+		if !ok {
+			return nil, nil
 		}
-		return nil, nil
+		return []any{q}, nil
 	case "todatetime", "todate", "totime":
 		item, ok := singletonArg(args)
 		if !ok {
@@ -1316,9 +1329,93 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) > 1 && len(args[1]) > 0 {
 			if q, ok := asQuantity(args[1][0]); ok {
 				per = &q
+			} else if f, ok := asFloat(args[1][0]); ok {
+				per = &Quantity{Value: f}
 			}
 		}
 		return expandValues(args[0], per), nil
+	case "toconcept":
+		if len(args) == 0 || args[0] == nil {
+			return nil, nil
+		}
+		if len(args[0]) == 1 {
+			return toConceptValue(args[0][0]), nil
+		}
+		return toConceptValue(args[0]), nil
+	case "tochars":
+		item, ok := singletonArg(args)
+		if !ok {
+			return nil, nil
+		}
+		s, ok := unwrapPrimitive(item).(string)
+		if !ok {
+			return nil, nil
+		}
+		out := make([]any, 0, len(s))
+		for _, r := range s {
+			out = append(out, string(r))
+		}
+		return out, nil
+	case "convertstointeger", "convertstolong", "convertstodecimal", "convertstoboolean",
+		"convertstostring", "convertstoquantity", "convertstodate", "convertstodatetime", "convertstotime":
+		return convertsToResult(n, args)
+	case "canconvertquantity":
+		if len(args) < 2 || args[0] == nil || args[1] == nil || len(args[0]) == 0 || len(args[1]) == 0 {
+			return nil, nil
+		}
+		q, ok := asQuantity(args[0][0])
+		if !ok {
+			return []any{false}, nil
+		}
+		unit, ok := quantityUnitArg(args[1][0])
+		if !ok {
+			return []any{false}, nil
+		}
+		_, ok = convertQuantityValue(q, unit)
+		return []any{ok}, nil
+	case "median":
+		return listMedian(args)
+	case "mode":
+		return listMode(args)
+	case "stddev", "stdev", "standarddeviation":
+		return listStdDev(args)
+	case "variance":
+		return listVariance(args)
+	case "product":
+		return listProduct(args)
+	case "geometricmean":
+		return listGeometricMean(args)
+	case "highboundary":
+		return boundaryValue(args, true)
+	case "lowboundary":
+		return boundaryValue(args, false)
+	case "precision":
+		item, ok := singletonArg(args)
+		if !ok {
+			return nil, nil
+		}
+		p, ok := valuePrecision(item)
+		if !ok {
+			return nil, nil
+		}
+		return []any{int64(p)}, nil
+	case "pointfrom":
+		item, ok := singletonArg(args)
+		if !ok {
+			return nil, nil
+		}
+		if iv, ok := asInterval(item); ok {
+			return pointFromInterval(iv)
+		}
+		return nil, nil
+	case "minvalue":
+		return typeMinMaxValue(args, true)
+	case "maxvalue":
+		return typeMinMaxValue(args, false)
+	case "children":
+		return structureChildrenArgs(args)
+	case "descendants":
+		return structureDescendantsArgs(args)
 	}
 	return nil, errf("%w: function %s", ErrUnsupported, name)
 }
@@ -1417,6 +1514,9 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 			req.Code = c.Code
 			return req
 		}
+		if cpt := st.lookupConcept(n.terminology); cpt != nil {
+			return st.retrieveFromConcept(req, *cpt)
+		}
 		if vs := st.lookupValueSetMatch(n.terminology, false); vs != nil {
 			req.ValueSetURL = vs.URL
 			return req
@@ -1430,6 +1530,9 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 		req.System = c.System
 		req.Code = c.Code
 		return req
+	}
+	if cpt := st.lookupConcept(n.terminology); cpt != nil {
+		return st.retrieveFromConcept(req, *cpt)
 	}
 	if sys, code, ok := splitSystemCode(n.terminology); ok {
 		req.System = sys
@@ -1638,6 +1741,73 @@ func (st *evalState) lookupCodeSystem(name string) *CodeSystem {
 		}
 	}
 	return nil
+}
+
+func (st *evalState) lookupConcept(name string) *Concept {
+	search := func(lib *Library) *Concept {
+		if lib == nil {
+			return nil
+		}
+		for i := range lib.Concepts {
+			if lib.Concepts[i].Name == name || strings.EqualFold(lib.Concepts[i].Name, name) {
+				return &lib.Concepts[i]
+			}
+		}
+		return nil
+	}
+	if c := search(st.current); c != nil {
+		return c
+	}
+	for _, lib := range st.libraries {
+		if c := search(lib); c != nil {
+			return c
+		}
+	}
+	return nil
+}
+
+func (st *evalState) conceptValues(cpt Concept) []any {
+	var out []any
+	for _, name := range cpt.Codes {
+		if c := st.lookupCode(name); c != nil {
+			out = append(out, *c)
+		} else {
+			out = append(out, Code{Code: name})
+		}
+	}
+	return out
+}
+
+func (st *evalState) retrieveFromConcept(req RetrieveRequest, cpt Concept) RetrieveRequest {
+	var terms []string
+	for _, name := range cpt.Codes {
+		if c := st.lookupCode(name); c != nil {
+			if c.System != "" && c.Code != "" {
+				terms = append(terms, c.System+"|"+c.Code)
+			} else if c.Code != "" {
+				terms = append(terms, c.Code)
+			} else {
+				terms = append(terms, name)
+			}
+		} else {
+			terms = append(terms, name)
+		}
+	}
+	if len(terms) == 0 {
+		req.Terminology = cpt.Name
+		return req
+	}
+	if len(terms) == 1 {
+		if sys, code, ok := splitSystemCode(terms[0]); ok {
+			req.System = sys
+			req.Code = code
+			return req
+		}
+		req.Terminology = terms[0]
+		return req
+	}
+	req.Terminology = strings.Join(terms, ";")
+	return req
 }
 
 func (st *evalState) lookupCodeMatch(name string, exact bool) *Code {
