@@ -12,6 +12,20 @@ import (
 	semanticconversion "github.com/degoke/health-ai-stack/research/semantic-conversion"
 )
 
+// Authored gold URLs/displays are literals here so testdata is not tied to
+// convert.go's constant table. Drift fails TestConverterImplementsAuthoredGold.
+const (
+	goldInformantSystem  = "http://terminology.hl7.org/CodeSystem/provenance-participant-type"
+	goldInformantDisplay = "Informant"
+	goldInterpSystem     = "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation"
+	goldInterpDisplay    = "Normal"
+	goldToyMedication    = "http://haistack.dev/research/CodeSystem/toy-med"
+	goldPatientDiff      = "http://hl7.org/fhir/R5/patient.html#diff"
+	goldConditionDiff    = "http://hl7.org/fhir/R5/condition.html#diff"
+	goldObservationDiff  = "http://hl7.org/fhir/R5/observation.html#diff"
+	goldMedicationDiff   = "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+)
+
 func TestCorpusScore(t *testing.T) {
 	pairs, err := semanticconversion.LoadCorpus()
 	if err != nil {
@@ -74,23 +88,21 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 		r4, r5 := string(p.R4), string(p.R5)
 		switch p.Category {
 		case semanticconversion.CategoryUnchanged:
-			if len(p.InformationLoss) == 0 {
-				if !bytesEqualCanonical(p.R4, p.R5) {
-					t.Errorf("%s: unchanged gold R4 must equal gold R5 in testdata", p.ID)
-				}
-				unchanged++
-				continue
+			if !bytesEqualCanonical(p.R4, p.R5) {
+				t.Errorf("%s: unchanged gold R4 must equal gold R5 in testdata", p.ID)
 			}
-			if bytes.Contains(p.R4, []byte(`"animal"`)) && bytes.Contains(p.R5, []byte(`"animal"`)) {
-				t.Errorf("%s: authored gold R5 must omit Patient.animal", p.ID)
+			unchanged++
+		case semanticconversion.CategoryRemoved:
+			if !bytes.Contains(p.R4, []byte(`"animal"`)) || bytes.Contains(p.R5, []byte(`"animal"`)) {
+				t.Errorf("%s: removed gold must drop Patient.animal on R5 only", p.ID)
 			}
-			if p.Spec == "" {
-				t.Errorf("%s: animal-loss gold must cite the Patient R5 diff", p.ID)
+			if p.Spec != goldPatientDiff {
+				t.Errorf("%s: spec = %q, want Patient R5 diff", p.ID, p.Spec)
 			}
 			transformed++
 		case semanticconversion.CategoryRenamed:
-			if p.Spec == "" {
-				t.Errorf("%s: renamed gold must cite a spec URL", p.ID)
+			if p.Spec != goldConditionDiff {
+				t.Errorf("%s: spec = %q, want Condition R5 diff", p.ID, p.Spec)
 			}
 			if bytes.Contains(p.R4, []byte("participant")) || !bytes.Contains(p.R4, []byte("asserter")) {
 				t.Errorf("%s: R4 gold should keep asserter", p.ID)
@@ -98,37 +110,34 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			if bytes.Contains(p.R5, []byte("asserter")) || !bytes.Contains(p.R5, []byte("participant")) {
 				t.Errorf("%s: R5 gold should keep participant", p.ID)
 			}
-			if strings.Contains(r4, semanticconversion.ParticipantInformantDisplay) {
+			if strings.Contains(r4, goldInformantDisplay) {
 				t.Errorf("%s: R4 must not contain the authored Informant display", p.ID)
 			}
-			if !strings.Contains(r5, semanticconversion.ParticipantInformantSystem) ||
-				!strings.Contains(r5, semanticconversion.ParticipantInformantDisplay) {
+			if !strings.Contains(r5, goldInformantSystem) || !strings.Contains(r5, goldInformantDisplay) {
 				t.Errorf("%s: authored gold R5 must include informant system and display", p.ID)
 			}
 			transformed++
 		case semanticconversion.CategoryCardinality:
-			if p.Spec == "" {
-				t.Errorf("%s: cardinality gold must cite a spec URL", p.ID)
+			if p.Spec != goldObservationDiff {
+				t.Errorf("%s: spec = %q, want Observation R5 diff", p.ID, p.Spec)
 			}
-			if strings.Contains(r4, semanticconversion.ObservationInterpretationSystem) {
+			if strings.Contains(r4, goldInterpSystem) {
 				t.Errorf("%s: R4 must not already contain the authored interpretation system", p.ID)
 			}
-			if !strings.Contains(r5, semanticconversion.ObservationInterpretationSystem) ||
-				!strings.Contains(r5, semanticconversion.ObservationInterpretationNDisplay) {
+			if !strings.Contains(r5, goldInterpSystem) || !strings.Contains(r5, goldInterpDisplay) {
 				t.Errorf("%s: authored gold R5 must stamp interpretation system and Normal display", p.ID)
 			}
 			transformed++
 		case semanticconversion.CategoryCodeableConcept, semanticconversion.CategoryTypeChange:
-			if p.Spec == "" {
-				t.Errorf("%s: medication gold must cite a spec URL", p.ID)
+			if p.Spec != goldMedicationDiff {
+				t.Errorf("%s: spec = %q, want MedicationRequest R5 diff", p.ID, p.Spec)
 			}
 			if bytes.Contains(p.R5, []byte("medicationCodeableConcept")) || !bytes.Contains(p.R5, []byte(`"medication"`)) {
 				t.Errorf("%s: R5 gold should use medication CodeableReference", p.ID)
 			}
 			if bytes.Contains(p.R4, []byte("medicationCodeableConcept")) && strings.Contains(r4, `"code"`) &&
-				!strings.Contains(r4, semanticconversion.MedicationRxNormSystem) &&
-				!strings.Contains(r5, semanticconversion.MedicationRxNormSystem) {
-				t.Errorf("%s: authored gold R5 must stamp RxNorm system on coded medication", p.ID)
+				!strings.Contains(r4, goldToyMedication) && !strings.Contains(r5, goldToyMedication) {
+				t.Errorf("%s: authored gold R5 must stamp toy-med system on coded medication", p.ID)
 			}
 			if p.Category == semanticconversion.CategoryTypeChange {
 				if bytes.Contains(p.R4, []byte(`"reported"`)) || !bytes.Contains(p.R5, []byte(`"reported"`)) {
@@ -169,7 +178,8 @@ func TestInformationLossUsesDetectedFlags(t *testing.T) {
 	}
 	var pair semanticconversion.Pair
 	for _, p := range pairs {
-		if p.ResourceType == "Patient" && len(p.InformationLoss) == 0 && !bytes.Contains(p.R4, []byte("animal")) {
+		if p.ResourceType == "Patient" && p.Category == semanticconversion.CategoryUnchanged &&
+			!bytes.Contains(p.R4, []byte("animal")) {
 			pair = p
 			break
 		}

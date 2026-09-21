@@ -47,15 +47,18 @@ type ClassScore struct {
 	Predicted int     `json:"predicted"`
 }
 
-// Metrics grade the translator against gold.
+// Metrics grade the translator against a case list.
 // Exact/Narrow/Broad/Unmatched count observed classes from $translate
 // equivalence on the returned coding.
-// Accuracy is the pass rate. Multi-class precision and recall live only in
-// byClass: a published overall precision/recall would equal accuracy on this
-// closed gold set (every miss is both FP and FN under micro-average, and
-// macro-average is 1.0 when every class is perfect).
+// Accuracy is the pass rate (class and target). ByClass is one-vs-rest on
+// class labels only; a right class with a wrong target fails accuracy and
+// does not count as a class false positive.
+// On the published gold file, accuracy and byClass are 1.0 because the
+// translator implements that map — a consistency check, not an independent
+// quality signal. Multi-class numbers that can move are scored from
+// testdata/mismatch-cases.json.
 // ProvenanceCompleteness is the share of translations whose audit event was
-// emitted by pkg/terminology.Translate from the resolved ConceptMap.
+// emitted by pkg/terminology.Translate from the resolved ConceptMap body.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -70,13 +73,12 @@ type Metrics struct {
 }
 
 type conceptMapHeader struct {
-	URL     string `json:"url"`
-	Version string `json:"version"`
+	URL string `json:"url"`
 }
 
-// Evaluate loads the gold ConceptMap into pkg/terminology, translates each
-// case, and scores $translate output against gold. Provenance events are
-// emitted inside Translate when the service is configured with audit.
+// Evaluate loads the ConceptMap JSON into pkg/terminology, translates each
+// case with the map URL only (no harness-parsed version), and scores
+// $translate output. Provenance events are emitted inside Translate.
 func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Metrics, error) {
 	mapJSON, err := os.ReadFile(mapPath)
 	if err != nil {
@@ -108,7 +110,6 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		ResourceType: "ConceptMap",
 		ResourceID:   "lab-to-panel",
 		CanonicalURL: header.URL,
-		Version:      header.Version,
 		Status:       "active",
 		ResourceJSON: mapJSON,
 	}); err != nil {
@@ -127,13 +128,18 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	classFP := map[string]int{}
 	classSupport := map[string]int{}
 	for _, c := range gold.Cases {
-		gotClass, target, _ := translateClass(ctx, svc, header.URL, header.Version, gold.SourceSystem, c.Code)
-		pass := gotClass == c.Class && (c.Target == "" || c.Target == target)
+		gotClass, target, _ := translateClass(ctx, svc, header.URL, gold.SourceSystem, c.Code)
+		classOK := gotClass == c.Class
+		targetOK := c.Target == "" || c.Target == target
+		pass := classOK && targetOK
 		if pass {
 			metrics.Passed++
-			classTP[gotClass]++
 		} else {
 			metrics.Failed++
+		}
+		if classOK {
+			classTP[gotClass]++
+		} else {
 			classFP[gotClass]++
 		}
 		classSupport[c.Class]++
@@ -215,11 +221,10 @@ func provenanceComplete(ev audit.Event) bool {
 		ev.Details["sourceSystemVersion"] != ""
 }
 
-func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, mapVersion, sourceSystem, code string) (class, target string, err error) {
+func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, sourceSystem, code string) (class, target string, err error) {
 	codings, err := svc.Translate(ctx, terminology.ConceptMapTranslateRequest{
-		URL:     mapURL,
-		Version: mapVersion,
-		Coding:  terminology.Coding{System: sourceSystem, Code: code},
+		URL:    mapURL,
+		Coding: terminology.Coding{System: sourceSystem, Code: code},
 	})
 	if err != nil || len(codings) == 0 {
 		return "unmatched", "", err
@@ -241,14 +246,34 @@ func classFromEquivalence(eq string) string {
 	}
 }
 
-// TestdataPaths returns the published gold ConceptMap and case list.
-func TestdataPaths() (mapPath, casesPath string) {
+func testdataDir() string {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		return "testdata/conceptmap.json", "testdata/cases.json"
+		return "testdata"
 	}
-	dir := filepath.Dir(file)
-	return filepath.Join(dir, "testdata", "conceptmap.json"), filepath.Join(dir, "testdata", "cases.json")
+	return filepath.Join(filepath.Dir(file), "testdata")
+}
+
+// TestdataPaths returns the published gold ConceptMap and case list.
+func TestdataPaths() (mapPath, casesPath string) {
+	dir := testdataDir()
+	return filepath.Join(dir, "conceptmap.json"), filepath.Join(dir, "cases.json")
+}
+
+// MismatchCasesPath is the published case list with wrong labels, used to
+// demonstrate byClass when gold consistency is 1.0.
+func MismatchCasesPath() string {
+	return filepath.Join(testdataDir(), "mismatch-cases.json")
+}
+
+// SourceFile is the evaluation harness source (for tests that the harness
+// does not write terminology.translate events).
+func SourceFile() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "eval.go"
+	}
+	return file
 }
 
 // FixedNow is the deterministic evaluation timestamp.

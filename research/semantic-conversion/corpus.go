@@ -8,6 +8,7 @@ import (
 // Category classifies a conversion pair.
 const (
 	CategoryUnchanged       = "unchanged"
+	CategoryRemoved         = "removed"
 	CategoryRenamed         = "renamed"
 	CategoryCardinality     = "cardinality"
 	CategoryTypeChange      = "type-change"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -25,15 +26,32 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	}
 	assertObservedBuckets(t, metrics)
 	if metrics.Provenance != 1 {
-		t.Fatalf("provenance completeness = %v, want 1", metrics.Provenance)
+		t.Fatalf("provenance completeness = %v, want 1 from ConceptMap body (request version is empty)", metrics.Provenance)
 	}
 	if metrics.Accuracy != 1 {
-		t.Fatalf("accuracy=%v, want 1", metrics.Accuracy)
+		t.Fatalf("accuracy=%v, want 1 (gold consistency, not a quality headline)", metrics.Accuracy)
 	}
-	for class, s := range metrics.ByClass {
-		if s.Precision != 1 || s.Recall != 1 {
-			t.Fatalf("%s byClass = %+v, want precision=1 recall=1", class, s)
-		}
+}
+
+func TestMismatchCasesShowByClassNotPassRate(t *testing.T) {
+	mapPath, _ := terminologyeval.TestdataPaths()
+	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, terminologyeval.MismatchCasesPath(), terminologyeval.FixedNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Accuracy != 0.75 {
+		t.Fatalf("mismatch accuracy = %v, want 0.75", metrics.Accuracy)
+	}
+	exact := metrics.ByClass["exact"]
+	if exact.Precision != 1 || exact.Recall != 0.75 || exact.Support != 4 || exact.Predicted != 3 {
+		t.Fatalf("exact byClass = %+v, want P=1 R=0.75 support=4 predicted=3", exact)
+	}
+	broad := metrics.ByClass["broad"]
+	if broad.Precision != 0 || broad.Predicted != 1 {
+		t.Fatalf("broad byClass = %+v, want P=0 predicted=1", broad)
+	}
+	if exact.Precision == metrics.Accuracy {
+		t.Fatalf("exact precision %v must not be used as overall accuracy %v", exact.Precision, metrics.Accuracy)
 	}
 }
 
@@ -70,18 +88,14 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	assertObservedBuckets(t, metrics)
 }
 
-func TestByClassPrecisionDiffersFromAccuracy(t *testing.T) {
+func TestWrongTargetDoesNotCountClassFalsePositive(t *testing.T) {
 	mapPath, _ := terminologyeval.TestdataPaths()
 	dir := t.TempDir()
 	casesPath := filepath.Join(dir, "cases.json")
-	// Three exact passes + WBC labeled exact but $translate returns broad.
 	payload := `{
   "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
   "cases": [
-    {"code": "HB", "class": "exact", "target": "PANEL-HB"},
-    {"code": "NA", "class": "exact", "target": "PANEL-NA"},
-    {"code": "K", "class": "exact", "target": "PANEL-K"},
-    {"code": "WBC", "class": "exact", "target": "PANEL-CBC"}
+    {"code": "HB", "class": "exact", "target": "PANEL-WRONG"}
   ]
 }`
 	if err := os.WriteFile(casesPath, []byte(payload), 0o600); err != nil {
@@ -91,19 +105,12 @@ func TestByClassPrecisionDiffersFromAccuracy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Accuracy != 0.75 {
-		t.Fatalf("accuracy = %v, want 0.75", metrics.Accuracy)
+	if metrics.Accuracy != 0 || metrics.Failed != 1 {
+		t.Fatalf("wrong target must fail accuracy, got accuracy=%v failed=%d", metrics.Accuracy, metrics.Failed)
 	}
 	exact := metrics.ByClass["exact"]
-	if exact.Precision != 1 || exact.Recall != 0.75 || exact.Support != 4 || exact.Predicted != 3 {
-		t.Fatalf("exact byClass = %+v, want P=1 R=0.75 support=4 predicted=3", exact)
-	}
-	broad := metrics.ByClass["broad"]
-	if broad.Precision != 0 || broad.Predicted != 1 {
-		t.Fatalf("broad byClass = %+v, want P=0 predicted=1", broad)
-	}
-	if exact.Precision == metrics.Accuracy {
-		t.Fatalf("exact precision %v must not be used as overall accuracy %v", exact.Precision, metrics.Accuracy)
+	if exact.Precision != 1 || exact.Recall != 1 || exact.Predicted != 1 {
+		t.Fatalf("right class with wrong target must not be a class FP: %+v", exact)
 	}
 }
 
@@ -205,7 +212,7 @@ func TestEvaluateRequiresConceptMapURL(t *testing.T) {
 }
 
 func TestEvaluateSourceDoesNotWriteAudit(t *testing.T) {
-	raw, err := os.ReadFile("eval.go")
+	raw, err := os.ReadFile(terminologyeval.SourceFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,6 +231,19 @@ func TestGoldFileOmitsMapIdentity(t *testing.T) {
 		if strings.Contains(string(raw), key) {
 			t.Fatalf("cases.json must not publish %s", key)
 		}
+	}
+}
+
+func TestMismatchCasesArePublished(t *testing.T) {
+	if _, err := os.Stat(terminologyeval.MismatchCasesPath()); err != nil {
+		t.Fatal(err)
+	}
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	if filepath.Dir(thisFile) == "" {
+		t.Fatal("empty test dir")
 	}
 }
 

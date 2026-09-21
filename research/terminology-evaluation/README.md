@@ -41,26 +41,29 @@ field.
 A case passes when `gotClass` matches gold and the target code matches when
 gold specifies one.
 
-**Accuracy** is the pass rate (`passed / (passed + failed)`). It is 1.0
-on the published gold set when `$translate` matches every case — that is
-the translator implementing the map, not a separate quality headline.
+The published command prints two objects:
 
-**Precision** and **recall** are published **only in `byClass`**
-(one-vs-rest: precision over predictions of that class, recall over gold
-support). There is no top-level precision/recall: under micro-average
-every error is both FP and FN, so those figures collapse to accuracy, and
-on a complete gold set they stay 1.0 for the same reason the pass rate
-does.
+| Key | Source | What it is |
+|-----|--------|------------|
+| `goldConsistency` | [`testdata/cases.json`](./testdata/cases.json) | Pass rate against the gold map. **1.0 means `$translate` implements this map**, not an independent quality signal. `byClass` is omitted here because every class is perfect for that reason. |
+| `classMetrics` | [`testdata/mismatch-cases.json`](./testdata/mismatch-cases.json) | Same map, **wrong labels**. Accuracy 0.75; `byClass` exact P=1 R=0.75, broad P=0. These are the multi-class numbers. |
+
+**Accuracy** is the pass rate (`class` and `target` both match).
+
+**Precision** and **recall** are published **only in `classMetrics.byClass`**
+(one-vs-rest on **class labels**). A right class with a wrong target fails
+accuracy and does not count as a class false positive. There is no top-level
+precision/recall.
 
 **Provenance completeness** is the share of translations whose
 `terminology.translate` audit event was **emitted by
-`pkg/terminology.Translate`** from the ConceptMap it resolved (`url`,
-`version`, `sourceUri` version, timestamp). The harness loads the map
-into the terminology store and calls `$translate`; it does not call
-`LogTerminologyTranslate` or copy gold-file identity into the event.
-`cases.json` does not publish map URL, version, or source-system version.
-A map missing `url` is rejected; a map missing `version`/`sourceUri`
-scores provenance 0. A failed audit emit aborts the run.
+`pkg/terminology.Translate`** from the ConceptMap **body** it resolved (`url`,
+`version`, `sourceUri` version, timestamp). The harness stores the map under
+its `url` and calls `$translate` **without a version parameter**; audit version
+comes from the resource JSON, not a harness lookup key. It does not call
+`LogTerminologyTranslate`. `cases.json` does not publish map URL, version, or
+source-system version. A map missing `url` is rejected; a map missing
+`version`/`sourceUri` scores provenance 0. A failed audit emit aborts the run.
 
 ## Finite ValueSet expansion
 

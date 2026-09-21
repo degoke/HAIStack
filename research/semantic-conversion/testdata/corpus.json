@@ -614,7 +614,7 @@
   {
     "id": "patient-loss-pat-animal-01",
     "resourceType": "Patient",
-    "category": "unchanged",
+    "category": "removed",
     "r4": {
       "resourceType": "Patient",
       "id": "pat-animal-01",
@@ -648,7 +648,7 @@
   {
     "id": "patient-loss-pat-animal-02",
     "resourceType": "Patient",
-    "category": "unchanged",
+    "category": "removed",
     "r4": {
       "resourceType": "Patient",
       "id": "pat-animal-02",
@@ -682,7 +682,7 @@
   {
     "id": "patient-loss-pat-animal-03",
     "resourceType": "Patient",
-    "category": "unchanged",
+    "category": "removed",
     "r4": {
       "resourceType": "Patient",
       "id": "pat-animal-03",
@@ -2766,7 +2766,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -2849,7 +2849,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -2932,7 +2932,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -3015,7 +3015,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -3098,7 +3098,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -3181,7 +3181,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -3264,7 +3264,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }
@@ -3347,7 +3347,7 @@
             "coding": [
               {
                 "code": "313820",
-                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
+                "system": "http://haistack.dev/research/CodeSystem/toy-med"
               }
             ]
           }

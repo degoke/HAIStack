@@ -20,9 +20,9 @@ const ObservationInterpretationSystem = "http://terminology.hl7.org/CodeSystem/v
 // ObservationInterpretationNDisplay is the authored display for interpretation code N.
 const ObservationInterpretationNDisplay = "Normal"
 
-// MedicationRxNormSystem is the authored RxNorm system stamped onto wrapped
-// MedicationRequest.medicationCodeableConcept codings.
-const MedicationRxNormSystem = "http://www.nlm.nih.gov/research/umls/rxnorm"
+// MedicationToySystem is the synthetic CodeSystem stamped onto wrapped
+// MedicationRequest.medicationCodeableConcept codings (not RxNorm).
+const MedicationToySystem = "http://haistack.dev/research/CodeSystem/toy-med"
 
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
 // It is scored against authored gold R5 in testdata/corpus.json (the in-repo
@@ -130,7 +130,7 @@ func stampMedicationConcept(med any) any {
 			continue
 		}
 		if _, ok := cm["system"]; !ok {
-			cm["system"] = MedicationRxNormSystem
+			cm["system"] = MedicationToySystem
 		}
 		coding[i] = cm
 	}

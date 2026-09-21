@@ -17,6 +17,7 @@ The scorer always emits at least 50 pair results. Categories:
 | Category | What it exercises |
 |----------|-------------------|
 | `unchanged` | Elements with the same path in R4 and R5 |
+| `removed` | R4 `Patient.animal` is absent in R5 |
 | `renamed` | R4 `Condition.asserter` → R5 `Condition.participant` |
 | `cardinality` | Singleton vs list (for example `interpretation`) |
 | `type-change` | `MedicationRequest.reported[x]` boolean vs reference |
@@ -34,10 +35,10 @@ fields that are not on the R4 instance:
 
 | Category | Authored R5 constraint (absent from R4) |
 |----------|-----------------------------------------|
+| `removed` | R5 omits `animal`; pair cites the Patient R5 diff |
 | `renamed` | `Condition.participant.function` informant system **and** display |
 | `cardinality` | `Observation.interpretation` list plus v3 interpretation system/display |
-| `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; RxNorm system on coded medication |
-| `Patient.animal` | R5 omits `animal`; pair cites the Patient R5 diff |
+| `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; toy-med system on coded medication |
 
 `ConvertR4ToR5` is an implementation scored against that oracle. Structural
 equality (`Convert(r4) == gold R5`) proves the converter follows gold; it
