@@ -615,6 +615,11 @@ func (p *parser) parseMembershipOp() string {
 			return "properly included in"
 		case p.acceptKeyword("during"):
 			return "properly during"
+		case p.acceptKeyword("subsumes"):
+			return "properly subsumes"
+		case p.acceptKeyword("subsumed"):
+			_ = p.acceptKeyword("by")
+			return "properly subsumed by"
 		default:
 			return "properly"
 		}

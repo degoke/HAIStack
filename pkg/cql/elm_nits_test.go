@@ -1117,3 +1117,133 @@ func TestQuantityEquivalentCompareStringListOps(t *testing.T) {
 		t.Fatalf("ELM Contains string: %#v", got)
 	}
 }
+
+func TestReviewNitsRound2(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 'g' = 1000 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("quantity = should not convert units: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' = 1 'mg' : 2 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ratio equality: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{code:'a'} properly subsumes {code:'a'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("properly subsumes same code: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToList({1, 2})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := got[0].([]any)
+	if !ok || len(list) != 2 {
+		t.Fatalf("ToList list: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Repeat({1}, 3)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != int64(1) {
+		t.Fatalf("Repeat: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Contains('abc', 'b')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Contains fn: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "In('b', 'abc')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("In fn: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "TruncateQuantity(1.9 'mg')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Value != 1 || q.Unit != "mg" {
+		t.Fatalf("TruncateQuantity: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertsToRatio(1 'mg' : 2 'mL')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ConvertsToRatio: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToString(1 'mg' : 2 'mL')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "1 'mg' : 2 'mL'" {
+		t.Fatalf("ToString ratio: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[in_i]', 'cm')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Unit != "cm" || q.Value < 2.53 || q.Value > 2.55 {
+		t.Fatalf("UCUM inch: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{code:'chi', system:'http://cs'} subsumes {code:'child', system:'http://cs'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("subsumes prefix: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{code:'a'} subsumed by {code:'a', system:'http://x'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("subsumed by partial: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":        "ToRatio",
+		"numerator":   map[string]any{"type": "Quantity", "value": 1, "unit": "mg"},
+		"denominator": map[string]any{"type": "Quantity", "value": 2, "unit": "mL"},
+	})
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Unit != "mg" {
+		t.Fatalf("ELM ToRatio named: %#v", got)
+	}
+	lib, err := eng.ParseLibrary(`
+library Probe version '1.0.0'
+codesystem "CS": 'http://example.org/cs'
+code "A": 'a' from "CS"
+code "B": 'b' from "CS"
+concept "Both": { "A", "B" }
+define "X": "Both"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &evalState{engine: eng, ctx: context.Background(), libraries: []*Library{lib}, current: lib}
+	n, err := parseELMExpr(map[string]any{
+		"type": "Retrieve", "dataType": "{http://hl7.org/fhir}Observation",
+		"codes": map[string]any{"type": "ConceptRef", "name": "Both"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := st.retrieveRequest(n.(*retrieveNode))
+	if req.Terminology != "http://example.org/cs|a;http://example.org/cs|b" {
+		t.Fatalf("ConceptRef retrieve request: %+v", req)
+	}
+}

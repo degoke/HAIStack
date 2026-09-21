@@ -997,6 +997,8 @@ func elmCallNamedKeys(typ string) []string {
 		return []string{"source", "operand"}
 	case "collapse", "expand":
 		return []string{"operand", "per"}
+	case "toratio":
+		return []string{"numerator", "denominator", "operand"}
 	}
 	return nil
 }
@@ -1203,7 +1205,8 @@ func elmIsBuiltinCall(typ string) bool {
 		"convertstostring", "convertstoquantity", "convertstodate", "convertstodatetime", "convertstotime",
 		"median", "mode", "stddev", "stdev", "variance", "product", "geometricmean",
 		"populationstddev", "populationvariance", "populationstdev",
-		"toratio", "message", "tolist",
+		"toratio", "message", "tolist", "repeat", "times",
+		"truncatequantity", "convertstoratio", "contains", "in",
 		"highboundary", "lowboundary", "precision", "pointfrom",
 		"children", "descendants":
 		return true

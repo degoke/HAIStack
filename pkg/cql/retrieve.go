@@ -405,12 +405,7 @@ func isCoding(m map[string]any) bool {
 		return false
 	}
 	code, _ := m["code"].(string)
-	if code == "" {
-		return false
-	}
-	_, hasSystem := m["system"]
-	_, hasDisplay := m["display"]
-	return hasSystem || hasDisplay
+	return code != ""
 }
 
 func isTextOnlyCodeableConcept(m map[string]any) bool {

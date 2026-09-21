@@ -937,7 +937,7 @@ func evalToList(args [][]any) ([]any, error) {
 		return []any{}, nil
 	}
 	if len(args[0]) > 1 {
-		return nil, nil
+		return []any{args[0]}, nil
 	}
 	v := args[0][0]
 	if list, ok := v.([]any); ok {
@@ -955,6 +955,7 @@ func cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
 	if !oka || !okb {
 		return nil, nil
 	}
+	ca, cb = alignCodings(ca, cb)
 	ok := codingSubsumes(ca, cb)
 	if ok && proper {
 		ok = !codesEquivalent(ca, cb)
@@ -962,14 +963,33 @@ func cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
 	return []any{ok}, nil
 }
 
+func alignCodings(a, b fhirCoding) (fhirCoding, fhirCoding) {
+	if a.System == "" && b.System != "" {
+		a.System = b.System
+	}
+	if b.System == "" && a.System != "" {
+		b.System = a.System
+	}
+	return a, b
+}
+
 func codingSubsumes(broad, narrow fhirCoding) bool {
 	if codesEquivalent(broad, narrow) {
 		return true
 	}
-	if broad.Code != "" && narrow.Code != "" && strings.EqualFold(broad.Code, narrow.Code) {
-		if broad.System == "" || narrow.System == "" || strings.EqualFold(broad.System, narrow.System) {
-			return true
-		}
+	if broad.Code == "" || narrow.Code == "" {
+		return false
+	}
+	if broad.System != "" && narrow.System != "" && !strings.EqualFold(broad.System, narrow.System) {
+		return false
+	}
+	if strings.EqualFold(broad.Code, narrow.Code) {
+		return true
+	}
+	bc := strings.ToLower(broad.Code)
+	nc := strings.ToLower(narrow.Code)
+	if strings.HasPrefix(nc, bc) && len(nc) > len(bc) {
+		return true
 	}
 	return false
 }
@@ -995,7 +1015,10 @@ func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
 }
 
 func quantitySIFactor(unit string) (float64, string, bool) {
+	unit = normalizeQuantityUnit(unit)
 	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "[in_i]", "[in_us]", "in", "inch", "inches":
+		return 0.0254, "length", true
 	case "g", "gm", "gram", "grams":
 		return 1, "mass", true
 	case "mg":
@@ -1020,6 +1043,142 @@ func quantitySIFactor(unit string) (float64, string, bool) {
 		return 0.1, "volume", true
 	}
 	return 0, "", false
+}
+
+func normalizeQuantityUnit(unit string) string {
+	u := strings.TrimSpace(unit)
+	if strings.HasPrefix(u, "[") && strings.HasSuffix(u, "]") {
+		return u
+	}
+	return u
+}
+
+func asRatio(v any) (Ratio, bool) {
+	switch x := unwrapPrimitive(v).(type) {
+	case Ratio:
+		return x, true
+	case *Ratio:
+		if x == nil {
+			return Ratio{}, false
+		}
+		return *x, true
+	}
+	obj, ok := asObject(v)
+	if !ok {
+		return Ratio{}, false
+	}
+	num, ok1 := asQuantity(obj["numerator"])
+	den, ok2 := asQuantity(obj["denominator"])
+	if !ok1 || !ok2 {
+		return Ratio{}, false
+	}
+	return Ratio{Numerator: num, Denominator: den}, true
+}
+
+func ratioEqual(a, b Ratio) bool {
+	return cqlEqual(a.Numerator, b.Numerator) && cqlEqual(a.Denominator, b.Denominator)
+}
+
+func ratioEquivalent(a, b Ratio) bool {
+	return cqlEquivalent(a.Numerator, b.Numerator) && cqlEquivalent(a.Denominator, b.Denominator)
+}
+
+func listRepeat(args [][]any) ([]any, error) {
+	if len(args) < 2 || args[0] == nil || len(args[1]) == 0 {
+		return nil, nil
+	}
+	n, ok := asInt(args[1][0])
+	if !ok || n < 0 {
+		return nil, nil
+	}
+	var out []any
+	for i := 0; i < int(n); i++ {
+		out = append(out, args[0]...)
+	}
+	return out, nil
+}
+
+func listTimes(args [][]any) ([]any, error) {
+	if len(args) < 2 || args[0] == nil || len(args[1]) == 0 {
+		return nil, nil
+	}
+	right := args[1]
+	if len(right) == 1 {
+		if n, ok := asInt(right[0]); ok {
+			var out []any
+			for _, item := range args[0] {
+				if f, ok := asFloat(item); ok {
+					out = append(out, f*float64(n))
+					continue
+				}
+				if q, ok := asQuantity(item); ok {
+					q.Value *= float64(n)
+					out = append(out, q)
+					continue
+				}
+				return nil, nil
+			}
+			return out, nil
+		}
+	}
+	var out []any
+	for _, lv := range args[0] {
+		for _, rv := range right {
+			if lf, lok := asFloat(lv); lok {
+				if rf, rok := asFloat(rv); rok {
+					out = append(out, lf*rf)
+					continue
+				}
+			}
+			if lq, lok := asQuantity(lv); lok {
+				if rq, rok := asQuantity(rv); rok {
+					if conv, ok := convertQuantityValue(rq, lq.Unit); ok {
+						lq.Value *= conv.Value
+						out = append(out, lq)
+						continue
+					}
+				}
+			}
+			return nil, nil
+		}
+	}
+	return out, nil
+}
+
+func stringInFunction(args [][]any) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	needle, nok := unwrapPrimitive(args[0][0]).(string)
+	hay, hok := unwrapPrimitive(args[1][0]).(string)
+	if !nok || !hok {
+		return nil, nil
+	}
+	return []any{strings.Contains(hay, needle)}, nil
+}
+
+func truncateQuantity(args [][]any) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		return nil, nil
+	}
+	q, ok := asQuantity(item)
+	if !ok {
+		return nil, nil
+	}
+	q.Value = math.Trunc(q.Value)
+	return []any{q}, nil
+}
+
+func convertsToRatio(args [][]any) ([]any, error) {
+	item, ok := singletonArg(args)
+	if !ok {
+		return nil, nil
+	}
+	if _, ok := asRatio(item); ok {
+		return []any{true}, nil
+	}
+	return []any{false}, nil
 }
 
 func pointFromInterval(iv Interval) ([]any, error) {

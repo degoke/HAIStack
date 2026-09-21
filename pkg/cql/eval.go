@@ -739,7 +739,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, err
 		}
 		return cqlSubsumesResult(left, right, strings.HasPrefix(n.op, "properly"))
-	case "subsumed by":
+	case "subsumed by", "properly subsumed by":
 		left, err := st.eval(n.left)
 		if err != nil {
 			return nil, err
@@ -748,7 +748,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return cqlSubsumesResult(right, left, false)
+		return cqlSubsumesResult(right, left, strings.HasPrefix(n.op, "properly"))
 	}
 	if intervalRelOp(n.op) {
 		return st.evalIntervalRel(n)
@@ -1441,6 +1441,18 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listPopulationStdDev(args)
 	case "toratio":
 		return ratioFromArgs(args)
+	case "repeat":
+		return listRepeat(args)
+	case "times":
+		return listTimes(args)
+	case "contains":
+		return stringContains(args)
+	case "in":
+		return stringInFunction(args)
+	case "truncatequantity":
+		return truncateQuantity(args)
+	case "convertstoratio":
+		return convertsToRatio(args)
 	case "tolist":
 		return evalToList(args)
 	case "message":
@@ -1548,6 +1560,9 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology, Comparator: n.comparator, CodePath: n.codePath}
 	if n.terminology == "" {
 		return req
+	}
+	if cpt := st.lookupConcept(n.terminology); cpt != nil {
+		return st.retrieveFromConcept(req, *cpt)
 	}
 	if strings.Contains(n.terminology, ";") {
 		var terms []string
@@ -2560,6 +2575,13 @@ func cqlToString(v any) (string, bool) {
 		}
 		return t.Format("2006-01-02T15:04:05.000Z07:00"), true
 	}
+	if r, ok := asRatio(v); ok {
+		ns, nok := cqlToString(r.Numerator)
+		ds, dok := cqlToString(r.Denominator)
+		if nok && dok {
+			return ns + " : " + ds, true
+		}
+	}
 	if q, ok := asQuantity(v); ok {
 		if isIntLike(q.Value) || q.Value == float64(int64(q.Value)) {
 			return fmt.Sprintf("%g '%s'", q.Value, q.Unit), true
@@ -2606,12 +2628,13 @@ func cqlEqual(a, b any) bool {
 			return ra == rb
 		}
 	}
+	if ra, ok := asRatio(a); ok {
+		if rb, ok := asRatio(b); ok {
+			return ratioEqual(ra, rb)
+		}
+	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
-			va, vb, ok := quantityValuesComparable(qa, qb)
-			if ok {
-				return va == vb
-			}
 			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
 		}
 	}
@@ -2719,6 +2742,11 @@ func cqlEquivalent(a, b any) bool {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
 	if cqlEqual(a, b) {
 		return true
+	}
+	if ra, ok := asRatio(a); ok {
+		if rb, ok := asRatio(b); ok {
+			return ratioEquivalent(ra, rb)
+		}
 	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
