@@ -77,6 +77,46 @@ func TestLocalFileBlobStorePutGetHeadDelete(t *testing.T) {
 	}
 }
 
+func TestLocalFileBlobStorePutStream(t *testing.T) {
+	root := t.TempDir()
+	files, err := binary.NewLocalFileBlobStore(root)
+	if err != nil {
+		t.Fatalf("NewLocalFileBlobStore: %v", err)
+	}
+	ctx := context.Background()
+	payload := bytes.Repeat([]byte("s"), 256*1024)
+	probe := &readSizeProbe{r: bytes.NewReader(payload)}
+	desc, err := files.PutStream(ctx, "blob-stream", probe, int64(len(payload)), "application/octet-stream")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if desc.SHA256 != binary.HashSHA256(payload) {
+		t.Fatalf("hash=%s", desc.SHA256)
+	}
+	if probe.maxRead >= len(payload) {
+		t.Fatalf("max Read dest %d equals full payload; expected streaming copy", probe.maxRead)
+	}
+	got, err := files.GetByHash(ctx, desc.SHA256)
+	if err != nil {
+		t.Fatalf("GetByHash: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch: %d bytes", len(got))
+	}
+}
+
+type readSizeProbe struct {
+	r       io.Reader
+	maxRead int
+}
+
+func (p *readSizeProbe) Read(b []byte) (int, error) {
+	if len(b) > p.maxRead {
+		p.maxRead = len(b)
+	}
+	return p.r.Read(b)
+}
+
 func TestLocalFileChunkedUploadResumeAndFinalize(t *testing.T) {
 	root := t.TempDir()
 	files, err := binary.NewLocalFileBlobStore(root)
@@ -513,6 +553,23 @@ func TestS3BlobStoreAndSignedURLs(t *testing.T) {
 	if string(got) != "s3-payload" {
 		t.Fatalf("unexpected s3 payload: %q", got)
 	}
+
+	streamPayload := bytes.Repeat([]byte("S"), 64*1024)
+	streamDesc, err := store.PutStream(ctx, "blob-s3-stream", bytes.NewReader(streamPayload), int64(len(streamPayload)), "application/octet-stream")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if streamDesc.SHA256 != binary.HashSHA256(streamPayload) || streamDesc.Size != int64(len(streamPayload)) {
+		t.Fatalf("stream desc=%+v", streamDesc)
+	}
+	gotStream, _, err := store.Get(ctx, "blob-s3-stream")
+	if err != nil {
+		t.Fatalf("Get stream: %v", err)
+	}
+	if !bytes.Equal(gotStream, streamPayload) {
+		t.Fatalf("stream payload mismatch: %d bytes", len(gotStream))
+	}
+
 	if err := store.Delete(ctx, "blob-s3"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -650,6 +707,26 @@ func TestSQLiteChunkBlobStorePutGetHeadDelete(t *testing.T) {
 	}
 	if !bytes.Equal(gotLarge, large) {
 		t.Fatalf("large payload mismatch")
+	}
+
+	streamPayload := bytes.Repeat([]byte("s"), binary.DefaultChunkSize+8)
+	probe := &readSizeProbe{r: bytes.NewReader(streamPayload)}
+	streamDesc, err := blobStore.PutStream(ctx, "blob-sqlite-stream", probe, int64(len(streamPayload)), "text/plain")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if streamDesc.SHA256 != binary.HashSHA256(streamPayload) {
+		t.Fatalf("stream hash=%s", streamDesc.SHA256)
+	}
+	if probe.maxRead > binary.DefaultChunkSize {
+		t.Fatalf("max Read dest %d > chunk size", probe.maxRead)
+	}
+	streamCount, err := blobStore.ListChunkCount(ctx, "blob-sqlite-stream")
+	if err != nil {
+		t.Fatalf("ListChunkCount stream: %v", err)
+	}
+	if streamCount != 2 {
+		t.Fatalf("stream chunk count = %d, want 2", streamCount)
 	}
 
 	// Legacy binary_object still works.

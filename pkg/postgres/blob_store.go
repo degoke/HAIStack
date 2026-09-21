@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -37,6 +38,28 @@ func (s *BlobStore) Put(ctx context.Context, obj store.BlobObject) error {
 		return fmt.Errorf("put blob: %w", err)
 	}
 	return nil
+}
+
+// PutStream uploads from r. The hai_binary_object.data column is BYTEA, so this
+// implementation materializes the reader before INSERT. Use an object-store
+// adapter (S3) or filesystem lakehouse partitions for multi-GB parquet objects.
+func (s *BlobStore) PutStream(ctx context.Context, key, contentType string, size int64, r io.Reader) error {
+	if r == nil {
+		return fmt.Errorf("put blob stream: reader is required")
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("put blob stream: %w", err)
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return s.Put(ctx, store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
 }
 
 func (s *BlobStore) Get(ctx context.Context, key string) (*store.BlobObject, error) {

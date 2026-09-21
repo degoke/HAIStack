@@ -74,6 +74,7 @@
 //   - IDRegistry            → store.IDRegistryStore       — resource_id_registry reserve/check/register
 //   - BinaryStore           → store.BinaryStore           — inline binary_object payloads
 //   - BlobStore             → store.BlobStore             — binary_object with optional Location
+//     (PutStream materializes into BYTEA; use an object-store adapter for multi-GB payloads)
 //   - AuditStore            → store.AuditStore            — append-only audit_log
 //   - ModuleStore           → store.ModuleStore           — module_registry metadata
 //   - MaterializedViewStore → store.MaterializedViewStore — materialized_view projections

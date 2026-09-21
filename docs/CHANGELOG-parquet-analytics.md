@@ -9,12 +9,14 @@
 - `ResultMetadata.maxLastUpdated` for data-clock watermark advancement.
 - HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
 - HTTP `$viewdefinition-run` support for the same operation context fields.
+- `store.BlobStoreWithStream` and `binary.BlobStoreWithStream` (`PutStream`) so parquet lakehouse and `$viewdefinition-export` uploads stream from the temp file without `os.ReadFile`. Helpers: `store.PutBlob`, `store.PutBlobFromPath`, `binary.CopyChunks`, `binary.PutBlobStream`.
 
 ### Changed
 
 - **`analytics.ExportHandler` / `ExportHandlerWithConfig`** now require a third argument: `*WatermarkStore` (pass `nil` to disable watermark auto-fill and advance).
 - Incremental watermarks prefer `maxLastUpdated` from exported resources over process wall clock when available.
 - `Metadata.filtered` semantics are mode-specific (expanded view rows vs matching FHIR resources); see `pkg/view/README.md`.
+- Lakehouse blob upload and `$viewdefinition-export` parquet artifacts stream from the temp file via `store.BlobStoreWithStream` / `view.ExportFileStoreWithStream` instead of `os.ReadFile` + `Put([]byte)`.
 
 ### Deprecated
 
@@ -23,7 +25,7 @@
 ### Known limitations
 
 - INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42).
-- Blob lakehouse and async export artifacts buffer the full parquet file at upload time (`BlobStore` API).
+- Postgres `store.BlobStore` (`hai_binary_object.data` BYTEA) still materializes streaming uploads for INSERT; object-store adapters and chunk stores stream.
 - HTTP `$viewdefinition-run` / `$viewdefinition-export` Parameters parsing accepts `valueString` only (see `pkg/view/README.md`).
 
 ### Review notes

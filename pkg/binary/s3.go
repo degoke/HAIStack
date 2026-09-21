@@ -72,8 +72,24 @@ func (s *S3BlobStore) Put(ctx context.Context, blobID string, data []byte, conte
 
 // PutWithOptions stores blob bytes with retention-aware headers.
 func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []byte, opts BlobWriteOptions) (*BlobDescriptor, error) {
+	return s.putStream(ctx, blobID, bytes.NewReader(data), int64(len(data)), opts)
+}
+
+// PutStream uploads from r without requiring a full in-memory []byte.
+// size is sent as Content-Length and must be >= 0 (S3 PutObject rejects chunked bodies).
+func (s *S3BlobStore) PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error) {
+	return s.putStream(ctx, blobID, r, size, BlobWriteOptions{ContentType: contentType})
+}
+
+func (s *S3BlobStore) putStream(ctx context.Context, blobID string, r io.Reader, size int64, opts BlobWriteOptions) (*BlobDescriptor, error) {
 	if blobID == "" {
 		return nil, fmt.Errorf("%w: blobID is required", ErrInvalidArgument)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("%w: reader is required", ErrInvalidArgument)
+	}
+	if size < 0 {
+		return nil, fmt.Errorf("%w: size is required for S3 streaming put", ErrInvalidArgument)
 	}
 	headers := map[string]string{}
 	if opts.ContentType != "" {
@@ -87,10 +103,13 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, signed.URL, bytes.NewReader(data))
+	h := sha256.New()
+	body := io.TeeReader(r, h)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, signed.URL, body)
 	if err != nil {
 		return nil, err
 	}
+	req.ContentLength = size
 	for k, v := range signed.Headers {
 		req.Header.Set(k, v)
 	}
@@ -103,11 +122,10 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("s3 put blob: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	hash := HashSHA256(data)
 	return &BlobDescriptor{
 		BlobID:      blobID,
-		SHA256:      hash,
-		Size:        int64(len(data)),
+		SHA256:      hex.EncodeToString(h.Sum(nil)),
+		Size:        size,
 		ContentType: opts.ContentType,
 		Backend:     BackendS3,
 		Pointer: StoragePointer{

@@ -417,11 +417,7 @@ func (s *ExportService) writeParquetExportFile(
 	if err := tmp.Close(); err != nil {
 		return exportResult, err
 	}
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return exportResult, err
-	}
-	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
+	if err := putExportFileFromPath(ctx, s.files, jobID, filename, tmpPath, ParquetContentType); err != nil {
 		return exportResult, err
 	}
 	return exportResult, nil

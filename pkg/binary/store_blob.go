@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -26,6 +27,25 @@ func (a *storeAdapter) Put(ctx context.Context, obj store.BlobObject) error {
 		return fmt.Errorf("%w: key is required", ErrInvalidArgument)
 	}
 	_, err := a.inner.Put(ctx, obj.Key, obj.Data, obj.ContentType)
+	return err
+}
+
+func (a *storeAdapter) PutStream(ctx context.Context, key, contentType string, size int64, r io.Reader) error {
+	if key == "" {
+		return fmt.Errorf("%w: key is required", ErrInvalidArgument)
+	}
+	if r == nil {
+		return fmt.Errorf("%w: reader is required", ErrInvalidArgument)
+	}
+	if streamer, ok := a.inner.(BlobStoreWithStream); ok {
+		_, err := streamer.PutStream(ctx, key, r, size, contentType)
+		return err
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	_, err = a.inner.Put(ctx, key, data, contentType)
 	return err
 }
 
@@ -71,6 +91,8 @@ func (a *storeAdapter) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+var _ store.BlobStoreWithStream = (*storeAdapter)(nil)
 
 func mapStoreBlobError(key string, err error) error {
 	if errors.Is(err, ErrNotFound) {

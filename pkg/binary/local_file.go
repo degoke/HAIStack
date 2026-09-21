@@ -1,7 +1,10 @@
 package binary
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -46,22 +49,55 @@ func (s *LocalFileBlobStore) chunkPath(key string, index int) string {
 
 // Put stores data as a finalized blob keyed by content hash.
 func (s *LocalFileBlobStore) Put(ctx context.Context, blobID string, data []byte, contentType string) (*BlobDescriptor, error) {
+	return s.PutStream(ctx, blobID, bytes.NewReader(data), int64(len(data)), contentType)
+}
+
+// PutStream copies r to a hash-addressed file without requiring a full in-memory []byte.
+func (s *LocalFileBlobStore) PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error) {
 	_ = ctx
+	_ = size
 	if blobID == "" {
 		return nil, fmt.Errorf("%w: blobID is required", ErrInvalidArgument)
 	}
-	hash := HashSHA256(data)
+	if r == nil {
+		return nil, fmt.Errorf("%w: reader is required", ErrInvalidArgument)
+	}
+	if err := os.MkdirAll(filepath.Join(s.root, "blobs"), 0o755); err != nil {
+		return nil, fmt.Errorf("create blob dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Join(s.root, "blobs"), "upload-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp blob: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), r)
+	if err != nil {
+		return nil, fmt.Errorf("write blob: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, fmt.Errorf("close temp blob: %w", err)
+	}
+	hash := hex.EncodeToString(h.Sum(nil))
 	path := s.blobPath(hash)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create blob dir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return nil, fmt.Errorf("write blob: %w", err)
+	if err := moveFile(tmpPath, path); err != nil {
+		return nil, fmt.Errorf("finalize blob: %w", err)
 	}
+	cleanup = false
 	return &BlobDescriptor{
 		BlobID:      blobID,
 		SHA256:      hash,
-		Size:        int64(len(data)),
+		Size:        n,
 		ContentType: contentType,
 		Backend:     BackendLocalFile,
 		Pointer: StoragePointer{
@@ -69,6 +105,31 @@ func (s *LocalFileBlobStore) Put(ctx context.Context, blobID string, data []byte
 			Ref:     path,
 		},
 	}, nil
+}
+
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return os.Remove(src)
 }
 
 // Get reads a finalized blob by blobID using the stored hash path.
@@ -274,8 +335,10 @@ func (s *LocalFileBlobStore) OpenBlob(sha256 string) (io.ReadCloser, error) {
 
 // Compile-time interface checks.
 var (
-	_ BlobStore  = (*localFileBlobStoreAdapter)(nil)
-	_ ChunkStore = (*LocalFileBlobStore)(nil)
+	_ BlobStore           = (*localFileBlobStoreAdapter)(nil)
+	_ BlobStoreWithStream = (*localFileBlobStoreAdapter)(nil)
+	_ BlobStoreWithStream = (*S3BlobStore)(nil)
+	_ ChunkStore          = (*LocalFileBlobStore)(nil)
 )
 
 // localFileBlobStoreAdapter adapts LocalFileBlobStore to BlobStore using manifest metadata.
@@ -290,7 +353,11 @@ func NewLocalFileBlobStoreAdapter(files *LocalFileBlobStore, manifest MetadataSt
 }
 
 func (a *localFileBlobStoreAdapter) Put(ctx context.Context, blobID string, data []byte, contentType string) (*BlobDescriptor, error) {
-	desc, err := a.files.Put(ctx, blobID, data, contentType)
+	return a.PutStream(ctx, blobID, bytes.NewReader(data), int64(len(data)), contentType)
+}
+
+func (a *localFileBlobStoreAdapter) PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error) {
+	desc, err := a.files.PutStream(ctx, blobID, r, size, contentType)
 	if err != nil {
 		return nil, err
 	}

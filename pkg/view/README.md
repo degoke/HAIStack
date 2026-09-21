@@ -203,12 +203,12 @@ TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FH
 
 ## Parquet export sizing
 
-Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse **filesystem** partitions stream directly to disk. **Blob** uploads and `$viewdefinition-export` artifact writes still buffer the finished parquet file in memory for `BlobStore.Put` / filesystem artifact storage.
+Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse filesystem partitions stream directly to disk. Blob uploads and `$viewdefinition-export` artifacts stream the finished parquet file from disk via `store.PutBlobFromPath` / `ExportFileStore.PutStream` — callers no longer `os.ReadFile` the whole object.
 
 Practical guidance:
 
-- Plan for roughly **2× compressed parquet size** peak RAM at blob upload time (file bytes loaded for `Put`).
-- Very large exports (multi-GB) should target filesystem lakehouse partitions or a streaming blob backend; see `docs/parquet-on-fhir-interop.md`.
+- Streaming backends (S3, local files, SQLite/Postgres chunk stores, filesystem export artifacts) keep peak upload RAM at the copy buffer or chunk size (32 KiB–1 MiB), not the full parquet size.
+- Postgres `store.BlobStore` (`hai_binary_object.data` BYTEA) still materializes the reader for INSERT. Use an object-store adapter (`binary.AsStore`) or `LakehouseConfig.RootDir` for multi-GB blobs. In-memory test stores buffer by design.
 - Prefer `WriteParquetFHIRExport` over `CollectMatchingResources` for large datasets; the latter materializes every match in memory.
 
 See [doc.go](./doc.go) for the full API, package boundaries, and integration

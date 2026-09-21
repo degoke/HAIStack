@@ -3,9 +3,12 @@ package analytics_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
@@ -163,6 +166,40 @@ func TestLakehouseSinkWritesParquetBlob(t *testing.T) {
 	}
 }
 
+func TestLakehouseSinkStreamsParquetBlobWithoutFullFilePut(t *testing.T) {
+	blobs := &streamOnlyMemBlobStore{objects: map[string]store.BlobObject{}}
+	sink := analytics.NewLakehouseSink(analytics.LakehouseConfig{
+		Blob:       blobs,
+		BlobPrefix: "exports",
+	})
+	result := &view.Result{
+		ViewName: analytics.ViewPatientSummary,
+		Version:  "1.0.0",
+		Columns:  []view.ColumnInfo{{Name: "patient_id", Type: "string"}},
+		Rows:     []map[string]any{{"patient_id": "p1"}},
+	}
+	if err := sink.WriteRows(context.Background(), result); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	if blobs.putCalls != 0 {
+		t.Fatalf("putCalls=%d, want 0 (must stream via PutStream, not os.ReadFile + Put)", blobs.putCalls)
+	}
+	if blobs.putStreamCalls != 1 {
+		t.Fatalf("putStreamCalls=%d, want 1", blobs.putStreamCalls)
+	}
+	if len(blobs.objects) != 1 {
+		t.Fatalf("objects=%d", len(blobs.objects))
+	}
+	for _, obj := range blobs.objects {
+		if !view.IsParquetFile(obj.Data) {
+			t.Fatal("expected parquet blob payload")
+		}
+		if obj.Size != int64(len(obj.Data)) || obj.Size == 0 {
+			t.Fatalf("size=%d data=%d", obj.Size, len(obj.Data))
+		}
+	}
+}
+
 type memBlobStore struct {
 	objects map[string]store.BlobObject
 }
@@ -170,6 +207,22 @@ type memBlobStore struct {
 func (m *memBlobStore) Put(_ context.Context, obj store.BlobObject) error {
 	m.objects[obj.Key] = obj
 	return nil
+}
+
+func (m *memBlobStore) PutStream(_ context.Context, key, contentType string, size int64, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return m.Put(context.Background(), store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
 }
 
 func (m *memBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {
@@ -186,6 +239,69 @@ func (m *memBlobStore) Head(_ context.Context, key string) (*store.BlobObject, e
 }
 
 func (m *memBlobStore) Delete(_ context.Context, key string) error {
+	delete(m.objects, key)
+	return nil
+}
+
+type streamOnlyMemBlobStore struct {
+	mu             sync.Mutex
+	objects        map[string]store.BlobObject
+	putCalls       int
+	putStreamCalls int
+}
+
+func (m *streamOnlyMemBlobStore) Put(_ context.Context, obj store.BlobObject) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.putCalls++
+	if len(obj.Data) > 0 {
+		return fmt.Errorf("buffered Put of %d bytes is not allowed", len(obj.Data))
+	}
+	m.objects[obj.Key] = obj
+	return nil
+}
+
+func (m *streamOnlyMemBlobStore) PutStream(_ context.Context, key, contentType string, size int64, r io.Reader) error {
+	m.mu.Lock()
+	m.putStreamCalls++
+	m.mu.Unlock()
+	var data bytes.Buffer
+	buf := make([]byte, 32*1024)
+	if _, err := io.CopyBuffer(&data, r, buf); err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = int64(data.Len())
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.objects[key] = store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data.Bytes(),
+	}
+	return nil
+}
+
+func (m *streamOnlyMemBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	obj, ok := m.objects[key]
+	if !ok {
+		return nil, nil
+	}
+	copy := obj
+	return &copy, nil
+}
+
+func (m *streamOnlyMemBlobStore) Head(ctx context.Context, key string) (*store.BlobObject, error) {
+	return m.Get(ctx, key)
+}
+
+func (m *streamOnlyMemBlobStore) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.objects, key)
 	return nil
 }

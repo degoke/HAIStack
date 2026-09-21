@@ -25,6 +25,56 @@ func TestChunkBytes(t *testing.T) {
 	}
 }
 
+func TestCopyChunksStreamsWithoutFullFileBuffer(t *testing.T) {
+	t.Parallel()
+	payload := []byte("abcdefghij")
+	probe := &copyChunksProbe{r: bytes.NewReader(payload)}
+	var got [][]byte
+	hash, total, count, err := binary.CopyChunks(probe, 4, func(index int, chunk []byte) error {
+		got = append(got, append([]byte(nil), chunk...))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("CopyChunks: %v", err)
+	}
+	if total != 10 || count != 3 {
+		t.Fatalf("total=%d count=%d", total, count)
+	}
+	if hash != binary.HashSHA256(payload) {
+		t.Fatalf("hash=%s", hash)
+	}
+	if string(got[0]) != "abcd" || string(got[1]) != "efgh" || string(got[2]) != "ij" {
+		t.Fatalf("chunks = %#v", got)
+	}
+	if probe.maxRead > 4 {
+		t.Fatalf("max Read dest %d > chunk size 4", probe.maxRead)
+	}
+	emptyHash, emptyTotal, emptyCount, err := binary.CopyChunks(bytes.NewReader(nil), 4, func(index int, chunk []byte) error {
+		if index != 0 || len(chunk) != 0 {
+			t.Fatalf("empty chunk index=%d len=%d", index, len(chunk))
+		}
+		return nil
+	})
+	if err != nil || emptyTotal != 0 || emptyCount != 1 {
+		t.Fatalf("empty: hash=%s total=%d count=%d err=%v", emptyHash, emptyTotal, emptyCount, err)
+	}
+	if emptyHash != binary.HashSHA256(nil) {
+		t.Fatalf("empty hash=%s", emptyHash)
+	}
+}
+
+type copyChunksProbe struct {
+	r       io.Reader
+	maxRead int
+}
+
+func (p *copyChunksProbe) Read(b []byte) (int, error) {
+	if len(b) > p.maxRead {
+		p.maxRead = len(b)
+	}
+	return p.r.Read(b)
+}
+
 func TestPrefixedFileStoreRoundTripThroughS3(t *testing.T) {
 	ctx := context.Background()
 	type stored struct {

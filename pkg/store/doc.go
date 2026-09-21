@@ -129,11 +129,15 @@
 // BlobStore — larger blobs or opaque backend references:
 //
 //   - Put(ctx, obj), Get(ctx, key), Head(ctx, key), Delete(ctx, key).
+//   - BlobStoreWithStream.PutStream(ctx, key, contentType, size, r) uploads from an
+//     io.Reader without requiring the caller to materialize []byte. PutBlob and
+//     PutBlobFromPath use PutStream when available and otherwise fall back to Put.
 //   - BlobObject adds Location for an opaque backend locator without exposing object-storage
 //     SDK types. Head returns metadata without payload bytes when the backend supports it.
 //
 // BinaryStore is for compact payloads stored inline; BlobStore is for larger content or
-// externally referenced storage.
+// externally referenced storage. Put remains the small-payload API; streaming backends
+// should implement BlobStoreWithStream so lakehouse parquet upload stays O(buffer).
 //
 // # Projection and operations contracts
 //
@@ -272,7 +276,7 @@
 //   - write_session.go — WriteSession, WriteSessionProvider.
 //   - id_registry.go — IDRegistryStore, IDRegistryEntry, IDRegistryResult.
 //   - binary.go — BinaryStore, BinaryObject.
-//   - blob.go — BlobStore, BlobObject.
+//   - blob.go — BlobStore, BlobObject, BlobStoreWithStream, PutBlob, PutBlobFromPath.
 //   - cursor.go — CursorStore, Cursor.
 //   - inbox.go — InboxStore for sync idempotency.
 //   - conflict.go — ConflictStore, ConflictRecord.

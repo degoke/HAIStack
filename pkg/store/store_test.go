@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ var (
 	_ store.Transactor            = (*memTransactor)(nil)
 	_ store.BinaryStore           = (*memBinaryStore)(nil)
 	_ store.BlobStore             = (*memBlobStore)(nil)
+	_ store.BlobStoreWithStream   = (*memBlobStore)(nil)
 	_ store.CursorStore           = (*memCursorStore)(nil)
 	_ store.InboxStore            = (*memInboxStore)(nil)
 	_ store.ConflictStore         = (*memConflictStore)(nil)
@@ -641,6 +643,22 @@ func (s *memBlobStore) Put(_ context.Context, obj store.BlobObject) error {
 	defer s.mu.Unlock()
 	s.data[obj.Key] = obj
 	return nil
+}
+
+func (s *memBlobStore) PutStream(_ context.Context, key, contentType string, size int64, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return s.Put(context.Background(), store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
 }
 
 func (s *memBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {

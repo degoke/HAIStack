@@ -1,9 +1,11 @@
 package binary_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 
@@ -36,6 +38,15 @@ func (s *memBinaryBlobStore) Put(_ context.Context, blobID string, data []byte, 
 		Backend:     binary.BackendSQLite,
 		Pointer:     binary.StoragePointer{Backend: binary.BackendSQLite, Ref: blobID},
 	}, nil
+}
+
+func (s *memBinaryBlobStore) PutStream(_ context.Context, blobID string, r io.Reader, size int64, contentType string) (*binary.BlobDescriptor, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	_ = size
+	return s.Put(context.Background(), blobID, data, contentType)
 }
 
 func (s *memBinaryBlobStore) Get(_ context.Context, blobID string) ([]byte, *binary.BlobDescriptor, error) {
@@ -109,6 +120,23 @@ func TestAsStoreRoundTrip(t *testing.T) {
 func TestAsStoreNil(t *testing.T) {
 	if binary.AsStore(nil) != nil {
 		t.Fatal("expected nil adapter")
+	}
+}
+
+func TestAsStorePutStream(t *testing.T) {
+	inner := &memBinaryBlobStore{}
+	blobs := binary.AsStore(inner)
+	ctx := context.Background()
+	payload := []byte("stream-me")
+	if err := store.PutBlob(ctx, blobs, "k", "text/plain", int64(len(payload)), bytes.NewReader(payload)); err != nil {
+		t.Fatalf("PutBlob: %v", err)
+	}
+	got, err := blobs.Get(ctx, "k")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(got.Data) != "stream-me" {
+		t.Fatalf("data = %q", got.Data)
 	}
 }
 
