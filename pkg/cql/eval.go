@@ -209,6 +209,9 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 	if c := st.lookupCode(name); c != nil {
 		return []any{*c}, nil
 	}
+	if cs := st.lookupCodeSystem(name); cs != nil {
+		return []any{*cs}, nil
+	}
 	if lib := st.lookupLibrary(name); lib != nil {
 		if isFHIRHelpersLibrary(lib) {
 			return []any{builtinNS{name: "FHIRHelpers"}}, nil
@@ -486,9 +489,18 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		}
 		return v, nil
 	case "collapse":
-		return collapseIntervals(v), nil
+		return collapseIntervals(v, nil), nil
 	case "expand":
 		return expandValues(v, nil), nil
+	case "successor", "predecessor":
+		if len(v) != 1 {
+			return nil, nil
+		}
+		out, ok := successorValue(v[0], n.op == "predecessor")
+		if !ok {
+			return nil, nil
+		}
+		return []any{out}, nil
 	}
 	if strings.HasSuffix(n.op, " from") {
 		return st.evalDateComponent(v, strings.TrimSuffix(n.op, " from"))
@@ -561,6 +573,19 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				ok, err = st.allInValueSet(left, vs)
 			} else {
 				ok, err = st.inValueSet(left, vs)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return []any{ok}, nil
+		}
+		if cs, ok := singletonCodeSystem(right); ok {
+			var ok bool
+			var err error
+			if n.op == "all in" {
+				ok, err = st.allInCodeSystem(left, cs)
+			} else {
+				ok, err = st.inCodeSystem(left, cs)
 			}
 			if err != nil {
 				return nil, err
@@ -703,7 +728,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		case ">=":
 			return []any{cmp >= 0}, nil
 		}
-	case "+", "-", "*", "/", "div", "mod":
+	case "+", "-", "*", "/", "div", "mod", "^":
 		if len(left) != 1 || len(right) != 1 {
 			return nil, nil
 		}
@@ -1047,7 +1072,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 			return nil, nil
 		}
 		return []any{s}, nil
-	case "tointeger":
+	case "tointeger", "tolong":
 		item, ok := singletonArg(args)
 		if !ok {
 			return nil, nil
@@ -1204,13 +1229,20 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listTakeSkip(args, true)
 	case "skip":
 		return listTakeSkip(args, false)
+	case "slice":
+		return listSlice(args)
+	case "tail":
+		if len(args) == 0 || args[0] == nil {
+			return nil, nil
+		}
+		return listTakeSkip([][]any{args[0], []any{int64(1)}}, false)
 	case "indexof":
 		return listIndexOf(args)
 	case "positionof":
 		return stringPositionOf(args, false)
 	case "lastpositionof":
 		return stringPositionOf(args, true)
-	case "round", "abs", "floor", "ceiling", "truncate":
+	case "round", "abs", "floor", "ceiling", "truncate", "ln", "log", "exp", "power":
 		return evalMath(n, args)
 	case "convertquantity":
 		return convertQuantityArgs(args)
@@ -1267,7 +1299,15 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) == 0 {
 			return nil, nil
 		}
-		return collapseIntervals(args[0]), nil
+		var per *Quantity
+		if len(args) > 1 && len(args[1]) > 0 {
+			if q, ok := asQuantity(args[1][0]); ok {
+				per = &q
+			} else if f, ok := asFloat(args[1][0]); ok {
+				per = &Quantity{Value: f}
+			}
+		}
+		return collapseIntervals(args[0], per), nil
 	case "expand":
 		if len(args) == 0 {
 			return nil, nil
@@ -1343,6 +1383,28 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology, Comparator: n.comparator, CodePath: n.codePath}
 	if n.terminology == "" {
+		return req
+	}
+	if strings.Contains(n.terminology, ";") {
+		var terms []string
+		for _, part := range strings.Split(n.terminology, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if c := st.lookupCode(part); c != nil {
+				if c.System != "" && c.Code != "" {
+					terms = append(terms, c.System+"|"+c.Code)
+				} else if c.Code != "" {
+					terms = append(terms, c.Code)
+				} else {
+					terms = append(terms, part)
+				}
+			} else {
+				terms = append(terms, part)
+			}
+		}
+		req.Terminology = strings.Join(terms, ";")
 		return req
 	}
 	if n.comparator != "=" && n.comparator != "~" {
@@ -1555,6 +1617,29 @@ func (st *evalState) lookupCode(name string) *Code {
 	return st.lookupCodeMatch(name, false)
 }
 
+func (st *evalState) lookupCodeSystem(name string) *CodeSystem {
+	search := func(lib *Library) *CodeSystem {
+		if lib == nil {
+			return nil
+		}
+		for i := range lib.CodeSystems {
+			if lib.CodeSystems[i].Name == name || strings.EqualFold(lib.CodeSystems[i].Name, name) {
+				return &lib.CodeSystems[i]
+			}
+		}
+		return nil
+	}
+	if cs := search(st.current); cs != nil {
+		return cs
+	}
+	for _, lib := range st.libraries {
+		if cs := search(lib); cs != nil {
+			return cs
+		}
+	}
+	return nil
+}
+
 func (st *evalState) lookupCodeMatch(name string, exact bool) *Code {
 	search := func(lib *Library) *Code {
 		if lib == nil {
@@ -1610,6 +1695,70 @@ func (st *evalState) allInValueSet(values []any, vs ValueSet) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func singletonCodeSystem(v []any) (CodeSystem, bool) {
+	if len(v) != 1 {
+		return CodeSystem{}, false
+	}
+	cs, ok := v[0].(CodeSystem)
+	return cs, ok
+}
+
+func (st *evalState) inCodeSystem(values []any, cs CodeSystem) (bool, error) {
+	for _, v := range values {
+		if codingInCodeSystem(v, cs) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (st *evalState) allInCodeSystem(values []any, cs CodeSystem) (bool, error) {
+	if len(values) == 0 {
+		return true, nil
+	}
+	for _, v := range values {
+		if v == nil || unwrapPrimitive(v) == nil {
+			continue
+		}
+		if !codingInCodeSystem(v, cs) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func codingInCodeSystem(item any, cs CodeSystem) bool {
+	url := cs.URL
+	if url == "" {
+		url = cs.Name
+	}
+	if url == "" {
+		return false
+	}
+	match := func(system string) bool {
+		return system == url || strings.EqualFold(system, url)
+	}
+	switch x := unwrapPrimitive(item).(type) {
+	case Code:
+		return match(x.System)
+	case fhirCoding:
+		return match(x.System)
+	}
+	if obj, ok := asObject(item); ok {
+		if match(strField(obj, "system")) {
+			return true
+		}
+		if raw, ok := obj["coding"].([]any); ok {
+			for _, c := range raw {
+				if m, ok := asObject(c); ok && match(strField(m, "system")) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func allContainsResult(haystack, needles []any) []any {
@@ -2135,8 +2284,13 @@ func evalArithmetic(op string, lv, rv any) ([]any, error) {
 			return nil, nil
 		}
 		return []any{math.Mod(lf, rf)}, nil
+	case "^":
+		out = math.Pow(lf, rf)
+		if math.IsNaN(out) || math.IsInf(out, 0) {
+			return nil, nil
+		}
 	}
-	if isIntLike(lv) && isIntLike(rv) && op != "/" {
+	if isIntLike(lv) && isIntLike(rv) && op != "/" && (op != "^" || out == float64(int64(out))) {
 		return []any{int64(out)}, nil
 	}
 	return []any{out}, nil

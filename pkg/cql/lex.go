@@ -38,6 +38,7 @@ const (
 	tMinus
 	tStar
 	tSlash
+	tCaret
 	tAmp
 )
 
@@ -128,6 +129,9 @@ func (l *lexer) scan() token {
 	case '/':
 		l.pos += w
 		return token{kind: tSlash, text: "/", pos: pos}
+	case '^':
+		l.pos += w
+		return token{kind: tCaret, text: "^", pos: pos}
 	case '&':
 		l.pos += w
 		return token{kind: tAmp, text: "&", pos: pos}

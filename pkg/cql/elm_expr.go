@@ -86,10 +86,21 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		return &codeLitNode{code: elmString(obj["code"]), system: system, display: elmString(obj["display"])}, nil
 	case "Concept":
 		codes := elmList(obj["codes"])
-		if len(codes) > 0 {
-			return parseELMExpr(codes[0])
+		if len(codes) == 0 {
+			return &litNode{}, nil
 		}
-		return &litNode{}, nil
+		elems := make([]Node, 0, len(codes))
+		for _, c := range codes {
+			n, err := parseELMExpr(c)
+			if err != nil {
+				return nil, err
+			}
+			elems = append(elems, n)
+		}
+		if len(elems) == 1 {
+			return elems[0], nil
+		}
+		return &listNode{elems: elems}, nil
 	case "IdentifierRef", "ExpressionRef", "ParameterRef", "OperandRef", "AliasRef", "QueryLetRef", "ValueSetRef", "CodeRef", "CodeSystemRef", "ConceptRef":
 		return parseELMRef(obj)
 	case "Property":
@@ -207,6 +218,18 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 			return nil, err
 		}
 		return &unaryNode{op: "tolist", x: x}, nil
+	case "Successor":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "successor", x: x}, nil
+	case "Predecessor":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "predecessor", x: x}, nil
 	case "Message":
 		if src, err := parseELMChild(obj, "source"); err == nil {
 			return src, nil
@@ -260,15 +283,8 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		return &unaryNode{op: prec + " from", x: x}, nil
 	case "InValueSet", "AnyInValueSet", "AllInValueSet":
 		return parseELMInValueSet(obj)
-	case "InCodeSystem":
-		ops, err := parseELMOperands(obj)
-		if err != nil {
-			return nil, err
-		}
-		if len(ops) < 2 {
-			return nil, errf("%w: ELM InCodeSystem requires two operands", ErrUnsupported)
-		}
-		return &binaryNode{op: "in", left: ops[0], right: ops[1]}, nil
+	case "InCodeSystem", "AnyInCodeSystem", "AllInCodeSystem":
+		return parseELMInCodeSystem(obj)
 	}
 	if op, ok := elmBinaryOp(typ); ok {
 		ops, err := parseELMOperands(obj)
@@ -325,6 +341,47 @@ func parseELMInValueSet(obj map[string]any) (Node, error) {
 	ops, err := parseELMOperands(obj)
 	if err != nil || len(ops) < 2 {
 		return nil, errf("%w: ELM InValueSet requires a valueset", ErrUnsupported)
+	}
+	if code == nil {
+		code = ops[0]
+	}
+	return &binaryNode{op: op, left: code, right: ops[len(ops)-1]}, nil
+}
+
+func parseELMInCodeSystem(obj map[string]any) (Node, error) {
+	code, err := parseELMOptional(obj, "code")
+	if err != nil {
+		return nil, err
+	}
+	if code == nil {
+		code, err = parseELMOptional(obj, "codes")
+		if err != nil {
+			return nil, err
+		}
+	}
+	op := "in"
+	switch strings.ToLower(elmType(obj)) {
+	case "allincodesystem":
+		op = "all in"
+	case "anyincodesystem":
+		op = "any in"
+	}
+	if ref, ok := asObject(obj["codesystem"]); ok {
+		cs, err := parseELMExpr(ref)
+		if err != nil {
+			return nil, err
+		}
+		if code == nil {
+			code, err = parseELMNamedOrOperand(obj, "code")
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &binaryNode{op: op, left: code, right: cs}, nil
+	}
+	ops, err := parseELMOperands(obj)
+	if err != nil || len(ops) < 2 {
+		return nil, errf("%w: ELM InCodeSystem requires a codesystem", ErrUnsupported)
 	}
 	if code == nil {
 		code = ops[0]
@@ -532,7 +589,7 @@ func parseELMRetrieve(obj map[string]any) (Node, error) {
 		n.terminology = term
 		n.comparator = cmp
 	} else if list := elmList(obj["codes"]); len(list) > 0 {
-		term, cmp := elmRetrieveCodes(list[0], n.comparator)
+		term, cmp := joinELMRetrieveCodes(list, n.comparator)
 		n.terminology = term
 		n.comparator = cmp
 	}
@@ -560,9 +617,7 @@ func elmRetrieveCodes(codes map[string]any, cmp string) (string, string) {
 		return elmRetrieveCodesOperand(codes, cmp)
 	case "List", "Concept":
 		elems := elmList(firstNonNil(codes["element"], codes["codes"]))
-		if len(elems) > 0 {
-			return elmRetrieveCodes(elems[0], cmp)
-		}
+		return joinELMRetrieveCodes(elems, cmp)
 	default:
 		if term, next := elmRetrieveCodesOperand(codes, cmp); term != "" {
 			return term, next
@@ -572,10 +627,28 @@ func elmRetrieveCodes(codes map[string]any, cmp string) (string, string) {
 		}
 		elems := elmList(codes["element"])
 		if len(elems) > 0 {
-			return elmRetrieveCodes(elems[0], cmp)
+			return joinELMRetrieveCodes(elems, cmp)
 		}
 	}
 	return "", cmp
+}
+
+func joinELMRetrieveCodes(elems []map[string]any, cmp string) (string, string) {
+	var terms []string
+	for _, el := range elems {
+		term, next := elmRetrieveCodes(el, cmp)
+		if term != "" {
+			terms = append(terms, term)
+			cmp = next
+		}
+	}
+	if len(terms) == 0 {
+		return "", cmp
+	}
+	if cmp == "in" {
+		cmp = "="
+	}
+	return strings.Join(terms, ";"), cmp
 }
 
 func elmRetrieveCodesOperand(codes map[string]any, cmp string) (string, string) {
@@ -886,6 +959,10 @@ func elmCallNamedKeys(typ string) []string {
 		return []string{"source", "element"}
 	case "skip":
 		return []string{"source", "startIndex"}
+	case "slice":
+		return []string{"source", "startIndex", "endIndex"}
+	case "tail":
+		return []string{"source"}
 	case "positionof", "lastpositionof":
 		return []string{"pattern", "string"}
 	case "replace", "replacematches":
@@ -1020,7 +1097,7 @@ func elmBinaryOp(typ string) (string, bool) {
 		"Equal": "=", "Equivalent": "~", "NotEqual": "!=", "NotEquivalent": "!~",
 		"Less": "<", "Greater": ">", "LessOrEqual": "<=", "GreaterOrEqual": ">=",
 		"Add": "+", "Subtract": "-", "Multiply": "*", "Divide": "/",
-		"TruncatedDivide": "div", "Modulo": "mod",
+		"TruncatedDivide": "div", "Modulo": "mod", "Power": "^",
 		"Concatenate": "&", "Concat": "&",
 		"Union": "|", "Intersect": "intersect", "Except": "except",
 		"In": "in", "Contains": "contains",
@@ -1088,10 +1165,12 @@ func elmIsBuiltinCall(typ string) bool {
 		"take", "skip", "indexof", "flatten", "singletonfrom", "coalesce",
 		"date", "datetime", "time",
 		"round", "abs", "floor", "ceiling", "truncate",
+		"ln", "log", "exp", "power",
 		"positionof", "lastpositionof",
 		"startswith", "endswith", "matches", "matchesfull", "replace", "replacematches",
 		"split", "splitonmatches", "combine",
-		"upper", "lower", "substring", "collapse", "expand":
+		"upper", "lower", "substring", "collapse", "expand",
+		"slice", "tail":
 		return true
 	}
 	return false

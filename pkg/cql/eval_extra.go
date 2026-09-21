@@ -287,7 +287,7 @@ func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error)
 	return acc, nil
 }
 
-func collapseIntervals(v []any) []any {
+func collapseIntervals(v []any, per *Quantity) []any {
 	var ivs []Interval
 	for _, item := range v {
 		if item == nil || unwrapPrimitive(item) == nil {
@@ -319,7 +319,7 @@ func collapseIntervals(v []any) []any {
 				if used[j] {
 					continue
 				}
-				if intervalOverlaps(cur, ivs[j]) || intervalMeets(cur, ivs[j]) {
+				if collapseMergeable(cur, ivs[j], per) {
 					merged, ok := intervalUnion(cur, ivs[j])
 					if ok {
 						cur = merged
@@ -337,6 +337,98 @@ func collapseIntervals(v []any) []any {
 		out[i] = iv
 	}
 	return out
+}
+
+func collapseMergeable(a, b Interval, per *Quantity) bool {
+	if intervalOverlaps(a, b) || intervalMeets(a, b) {
+		return true
+	}
+	if per == nil {
+		return false
+	}
+	if ae, ok := intervalExpandHigh(a, *per); ok && (intervalOverlaps(ae, b) || intervalMeets(ae, b) || intervalSuccessorMeets(ae, b)) {
+		return true
+	}
+	if be, ok := intervalExpandHigh(b, *per); ok && (intervalOverlaps(a, be) || intervalMeets(a, be) || intervalSuccessorMeets(a, be)) {
+		return true
+	}
+	return false
+}
+
+func intervalSuccessorMeets(a, b Interval) bool {
+	if a.High != nil && b.Low != nil {
+		if next, ok := successorValue(a.High, false); ok && cqlEqual(next, b.Low) {
+			return true
+		}
+	}
+	if b.High != nil && a.Low != nil {
+		if next, ok := successorValue(b.High, false); ok && cqlEqual(next, a.Low) {
+			return true
+		}
+	}
+	return false
+}
+
+func intervalExpandHigh(iv Interval, per Quantity) (Interval, bool) {
+	if iv.High == nil {
+		return iv, false
+	}
+	next, ok := addPerValue(iv.High, per)
+	if !ok {
+		return iv, false
+	}
+	out := iv
+	out.High = next
+	return out, true
+}
+
+func addPerValue(v any, per Quantity) (any, bool) {
+	if t, ok := asTime(v); ok {
+		return addDuration(t, per, "+")
+	}
+	if q, ok := asQuantity(v); ok {
+		if per.Unit == "" || sameUnit(q.Unit, per.Unit) {
+			q.Value += per.Value
+			return q, true
+		}
+		return Quantity{}, false
+	}
+	if isIntLike(v) {
+		n, _ := asInt(v)
+		if per.Value == float64(int64(per.Value)) {
+			return n + int64(per.Value), true
+		}
+		return float64(n) + per.Value, true
+	}
+	if f, ok := asFloat(v); ok {
+		return f + per.Value, true
+	}
+	return nil, false
+}
+
+func successorValue(v any, pred bool) (any, bool) {
+	delta := 1
+	if pred {
+		delta = -1
+	}
+	if q, ok := asQuantity(v); ok {
+		q.Value += float64(delta)
+		return q, true
+	}
+	if t, ok := asTime(v); ok {
+		if isDateOnlyTime(t) {
+			return t.AddDate(0, 0, delta), true
+		}
+		return t.Add(time.Duration(delta) * time.Millisecond), true
+	}
+	if isIntLike(v) {
+		n, _ := asInt(v)
+		return n + int64(delta), true
+	}
+	if f, ok := asFloat(v); ok {
+		return f + float64(delta)*1e-8, true
+	}
+	return nil, false
 }
 
 func intervalUnion(a, b Interval) (Interval, bool) {
@@ -722,6 +814,50 @@ func evalMath(name string, args [][]any) ([]any, error) {
 		}
 		out := roundTo(f, prec)
 		if prec == 0 {
+			return []any{int64(out)}, nil
+		}
+		return []any{out}, nil
+	case "ln":
+		if f <= 0 {
+			return nil, nil
+		}
+		return []any{math.Log(f)}, nil
+	case "exp":
+		out := math.Exp(f)
+		if math.IsNaN(out) || math.IsInf(out, 0) {
+			return nil, nil
+		}
+		return []any{out}, nil
+	case "log":
+		if f <= 0 {
+			return nil, nil
+		}
+		base := 10.0
+		if len(args) > 1 && len(args[1]) > 0 {
+			b, ok := asFloat(args[1][0])
+			if !ok || b <= 0 || b == 1 {
+				return nil, nil
+			}
+			base = b
+		}
+		out := math.Log(f) / math.Log(base)
+		if math.IsNaN(out) || math.IsInf(out, 0) {
+			return nil, nil
+		}
+		return []any{out}, nil
+	case "power":
+		if len(args) < 2 || len(args[1]) == 0 {
+			return nil, nil
+		}
+		exp, ok := asFloat(args[1][0])
+		if !ok {
+			return nil, nil
+		}
+		out := math.Pow(f, exp)
+		if math.IsNaN(out) || math.IsInf(out, 0) {
+			return nil, nil
+		}
+		if isIntLike(item) && isIntLike(args[1][0]) && out == float64(int64(out)) {
 			return []any{int64(out)}, nil
 		}
 		return []any{out}, nil

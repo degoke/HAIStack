@@ -318,3 +318,278 @@ func TestELMPositionReplaceConvertQuantity(t *testing.T) {
 		t.Fatalf("CQL ConvertQuantity: %#v", got)
 	}
 }
+
+func TestELMToLongAndCQL(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{
+		"type":    "ToLong",
+		"operand": elmStrLit("42"),
+	})
+	if len(got) != 1 || got[0] != int64(42) {
+		t.Fatalf("ToLong: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ToLong('7')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(7) {
+		t.Fatalf("CQL ToLong: %#v", got)
+	}
+}
+
+func TestELMAndCQLSuccessorPredecessor(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{"type": "Successor", "operand": elmIntLit("4")})
+	if len(got) != 1 || got[0] != int64(5) {
+		t.Fatalf("Successor: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Predecessor", "operand": elmIntLit("4")})
+	if len(got) != 1 || got[0] != int64(3) {
+		t.Fatalf("Predecessor: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":    "Successor",
+		"operand": map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+	})
+	tm, ok := asTime(got[0])
+	if !ok || tm.Year() != 2020 || tm.Month() != time.January || tm.Day() != 2 {
+		t.Fatalf("Successor date: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "successor of 9", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(10) {
+		t.Fatalf("CQL successor: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "predecessor of @2020-01-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok = asTime(got[0])
+	if !ok || tm.Day() != 31 || tm.Month() != time.December {
+		t.Fatalf("CQL predecessor date: %#v", got)
+	}
+}
+
+func TestELMSliceTailAndCQL(t *testing.T) {
+	src := map[string]any{"type": "List", "element": []any{elmIntLit("1"), elmIntLit("2"), elmIntLit("3"), elmIntLit("4")}}
+	got := evalELMExpr(t, map[string]any{
+		"type":       "Slice",
+		"source":     src,
+		"startIndex": elmIntLit("1"),
+		"endIndex":   elmIntLit("3"),
+	})
+	if len(got) != 2 || got[0] != int64(2) || got[1] != int64(3) {
+		t.Fatalf("named Slice: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Tail", "source": src})
+	if len(got) != 3 || got[0] != int64(2) || got[2] != int64(4) {
+		t.Fatalf("Tail: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Slice({1, 2, 3, 4}, 1, 3)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != int64(2) || got[1] != int64(3) {
+		t.Fatalf("CQL Slice: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Tail({1, 2, 3})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != int64(2) || got[1] != int64(3) {
+		t.Fatalf("CQL Tail: %#v", got)
+	}
+}
+
+func TestELMPowerLnLogExpAndCQLCaret(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{"type": "Power", "operand": []any{elmIntLit("2"), elmIntLit("3")}})
+	if len(got) != 1 || got[0] != int64(8) {
+		t.Fatalf("ELM Power: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Ln", "operand": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Decimal", "value": "1"}})
+	if len(got) != 1 || asFloatMust(t, got[0]) != 0 {
+		t.Fatalf("Ln: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Exp", "operand": elmIntLit("0")})
+	if len(got) != 1 || asFloatMust(t, got[0]) != 1 {
+		t.Fatalf("Exp: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Log", "operand": []any{
+		map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Decimal", "value": "100"},
+		map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Decimal", "value": "10"},
+	}})
+	if len(got) != 1 || asFloatMust(t, got[0]) != 2 {
+		t.Fatalf("Log: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "2 ^ 3", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(8) {
+		t.Fatalf("CQL ^: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "2 ^ 3 ^ 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(512) {
+		t.Fatalf("CQL ^ right-assoc 2^(3^2): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Power(2, 3)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(8) {
+		t.Fatalf("CQL Power: %#v", got)
+	}
+}
+
+func TestELMCollapsePer(t *testing.T) {
+	interval := func(low, high string) map[string]any {
+		return map[string]any{"type": "Interval", "low": elmIntLit(low), "high": elmIntLit(high)}
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type":    "Collapse",
+		"operand": map[string]any{"type": "List", "element": []any{interval("1", "2"), interval("4", "5")}},
+		"per":     elmIntLit("1"),
+	})
+	if len(got) != 1 {
+		t.Fatalf("collapse per: %#v", got)
+	}
+	iv, ok := asInterval(got[0])
+	if !ok {
+		t.Fatalf("collapse per not interval: %#v", got[0])
+	}
+	lo, _ := asInt(iv.Low)
+	hi, _ := asInt(iv.High)
+	if lo != 1 || hi != 5 {
+		t.Fatalf("collapse per bounds: %#v", got[0])
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "collapse { Interval[1, 2], Interval[4, 5] } per 1", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("CQL collapse per: %#v", got)
+	}
+	iv, ok = asInterval(got[0])
+	lo, _ = asInt(iv.Low)
+	hi, _ = asInt(iv.High)
+	if !ok || lo != 1 || hi != 5 {
+		t.Fatalf("CQL collapse per bounds: %#v", got)
+	}
+}
+
+func TestELMAnyAllInCodeSystem(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type": "AnyInCodeSystem",
+		"codes": map[string]any{"type": "List", "element": []any{
+			map[string]any{"type": "Code", "code": "a", "system": "http://example.org/cs"},
+		}},
+		"codesystem": map[string]any{"type": "CodeSystemRef", "name": "CS"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := n.(*binaryNode)
+	if !ok || b.op != "any in" {
+		t.Fatalf("AnyInCodeSystem: %#v", n)
+	}
+	n, err = parseELMExpr(map[string]any{
+		"type":       "AllInCodeSystem",
+		"code":       map[string]any{"type": "Code", "code": "a", "system": "http://example.org/cs"},
+		"codesystem": map[string]any{"type": "CodeSystemRef", "name": "CS"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok = n.(*binaryNode)
+	if !ok || b.op != "all in" {
+		t.Fatalf("AllInCodeSystem: %#v", n)
+	}
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library CSLib version '1.0.0'
+codesystem "CS": 'http://example.org/cs'
+define "InCS": { system: 'http://example.org/cs', code: 'a' } in "CS"
+define "NotInCS": { system: 'http://other.org', code: 'a' } in "CS"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "InCS", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("code in codesystem: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "NotInCS", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("code not in codesystem: %#v", got)
+	}
+}
+
+func TestELMConceptAndRetrieveListKeepAllCodes(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type": "Concept",
+		"codes": []any{
+			map[string]any{"type": "Code", "code": "8867-4", "system": "http://loinc.org"},
+			map[string]any{"type": "Code", "code": "8480-6", "system": "http://loinc.org"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := n.(*listNode)
+	if !ok || len(list.elems) != 2 {
+		t.Fatalf("Concept codes: %#v", n)
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type": "Concept",
+		"codes": []any{
+			map[string]any{"type": "Code", "code": "8867-4", "system": "http://loinc.org"},
+			map[string]any{"type": "Code", "code": "8480-6", "system": "http://loinc.org"},
+		},
+	})
+	if len(got) != 2 {
+		t.Fatalf("Concept eval: %#v", got)
+	}
+	c0, ok := got[0].(Code)
+	c1, ok1 := got[1].(Code)
+	if !ok || !ok1 || c0.Code != "8867-4" || c1.Code != "8480-6" {
+		t.Fatalf("Concept values: %#v", got)
+	}
+	r, err := parseELMExpr(map[string]any{
+		"type":     "Retrieve",
+		"dataType": "{http://hl7.org/fhir}Observation",
+		"codes": map[string]any{
+			"type": "List",
+			"element": []any{
+				map[string]any{"type": "Code", "code": "8867-4", "system": "http://loinc.org"},
+				map[string]any{"type": "Code", "code": "8480-6", "system": "http://loinc.org"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ret, ok := r.(*retrieveNode)
+	if !ok || ret.terminology != "http://loinc.org|8867-4;http://loinc.org|8480-6" {
+		t.Fatalf("retrieve list codes: %+v", r)
+	}
+	codes := []fhirCoding{
+		{System: "http://loinc.org", Code: "8480-6"},
+	}
+	if !codingMatchesExact(codes, "", "", "http://loinc.org|8867-4;http://loinc.org|8480-6") {
+		t.Fatal("multi-term retrieve should match any listed code")
+	}
+}

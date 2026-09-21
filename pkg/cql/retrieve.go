@@ -463,6 +463,15 @@ func codingFromValue(v any) fhirCoding {
 }
 
 func codingMatchesExact(codes []fhirCoding, system, code, term string) bool {
+	if code == "" && strings.Contains(term, ";") {
+		for _, part := range strings.Split(term, ";") {
+			part = strings.TrimSpace(part)
+			if part != "" && codingMatchesExact(codes, "", "", part) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, c := range codes {
 		if code != "" {
 			if c.Code != code {
@@ -489,6 +498,15 @@ func codingMatchesExact(codes []fhirCoding, system, code, term string) bool {
 }
 
 func codingMatchesEquivalent(codes []fhirCoding, system, code, term string) bool {
+	if code == "" && strings.Contains(term, ";") {
+		for _, part := range strings.Split(term, ";") {
+			part = strings.TrimSpace(part)
+			if part != "" && codingMatchesEquivalent(codes, "", "", part) {
+				return true
+			}
+		}
+		return false
+	}
 	want := code
 	if want == "" {
 		want = term
@@ -514,6 +532,15 @@ func codingMatchesEquivalent(codes []fhirCoding, system, code, term string) bool
 }
 
 func codingMatches(codes []fhirCoding, system, code, term string) bool {
+	if code == "" && strings.Contains(term, ";") {
+		for _, part := range strings.Split(term, ";") {
+			part = strings.TrimSpace(part)
+			if part != "" && codingMatches(codes, "", "", part) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, c := range codes {
 		if code != "" {
 			if c.Code != code {

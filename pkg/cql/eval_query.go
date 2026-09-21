@@ -448,6 +448,39 @@ func listTakeSkip(args [][]any, take bool) ([]any, error) {
 	return append([]any{}, list[n:]...), nil
 }
 
+func listSlice(args [][]any) ([]any, error) {
+	if len(args) == 0 || args[0] == nil {
+		return nil, nil
+	}
+	list := args[0]
+	start := 0
+	end := len(list)
+	if len(args) > 1 && args[1] != nil && len(args[1]) > 0 {
+		n, ok := asInt(args[1][0])
+		if !ok {
+			return nil, nil
+		}
+		start = int(n)
+	}
+	if len(args) > 2 && args[2] != nil && len(args[2]) > 0 {
+		n, ok := asInt(args[2][0])
+		if !ok {
+			return nil, nil
+		}
+		end = int(n)
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(list) {
+		end = len(list)
+	}
+	if start >= end {
+		return []any{}, nil
+	}
+	return append([]any{}, list[start:end]...), nil
+}
+
 func listIndexOf(args [][]any) ([]any, error) {
 	if len(args) < 2 || args[1] == nil || len(args[1]) == 0 {
 		return nil, nil

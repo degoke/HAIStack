@@ -783,7 +783,7 @@ func (p *parser) parseAdd() (Node, error) {
 }
 
 func (p *parser) parseMul() (Node, error) {
-	left, err := p.parseUnary()
+	left, err := p.parsePower()
 	if err != nil {
 		return nil, err
 	}
@@ -805,12 +805,27 @@ func (p *parser) parseMul() (Node, error) {
 				return left, nil
 			}
 		}
-		right, err := p.parseUnary()
+		right, err := p.parsePower()
 		if err != nil {
 			return nil, err
 		}
 		left = &binaryNode{nodeBase: nodeBase{src: p.src}, op: op, left: left, right: right}
 	}
+}
+
+func (p *parser) parsePower() (Node, error) {
+	left, err := p.parseUnary()
+	if err != nil {
+		return nil, err
+	}
+	if !p.acceptKind(tCaret) {
+		return left, nil
+	}
+	right, err := p.parsePower()
+	if err != nil {
+		return nil, err
+	}
+	return &binaryNode{nodeBase: nodeBase{src: p.src}, op: "^", left: left, right: right}, nil
 }
 
 func (p *parser) parseUnary() (Node, error) {
@@ -868,6 +883,13 @@ func (p *parser) parseUnary() (Node, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p.acceptKeyword("per") {
+			per, err := p.parseUnary()
+			if err != nil {
+				return nil, err
+			}
+			return &callNode{nodeBase: nodeBase{src: p.src}, callee: &identNode{name: op}, args: []Node{x, per}}, nil
+		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: op, x: x}, nil
 	}
 	if unit, ok := p.peekExtractorFrom(); ok {
@@ -915,7 +937,7 @@ func (p *parser) peekStartEndWidth() (bool, string) {
 		return false, ""
 	}
 	op := strings.ToLower(t.text)
-	if op != "start" && op != "end" && op != "width" {
+	if op != "start" && op != "end" && op != "width" && op != "successor" && op != "predecessor" {
 		return false, ""
 	}
 	rest := p.src[t.pos:]
