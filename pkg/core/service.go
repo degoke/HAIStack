@@ -377,6 +377,10 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
+	if err := s.checkReferentialIntegrity(ctx, session, envelope); err != nil {
+		return nil, err
+	}
+
 	prepared, err := s.withVersionMeta(envelope, versionID, now)
 	if err != nil {
 		return nil, err

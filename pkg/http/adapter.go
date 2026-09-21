@@ -78,7 +78,8 @@ func (a SearchServiceAdapter) SearchBundle(ctx context.Context, resourceType str
 }
 
 // SearchBundleForPatient injects a patient relationship filter into search params
-// before executing the query so unauthorized rows are excluded at query time.
+// before executing the query so unauthorized rows are excluded at query time
+// rather than fetched and hidden after the fact.
 func (a SearchServiceAdapter) SearchBundleForPatient(ctx context.Context, resourceType, patientID string, params url.Values) (*search.SearchBundle, error) {
 	scoped, err := auth.ApplyPatientSearchScopeToParams(params, resourceType, patientID, a.PatientSearchParamResolver)
 	if err != nil {

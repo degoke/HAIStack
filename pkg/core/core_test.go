@@ -590,6 +590,127 @@ func TestOperationOutcomeFromErrorPreservesSDCValidationIssues(t *testing.T) {
 	}
 }
 
+func TestReferentialIntegrityRejectsMissingLocalReference(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	_, err := harness.svc.Create(ctx, observationWithSubject("obs-1", "pat-missing"))
+	if err == nil || core.KindOf(err) != core.ErrorKindInvalid {
+		t.Fatalf("expected invalid missing reference, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Patient/pat-missing") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestReferentialIntegrityAllowsExistingLocalReference(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	created, err := harness.svc.Create(ctx, observationWithSubject("obs-1", "pat-1"))
+	if err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+	if created.ID != "obs-1" {
+		t.Fatalf("ID = %q", created.ID)
+	}
+}
+
+func TestReferentialIntegritySkipsExternalAndContainedReferences(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"id":           "obs-ext",
+		"status":       "final",
+		"code":         map[string]string{"text": "hr"},
+		"subject":      map[string]string{"reference": "https://example.org/fhir/Patient/ext"},
+		"performer":    []map[string]string{{"reference": "urn:uuid:11111111-1111-1111-1111-111111111111"}},
+		"hasMember":    []map[string]string{{"reference": "#contained-obs"}},
+		"contained": []map[string]any{{
+			"resourceType": "Observation",
+			"id":           "contained-obs",
+			"status":       "final",
+			"code":         map[string]string{"text": "nested"},
+		}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: data}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+}
+
+func TestReferentialIntegritySkipsSelfReference(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"link": []map[string]any{{
+			"other": map[string]string{"reference": "Patient/pat-1"},
+			"type":  "seealso",
+		}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Patient", JSON: data}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+}
+
+func TestReferentialIntegrityTransactionSeesEarlierEntries(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	bundleJSON := []byte(`{
+		"resourceType":"Bundle",
+		"type":"transaction",
+		"entry":[
+			{"request":{"method":"PUT","url":"Patient/pat-txn"},"resource":{"resourceType":"Patient","id":"pat-txn","name":[{"family":"Txn"}]}},
+			{"request":{"method":"POST","url":"Observation"},"resource":{"resourceType":"Observation","status":"final","code":{"text":"hr"},"subject":{"reference":"Patient/pat-txn"}}}
+		]
+	}`)
+	if _, err := harness.svc.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
+		ResourceType: "Bundle",
+		JSON:         bundleJSON,
+	}); err != nil {
+		t.Fatalf("ProcessTransactionBundle: %v", err)
+	}
+}
+
+func TestReferentialIntegrityVersionedReferenceUsesLogicalID(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"id":           "obs-hist",
+		"status":       "final",
+		"code":         map[string]string{"text": "hr"},
+		"subject":      map[string]string{"reference": "Patient/pat-1/_history/v1"},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: data}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+}
+
 func patientEnvelope(id, family string) *types.ResourceEnvelope {
 	payload := map[string]interface{}{
 		"resourceType": "Patient",
@@ -600,6 +721,18 @@ func patientEnvelope(id, family string) *types.ResourceEnvelope {
 	}
 	data, _ := json.Marshal(payload)
 	return &types.ResourceEnvelope{ResourceType: "Patient", JSON: data}
+}
+
+func observationWithSubject(id, patientID string) *types.ResourceEnvelope {
+	payload := map[string]interface{}{
+		"resourceType": "Observation",
+		"id":           id,
+		"status":       "final",
+		"code":         map[string]string{"text": "heart-rate"},
+		"subject":      map[string]string{"reference": "Patient/" + patientID},
+	}
+	data, _ := json.Marshal(payload)
+	return &types.ResourceEnvelope{ResourceType: "Observation", ID: id, JSON: data}
 }
 
 type harnessOptions struct {

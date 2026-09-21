@@ -66,12 +66,11 @@ func TestHTTPAuthz_ScopeFilterReadDenied(t *testing.T) {
 	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["forbidden_scope_filter"])
 }
 
-func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
+func TestHTTPAuthz_ScopeFilterSearchRewritesQuery(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	bearer := smartBearerConfig(now)
 	token := validUserObservationScopeToken(now)
 	lab := observationEnvelope("obs-lab", "laboratory")
-	vital := observationEnvelope("obs-vital", "vital-signs")
 	searchSvc := &fakeSearchService{
 		searchFn: func(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
 			if params.Get("category") != "laboratory" {
@@ -79,7 +78,7 @@ func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
 			}
 			return search.AssembleBundle(&search.Result{
 				ResourceType: resourceType,
-				Resources:    []*types.ResourceEnvelope{lab, vital},
+				Resources:    []*types.ResourceEnvelope{lab},
 			}), nil
 		},
 	}
@@ -96,7 +95,7 @@ func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
 	}
 	entries, _ := bundle["entry"].([]any)
 	if len(entries) != 1 {
-		t.Fatalf("expected 1 filtered entry, got %d", len(entries))
+		t.Fatalf("expected 1 rewritten-query entry, got %d", len(entries))
 	}
 }
 
