@@ -24,6 +24,12 @@ func newJobStoreTx(tx pgx.Tx, tenantID string) *JobStore {
 	return &JobStore{exec: tx, tenantID: tenantID}
 }
 
+var (
+	_ store.JobStore    = (*JobStore)(nil)
+	_ store.JobCASStore = (*JobStore)(nil)
+	_ store.JobDeleter  = (*JobStore)(nil)
+)
+
 func (s *JobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
 	_, err := s.exec.Exec(ctx, `
 		INSERT INTO hai_background_job (
@@ -91,6 +97,37 @@ func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("job not found: %s", job.ID)
+	}
+	return nil
+}
+
+func (s *JobStore) UpdateIf(ctx context.Context, job store.JobRecord, expectedUpdatedAt time.Time) (bool, error) {
+	tag, err := s.exec.Exec(ctx, `
+		UPDATE hai_background_job
+		SET type = $1, payload = $2, status = $3, attempts = $4, updated_at = $5, run_after = $6, last_error = $7
+		WHERE tenant_id = $8 AND id = $9 AND updated_at = $10`,
+		job.Type, job.Payload, string(job.Status), job.Attempts, job.UpdatedAt,
+		nullTime(job.RunAfter), nullString(job.LastError), s.tenantID, job.ID, expectedUpdatedAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update job if: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		return true, nil
+	}
+	if _, err := s.Get(ctx, job.ID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (s *JobStore) Delete(ctx context.Context, id string) error {
+	tag, err := s.exec.Exec(ctx, `DELETE FROM hai_background_job WHERE tenant_id = $1 AND id = $2`, s.tenantID, id)
+	if err != nil {
+		return fmt.Errorf("delete job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("job not found: %s", id)
 	}
 	return nil
 }

@@ -87,6 +87,8 @@ func mapError(err error) (int, *types.OperationOutcome) {
 		return http.StatusBadRequest, core.OperationOutcomeFromError(err)
 	case core.ErrorKindPrecondition:
 		return http.StatusPreconditionFailed, core.OperationOutcomeFromError(err)
+	case core.ErrorKindGone:
+		return http.StatusGone, core.OperationOutcomeFromError(err)
 	default:
 		var notImpl *notImplementedError
 		if errors.As(err, &notImpl) {

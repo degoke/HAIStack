@@ -21,4 +21,8 @@ type Config struct {
 	SyncEnabled bool
 	SyncHubURL  string
 	SyncNodeID  string
+
+	// OAuth (builtin authorization server)
+	OAuthEnabled bool
+	OAuthIssuer  string
 }

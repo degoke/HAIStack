@@ -36,3 +36,15 @@ type JobStore interface {
 	Update(ctx context.Context, job JobRecord) error
 	Get(ctx context.Context, id string) (*JobRecord, error)
 }
+
+// JobCASStore optionally compare-and-swaps a job row using UpdatedAt.
+// UpdateIf returns (false, nil) when the row exists but expectedUpdatedAt
+// does not match the persisted value.
+type JobCASStore interface {
+	UpdateIf(ctx context.Context, job JobRecord, expectedUpdatedAt time.Time) (bool, error)
+}
+
+// JobDeleter optionally removes a job row.
+type JobDeleter interface {
+	Delete(ctx context.Context, id string) error
+}

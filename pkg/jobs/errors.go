@@ -17,4 +17,6 @@ var (
 	ErrDuplicateJob = errors.New("jobs: job already exists")
 	// ErrEmptyJobID is returned when Enqueue receives a job without an id.
 	ErrEmptyJobID = errors.New("jobs: job id is required")
+	// ErrConcurrentUpdate is returned when compare-and-swap updates keep colliding.
+	ErrConcurrentUpdate = errors.New("jobs: concurrent update")
 )

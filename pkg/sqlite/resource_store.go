@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -64,7 +65,7 @@ func (s *ResourceStore) Read(ctx context.Context, resourceType, id string) (*typ
 		resourceType, id,
 	).Scan(&versionID, &lastUpdated, &jsonData, &hash)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("resource not found: %s/%s", resourceType, id)
+		return nil, fmt.Errorf("%w: %s/%s", store.ErrNotFound, resourceType, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read resource: %w", err)

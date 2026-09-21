@@ -102,6 +102,23 @@ rt, err := runtime.New().
 
 Postgres mode with `WithSearch` also wires a **background reindex worker** and registers `search.NewReindexNotifier` on the registry manager so SearchParameter changes enqueue reindex jobs.
 
+### Builtin SMART OAuth (`haistack serve`)
+
+When HTTP is enabled, `WithBuiltinOAuth` mounts `pkg/oauth` on the root handler (`/oauth/*`, `/.well-known/*`, mirrored under `/fhir/.well-known/*`, plus tenant routes at `/t/{tenantId}/*`). Stores use `oauthstore.ApplySQLiteStores` or `ApplyPostgresStores` with DB-backed rate limits. Signing keys persist in `hai_oauth_signing_key` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set (optional `OAUTH_SIGNING_KEY_ROTATE=1` on startup keeps previous keys in JWKS); otherwise PEM files under `{data-dir}/oauth` or beside the SQLite database. Production mode enables `/oauth/login` session cookies via `OAUTH_SESSION_SECRET` and `OAUTH_LOGIN_USERS`, and background consent-session purge. The loopback `haistack-app` client is registered only when production is false.
+
+```go
+rt, err := runtime.New().
+    WithSQLite("/data/haistack.db").
+    WithHTTP(":8080").
+    WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+        IssuerURL: "https://auth.example.test",
+        TenantID:  "local",
+    }).
+    Build(ctx)
+```
+
+`haistack serve` enables this automatically when `oauth.enabled` is true. See `pkg/oauth/OPERATIONS.md` for production vs Inferno reference profiles.
+
 ### Cloud Postgres + external adapters
 
 ```go
@@ -141,7 +158,9 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithSyncNode(nodeID)` | Device node ID (default: `runtime-node`) |
 | `WithModules(paths...)` | Install local module directories at build time |
 | `WithHTTP(addr)` | Managed HTTP listen address (optional) |
+| `WithBuiltinOAuth(cfg)` | Mount built-in SMART OAuth server with durable stores and FHIR bearer auth |
 | `WithHTTPAuth(...)` / `WithHTTPMiddleware(...)` | Configure managed HTTP authentication and policy middleware |
+| `WithHooks(...)` | Four-point intercept SPI (incoming, pre-storage, post-commit, outgoing) |
 | `WithHTTPRateLimit(config)` | Configure process-local managed HTTP rate limiting |
 | `WithModuleAuthorizer(authorizer)` | Authorize module installs and upgrades |
 | `WithModuleVerifier(verifier)` | Verify module signatures/content before install and upgrade |
@@ -187,6 +206,9 @@ Build failures roll back partially opened resources before returning an error.
 | `SearchService` | When `WithSearch()` |
 | `SyncEngine` | When sync hub configured |
 | `FHIRPathEngine` | Always |
+| `SubscriptionManager` | Always |
+| `SubscriptionProcessor` | Always |
+| `SubscriptionMatcher` | Always (`Engine` + search `Registry`) |
 | `TenantDB` | Postgres modes |
 | `BlobStore`, `ExternalSearch`, `Warehouse` | Cloud mode adapters |
 
@@ -197,7 +219,7 @@ Build failures roll back partially opened resources before returning an error.
 | SQLite | Embedded/basic search via local `SearchStore` executor |
 | Postgres | Full search service + background reindex worker |
 
-Advanced FHIR search features (`_include`, chained search, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
+Advanced FHIR search features (`_include` wildcards, `_has`, two-hop chains, uri, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
 
 ## Sync by mode
 

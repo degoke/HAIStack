@@ -21,6 +21,8 @@ const (
 	ErrorKindNotSupported ErrorKind = "not-supported"
 	// ErrorKindPrecondition indicates an If-Match or other request precondition failed.
 	ErrorKindPrecondition ErrorKind = "precondition-failed"
+	// ErrorKindGone indicates the requested version exists in history but was deleted.
+	ErrorKindGone ErrorKind = "deleted"
 	// ErrorKindException indicates an unexpected or storage-layer failure.
 	ErrorKindException ErrorKind = "exception"
 )
@@ -88,6 +90,10 @@ func conflictErr(message string, cause error) *ServiceError {
 
 func notFoundErr(message string, cause error) *ServiceError {
 	return &ServiceError{Kind: ErrorKindNotFound, Message: message, Cause: cause}
+}
+
+func goneErr(message string, cause error) *ServiceError {
+	return &ServiceError{Kind: ErrorKindGone, Message: message, Cause: cause}
 }
 
 func notSupportedErr(message string, cause error) *ServiceError {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -39,11 +40,13 @@ func (s *ResourceService) ProcessBatchBundle(ctx context.Context, bundle *types.
 	if err != nil {
 		return nil, exceptionErr("build batch response bundle", err)
 	}
-	return &types.ResourceEnvelope{
+	response := &types.ResourceEnvelope{
 		ResourceType: "Bundle",
 		JSON:         responseJSON,
 		Hash:         mustHash(responseJSON),
-	}, nil
+	}
+	s.runPostCommit(ctx, hooks.ActionBatch, response, nil)
+	return response, nil
 }
 
 type batchBundle struct {
