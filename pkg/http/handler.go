@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -39,9 +40,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w = withHookContext(w, r.Context(), h.cfg.Hooks, route, r.Method)
-	if err := h.runIncoming(r.Context(), route, r.Method); err != nil {
-		writeError(w, err)
-		return
+	if route.kind != routeTransaction {
+		if err := h.runIncoming(r.Context(), route, r.Method); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 
 	switch route.kind {
@@ -740,39 +743,31 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalidRequest("parse bundle", err))
 		return
 	}
-	if isTxn {
-		if err := h.authorizeWrite(r.Context(), "transaction", "Bundle", ""); err != nil {
-			writeError(w, err)
-			return
-		}
-		envelope, err := parseBundleBody(h.cfg.Codec, "application/fhir+json", body)
+	isBatch := false
+	if !isTxn {
+		isBatch, err = isBatchBundle(body)
 		if err != nil {
-			writeError(w, err)
+			writeError(w, invalidRequest("parse bundle", err))
 			return
 		}
-		if err := h.authorizeBundleEntries(r, body); err != nil {
-			writeError(w, err)
+		if !isBatch {
+			writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
 			return
 		}
-		response, err := h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeEnvelope(w, http.StatusOK, response, nil)
+	}
+	action := hooks.ActionTransaction
+	authOp := "transaction"
+	if isBatch {
+		action = hooks.ActionBatch
+		authOp = "batch"
+	}
+	event := &hooks.Event{Action: action, ResourceType: "Bundle"}
+	h.bindHookEvent(w, event)
+	if err := h.runIncomingEvent(r.Context(), event); err != nil {
+		writeError(w, err)
 		return
 	}
-
-	isBatch, err := isBatchBundle(body)
-	if err != nil {
-		writeError(w, invalidRequest("parse bundle", err))
-		return
-	}
-	if !isBatch {
-		writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
-		return
-	}
-	if err := h.authorizeWrite(r.Context(), "batch", "Bundle", ""); err != nil {
+	if err := h.authorizeWrite(r.Context(), authOp, "Bundle", ""); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -785,7 +780,12 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	response, err := h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	var response *types.ResourceEnvelope
+	if isTxn {
+		response, err = h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
+	} else {
+		response, err = h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

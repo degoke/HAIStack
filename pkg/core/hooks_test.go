@@ -277,6 +277,48 @@ func TestTransactionPostCommitSeesBundleJSON(t *testing.T) {
 	}
 }
 
+func TestBatchPostCommitSeesBundleJSON(t *testing.T) {
+	ctx := context.Background()
+	var postAction hooks.Action
+	var postJSON string
+	reg := hooks.NewRegistry()
+	if err := reg.On(hooks.PostCommit, func(_ context.Context, event *hooks.Event) error {
+		if event.Action != hooks.ActionBatch {
+			return nil
+		}
+		postAction = event.Action
+		if event.Resource == nil {
+			t.Fatal("batch post-commit resource was nil")
+		}
+		postJSON = string(event.Resource.JSON)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newHookedService(t, reg)
+	if _, err := svc.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		JSON:         []byte(`{"resourceType":"Patient","id":"p1","name":[{"family":"Batch"}]}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := []byte(`{"resourceType":"Bundle","type":"batch","entry":[{"request":{"method":"GET","url":"Patient/p1"}}]}`)
+	resp, err := svc.ProcessBatchBundle(ctx, &types.ResourceEnvelope{ResourceType: "Bundle", JSON: bundle})
+	if err != nil {
+		t.Fatalf("ProcessBatchBundle: %v", err)
+	}
+	if postAction != hooks.ActionBatch {
+		t.Fatalf("post-commit action = %q, want batch", postAction)
+	}
+	if postJSON == "" || !strings.Contains(postJSON, "batch-response") {
+		t.Fatalf("post-commit JSON = %s", postJSON)
+	}
+	if postJSON != string(resp.JSON) {
+		t.Fatalf("post-commit JSON does not match response envelope")
+	}
+}
+
 func newHookedService(t *testing.T, reg *hooks.Registry) *core.ResourceService {
 	t.Helper()
 	mem := newMemBackend()

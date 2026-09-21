@@ -30,6 +30,7 @@ const (
 	ActionSearch      Action = "search"
 	ActionHistory     Action = "history"
 	ActionTransaction Action = "transaction"
+	ActionBatch       Action = "batch"
 	ActionOperation   Action = "operation"
 	ActionMetadata    Action = "metadata"
 )

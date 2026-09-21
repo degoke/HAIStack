@@ -10,10 +10,13 @@ import (
 )
 
 func (h *handler) runIncoming(ctx context.Context, route parsedRoute, method string) error {
-	if h == nil || h.cfg.Hooks == nil {
+	return h.runIncomingEvent(ctx, incomingEvent(route, method))
+}
+
+func (h *handler) runIncomingEvent(ctx context.Context, event *hooks.Event) error {
+	if h == nil || h.cfg.Hooks == nil || event == nil {
 		return nil
 	}
-	event := incomingEvent(route, method)
 	if err := h.cfg.Hooks.Run(ctx, hooks.Incoming, event); err != nil {
 		var svcErr *core.ServiceError
 		if errors.As(err, &svcErr) {
@@ -22,6 +25,12 @@ func (h *handler) runIncoming(ctx context.Context, route parsedRoute, method str
 		return invalidRequest("incoming hook rejected request", err)
 	}
 	return nil
+}
+
+func (h *handler) bindHookEvent(w http.ResponseWriter, event *hooks.Event) {
+	if formatted, ok := w.(*formattedResponseWriter); ok {
+		formatted.hookEvent = event
+	}
 }
 
 func incomingEvent(route parsedRoute, method string) *hooks.Event {

@@ -220,3 +220,41 @@ func TestOutgoingHookRunsOnMetadata(t *testing.T) {
 		t.Fatalf("original software name still present: %s", rec.Body.String())
 	}
 }
+
+func TestBundleHooksUseBatchAction(t *testing.T) {
+	reg := hooks.NewRegistry()
+	var incoming, outgoing hooks.Action
+	if err := reg.On(hooks.Incoming, func(_ context.Context, event *hooks.Event) error {
+		incoming = event.Action
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.On(hooks.Outgoing, func(_ context.Context, event *hooks.Event) error {
+		outgoing = event.Action
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			batch: func(_ context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+				return &types.ResourceEnvelope{
+					ResourceType: "Bundle",
+					JSON:         []byte(`{"resourceType":"Bundle","type":"batch-response","entry":[]}`),
+				}, nil
+			},
+		},
+		Hooks: reg,
+	})
+	rec := doRequest(t, handler, http.MethodPost, "/fhir", []byte(`{"resourceType":"Bundle","type":"batch","entry":[]}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if incoming != hooks.ActionBatch {
+		t.Fatalf("incoming action = %q, want batch", incoming)
+	}
+	if outgoing != hooks.ActionBatch {
+		t.Fatalf("outgoing action = %q, want batch", outgoing)
+	}
+}
