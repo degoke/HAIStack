@@ -1566,6 +1566,9 @@ func singletonOrList(v []any) any {
 		return nil
 	}
 	if len(v) == 1 {
+		if _, ok := v[0].([]any); ok {
+			return v
+		}
 		return v[0]
 	}
 	return v
