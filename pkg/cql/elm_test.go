@@ -749,6 +749,22 @@ func TestELMLibraryContextPrefersDeclaredThenPatient(t *testing.T) {
 	if lib.Context != "Unfiltered" {
 		t.Fatalf("unfiltered-only: got %q", lib.Context)
 	}
+	mixedDecl := `{
+		"library": {
+			"identifier": {"id": "Ctx", "version": "1.0.0"},
+			"contexts": {"def": [{"name": "Patient"}, {"name": "Unfiltered"}]},
+			"statements": {"def": [
+				{"name": "Y", "context": "Unfiltered", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}}
+			]}
+		}
+	}`
+	lib, err = parseELMLibrary([]byte(mixedDecl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Context != "Patient" {
+		t.Fatalf("declared Patient should win over later Unfiltered, got %q", lib.Context)
+	}
 }
 
 func TestELMRetrieveCodesList(t *testing.T) {
@@ -772,4 +788,234 @@ func TestELMRetrieveCodesList(t *testing.T) {
 	if r.terminology != "HeartRate" || r.comparator != "=" {
 		t.Fatalf("list codes: %+v", r)
 	}
+}
+
+func TestELMRetrieveCodesFunctionRefAndLiteral(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type":     "Retrieve",
+		"dataType": "{http://hl7.org/fhir}Observation",
+		"codes": map[string]any{
+			"type": "ToList",
+			"operand": map[string]any{
+				"type":        "FunctionRef",
+				"name":        "ToConcept",
+				"libraryName": "FHIRHelpers",
+				"operand": []any{
+					map[string]any{"type": "CodeRef", "name": "HeartRate"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*retrieveNode)
+	if !ok {
+		t.Fatalf("retrieve: %#v", n)
+	}
+	if r.terminology != "HeartRate" || r.comparator != "=" {
+		t.Fatalf("FunctionRef ToConcept codes: %+v", r)
+	}
+	n, err = parseELMExpr(map[string]any{
+		"type":     "Retrieve",
+		"dataType": "{http://hl7.org/fhir}Observation",
+		"codes": map[string]any{
+			"type":   "Code",
+			"code":   "8867-4",
+			"system": "http://loinc.org",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = n.(*retrieveNode)
+	if !ok {
+		t.Fatalf("retrieve: %#v", n)
+	}
+	if r.terminology != "http://loinc.org|8867-4" || r.comparator != "=" {
+		t.Fatalf("Code literal: %+v", r)
+	}
+}
+
+func TestELMSameAsUsesPrecision(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{
+		"type":      "SameAs",
+		"precision": "Year",
+		"operand": []any{
+			map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+			map[string]any{"type": "Date", "year": 2020, "month": 6, "day": 15},
+		},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("same year as: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "SameAs",
+		"operand": []any{
+			map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+			map[string]any{"type": "Date", "year": 2020, "month": 6, "day": 15},
+		},
+	})
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("same as full date: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":      "SameOrBefore",
+		"precision": "Year",
+		"operand": []any{
+			map[string]any{"type": "Date", "year": 2019, "month": 12, "day": 31},
+			map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+		},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("same year or before: %#v", got)
+	}
+}
+
+func TestELMQueryReturnDistinctDefaultsTrue(t *testing.T) {
+	src := map[string]any{
+		"type": "Query",
+		"source": []any{
+			map[string]any{
+				"alias": "X",
+				"expression": map[string]any{
+					"type": "List",
+					"element": []any{
+						map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+						map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+						map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "2"},
+					},
+				},
+			},
+		},
+		"return": map[string]any{
+			"expression": map[string]any{"type": "AliasRef", "name": "X"},
+		},
+	}
+	n, err := parseELMExpr(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := n.(*queryNode)
+	if !ok || !q.distinct {
+		t.Fatalf("missing distinct should default true: %#v", n)
+	}
+	got := evalELMExpr(t, src)
+	if len(got) != 2 {
+		t.Fatalf("distinct return: %#v", got)
+	}
+	src["return"] = map[string]any{
+		"distinct":   false,
+		"expression": map[string]any{"type": "AliasRef", "name": "X"},
+	}
+	got = evalELMExpr(t, src)
+	if len(got) != 3 {
+		t.Fatalf("return all: %#v", got)
+	}
+}
+
+func TestELMFilterForEachBindScope(t *testing.T) {
+	list := map[string]any{
+		"type": "List",
+		"element": []any{
+			map[string]any{
+				"type": "Tuple",
+				"element": []any{
+					map[string]any{"name": "status", "value": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "final"}},
+					map[string]any{"name": "id", "value": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "a"}},
+				},
+			},
+			map[string]any{
+				"type": "Tuple",
+				"element": []any{
+					map[string]any{"name": "status", "value": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "cancelled"}},
+					map[string]any{"name": "id", "value": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "b"}},
+				},
+			},
+		},
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type":   "Filter",
+		"source": list,
+		"scope":  "X",
+		"condition": map[string]any{
+			"type": "Equal",
+			"operand": []any{
+				map[string]any{"type": "Property", "path": "status", "scope": "X"},
+				map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "final"},
+			},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("filter: %#v", got)
+	}
+	obj, ok := got[0].(map[string]any)
+	if !ok || obj["id"] != "a" {
+		t.Fatalf("filter row: %#v", got[0])
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":   "ForEach",
+		"source": list,
+		"scope":  "X",
+		"element": map[string]any{
+			"type": "Property", "path": "id", "scope": "X",
+		},
+	})
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("forEach: %#v", got)
+	}
+}
+
+func TestELMOverlapsBeforeAfter(t *testing.T) {
+	intLit := func(v string) map[string]any {
+		return map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": v}
+	}
+	interval := func(low, high string) map[string]any {
+		return map[string]any{"type": "Interval", "low": intLit(low), "high": intLit(high)}
+	}
+	got := evalELMExpr(t, map[string]any{"type": "OverlapsBefore", "operand": []any{interval("1", "5"), interval("3", "8")}})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("overlaps before: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "OverlapsBefore", "operand": []any{interval("3", "8"), interval("1", "5")}})
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("overlaps before reversed: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "OverlapsAfter", "operand": []any{interval("3", "8"), interval("1", "5")}})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("overlaps after: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Overlaps", "operand": []any{interval("1", "5"), interval("3", "8")}})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("overlaps: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval[1, 5] overlaps before Interval[3, 8]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("CQL overlaps before: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[3, 8] overlaps after Interval[1, 5]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("CQL overlaps after: %#v", got)
+	}
+}
+
+func evalELMExpr(t *testing.T, obj map[string]any) []any {
+	t.Helper()
+	n, err := parseELMExpr(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := testEngine(t)
+	got, err := eng.evalNode(context.Background(), n, EvalContext{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }

@@ -626,7 +626,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			}
 		}
 		return listExcept(left, right), nil
-	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "starts", "ends", "meets", "before", "after":
+	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "overlaps before", "overlaps after", "starts", "ends", "meets", "before", "after":
 		return st.evalIntervalRel(n)
 	}
 	if strings.HasPrefix(n.op, "same") {

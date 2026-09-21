@@ -116,12 +116,9 @@ func parseELMLibrary(data []byte) (*Library, error) {
 		}
 		lib.Parameters = append(lib.Parameters, param)
 	}
-	contextFromDecl := false
+	var declared []string
 	for _, ctx := range elmDefs(libObj["contexts"]) {
-		if name := elmString(ctx["name"]); name != "" {
-			lib.Context = name
-			contextFromDecl = true
-		}
+		declared = append(declared, elmString(ctx["name"]))
 	}
 	stmts := elmDefs(libObj["statements"])
 	for _, def := range stmts {
@@ -129,7 +126,9 @@ func parseELMLibrary(data []byte) (*Library, error) {
 			return nil, err
 		}
 	}
-	if !contextFromDecl {
+	if ctx := elmPreferredContext(declared, ""); ctx != "" {
+		lib.Context = ctx
+	} else {
 		lib.Context = elmLibraryContext(stmts)
 	}
 	if len(lib.Defines) == 0 && len(lib.Functions) == 0 {
@@ -140,15 +139,22 @@ func parseELMLibrary(data []byte) (*Library, error) {
 }
 
 func elmLibraryContext(stmts []map[string]any) string {
-	last := "Patient"
-	sawPatient := false
+	var names []string
 	for _, def := range stmts {
-		ctx := elmString(def["context"])
-		if ctx == "" {
+		names = append(names, elmString(def["context"]))
+	}
+	return elmPreferredContext(names, "Patient")
+}
+
+func elmPreferredContext(names []string, fallback string) string {
+	last := fallback
+	sawPatient := false
+	for _, name := range names {
+		if name == "" {
 			continue
 		}
-		last = ctx
-		if strings.EqualFold(ctx, "Patient") {
+		last = name
+		if strings.EqualFold(name, "Patient") {
 			sawPatient = true
 		}
 	}

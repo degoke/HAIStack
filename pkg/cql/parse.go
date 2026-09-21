@@ -630,6 +630,20 @@ func (p *parser) parseMembershipOp() string {
 			p.lex.next()
 			unit = u
 		}
+		if p.acceptKeyword("or") {
+			rel := ""
+			if p.acceptKeyword("before") {
+				rel = "before"
+			} else if p.acceptKeyword("after") {
+				rel = "after"
+			}
+			if rel != "" {
+				if unit != "" {
+					return "same " + unit + " or " + rel
+				}
+				return "same or " + rel
+			}
+		}
 		_ = p.acceptKeyword("as")
 		if unit != "" {
 			return "same " + unit + " as"
@@ -646,6 +660,12 @@ func (p *parser) parseMembershipOp() string {
 	case p.acceptKeyword("during"):
 		return "during"
 	case p.acceptKeyword("overlaps"):
+		if p.acceptKeyword("before") {
+			return "overlaps before"
+		}
+		if p.acceptKeyword("after") {
+			return "overlaps after"
+		}
 		return "overlaps"
 	case p.acceptKeyword("starts"):
 		return "starts"

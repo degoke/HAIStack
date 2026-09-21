@@ -215,25 +215,9 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		}
 		return firstELMOperand(obj)
 	case "Filter":
-		src, err := parseELMChild(obj, "source")
-		if err != nil {
-			return nil, err
-		}
-		cond, err := parseELMChild(obj, "condition")
-		if err != nil {
-			return nil, err
-		}
-		return &callNode{callee: &memberNode{x: src, name: "where"}, args: []Node{cond}}, nil
+		return parseELMCollection(obj, "condition", true)
 	case "ForEach":
-		src, err := parseELMChild(obj, "source")
-		if err != nil {
-			return nil, err
-		}
-		elem, err := parseELMChild(obj, "element")
-		if err != nil {
-			return nil, err
-		}
-		return &callNode{callee: &memberNode{x: src, name: "select"}, args: []Node{elem}}, nil
+		return parseELMCollection(obj, "element", false)
 	case "DurationBetween", "DifferenceBetween":
 		ops, err := parseELMOperands(obj)
 		if err != nil {
@@ -265,6 +249,7 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		if len(ops) < 2 {
 			return nil, errf("%w: ELM operator %s requires two operands", ErrUnsupported, typ)
 		}
+		op = elmPrecisionOp(typ, op, obj)
 		n := Node(ops[0])
 		for i := 1; i < len(ops); i++ {
 			n = &binaryNode{op: op, left: n, right: ops[i]}
@@ -469,20 +454,19 @@ func elmRetrieveCodes(codes map[string]any, cmp string) (string, string) {
 			cmp = "="
 		}
 		return firstNonEmpty(elmString(codes["name"]), elmString(codes["id"])), cmp
-	case "ToList":
-		if inner, ok := asObject(codes["operand"]); ok {
-			return elmRetrieveCodes(inner, cmp)
-		}
-		ops := elmList(codes["operand"])
-		if len(ops) > 0 {
-			return elmRetrieveCodes(ops[0], cmp)
-		}
-	case "List":
-		elems := elmList(codes["element"])
+	case "Code":
+		return elmRetrieveCodeLiteral(codes, cmp)
+	case "ToList", "FunctionRef":
+		return elmRetrieveCodesOperand(codes, cmp)
+	case "List", "Concept":
+		elems := elmList(firstNonNil(codes["element"], codes["codes"]))
 		if len(elems) > 0 {
 			return elmRetrieveCodes(elems[0], cmp)
 		}
 	default:
+		if term, next := elmRetrieveCodesOperand(codes, cmp); term != "" {
+			return term, next
+		}
 		if name := firstNonEmpty(elmString(codes["name"]), elmString(codes["id"])); name != "" {
 			return name, cmp
 		}
@@ -492,6 +476,41 @@ func elmRetrieveCodes(codes map[string]any, cmp string) (string, string) {
 		}
 	}
 	return "", cmp
+}
+
+func elmRetrieveCodesOperand(codes map[string]any, cmp string) (string, string) {
+	if inner, ok := asObject(codes["operand"]); ok {
+		return elmRetrieveCodes(inner, cmp)
+	}
+	ops := elmList(codes["operand"])
+	if len(ops) > 0 {
+		return elmRetrieveCodes(ops[0], cmp)
+	}
+	return "", cmp
+}
+
+func elmRetrieveCodeLiteral(codes map[string]any, cmp string) (string, string) {
+	code := firstNonEmpty(elmString(codes["code"]), elmString(codes["id"]))
+	system := elmString(codes["system"])
+	if cs, ok := asObject(codes["system"]); ok {
+		system = firstNonEmpty(elmString(cs["id"]), elmString(cs["name"]))
+	}
+	if cmp == "in" {
+		cmp = "="
+	}
+	if system != "" && code != "" {
+		return system + "|" + code, cmp
+	}
+	return code, cmp
+}
+
+func firstNonNil(vals ...any) any {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 func parseELMQuery(obj map[string]any) (Node, error) {
@@ -555,7 +574,10 @@ func parseELMQuery(obj map[string]any) (Node, error) {
 		q.where = n
 	}
 	if ret, ok := asObject(obj["return"]); ok {
-		q.distinct = elmBool(ret["distinct"])
+		q.distinct = true
+		if _, ok := ret["distinct"]; ok {
+			q.distinct = elmBool(ret["distinct"])
+		}
 		if expr, ok := asObject(ret["expression"]); ok {
 			n, err := parseELMExpr(expr)
 			if err != nil {
@@ -820,11 +842,45 @@ func elmBinaryOp(typ string) (string, bool) {
 		"ProperIncludes": "properly includes", "ProperIncludedIn": "properly included in",
 		"ProperIn": "properly included in", "ProperContains": "properly includes",
 		"During": "during", "ProperDuring": "properly during",
-		"Overlaps": "overlaps", "OverlapsBefore": "overlaps", "OverlapsAfter": "overlaps",
+		"Overlaps": "overlaps", "OverlapsBefore": "overlaps before", "OverlapsAfter": "overlaps after",
 		"Starts": "starts", "Ends": "ends", "Meets": "meets",
 		"Before": "before", "After": "after",
 		"SameAs": "same as", "SameOrBefore": "same or before", "SameOrAfter": "same or after",
 	}
 	op, ok := ops[typ]
 	return op, ok
+}
+
+func elmPrecisionOp(typ, op string, obj map[string]any) string {
+	prec := timeUnitName(elmString(obj["precision"]))
+	if prec == "" {
+		return op
+	}
+	switch typ {
+	case "SameAs":
+		return "same " + prec + " as"
+	case "SameOrBefore":
+		return "same " + prec + " or before"
+	case "SameOrAfter":
+		return "same " + prec + " or after"
+	}
+	return op
+}
+
+func parseELMCollection(obj map[string]any, elemKey string, filter bool) (Node, error) {
+	src, err := parseELMChild(obj, "source")
+	if err != nil {
+		return nil, err
+	}
+	elem, err := parseELMChild(obj, elemKey)
+	if err != nil {
+		return nil, err
+	}
+	q := &queryNode{sources: []querySource{{expr: src, alias: elmString(obj["scope"])}}}
+	if filter {
+		q.where = elem
+		return q, nil
+	}
+	q.ret = elem
+	return q, nil
 }

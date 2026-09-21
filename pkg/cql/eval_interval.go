@@ -120,6 +120,14 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 		if lok && rok {
 			return []any{intervalOverlaps(li, ri)}, nil
 		}
+	case "overlaps before":
+		if lok && rok {
+			return []any{intervalOverlapsBefore(li, ri)}, nil
+		}
+	case "overlaps after":
+		if lok && rok {
+			return []any{intervalOverlapsAfter(li, ri)}, nil
+		}
 	case "starts":
 		if lok && rok {
 			return []any{intervalStarts(li, ri)}, nil
@@ -338,6 +346,48 @@ func intervalOverlaps(a, b Interval) bool {
 		}
 	}
 	return true
+}
+
+func intervalOverlapsBefore(a, b Interval) bool {
+	return intervalOverlaps(a, b) && intervalStartsBefore(a, b)
+}
+
+func intervalOverlapsAfter(a, b Interval) bool {
+	return intervalOverlaps(a, b) && intervalEndsAfter(a, b)
+}
+
+func intervalStartsBefore(a, b Interval) bool {
+	if a.Low == nil {
+		return b.Low != nil
+	}
+	if b.Low == nil {
+		return false
+	}
+	cmp, ok := cqlCompare(a.Low, b.Low)
+	if !ok {
+		return false
+	}
+	if cmp < 0 {
+		return true
+	}
+	return cmp == 0 && a.LowClosed && !b.LowClosed
+}
+
+func intervalEndsAfter(a, b Interval) bool {
+	if a.High == nil {
+		return b.High != nil
+	}
+	if b.High == nil {
+		return false
+	}
+	cmp, ok := cqlCompare(a.High, b.High)
+	if !ok {
+		return false
+	}
+	if cmp > 0 {
+		return true
+	}
+	return cmp == 0 && a.HighClosed && !b.HighClosed
 }
 
 func intervalStarts(a, b Interval) bool {

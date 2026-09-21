@@ -108,24 +108,106 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
 	}
+	unit, before, after := splitSameOp(n.op)
 	lt, lok := asTime(left[0])
 	rt, rok := asTime(right[0])
-	if !lok || !rok {
+	var cmp int
+	var ok bool
+	if lok && rok {
+		cmp, ok = samePrecisionCompare(lt, rt, unit)
+	} else {
+		cmp, ok = cqlCompare(left[0], right[0])
+	}
+	if !ok {
 		return []any{cqlEqual(left[0], right[0])}, nil
 	}
-	switch n.op {
-	case "same year as":
-		return []any{lt.Year() == rt.Year()}, nil
-	case "same month as":
-		return []any{lt.Year() == rt.Year() && lt.Month() == rt.Month()}, nil
-	case "same day as":
-		return []any{lt.Year() == rt.Year() && lt.Month() == rt.Month() && lt.Day() == rt.Day()}, nil
-	case "same hour as":
-		return []any{lt.Year() == rt.Year() && lt.Month() == rt.Month() && lt.Day() == rt.Day() && lt.Hour() == rt.Hour()}, nil
-	case "same minute as":
-		return []any{lt.Truncate(time.Minute).Equal(rt.Truncate(time.Minute))}, nil
+	switch {
+	case before:
+		return []any{cmp <= 0}, nil
+	case after:
+		return []any{cmp >= 0}, nil
+	default:
+		return []any{cmp == 0}, nil
 	}
-	return []any{lt.Equal(rt)}, nil
+}
+
+func splitSameOp(op string) (unit string, before, after bool) {
+	op = strings.ToLower(strings.TrimSpace(op))
+	before = strings.Contains(op, "before")
+	after = strings.Contains(op, "after")
+	rest := strings.TrimSpace(strings.TrimPrefix(op, "same"))
+	rest = strings.TrimSpace(strings.TrimSuffix(rest, "as"))
+	rest = strings.ReplaceAll(rest, "or before", "")
+	rest = strings.ReplaceAll(rest, "or after", "")
+	rest = strings.TrimSpace(rest)
+	if u := timeUnitName(rest); u != "" {
+		return u, before, after
+	}
+	return "", before, after
+}
+
+func samePrecisionCompare(lt, rt time.Time, unit string) (int, bool) {
+	cmpInt := func(a, b int) int {
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	}
+	switch unit {
+	case "year":
+		return cmpInt(lt.Year(), rt.Year()), true
+	case "month":
+		if c := cmpInt(lt.Year(), rt.Year()); c != 0 {
+			return c, true
+		}
+		return cmpInt(int(lt.Month()), int(rt.Month())), true
+	case "week":
+		ly, lw := lt.ISOWeek()
+		ry, rw := rt.ISOWeek()
+		if c := cmpInt(ly, ry); c != 0 {
+			return c, true
+		}
+		return cmpInt(lw, rw), true
+	case "day":
+		if c := cmpInt(lt.Year(), rt.Year()); c != 0 {
+			return c, true
+		}
+		if c := cmpInt(int(lt.Month()), int(rt.Month())); c != 0 {
+			return c, true
+		}
+		return cmpInt(lt.Day(), rt.Day()), true
+	case "hour":
+		if c, ok := samePrecisionCompare(lt, rt, "day"); !ok || c != 0 {
+			return c, ok
+		}
+		return cmpInt(lt.Hour(), rt.Hour()), true
+	case "minute":
+		if c, ok := samePrecisionCompare(lt, rt, "hour"); !ok || c != 0 {
+			return c, ok
+		}
+		return cmpInt(lt.Minute(), rt.Minute()), true
+	case "second":
+		if c, ok := samePrecisionCompare(lt, rt, "minute"); !ok || c != 0 {
+			return c, ok
+		}
+		return cmpInt(lt.Second(), rt.Second()), true
+	case "millisecond":
+		if c, ok := samePrecisionCompare(lt, rt, "second"); !ok || c != 0 {
+			return c, ok
+		}
+		return cmpInt(lt.Nanosecond()/1e6, rt.Nanosecond()/1e6), true
+	}
+	switch {
+	case lt.Before(rt):
+		return -1, true
+	case lt.After(rt):
+		return 1, true
+	default:
+		return 0, true
+	}
 }
 
 func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error) {
