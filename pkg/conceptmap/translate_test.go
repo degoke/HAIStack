@@ -60,7 +60,7 @@ func TestTranslatorRejectsNoMap(t *testing.T) {
 		MapCanonical: m.URL,
 		Source:       map[string]any{"code": "M"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "no-map") {
+	if err == nil || !IsNoMap(err) {
 		t.Fatalf("expected no-map error, got %v", err)
 	}
 }

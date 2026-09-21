@@ -42,7 +42,8 @@ The published command prints **gold consistency** only: gold map ×
 `cases.json`. `implementsMap` is true when every case matches `$translate`
 (`failed` is 0). That is expected when cases restate this map. It is not
 translator quality and not an external mapping. There is no published
-`accuracy` or `consistency` ratio.
+`accuracy` or `consistency` ratio, and the command does not print
+`passed`/`failed` counts or per-case `pass` rows.
 
 Exact / narrow / broad / unmatched counts are `$translate` observed
 classes from ConceptMap `equivalence` on the returned coding.

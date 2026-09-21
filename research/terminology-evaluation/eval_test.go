@@ -195,7 +195,7 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 	}
 }
 
-func TestMissingMapURLIsUnmatchedAndProvenanceZero(t *testing.T) {
+func TestMissingMapURLAbortsEvaluate(t *testing.T) {
 	dir := t.TempDir()
 	mapPath := filepath.Join(dir, "conceptmap.json")
 	casesPath := filepath.Join(dir, "cases.json")
@@ -208,15 +208,9 @@ func TestMissingMapURLIsUnmatchedAndProvenanceZero(t *testing.T) {
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if metrics.Provenance != 0 {
-		t.Fatalf("provenance = %v, want 0 when ConceptMap body has no url", metrics.Provenance)
-	}
-	if metrics.Results[0].GotClass != "unmatched" {
-		t.Fatalf("empty canonical cannot $translate, result = %+v", metrics.Results[0])
+	_, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err == nil || !strings.Contains(err.Error(), "canonical URL is required") {
+		t.Fatalf("empty canonical is a setup error, want abort, got %v", err)
 	}
 }
 
@@ -264,7 +258,7 @@ func TestPublishedJSONOmitsPassRateFloats(t *testing.T) {
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"accuracy", "consistency", "mapAgreement", "provenance"} {
+	for _, key := range []string{"accuracy", "consistency", "mapAgreement", "provenance", "passed", "failed", "results"} {
 		if _, ok := obj[key]; ok {
 			t.Errorf("published JSON must not include %s", key)
 		}

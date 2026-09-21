@@ -101,31 +101,23 @@ func runOne(ctx context.Context, adapter *smart.AuthAdapter, sc Scenario) (Outco
 		}
 	}
 
+	if haveSMART && sc.Action == auth.ActionRead && !adapter.ScopeImplies(bundle, sc.ResourceType, smart.VerbRead) {
+		return outcomeFrom(sc, auth.Deny(fmt.Sprintf("SMART scope does not grant %s.read", sc.ResourceType))), nil
+	}
+	if ok, reason := consentAllows(sc.Consent, sc); !ok {
+		return outcomeFrom(sc, auth.Deny(reason)), nil
+	}
+
 	decision, err := evaluateRequest(ctx, eng, adapter, bundle, haveSMART, principal, tenant, sc)
 	if err != nil {
 		return Outcome{}, err
 	}
-
-	if ok, reason := consentAllows(sc.Consent, sc); !ok {
-		decision = auth.Deny(reason)
-	}
-
-	pass := decision.Allowed == sc.ExpectAllow
-	return Outcome{
-		ID:          sc.ID,
-		Allowed:     decision.Allowed,
-		ExpectAllow: sc.ExpectAllow,
-		Reason:      decision.Reason,
-		Pass:        pass,
-	}, nil
+	return outcomeFrom(sc, decision), nil
 }
 
 func evaluateRequest(ctx context.Context, eng *auth.Engine, adapter *smart.AuthAdapter, bundle smart.AuthBundle, haveSMART bool, principal auth.Principal, tenant auth.TenantContext, sc Scenario) (auth.Decision, error) {
 	switch sc.Action {
 	case auth.ActionRead:
-		if haveSMART && !adapter.ScopeImplies(bundle, sc.ResourceType, smart.VerbRead) {
-			return auth.Deny(fmt.Sprintf("SMART scope does not grant %s.read", sc.ResourceType)), nil
-		}
 		req := auth.ReadRequest{
 			Principal:    principal,
 			Tenant:       tenant,
@@ -161,6 +153,16 @@ func evaluateRequest(ctx context.Context, eng *auth.Engine, adapter *smart.AuthA
 		})
 	default:
 		return auth.Decision{}, fmt.Errorf("unknown action %q", sc.Action)
+	}
+}
+
+func outcomeFrom(sc Scenario, decision auth.Decision) Outcome {
+	return Outcome{
+		ID:          sc.ID,
+		Allowed:     decision.Allowed,
+		ExpectAllow: sc.ExpectAllow,
+		Reason:      decision.Reason,
+		Pass:        decision.Allowed == sc.ExpectAllow,
 	}
 }
 

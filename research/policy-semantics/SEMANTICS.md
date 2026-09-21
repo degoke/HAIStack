@@ -27,6 +27,8 @@ for an allow.
                    Inactive / unmatched Consent is ignored.
                    Production engines that do not implement Consent skip this
                    gate; research scenarios that declare consent require it.
+                   The research runner applies SMART, then this overlay, then
+                   the policy DSL, matching this order.
 5. Policy DSL      Compile PolicyDocument. Walk rules in document order.
                    First matching rule wins (allow or deny).
                    If no rule matches, DefaultEffect applies (deny).

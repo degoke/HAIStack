@@ -85,7 +85,6 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 	}
 	var unchanged, transformed int
 	for _, p := range pairs {
-		r4, r5 := string(p.R4), string(p.R5)
 		r4obj := jsonObj(t, p.R4)
 		r5obj := jsonObj(t, p.R5)
 		assertCopyThrough(t, p.ID, r4obj, r5obj, "resourceType", "id")
@@ -107,50 +106,36 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 		case semanticconversion.CategoryRenamed:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "clinicalStatus", "code", "subject")
 			assertActorFromAsserter(t, p.ID, r4obj, r5obj)
+			assertInformantFunction(t, p.ID, r5obj)
 			if p.Spec != goldConditionDiff {
 				t.Errorf("%s: spec = %q, want Condition R5 diff", p.ID, p.Spec)
 			}
-			if bytes.Contains(p.R4, []byte("participant")) || !bytes.Contains(p.R4, []byte("asserter")) {
+			if _, ok := r4obj["asserter"]; !ok {
 				t.Errorf("%s: R4 gold should keep asserter", p.ID)
 			}
-			if bytes.Contains(p.R5, []byte("asserter")) || !bytes.Contains(p.R5, []byte("participant")) {
-				t.Errorf("%s: R5 gold should keep participant", p.ID)
+			if _, ok := r4obj["participant"]; ok {
+				t.Errorf("%s: R4 gold must not already have participant", p.ID)
 			}
-			if strings.Contains(r4, goldInformantDisplay) {
-				t.Errorf("%s: R4 must not contain the authored Informant display", p.ID)
-			}
-			if !strings.Contains(r5, goldInformantSystem) || !strings.Contains(r5, goldInformantDisplay) {
-				t.Errorf("%s: authored gold R5 must include informant system and display", p.ID)
+			if _, ok := r5obj["asserter"]; ok {
+				t.Errorf("%s: R5 gold must not keep asserter", p.ID)
 			}
 			transformed++
 		case semanticconversion.CategoryCardinality:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "status", "code")
+			assertInterpretationFromR4(t, p.ID, r4obj, r5obj)
 			if p.Spec != goldObservationDiff {
 				t.Errorf("%s: spec = %q, want Observation R5 diff", p.ID, p.Spec)
-			}
-			if strings.Contains(r4, goldInterpSystem) {
-				t.Errorf("%s: R4 must not already contain the authored interpretation system", p.ID)
-			}
-			if !strings.Contains(r5, goldInterpSystem) || !strings.Contains(r5, goldInterpDisplay) {
-				t.Errorf("%s: authored gold R5 must stamp interpretation system and Normal display", p.ID)
 			}
 			transformed++
 		case semanticconversion.CategoryCodeableConcept, semanticconversion.CategoryTypeChange:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "status", "intent", "subject")
 			assertReasonFromR4(t, p.ID, r4obj, r5obj)
+			assertMedicationFromR4(t, p.ID, r4obj, r5obj)
 			if p.Spec != goldMedicationDiff {
 				t.Errorf("%s: spec = %q, want MedicationRequest R5 diff", p.ID, p.Spec)
 			}
-			if bytes.Contains(p.R5, []byte("medicationCodeableConcept")) || !bytes.Contains(p.R5, []byte(`"medication"`)) {
-				t.Errorf("%s: R5 gold should use medication CodeableReference", p.ID)
-			}
-			if r4HasCodedMedication(r4obj) && !goldHasToyMed(r5obj) {
-				t.Errorf("%s: authored gold R5 must stamp toy-med system on coded medication", p.ID)
-			}
 			if p.Category == semanticconversion.CategoryTypeChange {
-				if bytes.Contains(p.R4, []byte(`"reported"`)) || !bytes.Contains(p.R5, []byte(`"reported"`)) {
-					t.Errorf("%s: type-change gold must author reported on R5 only", p.ID)
-				}
+				assertReportedFromR4(t, p.ID, r4obj, r5obj)
 			}
 			transformed++
 		default:
@@ -333,6 +318,139 @@ func assertActorFromAsserter(t *testing.T, id string, r4, r5 map[string]any) {
 	}
 }
 
+func assertInformantFunction(t *testing.T, id string, r5 map[string]any) {
+	t.Helper()
+	parts, _ := r5["participant"].([]any)
+	if len(parts) == 0 {
+		t.Errorf("%s: gold R5 missing participant", id)
+		return
+	}
+	pm, _ := parts[0].(map[string]any)
+	want := map[string]any{"coding": []any{map[string]any{
+		"system":  goldInformantSystem,
+		"code":    "informant",
+		"display": goldInformantDisplay,
+	}}}
+	if !jsonValueEqual(want, pm["function"]) {
+		t.Errorf("%s: gold participant[0].function must be informant coding (authorship, no Convert)", id)
+	}
+}
+
+func assertInterpretationFromR4(t *testing.T, id string, r4, r5 map[string]any) {
+	t.Helper()
+	interp, ok := r4["interpretation"]
+	if !ok {
+		t.Errorf("%s: R4 missing interpretation", id)
+		return
+	}
+	if _, isList := interp.([]any); isList {
+		t.Errorf("%s: R4 interpretation must be a singleton object", id)
+		return
+	}
+	want := []any{stampInterpCoding(cloneJSON(interp))}
+	if !jsonValueEqual(want, r5["interpretation"]) {
+		t.Errorf("%s: gold interpretation must wrap R4 singleton with v3 system/display (authorship, no Convert)", id)
+	}
+}
+
+func assertMedicationFromR4(t *testing.T, id string, r4, r5 map[string]any) {
+	t.Helper()
+	med, ok := r4["medicationCodeableConcept"]
+	if !ok {
+		t.Errorf("%s: R4 missing medicationCodeableConcept", id)
+		return
+	}
+	if _, ok := r5["medicationCodeableConcept"]; ok {
+		t.Errorf("%s: R5 gold must not keep medicationCodeableConcept", id)
+	}
+	want := []any{map[string]any{"concept": stampToyMedCoding(cloneJSON(med))}}
+	if !jsonValueEqual(want, r5["medication"]) {
+		t.Errorf("%s: gold medication[0].concept must wrap R4 medicationCodeableConcept (authorship, no Convert)", id)
+	}
+}
+
+func assertReportedFromR4(t *testing.T, id string, r4, r5 map[string]any) {
+	t.Helper()
+	ref, ok := r4["reportedReference"]
+	if !ok {
+		t.Errorf("%s: type-change R4 missing reportedReference", id)
+		return
+	}
+	if _, ok := r4["reported"]; ok {
+		t.Errorf("%s: R4 must not already have reported", id)
+	}
+	if _, ok := r5["reportedReference"]; ok {
+		t.Errorf("%s: R5 gold must not keep reportedReference", id)
+	}
+	if r5["reported"] != true {
+		t.Errorf("%s: gold reported must be true (authorship, no Convert)", id)
+	}
+	if !jsonValueEqual([]any{ref}, r5["informationSource"]) {
+		t.Errorf("%s: gold informationSource must wrap R4 reportedReference (authorship, no Convert)", id)
+	}
+}
+
+func cloneJSON(v any) any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return v
+	}
+	return out
+}
+
+func stampInterpCoding(interp any) any {
+	m, ok := interp.(map[string]any)
+	if !ok {
+		return interp
+	}
+	coding, _ := m["coding"].([]any)
+	for i, item := range coding {
+		cm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := cm["system"]; !ok {
+			cm["system"] = goldInterpSystem
+		}
+		if code, _ := cm["code"].(string); code == "N" {
+			if _, ok := cm["display"]; !ok {
+				cm["display"] = goldInterpDisplay
+			}
+		}
+		coding[i] = cm
+	}
+	if coding != nil {
+		m["coding"] = coding
+	}
+	return m
+}
+
+func stampToyMedCoding(med any) any {
+	m, ok := med.(map[string]any)
+	if !ok {
+		return med
+	}
+	coding, _ := m["coding"].([]any)
+	for i, item := range coding {
+		cm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := cm["system"]; !ok {
+			cm["system"] = goldToyMedication
+		}
+		coding[i] = cm
+	}
+	if coding != nil {
+		m["coding"] = coding
+	}
+	return m
+}
+
 func assertReasonFromR4(t *testing.T, id string, r4, r5 map[string]any) {
 	t.Helper()
 	var want []any
@@ -352,34 +470,4 @@ func assertReasonFromR4(t *testing.T, id string, r4, r5 map[string]any) {
 	if !jsonValueEqual(want, r5["reason"]) {
 		t.Errorf("%s: gold reason must wrap R4 reasonCode/reasonReference (authorship, no Convert)", id)
 	}
-}
-
-func r4HasCodedMedication(r4 map[string]any) bool {
-	med, _ := r4["medicationCodeableConcept"].(map[string]any)
-	coding, _ := med["coding"].([]any)
-	for _, item := range coding {
-		cm, _ := item.(map[string]any)
-		if _, ok := cm["code"]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func goldHasToyMed(r5 map[string]any) bool {
-	meds, _ := r5["medication"].([]any)
-	if len(meds) == 0 {
-		return false
-	}
-	m, _ := meds[0].(map[string]any)
-	concept, _ := m["concept"].(map[string]any)
-	coding, _ := concept["coding"].([]any)
-	for _, item := range coding {
-		cm, _ := item.(map[string]any)
-		sys, _ := cm["system"].(string)
-		if sys == goldToyMedication {
-			return true
-		}
-	}
-	return false
 }

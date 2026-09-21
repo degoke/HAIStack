@@ -49,9 +49,12 @@ Constraint URLs live on Convert (emission) and in authorship tests
 (testdata); they are not a third scorer table.
 `TestCorpusGoldIsAuthoredOracle` inspects testdata only: gold R5
 copy-through fields (`id`, `subject`, `status`, …) match R4; gold
-`participant.actor` matches R4 `asserter`; gold `reason` wraps R4
-`reasonCode`/`reasonReference`; coded medication has toy-med on the
-medication coding, not a `"code"` substring scan.
+`participant.actor` matches R4 `asserter` and `participant[0].function`
+is the informant coding; gold `interpretation` wraps the R4 singleton
+with v3 system/display; gold `reason` wraps R4 `reasonCode`/`reasonReference`;
+gold `medication[0].concept` wraps R4 `medicationCodeableConcept` (toy-med
+on coded medication); type-change gold `informationSource` wraps R4
+`reportedReference` with `reported: true`.
 `TestConverterImplementsAuthoredGold` **does** call Convert: it requires
 `Convert ≠ gold` because of `meta.source`, and ScoreCorpus to pass. A
 full pass means Convert implements this corpus, not an external mapping.

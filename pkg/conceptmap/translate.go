@@ -2,6 +2,7 @@ package conceptmap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -76,7 +77,7 @@ func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([
 			}
 			groupMatched = true
 			if element.NoMap {
-				return nil, m, fmt.Errorf("ConceptMap %s marks source code %q as no-map", req.MapCanonical, sourceCode)
+				return nil, m, &noMapError{canonical: req.MapCanonical, code: sourceCode}
 			}
 			for _, target := range element.Target {
 				if !acceptableEquivalence(target.Equivalence, target.Relationship) {
@@ -97,7 +98,7 @@ func (t Translator) translateLocal(ctx context.Context, req TranslateRequest) ([
 		}
 	}
 	if len(matches) == 0 {
-		return nil, m, fmt.Errorf("ConceptMap %s has no translation for code %q", req.MapCanonical, sourceCode)
+		return nil, m, &noTranslationError{canonical: req.MapCanonical, code: sourceCode}
 	}
 	return dedupeCodings(matches), m, nil
 }
@@ -214,4 +215,34 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+type noMapError struct {
+	canonical string
+	code      string
+}
+
+func (e *noMapError) Error() string {
+	return fmt.Sprintf("ConceptMap %s marks source code %q as no-map", e.canonical, e.code)
+}
+
+// IsNoMap reports whether err is a ConceptMap no-map element.
+func IsNoMap(err error) bool {
+	var e *noMapError
+	return errors.As(err, &e)
+}
+
+type noTranslationError struct {
+	canonical string
+	code      string
+}
+
+func (e *noTranslationError) Error() string {
+	return fmt.Sprintf("ConceptMap %s has no translation for code %q", e.canonical, e.code)
+}
+
+// IsNoTranslation reports whether err is a missing acceptable translation.
+func IsNoTranslation(err error) bool {
+	var e *noTranslationError
+	return errors.As(err, &e)
 }

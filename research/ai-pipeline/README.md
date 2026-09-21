@@ -46,7 +46,7 @@ The bundle records:
 | `policy.hash` | SHA-256 of the policy document |
 | `tool.name` | `run_view` |
 | `model.adapter` / `model.seed` | seeded stub |
-| `output.content` | stub summary of permissioned context |
+| `output` | stub summary of permissioned context |
 | `citations` | view + resource citations from `pkg/ai` |
 | `audit[]` | `execute-view` and `execute-tool` events |
 

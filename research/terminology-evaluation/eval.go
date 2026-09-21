@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/audit"
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
@@ -67,38 +67,33 @@ type Metrics struct {
 }
 
 // PublishedNote is the command JSON note. It is not a quality claim.
-const PublishedNote = "implementsMap true means $translate implements conceptmap.json; not translator quality and not an external mapping. provenanceComplete true means the ConceptMap body has url, version, and sourceUri."
+const PublishedNote = "implementsMap true means $translate implements conceptmap.json; not translator quality and not an external mapping. provenanceComplete true means the ConceptMap body has url, version, and sourceUri. Observed class counts are $translate output, not a pass/fail score."
 
-// PublishedReport is the command JSON. Pass-rate floats (accuracy,
-// consistency, mapAgreement, provenance) are omitted on purpose: gold cases
-// restate conceptmap.json, and provenance fields are copied from that file.
+// PublishedReport is the command JSON. It omits pass-rate floats and
+// per-case pass rows: gold cases restate conceptmap.json, and provenance
+// fields are copied from that file.
 type PublishedReport struct {
-	Exact              int          `json:"exact"`
-	Narrow             int          `json:"narrow"`
-	Broad              int          `json:"broad"`
-	Unmatched          int          `json:"unmatched"`
-	Passed             int          `json:"passed"`
-	Failed             int          `json:"failed"`
-	ImplementsMap      bool         `json:"implementsMap"`
-	ProvenanceComplete bool         `json:"provenanceComplete"`
-	Results            []CaseResult `json:"results"`
-	Note               string       `json:"note"`
+	Exact              int    `json:"exact"`
+	Narrow             int    `json:"narrow"`
+	Broad              int    `json:"broad"`
+	Unmatched          int    `json:"unmatched"`
+	ImplementsMap      bool   `json:"implementsMap"`
+	ProvenanceComplete bool   `json:"provenanceComplete"`
+	Note               string `json:"note"`
 }
 
 // Publish is the artefact the command prints. implementsMap is failed==0;
 // provenanceComplete is every case's Translate-resolved ConceptMap body
-// carrying url, version, and sourceUri.
+// carrying url, version, and sourceUri. Passed/failed counts and per-case
+// pass flags stay off this JSON.
 func Publish(m Metrics) PublishedReport {
 	return PublishedReport{
 		Exact:              m.Exact,
 		Narrow:             m.Narrow,
 		Broad:              m.Broad,
 		Unmatched:          m.Unmatched,
-		Passed:             m.Passed,
-		Failed:             m.Failed,
 		ImplementsMap:      m.Failed == 0,
 		ProvenanceComplete: m.Provenance == 1,
-		Results:            m.Results,
 		Note:               PublishedNote,
 	}
 }
@@ -277,14 +272,7 @@ func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, 
 }
 
 func unmatchedTranslate(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "no-map") ||
-		strings.Contains(s, "no translation") ||
-		strings.Contains(s, "canonical URL is required") ||
-		strings.Contains(s, "not found")
+	return conceptmap.IsNoMap(err) || conceptmap.IsNoTranslation(err) || conceptmap.IsNotFound(err)
 }
 
 func classFromEquivalence(eq string) string {
