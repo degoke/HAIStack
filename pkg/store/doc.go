@@ -67,6 +67,8 @@
 //
 //   - AppendVersion(ctx, version) appends one ResourceVersion entry.
 //   - GetHistory(ctx, resourceType, id) returns ordered history for one resource.
+//   - GetVersion(ctx, resourceType, id, versionID) returns one history entry or
+//     an error containing "resource not found".
 //
 // ResourceVersion fields:
 //

@@ -21,23 +21,20 @@ func (s *ResourceService) VRead(ctx context.Context, resourceType, id, versionID
 	if resourceType == "" || id == "" || versionID == "" {
 		return nil, invalidErr("resourceType, id, and versionId are required", nil)
 	}
-	versions, err := s.History(ctx, resourceType, id)
+	version, err := s.history.GetVersion(ctx, resourceType, id, versionID)
 	if err != nil {
-		return nil, err
-	}
-	for _, version := range versions {
-		if version.VersionID != versionID {
-			continue
-		}
-		if version.Deleted || version.Action == store.VersionActionDelete {
-			return nil, goneErr(fmt.Sprintf("resource version was deleted: %s/%s/_history/%s", resourceType, id, versionID), nil)
-		}
-		if version.Resource == nil {
+		if isStoreNotFound(err) {
 			return nil, notFoundErr(fmt.Sprintf("resource version not found: %s/%s/_history/%s", resourceType, id, versionID), nil)
 		}
-		return version.Resource, nil
+		return nil, exceptionErr("get resource version", err)
 	}
-	return nil, notFoundErr(fmt.Sprintf("resource version not found: %s/%s/_history/%s", resourceType, id, versionID), nil)
+	if version.Deleted || version.Action == store.VersionActionDelete {
+		return nil, goneErr(fmt.Sprintf("resource version was deleted: %s/%s/_history/%s", resourceType, id, versionID), nil)
+	}
+	if version.Resource == nil {
+		return nil, notFoundErr(fmt.Sprintf("resource version not found: %s/%s/_history/%s", resourceType, id, versionID), nil)
+	}
+	return version.Resource, nil
 }
 
 // FilterHistory applies FHIR instance-history _since and _at filters.
