@@ -135,6 +135,7 @@ type capabilityFlags struct {
 	TerminologyInstall bool
 	TerminologyEnable  bool
 	ConformanceRefresh bool
+	BulkImport         bool
 }
 
 func capabilityFromConfig(cfg Config) capabilityFlags {
@@ -156,6 +157,7 @@ func capabilityFromConfig(cfg Config) capabilityFlags {
 		TerminologyInstall: cfg.TerminologyInstallService != nil,
 		TerminologyEnable:  cfg.TerminologyEnableService != nil,
 		ConformanceRefresh: cfg.ConformanceRefresher != nil,
+		BulkImport:         cfg.BulkImportService != nil,
 	}
 }
 
@@ -439,6 +441,12 @@ func systemOperations(flags capabilityFlags) []map[string]string {
 		ops = append(ops, map[string]string{
 			"name":       "export",
 			"definition": "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/export",
+		})
+	}
+	if flags.BulkImport {
+		ops = append(ops, map[string]string{
+			"name":       "import",
+			"definition": "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/import",
 		})
 	}
 	if flags.ViewRun {

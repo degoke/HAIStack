@@ -150,6 +150,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBulkExport(w, r, route)
 			return
 		}
+		if route.operation == "$import" {
+			h.handleBulkImport(w, r)
+			return
+		}
 		if route.operation == "$viewdefinition-run" {
 			h.handleViewDefinitionRun(w, r, parsedRoute{operation: route.operation})
 			return
@@ -171,6 +175,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBulkExportStatus(w, r, route.jobID)
 	case routeBulkExportFile:
 		h.handleBulkExportFile(w, r, route.jobID, route.filename)
+	case routeBulkImportStatus:
+		h.handleBulkImportStatus(w, r, route.jobID)
+	case routeBulkImportFile:
+		h.handleBulkImportFile(w, r, route.jobID, route.filename)
 	case routeMaterializeStatus:
 		h.handleViewMaterializeStatus(w, r, route.jobID)
 	case routeViewExportStatus:

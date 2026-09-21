@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -37,6 +38,8 @@ type ServiceContainer struct {
 
 	// BulkExportService handles FHIR Bulk Data export when job infrastructure is wired.
 	BulkExportService *export.Service
+	// BulkImportService handles FHIR Bulk Data import when job infrastructure is wired.
+	BulkImportService *bulkimport.Service
 
 	// AnalyticsRunner executes ViewDefinitions when analytics is enabled.
 	AnalyticsRunner *analytics.Runner

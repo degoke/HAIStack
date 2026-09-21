@@ -43,6 +43,9 @@ const (
 	TypeExportCSV = TypePrefixExport + "csv"
 	// TypeExportBulk schedules a FHIR Bulk Data NDJSON export run.
 	TypeExportBulk = TypePrefixExport + "bulk"
+	// TypeImportBulk is the import job type (FHIR Bulk Data NDJSON $import).
+	// The value keeps the export. prefix so existing job-queue wiring stays stable.
+	TypeImportBulk = TypePrefixExport + "import"
 	// TypeViewMaterialize schedules a ViewDefinition materialize run.
 	TypeViewMaterialize = TypePrefixView + "materialize"
 	// TypeViewExport schedules a ViewDefinition export run.

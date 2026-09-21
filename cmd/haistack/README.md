@@ -19,7 +19,7 @@ It does **not**:
 - Replace `pkg/runtime` composition logic (commands call the runtime builder)
 - Implement FHIR business rules or persistence (those live in `pkg/*`)
 - Call remote sync hubs for health checks (`sync status` is local-store only)
-- Provide backup/restore or conflict drill-down (planned later)
+- Provide conflict drill-down (planned later)
 
 ## When to use it
 
@@ -71,6 +71,8 @@ haistack serve
 | `haistack serve` | Build `pkg/runtime`, start HTTP, print bound address. |
 | `haistack validate <file>` | Structural validation via `validate.Engine`. Exits non-zero when invalid. |
 | `haistack import <file>` | Import one JSON resource; use `--create-only` or `--update-only` to control conflicts. |
+| `haistack backup [dir]` | Write NDJSON files plus `manifest.json` for stored resources (default dir `backup`). |
+| `haistack restore [dir]` | Reload an NDJSON backup directory with create-or-update. |
 | `haistack read <ResourceType/id>` | Read one stored resource. |
 | `haistack delete <ResourceType/id> --force` | Delete one stored resource. |
 | `haistack export <ResourceType[/id]>` | Export one resource or a resource collection as JSON. |

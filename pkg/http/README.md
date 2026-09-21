@@ -64,6 +64,10 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
 | `GET` | `/fhir/$export/files/{jobId}/{file}` | Download NDJSON artifact | 200 |
+| `POST` | `/fhir/$import` | System bulk import kickoff (`Prefer: respond-async`, Parameters + NDJSON) | 202 + `Content-Location` when `BulkImportService` configured |
+| `GET` | `/fhir/$import/status/{jobId}` | Poll import status or fetch manifest | 202 in progress, 200 complete |
+| `DELETE` | `/fhir/$import/status/{jobId}` | Cancel import | 202 |
+| `GET` | `/fhir/$import/files/{jobId}/{file}` | Download import error NDJSON artifact | 200 |
 | `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
 | `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
 | `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
@@ -87,6 +91,7 @@ SDC operations (`$populate`, `$assemble`, `$validate`, `$extract`, adaptive ques
 ### Deferred
 
 - Configure `BulkExportService` (typically `pkg/export.Service` wired by `pkg/runtime`) to enable Bulk Data export
+- Configure `BulkImportService` (typically `pkg/bulkimport.Service` wired by `pkg/runtime`) to enable Bulk Data import
 - Full CapabilityStatement conformance coverage
 - SMART metadata and built-in token runtime
 

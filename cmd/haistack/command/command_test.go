@@ -235,6 +235,50 @@ func TestImportCreatesThenUpdates(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	wd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(wd) }()
+
+	coreModule := repoCoreModule(t)
+	writeConfig(t, dir, filepath.Join(dir, "test.db"), coreModule)
+
+	patientPath := filepath.Join(dir, "patient.json")
+	if err := os.WriteFile(patientPath, []byte(`{"resourceType":"Patient","id":"bak-1","name":[{"family":"Backup"}]}`), 0o644); err != nil {
+		t.Fatalf("write patient: %v", err)
+	}
+	if _, _, err := runCLI(t, dir, "import", patientPath); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	backupDir := filepath.Join(dir, "snap")
+	stdout, _, err := runCLI(t, dir, "backup", backupDir, "--output", "json")
+	if err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	if !strings.Contains(stdout, "Patient.ndjson") {
+		t.Fatalf("backup stdout = %q", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, "manifest.json")); err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+
+	if _, _, err := runCLI(t, dir, "delete", "Patient/bak-1", "--force"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	restoreOut, _, err := runCLI(t, dir, "restore", backupDir, "--output", "json")
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if !strings.Contains(restoreOut, `"created"`) {
+		t.Fatalf("restore stdout = %q", restoreOut)
+	}
+	readOut, _, err := runCLI(t, dir, "read", "Patient/bak-1", "--output", "json")
+	if err != nil || !strings.Contains(readOut, "Backup") {
+		t.Fatalf("read after restore: output=%q err=%v", readOut, err)
+	}
+}
+
 func TestSearchParsesKeyValueArgs(t *testing.T) {
 	dir := t.TempDir()
 	wd, _ := os.Getwd()

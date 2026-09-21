@@ -34,7 +34,7 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 			writeError(w, err)
 			return
 		}
-		if strings.ToLower(r.Header.Get("Prefer")) != "respond-async" {
+		if !prefersRespondAsync(r.Header.Get("Prefer")) {
 			writeError(w, invalidRequest("Prefer: respond-async is required for bulk export kickoff", nil))
 			return
 		}
@@ -165,6 +165,22 @@ func parseCSVParam(raw string) []string {
 		}
 	}
 	return out
+}
+
+// prefersRespondAsync reports whether a Prefer header requests async processing.
+// It accepts the FHIR Bulk Data token by itself or as one comma-separated
+// preference, for example "respond-async, wait=10".
+func prefersRespondAsync(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		token := strings.TrimSpace(part)
+		if i := strings.IndexAny(token, "; "); i >= 0 {
+			token = token[:i]
+		}
+		if strings.EqualFold(token, "respond-async") {
+			return true
+		}
+	}
+	return false
 }
 
 func notFound(message string, args ...any) error {

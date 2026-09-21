@@ -67,8 +67,8 @@ Early-stage, under active development.
 | | |
 |---|---|
 | **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions`, `http`, `runtime`, `client` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), change-triggered workflows with webhook/local delivery, FHIR REST HTTP adapter, runtime composition, and Go client SDK |
-| **Partial** | `cli` (operator surface usable; backup/restore and conflict drill-down remain) |
-| **Next (Stage 1)** | `testkit`, CLI backup/restore and conflict drill-down |
+| **Partial** | `cli` (operator surface usable; conflict drill-down remains) |
+| **Next (Stage 1)** | `testkit`, CLI conflict drill-down |
 
 Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlite`. Shared runtime helpers live in `pkg/jobs` and `pkg/audit`. See [Roadmap](#roadmap) for the full plan.
 
