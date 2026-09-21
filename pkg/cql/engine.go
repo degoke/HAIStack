@@ -129,29 +129,23 @@ func (e *Engine) EvalDefine(ctx context.Context, lib *Library, name string, env 
 func (e *Engine) resolveIncludes(ctx context.Context, libs []*Library) ([]*Library, error) {
 	out := append([]*Library(nil), libs...)
 	seen := map[string]bool{}
-	for _, lib := range out {
-		if lib != nil && lib.Name != "" {
-			seen[strings.ToLower(lib.Name)] = true
-		}
-	}
 	for i := 0; i < len(out); i++ {
 		lib := out[i]
 		if lib == nil {
 			continue
 		}
 		for _, inc := range lib.Includes {
-			key := strings.ToLower(inc.Name)
+			key := includeIdentity(inc)
 			if key == "" || seen[key] {
 				continue
 			}
-			if strings.EqualFold(inc.Name, "FHIRHelpers") || strings.EqualFold(inc.Called, "FHIRHelpers") {
+			seen[key] = true
+			if strings.EqualFold(inc.Name, "FHIRHelpers") {
 				helpers := fhirHelpersLibrary()
 				if inc.Called != "" {
 					helpers.Name = inc.Called
 				}
 				out = append(out, helpers)
-				seen[key] = true
-				seen[strings.ToLower(helpers.Name)] = true
 				continue
 			}
 			if e == nil || e.libraries == nil {
@@ -174,17 +168,37 @@ func (e *Engine) resolveIncludes(ctx context.Context, libs []*Library) ([]*Libra
 				resolved = &cp
 			}
 			out = append(out, resolved)
-			seen[key] = true
-			if resolved.Name != "" {
-				seen[strings.ToLower(resolved.Name)] = true
-			}
 		}
 	}
 	return out, nil
 }
 
+const fhirHelpersBuiltinURL = "urn:haistack:cql:FHIRHelpers"
+
 func fhirHelpersLibrary() *Library {
-	return &Library{Name: "FHIRHelpers", Version: "4.0.1", Context: "Unfiltered"}
+	return &Library{Name: "FHIRHelpers", Version: "4.0.1", Context: "Unfiltered", URL: fhirHelpersBuiltinURL}
+}
+
+func isFHIRHelpersLibrary(lib *Library) bool {
+	if lib == nil {
+		return false
+	}
+	if lib.URL == fhirHelpersBuiltinURL {
+		return true
+	}
+	return strings.EqualFold(lib.Name, "FHIRHelpers") && len(lib.Defines) == 0 && len(lib.Functions) == 0
+}
+
+func includeIdentity(inc Include) string {
+	name := strings.ToLower(strings.TrimSpace(inc.Name))
+	if name == "" {
+		return ""
+	}
+	called := strings.ToLower(strings.TrimSpace(inc.Called))
+	if called == "" {
+		called = name
+	}
+	return name + "|" + strings.ToLower(strings.TrimSpace(inc.Version)) + "|" + called
 }
 
 func (e *Engine) checkLen(src string) error {

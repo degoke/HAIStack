@@ -267,7 +267,7 @@ func constructDate(args [][]any, dateTime bool) ([]any, error) {
 	return []any{time.Date(y, time.Month(m), d, h, min, s, 0, time.UTC)}, nil
 }
 
-func constructTime(args [][]any) ([]any, error) {
+func (st *evalState) constructTime(args [][]any) ([]any, error) {
 	h, m, s := 0, 0, 0
 	if len(args) > 0 && len(args[0]) > 0 {
 		if n, ok := asInt(args[0][0]); ok {
@@ -285,6 +285,9 @@ func constructTime(args [][]any) ([]any, error) {
 		}
 	}
 	now := time.Now().UTC()
+	if st != nil && !st.now.IsZero() {
+		now = st.now.UTC()
+	}
 	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, time.UTC)}, nil
 }
 

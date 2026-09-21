@@ -188,13 +188,13 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 		}
 		return []any{st.this}, nil
 	}
+	if v, ok := st.stackValues(name); ok {
+		return v, nil
+	}
 	if st.thisSet {
 		if v, ok := st.memberValues(st.this, name); ok {
 			return v, nil
 		}
-	}
-	if v, ok := st.stack[name]; ok {
-		return v, nil
 	}
 	if def, lib := st.lookupDefine(name); def != nil {
 		return st.evalDefine(lib, *def)
@@ -223,6 +223,9 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 		return []any{*c}, nil
 	}
 	if lib := st.lookupLibrary(name); lib != nil {
+		if isFHIRHelpersLibrary(lib) {
+			return []any{builtinNS{name: "FHIRHelpers"}}, nil
+		}
 		return []any{lib}, nil
 	}
 	if st.patient != nil {
@@ -751,6 +754,9 @@ func (st *evalState) evalCall(n *callNode) ([]any, error) {
 			args[i] = v
 		}
 		if lib, ok := singletonLibrary(recv); ok {
+			if isFHIRHelpersLibrary(lib) {
+				return st.evalFunction("FHIRHelpers."+mem.name, args)
+			}
 			if fn, found := functionByName(lib, mem.name); found {
 				return st.evalUserFunction(lib, &fn, args)
 			}
@@ -871,10 +877,51 @@ func (st *evalState) mapSelect(recv []any, proj Node) ([]any, error) {
 	return out, nil
 }
 
-func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
+func (st *evalState) stackValues(name string) ([]any, bool) {
+	if st == nil || st.stack == nil {
+		return nil, false
+	}
+	if v, ok := st.stack[name]; ok {
+		return v, true
+	}
+	for k, v := range st.stack {
+		if strings.EqualFold(k, name) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func (st *evalState) normalizeFunctionName(name string) string {
 	n := strings.ToLower(name)
-	n = strings.TrimPrefix(n, "fhirhelpers.")
-	n = strings.TrimPrefix(n, "system.")
+	for {
+		trimmed := strings.TrimPrefix(n, "fhirhelpers.")
+		trimmed = strings.TrimPrefix(trimmed, "system.")
+		if i := strings.LastIndex(trimmed, "."); i >= 0 {
+			prefix := trimmed[:i]
+			if st.isHelpersPrefix(prefix) {
+				trimmed = trimmed[i+1:]
+			}
+		}
+		if trimmed == n {
+			return n
+		}
+		n = trimmed
+	}
+}
+
+func (st *evalState) isHelpersPrefix(prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+	if strings.EqualFold(prefix, "FHIRHelpers") || strings.EqualFold(prefix, "System") {
+		return true
+	}
+	return isFHIRHelpersLibrary(st.lookupLibrary(prefix))
+}
+
+func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
+	n := st.normalizeFunctionName(name)
 	switch n {
 	case "first":
 		if len(args) == 0 || len(args[0]) == 0 {
@@ -1023,7 +1070,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 	case "datetime":
 		return constructDate(args, true)
 	case "time":
-		return constructTime(args)
+		return st.constructTime(args)
 	case "startswith":
 		return stringPred(args, strings.HasPrefix)
 	case "endswith":

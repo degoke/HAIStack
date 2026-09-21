@@ -827,3 +827,170 @@ define "In VS":
 		t.Fatalf("MemberOf false must not match valueset name/display: %#v", got)
 	}
 }
+
+func TestQueryLetDoesNotLeakOrLoseToThis(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"text": "Heart rate"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Lets version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Items":
+  from {1, 2} X let y: X * 10 return y
+define "Leaked":
+  y
+define "StatusLet":
+  from [Observation] O let status: 'override' return status
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "Items", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || fmt.Sprint(got[0]) != "10" || fmt.Sprint(got[1]) != "20" {
+		t.Fatalf("let per row: %#v", got)
+	}
+	if _, err := eng.EvalDefine(context.Background(), lib, "Leaked", env); err == nil {
+		t.Fatal("query let leaked into a later define")
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "StatusLet", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "override" {
+		t.Fatalf("let should win over $this.status: %#v", got)
+	}
+}
+
+func TestFHIRHelpersCalledAliasAndSecondInclude(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library HelpersAlias version '1.0.0'
+using FHIR version '4.0.1'
+include FHIRHelpers version '4.0.1' called FHIRHelpers
+include FHIRHelpers version '4.0.1' called H
+context Patient
+define "ViaName":
+  FHIRHelpers.ToInterval({ start: @2020-01-01, end: @2021-01-01 })
+define "ViaAlias":
+  H.ToInterval({ start: @2020-01-01, end: @2021-01-01 })
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "ViaName", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := asInterval(got[0]); !ok {
+		t.Fatalf("FHIRHelpers.ToInterval: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "ViaAlias", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := asInterval(got[0]); !ok {
+		t.Fatalf("H.ToInterval: %#v", got)
+	}
+}
+
+func TestIntervalOpenBoundsIncludes(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval(1, 10) includes Interval[1, 5]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("open outer must not include closed inner start: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 10] includes Interval[1, 5]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("closed outer includes closed inner: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval(1, 10) includes Interval(1, 5)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("open outer includes open inner at the same bound: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 during Interval(1, 10)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("point on open bound is not during: %#v", got)
+	}
+}
+
+func TestRetrieveCodeEqualsAndEquivalent(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"text": "Heart rate"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), `[Observation: code = "Heart rate"]`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("code = retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: code ~ "Heart rate"]`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("code ~ retrieve: %#v", got)
+	}
+}
+
+func TestTimeUsesEngineClock(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Time(1, 2, 3)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok := got[0].(time.Time)
+	if !ok {
+		t.Fatalf("Time(): %#v", got)
+	}
+	if tm.Year() != 2026 || tm.Month() != time.September || tm.Day() != 21 || tm.Hour() != 1 || tm.Minute() != 2 || tm.Second() != 3 {
+		t.Fatalf("Time() used wall clock instead of engine Now: %v", tm)
+	}
+}

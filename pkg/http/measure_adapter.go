@@ -53,19 +53,27 @@ func (s CoreMeasureService) EvaluateMeasure(ctx context.Context, req MeasureEval
 		Subject:     params.subject,
 		Libraries:   libs,
 		Retriever:   s.Retriever,
+		Parameters:  params.extra,
 	}
 	reportType := strings.ToLower(strings.TrimSpace(params.reportType))
-	individual := reportType == "individual" || reportType == "subject" || (reportType == "" && params.subject != "" && !strings.Contains(strings.ToLower(params.subject), "group/"))
-	if strings.Contains(strings.ToLower(params.subject), "group/") {
+	isGroup := strings.Contains(strings.ToLower(params.subject), "group/")
+	wantIndividual := reportType == "individual" || reportType == "subject" || (reportType == "" && params.subject != "" && !isGroup)
+	if isGroup {
 		patients, err := s.loadGroupMembers(ctx, params.subject)
 		if err != nil {
 			return nil, err
 		}
 		mreq.Patients = patients
-		if mreq.ReportType == "" {
+		switch {
+		case wantIndividual && len(patients) == 1:
+			mreq.Patient = patients[0]
+			mreq.ReportType = "individual"
+		case wantIndividual:
+			mreq.ReportType = "summary"
+		case mreq.ReportType == "":
 			mreq.ReportType = "summary"
 		}
-	} else if individual {
+	} else if wantIndividual {
 		patient, err := s.loadPatient(ctx, params.subject)
 		if err != nil {
 			return nil, err
@@ -97,6 +105,24 @@ type evaluateMeasureParams struct {
 	reportType       string
 	subject          string
 	measureCanonical string
+	extra            map[string]any
+}
+
+type measureParameter struct {
+	Name           string   `json:"name"`
+	ValueDate      string   `json:"valueDate"`
+	ValueDateTime  string   `json:"valueDateTime"`
+	ValueCode      string   `json:"valueCode"`
+	ValueString    string   `json:"valueString"`
+	ValueCanonical string   `json:"valueCanonical"`
+	ValueInteger   *int64   `json:"valueInteger"`
+	ValueBoolean   *bool    `json:"valueBoolean"`
+	ValueDecimal   *float64 `json:"valueDecimal"`
+	ValueQuantity  *struct {
+		Value float64 `json:"value"`
+		Unit  string  `json:"unit"`
+		Code  string  `json:"code"`
+	} `json:"valueQuantity"`
 }
 
 func parseEvaluateMeasureInput(req MeasureEvaluateRequest) (evaluateMeasureParams, error) {
@@ -123,14 +149,7 @@ func parseEvaluateMeasureInput(req MeasureEvaluateRequest) (evaluateMeasureParam
 		return evaluateMeasureParams{}, invalidRequest("Measure/$evaluate-measure body must be Parameters", nil)
 	}
 	var body struct {
-		Parameter []struct {
-			Name           string `json:"name"`
-			ValueDate      string `json:"valueDate"`
-			ValueDateTime  string `json:"valueDateTime"`
-			ValueCode      string `json:"valueCode"`
-			ValueString    string `json:"valueString"`
-			ValueCanonical string `json:"valueCanonical"`
-		} `json:"parameter"`
+		Parameter []measureParameter `json:"parameter"`
 	}
 	if err := json.Unmarshal(req.Body, &body); err != nil {
 		return evaluateMeasureParams{}, invalidRequest("parse Parameters", err)
@@ -157,12 +176,48 @@ func parseEvaluateMeasureInput(req MeasureEvaluateRequest) (evaluateMeasureParam
 			if v := firstMeasureParam(p.ValueCanonical, p.ValueString); v != "" {
 				out.measureCanonical = v
 			}
+		default:
+			if v, ok := parameterCQLValue(p); ok {
+				if out.extra == nil {
+					out.extra = map[string]any{}
+				}
+				out.extra[p.Name] = v
+			}
 		}
 	}
 	if out.periodStart == "" || out.periodEnd == "" {
 		return evaluateMeasureParams{}, invalidRequest("periodStart and periodEnd are required", nil)
 	}
 	return out, nil
+}
+
+func parameterCQLValue(p measureParameter) (any, bool) {
+	if p.ValueInteger != nil {
+		return *p.ValueInteger, true
+	}
+	if p.ValueBoolean != nil {
+		return *p.ValueBoolean, true
+	}
+	if p.ValueDecimal != nil {
+		return *p.ValueDecimal, true
+	}
+	if p.ValueQuantity != nil {
+		unit := p.ValueQuantity.Unit
+		if unit == "" {
+			unit = p.ValueQuantity.Code
+		}
+		return cql.Quantity{Value: p.ValueQuantity.Value, Unit: unit}, true
+	}
+	if v := firstMeasureParam(p.ValueDateTime, p.ValueDate); v != "" {
+		if tm, err := parseMeasureDate(v, p.Name); err == nil {
+			return tm, true
+		}
+		return v, true
+	}
+	if v := firstMeasureParam(p.ValueString, p.ValueCode, p.ValueCanonical); v != "" {
+		return v, true
+	}
+	return nil, false
 }
 
 func firstMeasureParam(values ...string) string {
@@ -195,6 +250,9 @@ func (s CoreMeasureService) loadMeasure(ctx context.Context, id, canonical strin
 		env, err := s.Resources.Read(ctx, "Measure", id)
 		if err != nil {
 			return nil, err
+		}
+		if env == nil {
+			return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "Measure " + id + " was not found"}
 		}
 		return env, nil
 	}
@@ -270,6 +328,9 @@ func (s CoreMeasureService) loadPatient(ctx context.Context, subject string) (*t
 	env, err := s.Resources.Read(ctx, "Patient", id)
 	if err != nil {
 		return nil, err
+	}
+	if env == nil {
+		return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "Patient " + id + " was not found"}
 	}
 	return env, nil
 }

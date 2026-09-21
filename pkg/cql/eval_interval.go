@@ -246,37 +246,57 @@ func intervalContains(iv Interval, point any, properly bool) bool {
 }
 
 func intervalIncludes(outer, inner Interval, properly bool) bool {
-	if inner.Low != nil && !intervalContains(outer, inner.Low, properly && inner.LowClosed) {
-		if inner.LowClosed || !boundaryLTE(outer.Low, inner.Low, outer.LowClosed) {
-			if properly || !cqlEqual(outer.Low, inner.Low) {
-				if !intervalContains(outer, inner.Low, false) {
-					return false
-				}
-			}
-		}
+	if !intervalBoundIncludesLow(outer, inner) || !intervalBoundIncludesHigh(outer, inner) {
+		return false
 	}
-	if inner.High != nil && !intervalContains(outer, inner.High, properly && inner.HighClosed) {
-		if !intervalContains(outer, inner.High, false) {
-			return false
-		}
-	}
-	if properly {
-		if cqlEqual(outer.Low, inner.Low) && cqlEqual(outer.High, inner.High) {
-			return false
-		}
+	if properly && intervalBoundsEqual(outer, inner) {
+		return false
 	}
 	return true
 }
 
-func boundaryLTE(a, b any, closed bool) bool {
-	cmp, ok := cqlCompare(a, b)
+func intervalBoundIncludesLow(outer, inner Interval) bool {
+	if inner.Low == nil {
+		return outer.Low == nil
+	}
+	if outer.Low == nil {
+		return true
+	}
+	cmp, ok := cqlCompare(inner.Low, outer.Low)
+	if !ok {
+		return false
+	}
+	if cmp > 0 {
+		return true
+	}
+	if cmp == 0 {
+		return outer.LowClosed || !inner.LowClosed
+	}
+	return false
+}
+
+func intervalBoundIncludesHigh(outer, inner Interval) bool {
+	if inner.High == nil {
+		return outer.High == nil
+	}
+	if outer.High == nil {
+		return true
+	}
+	cmp, ok := cqlCompare(inner.High, outer.High)
 	if !ok {
 		return false
 	}
 	if cmp < 0 {
 		return true
 	}
-	return cmp == 0 && closed
+	if cmp == 0 {
+		return outer.HighClosed || !inner.HighClosed
+	}
+	return false
+}
+
+func intervalBoundsEqual(a, b Interval) bool {
+	return cqlEqual(a.Low, b.Low) && cqlEqual(a.High, b.High) && a.LowClosed == b.LowClosed && a.HighClosed == b.HighClosed
 }
 
 func intervalOverlaps(a, b Interval) bool {

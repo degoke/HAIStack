@@ -150,24 +150,16 @@ func withQueryScope[T any](st *evalState, locals map[string][]any, this any, thi
 	if thisSet {
 		st.this, st.thisSet = this, true
 	}
-	prev := map[string][]any{}
-	had := map[string]bool{}
+	prevStack := map[string][]any{}
+	for k, v := range st.stack {
+		prevStack[k] = v
+	}
 	for k, v := range locals {
-		if old, ok := st.stack[k]; ok {
-			prev[k] = old
-			had[k] = true
-		}
 		st.stack[k] = v
 	}
 	defer func() {
 		st.this, st.thisSet = prevThis, prevSet
-		for k := range locals {
-			if had[k] {
-				st.stack[k] = prev[k]
-			} else {
-				delete(st.stack, k)
-			}
-		}
+		st.stack = prevStack
 	}()
 	return fn()
 }

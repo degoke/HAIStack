@@ -1071,9 +1071,13 @@ func (p *parser) parseRetrieve() (Node, error) {
 			lx := newLexer(rest)
 			_ = lx.next()
 			next := lx.next()
-			if next.kind == tIdent && keywordEq(next.text, "in") {
+			switch {
+			case next.kind == tIdent && keywordEq(next.text, "in"):
 				p.lex.next() // code
 				p.acceptKeyword("in")
+			case next.kind == tEq, next.kind == tTilde:
+				p.lex.next() // code
+				p.lex.next() // = or ~
 			}
 		}
 		switch p.lex.lookahead().kind {

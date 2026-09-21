@@ -64,7 +64,7 @@ func (e *Engine) EvaluateMeasure(ctx context.Context, req MeasureRequest) (*type
 		Low:        periodStart,
 		High:       periodEnd,
 		LowClosed:  true,
-		HighClosed: false,
+		HighClosed: true,
 	}
 	subjects, err := measureSubjects(req, reportType)
 	if err != nil {
@@ -84,9 +84,18 @@ func measureSubjects(req MeasureRequest, reportType string) ([]any, error) {
 		if req.Patient != nil {
 			return []any{req.Patient}, nil
 		}
+		if len(req.Patients) == 1 {
+			return req.Patients, nil
+		}
+		if len(req.Patients) > 1 {
+			return nil, errf("%w: individual report requires a single Patient", ErrMeasure)
+		}
 		return nil, errf("%w: individual report requires a subject Patient", ErrMeasure)
 	}
 	if len(req.Patients) == 0 {
+		if req.Patient != nil {
+			return []any{req.Patient}, nil
+		}
 		return nil, errf("%w: summary report requires a patient population", ErrMeasure)
 	}
 	return req.Patients, nil
@@ -214,14 +223,14 @@ func buildMeasureReport(ctx context.Context, e *Engine, m fhirMeasure, reportTyp
 		groups = append(groups, groupOut)
 		contained = append(contained, lists...)
 	}
-	if len(m.SupplementalData) > 0 && reportType == "individual" && len(subjects) == 1 {
-		env.Patient = subjects[0]
-		for _, sd := range m.SupplementalData {
-			_, _, err := evalPopulation(ctx, e, sd, env)
-			if err != nil {
-				return nil, err
-			}
-		}
+	sdeContained, sdeRefs, err := evalSupplementalData(ctx, e, m, subjects, env)
+	if err != nil {
+		return nil, err
+	}
+	contained = append(contained, sdeContained...)
+	if len(sdeRefs) > 0 {
+		evalRes, _ := report["evaluatedResource"].([]any)
+		report["evaluatedResource"] = append(evalRes, sdeRefs...)
 	}
 	report["group"] = groups
 	if len(contained) > 0 {
@@ -250,27 +259,37 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 		strat int
 		value string
 	}
+	hasIP := false
+	for _, p := range pops {
+		if p.code == "initial-population" {
+			hasIP = true
+			break
+		}
+	}
 	stratumCounts := map[stratumKey]int{}
 	for _, subject := range subjects {
 		env.Patient = subject
+		inIP := !hasIP
 		for i := range pops {
-			ok, n, err := evalPopulation(ctx, e, pops[i].def, env)
+			ok, _, err := evalPopulation(ctx, e, pops[i].def, env)
 			if err != nil {
 				return nil, nil, err
 			}
 			if !ok {
 				continue
 			}
-			if reportType == "individual" {
-				pops[i].count += n
-			} else {
-				pops[i].count++
+			pops[i].count++
+			if pops[i].code == "initial-population" {
+				inIP = true
 			}
 			if reportType == "subject-list" {
 				if ref := patientReference(subject); ref != "" {
 					pops[i].subjects = append(pops[i].subjects, ref)
 				}
 			}
+		}
+		if !inIP {
+			continue
 		}
 		for si, strat := range g.Stratifier {
 			expr := strings.TrimSpace(strat.Criteria.Expression)
@@ -392,7 +411,7 @@ func evalPopulation(ctx context.Context, e *Engine, pop fhirMeasurePopulation, e
 			return false, 0, nil
 		}
 	}
-	return true, len(vals), nil
+	return true, 1, nil
 }
 
 func applyPopulationExclusions(pops []popEval, scoring string) {
@@ -504,6 +523,141 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+func evalSupplementalData(ctx context.Context, e *Engine, m fhirMeasure, subjects []any, env EvalContext) ([]any, []any, error) {
+	if len(m.SupplementalData) == 0 || len(subjects) == 0 {
+		return nil, nil, nil
+	}
+	var contained []any
+	var refs []any
+	idx := 0
+	for si, subject := range subjects {
+		env.Patient = subject
+		for _, sd := range m.SupplementalData {
+			expr := strings.TrimSpace(sd.Criteria.Expression)
+			if expr == "" {
+				continue
+			}
+			lang := sd.Criteria.Language
+			if lang == "" {
+				lang = "text/cql.identifier"
+			}
+			env.Language = lang
+			vals, err := e.Eval(ctx, expr, env)
+			if err != nil {
+				return nil, nil, errf("%w: supplementalData: %v", ErrMeasure, err)
+			}
+			id := "sde-" + itoa(idx)
+			if sd.ID != "" {
+				id = sd.ID
+				if len(subjects) > 1 {
+					id = sd.ID + "-" + itoa(si)
+				}
+			}
+			idx++
+			obs := map[string]any{
+				"resourceType": "Observation",
+				"id":           id,
+				"status":       "final",
+			}
+			if code := sd.Code.code(); code != "" || sd.Code.Text != "" {
+				obs["code"] = conceptJSON(sd.Code)
+			} else {
+				text := sd.ID
+				if text == "" {
+					text = expr
+				}
+				obs["code"] = map[string]any{"text": text}
+			}
+			if ref := patientReference(subject); ref != "" {
+				obs["subject"] = map[string]any{"reference": ref}
+			}
+			applyObservationValue(obs, vals)
+			contained = append(contained, obs)
+			refs = append(refs, map[string]any{"reference": "#" + id})
+			for _, v := range vals {
+				if r := patientReference(v); r != "" {
+					refs = append(refs, map[string]any{"reference": r})
+				}
+			}
+		}
+	}
+	return contained, refs, nil
+}
+
+func applyObservationValue(obs map[string]any, vals []any) {
+	if len(vals) == 0 {
+		return
+	}
+	if len(vals) > 1 {
+		raw, err := json.Marshal(jsonifyCQL(vals))
+		if err != nil {
+			obs["valueString"] = fmt.Sprint(vals)
+			return
+		}
+		obs["valueString"] = string(raw)
+		return
+	}
+	v := unwrapPrimitive(vals[0])
+	if r := patientReference(v); r != "" {
+		obs["valueReference"] = map[string]any{"reference": r}
+		return
+	}
+	switch x := v.(type) {
+	case bool:
+		obs["valueBoolean"] = x
+	case int:
+		obs["valueInteger"] = x
+	case int32:
+		obs["valueInteger"] = int64(x)
+	case int64:
+		obs["valueInteger"] = x
+	case float64:
+		obs["valueDecimal"] = x
+	case time.Time:
+		obs["valueDateTime"] = x.UTC().Format(time.RFC3339)
+	case string:
+		obs["valueString"] = x
+	case Quantity:
+		item := map[string]any{"value": x.Value}
+		if x.Unit != "" {
+			item["unit"] = x.Unit
+		}
+		obs["valueQuantity"] = item
+	default:
+		raw, err := json.Marshal(jsonifyCQL(v))
+		if err != nil {
+			obs["valueString"] = fmt.Sprint(v)
+			return
+		}
+		obs["valueString"] = string(raw)
+	}
+}
+
+func jsonifyCQL(v any) any {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC().Format(time.RFC3339)
+	case Quantity:
+		return map[string]any{"value": x.Value, "unit": x.Unit}
+	case Interval:
+		return map[string]any{"low": jsonifyCQL(x.Low), "high": jsonifyCQL(x.High), "lowClosed": x.LowClosed, "highClosed": x.HighClosed}
+	case []any:
+		out := make([]any, len(x))
+		for i, el := range x {
+			out[i] = jsonifyCQL(el)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, el := range x {
+			out[k] = jsonifyCQL(el)
+		}
+		return out
+	default:
+		return unwrapPrimitive(v)
+	}
 }
 
 // ListStorePatients loads Patient resources from a ResourceStore for summary evaluation.
