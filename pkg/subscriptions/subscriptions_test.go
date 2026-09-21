@@ -713,6 +713,18 @@ func TestRegisterFromFHIRSubscriptionSupportedAndUnsupported(t *testing.T) {
 
 	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
 		Status:   "active",
+		Criteria: "Patient?birthdate=gt2020-01-01",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
+	if !errors.Is(err, subscriptions.ErrUnsupportedFHIR) {
+		t.Fatalf("expected ErrUnsupportedFHIR for gt prefix, got %v", err)
+	}
+
+	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
 		Criteria: "Patient?_include=Patient:general-practitioner",
 		Channel: subscriptions.FHIRSubscriptionChannel{
 			Type:     "rest-hook",

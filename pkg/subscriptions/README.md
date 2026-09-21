@@ -112,9 +112,9 @@ subscriptions.Trigger{
 
 Set `Matcher.Registry` to the search parameter registry whenever subscriptions
 use `FilterParams` / FHIR `Subscription.criteria`. A nil registry returns
-`ErrNilRegistry` instead of silently skipping matches. `pkg/runtime` does not
-wire the subscription processor; hosts that start it must pass both Engine and
-Registry.
+`ErrNilRegistry` instead of silently skipping matches. `pkg/runtime` wires
+`SubscriptionMatcher` with the FHIRPath engine and search registry, and
+attaches that matcher to `SubscriptionProcessor`, so hosts do not have to.
 
 ```go
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
@@ -168,9 +168,9 @@ go runner.RunOnce(ctx) // or wrap jobs.Runner in a loop
 FHIR R4 `Subscription.criteria` is rest-hook only and fires on **create and
 update** of matching resources (internal event `change`). Equality search
 parameters work — for example `Patient?active=true` matches a Patient whose
-`active` token is true. Hosts must set `Matcher.Registry` (and `Matcher.Engine`)
-when processing criteria subscriptions; a nil registry returns
-`subscriptions.ErrNilRegistry` instead of a silent miss.
+`active` token is true. A default `pkg/runtime` wires `Matcher.Registry` and
+`Matcher.Engine`; hosts that construct a matcher themselves must set both or
+criteria matching returns `subscriptions.ErrNilRegistry`.
 
 ```go
 rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{

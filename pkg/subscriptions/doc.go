@@ -65,6 +65,7 @@
 // create/update. FilterParams are parsed from Subscription.criteria with
 // search.ParseQuery and matched with search.MatchResourceParameter. Matcher.Registry
 // must be set when FilterParams is used; a nil registry returns ErrNilRegistry.
+// pkg/runtime wires Matcher.Engine and Matcher.Registry on the default runtime.
 // Changed-field matching compares top-level JSON fields between the previous
 // history snapshot and the current resource. FHIR adapter criteria use
 // TriggerEventChange so matching resources notify on create and update, not delete.

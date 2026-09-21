@@ -117,15 +117,55 @@ func rejectUnsupportedCriteria(parsed *search.Query) error {
 			return fmt.Errorf("%w: criteria modifiers are not supported", ErrUnsupportedFHIR)
 		}
 		for _, value := range clause.Values {
-			if strings.TrimSpace(value.Prefix) != "" {
-				return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
-			}
-			if value.Operator != "" && value.Operator != search.OpEqual {
-				return fmt.Errorf("%w: criteria operators other than eq are not supported", ErrUnsupportedFHIR)
+			if err := rejectUnsupportedPrefix(value); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// fhirSearchPrefixes are FHIR search comparator prefixes (date/number/quantity).
+// ParseQuery leaves them glued to ValueClause.Raw with Operator OpEqual, so
+// registration has to detect them from the raw value.
+var fhirSearchPrefixes = []string{"eq", "ne", "gt", "lt", "ge", "le", "sa", "eb", "ap"}
+
+func rejectUnsupportedPrefix(value search.ValueClause) error {
+	if strings.TrimSpace(value.Prefix) != "" {
+		return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
+	}
+	if value.Operator != "" && value.Operator != search.OpEqual {
+		return fmt.Errorf("%w: criteria operators other than eq are not supported", ErrUnsupportedFHIR)
+	}
+	if prefix := fhirSearchPrefix(value.Raw); prefix != "" {
+		return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
+	}
+	return nil
+}
+
+func fhirSearchPrefix(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, prefix := range fhirSearchPrefixes {
+		if len(raw) <= len(prefix) || !strings.HasPrefix(raw, prefix) {
+			continue
+		}
+		if fhirPrefixedValueRemainder(raw[len(prefix):]) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func fhirPrefixedValueRemainder(rest string) bool {
+	if rest == "" {
+		return false
+	}
+	switch rest[0] {
+	case '+', '-':
+		return len(rest) > 1 && rest[1] >= '0' && rest[1] <= '9'
+	default:
+		return rest[0] >= '0' && rest[0] <= '9'
+	}
 }
 
 func channelFromFHIR(ch FHIRSubscriptionChannel, payload string) (Channel, error) {
