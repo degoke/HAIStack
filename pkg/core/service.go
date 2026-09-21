@@ -27,16 +27,17 @@ type ResourceService struct {
 	idPolicy  ResourceIDPolicy
 	codec     types.ResourceCodec
 
-	validator               validate.Validator
-	indexer                 search.Indexer
-	outbox                  hasync.Outbox
-	terminology             store.TerminologyStore
-	terminologyScope        string
-	globalTerminologyScope  string
-	terminologySourceModule string
-	terminologyCache        terminology.Invalidator
-	definitionIngestor      DefinitionIngestor
-	conformanceRefresh      func(ctx context.Context) error
+	validator                   validate.Validator
+	indexer                     search.Indexer
+	outbox                      hasync.Outbox
+	terminology                 store.TerminologyStore
+	terminologyScope            string
+	globalTerminologyScope      string
+	terminologySourceModule     string
+	terminologyCache            terminology.Invalidator
+	definitionIngestor          DefinitionIngestor
+	conformanceRefresh          func(ctx context.Context) error
+	enforceReferentialIntegrity bool
 }
 
 // ResourceServiceConfig configures a ResourceService.
@@ -60,6 +61,12 @@ type ResourceServiceConfig struct {
 	TerminologyCache        terminology.Invalidator
 	DefinitionIngestor      DefinitionIngestor
 	ConformanceRefresh      func(ctx context.Context) error
+
+	// EnforceReferentialIntegrity is the HAPI-style
+	// enforceReferentialIntegrityOnWrite toggle. Nil (the zero value) enables
+	// the check, matching NewResourceService's default. Set to a pointer to
+	// false to skip checkReferentialIntegrity on write.
+	EnforceReferentialIntegrity *bool
 }
 
 // NewResourceService constructs a ResourceService with required dependencies.
@@ -82,22 +89,27 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 	if cfg.TerminologyScope == "" {
 		cfg.TerminologyScope = "default"
 	}
+	enforceIntegrity := true
+	if cfg.EnforceReferentialIntegrity != nil {
+		enforceIntegrity = *cfg.EnforceReferentialIntegrity
+	}
 	return &ResourceService{
-		resources:               cfg.Resources,
-		history:                 cfg.History,
-		sessions:                cfg.Sessions,
-		idPolicy:                cfg.IDPolicy,
-		codec:                   cfg.Codec,
-		validator:               cfg.Validator,
-		indexer:                 cfg.Indexer,
-		outbox:                  cfg.Outbox,
-		terminology:             cfg.Terminology,
-		terminologyScope:        cfg.TerminologyScope,
-		globalTerminologyScope:  cfg.GlobalTerminologyScope,
-		terminologySourceModule: cfg.TerminologySourceModule,
-		terminologyCache:        cfg.TerminologyCache,
-		definitionIngestor:      cfg.DefinitionIngestor,
-		conformanceRefresh:      cfg.ConformanceRefresh,
+		resources:                   cfg.Resources,
+		history:                     cfg.History,
+		sessions:                    cfg.Sessions,
+		idPolicy:                    cfg.IDPolicy,
+		codec:                       cfg.Codec,
+		validator:                   cfg.Validator,
+		indexer:                     cfg.Indexer,
+		outbox:                      cfg.Outbox,
+		terminology:                 cfg.Terminology,
+		terminologyScope:            cfg.TerminologyScope,
+		globalTerminologyScope:      cfg.GlobalTerminologyScope,
+		terminologySourceModule:     cfg.TerminologySourceModule,
+		terminologyCache:            cfg.TerminologyCache,
+		definitionIngestor:          cfg.DefinitionIngestor,
+		conformanceRefresh:          cfg.ConformanceRefresh,
+		enforceReferentialIntegrity: enforceIntegrity,
 	}, nil
 }
 
@@ -377,6 +389,9 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
+	// Integrity runs immediately before version metadata and persist. If a
+	// pre-storage hook is merged in, order must remain: pre-storage →
+	// referential integrity → withVersionMeta → persist.
 	if err := s.checkReferentialIntegrity(ctx, session, envelope); err != nil {
 		return nil, err
 	}

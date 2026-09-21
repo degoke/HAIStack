@@ -688,6 +688,60 @@ func TestReferentialIntegrityTransactionSeesEarlierEntries(t *testing.T) {
 	}
 }
 
+func TestReferentialIntegrityTransactionAllowsLaterCreates(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	bundleJSON := []byte(`{
+		"resourceType":"Bundle",
+		"type":"transaction",
+		"entry":[
+			{"request":{"method":"POST","url":"Observation"},"resource":{"resourceType":"Observation","status":"final","code":{"text":"hr"},"subject":{"reference":"Patient/pat-txn"}}},
+			{"request":{"method":"POST","url":"Patient"},"resource":{"resourceType":"Patient","id":"pat-txn","name":[{"family":"Txn"}]}}
+		]
+	}`)
+	if _, err := harness.svc.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
+		ResourceType: "Bundle",
+		JSON:         bundleJSON,
+	}); err != nil {
+		t.Fatalf("ProcessTransactionBundle: %v", err)
+	}
+}
+
+func TestReferentialIntegrityTransactionAllowsMatchingURNUUID(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	bundleJSON := []byte(`{
+		"resourceType":"Bundle",
+		"type":"transaction",
+		"entry":[
+			{"fullUrl":"urn:uuid:11111111-1111-1111-1111-111111111111","request":{"method":"POST","url":"Observation"},"resource":{"resourceType":"Observation","status":"final","code":{"text":"hr"},"subject":{"reference":"urn:uuid:22222222-2222-2222-2222-222222222222"}}},
+			{"fullUrl":"urn:uuid:22222222-2222-2222-2222-222222222222","request":{"method":"POST","url":"Patient"},"resource":{"resourceType":"Patient","name":[{"family":"Txn"}]}}
+		]
+	}`)
+	if _, err := harness.svc.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
+		ResourceType: "Bundle",
+		JSON:         bundleJSON,
+	}); err != nil {
+		t.Fatalf("ProcessTransactionBundle: %v", err)
+	}
+}
+
+func TestReferentialIntegrityDisabledAllowsMissingLocalReference(t *testing.T) {
+	disabled := false
+	harness := newTestHarness(t, harnessOptions{enforceReferentialIntegrity: &disabled})
+	ctx := context.Background()
+
+	created, err := harness.svc.Create(ctx, observationWithSubject("obs-1", "pat-missing"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.ID != "obs-1" {
+		t.Fatalf("ID = %q", created.ID)
+	}
+}
+
 func TestReferentialIntegrityVersionedReferenceUsesLogicalID(t *testing.T) {
 	harness := newTestHarness(t, harnessOptions{})
 	ctx := context.Background()
@@ -736,9 +790,10 @@ func observationWithSubject(id, patientID string) *types.ResourceEnvelope {
 }
 
 type harnessOptions struct {
-	outbox    bool
-	indexer   bool
-	validator validate.Validator
+	outbox                      bool
+	indexer                     bool
+	validator                   validate.Validator
+	enforceReferentialIntegrity *bool
 }
 
 type testHarness struct {
@@ -763,6 +818,9 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 	}
 	if opts.outbox {
 		cfg.Outbox = &hasync.EventStoreOutbox{}
+	}
+	if opts.enforceReferentialIntegrity != nil {
+		cfg.EnforceReferentialIntegrity = opts.enforceReferentialIntegrity
 	}
 	svc, err := core.NewResourceService(cfg)
 	if err != nil {

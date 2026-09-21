@@ -806,7 +806,7 @@ func TestPatientScopedSearchInjectsQueryFilter(t *testing.T) {
 	}
 }
 
-func TestPatientScopedSearchDoesNotPostFilterPrimaryMatches(t *testing.T) {
+func TestPatientScopedSearchRewritesQueryAndStripsOutOfCompartmentMatches(t *testing.T) {
 	inScope := &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-in"}
 	outScope := &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-out"}
 	searchSvc := hahttp.SearchServiceAdapter{
@@ -815,9 +815,11 @@ func TestPatientScopedSearchDoesNotPostFilterPrimaryMatches(t *testing.T) {
 				if params.Get("subject") != "Patient/pat-1" {
 					t.Fatalf("expected rewritten subject, got %#v", params)
 				}
+				total := 2
 				return search.AssembleBundle(&search.Result{
 					ResourceType: resourceType,
 					Resources:    []*types.ResourceEnvelope{inScope, outScope},
+					Total:        &total,
 				}), nil
 			},
 		},
@@ -847,8 +849,16 @@ func TestPatientScopedSearchDoesNotPostFilterPrimaryMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := bundle["entry"].([]any)
-	if len(entries) != 2 {
-		t.Fatalf("expected rewritten-query matches to be returned without fetch-then-hide, got %d", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("expected out-of-compartment match stripped, got %d", len(entries))
+	}
+	entry, _ := entries[0].(map[string]any)
+	resource, _ := entry["resource"].(map[string]any)
+	if resource["id"] != "obs-in" {
+		t.Fatalf("kept id = %v, want obs-in", resource["id"])
+	}
+	if got, ok := bundle["total"].(float64); !ok || got != 2 {
+		t.Fatalf("total = %v, want query-time 2", bundle["total"])
 	}
 }
 

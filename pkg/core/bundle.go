@@ -25,6 +25,12 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 		return nil, err
 	}
 
+	pending, err := s.collectBundlePendingIdentities(parsed)
+	if err != nil {
+		return nil, err
+	}
+	ctx = contextWithPendingIdentities(ctx, pending)
+
 	session, err := s.sessions.BeginWrite(ctx)
 	if err != nil {
 		return nil, exceptionErr("begin write session", err)
@@ -81,6 +87,7 @@ type transactionBundle struct {
 type bundleRequestEntry struct {
 	Method      string
 	URL         string
+	FullURL     string
 	Resource    *types.ResourceEnvelope
 	IfMatch     string
 	IfNoneExist string
@@ -141,6 +148,8 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		method = strings.ToUpper(strings.TrimSpace(method))
 		url, _ := requestRaw["url"].(string)
 		url = strings.TrimSpace(url)
+		fullURL, _ := entryObj["fullUrl"].(string)
+		fullURL = strings.TrimSpace(fullURL)
 		ifMatch, _ := requestRaw["ifMatch"].(string)
 		ifNoneExist, _ := requestRaw["ifNoneExist"].(string)
 
@@ -175,6 +184,7 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		entries = append(entries, bundleRequestEntry{
 			Method:      method,
 			URL:         url,
+			FullURL:     fullURL,
 			Resource:    resourceEnv,
 			IfMatch:     strings.TrimSpace(ifMatch),
 			IfNoneExist: strings.TrimSpace(ifNoneExist),
@@ -182,6 +192,73 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 	}
 
 	return &transactionBundle{Entries: entries}, nil
+}
+
+func (s *ResourceService) collectBundlePendingIdentities(parsed *transactionBundle) (*pendingIdentities, error) {
+	pending := newPendingIdentities()
+	if parsed == nil {
+		return pending, nil
+	}
+	for i := range parsed.Entries {
+		entry := &parsed.Entries[i]
+		pending.addURN(entry.FullURL)
+		if entry.Method != "POST" && entry.Method != "PUT" {
+			continue
+		}
+		resourceType, id, err := s.pendingEntryIdentity(entry)
+		if err != nil {
+			return nil, err
+		}
+		pending.addTyped(resourceType, id)
+	}
+	return pending, nil
+}
+
+func (s *ResourceService) pendingEntryIdentity(entry *bundleRequestEntry) (resourceType, id string, err error) {
+	if entry == nil {
+		return "", "", nil
+	}
+	switch entry.Method {
+	case "PUT":
+		return parseResourceURL(entry.URL)
+	case "POST":
+		resourceType = entry.URL
+		if strings.Contains(resourceType, "/") {
+			return "", "", nil
+		}
+		if entry.Resource == nil {
+			return resourceType, "", nil
+		}
+		id, err = types.GetID(entry.Resource.JSON)
+		if err != nil {
+			return "", "", invalidErr("parse bundle entry id", err)
+		}
+		if id != "" {
+			return resourceType, id, nil
+		}
+		if resourceType == "" {
+			resourceType, err = types.GetResourceType(entry.Resource.JSON)
+			if err != nil {
+				return "", "", nil
+			}
+		}
+		if resourceType == "" {
+			return "", "", nil
+		}
+		generated, err := s.idPolicy.Generate(resourceType)
+		if err != nil {
+			return "", "", exceptionErr("generate resource id", err)
+		}
+		jsonWithID, err := types.SetID(entry.Resource.JSON, generated)
+		if err != nil {
+			return "", "", invalidErr("set resource id", err, "Resource.id")
+		}
+		entry.Resource.JSON = jsonWithID
+		entry.Resource.ID = generated
+		return resourceType, generated, nil
+	default:
+		return "", "", nil
+	}
 }
 
 func (s *ResourceService) executeBundleEntry(

@@ -57,6 +57,9 @@
 //   - Indexer   — search.Indexer invoked after resource/history persistence in session.
 //   - Outbox    — sync.Outbox; when non-nil, events are appended via
 //     sync.WithWriteSession during each write (transactional through session EventStore).
+//   - EnforceReferentialIntegrity — HAPI-style enforceReferentialIntegrityOnWrite;
+//     nil or true (NewResourceService default) runs the write-time Exists check;
+//     false skips checkReferentialIntegrity.
 //
 // Methods:
 //
@@ -77,13 +80,17 @@
 //  2. Validate with optional Validator.
 //  3. Resolve or generate id via ResourceIDPolicy.
 //  4. Enforce referential integrity for local typed relative references
-//     (types.GetReferences + ResourceStore.Exists). Contained fragments,
-//     absolute URLs, URNs, untyped ids, and self-references are skipped.
+//     (types.GetReferences + ResourceStore.Exists) unless
+//     EnforceReferentialIntegrity is false. Contained fragments, absolute
+//     URLs, untyped ids, unresolved URNs, and self-references are skipped.
+//     Intra-bundle POST/PUT identities and matching urn:uuid fullUrl values
+//     satisfy Exists so transaction entry order does not matter.
 //  5. Generate a new versionId (UUID) and set meta.versionId / meta.lastUpdated.
 //  6. Recompute normalized JSON and hash.
 //  7. Persist current resource state (create, update, or delete).
 //  8. Append immutable history entry (ResourceVersion).
 //  9. Append outbox event when Outbox is configured (via sync.WithWriteSession).
+//
 // 10. Rebuild search index entries when Indexer is configured.
 //
 // 11. Commit session; rollback on any failure before commit.
@@ -107,9 +114,12 @@
 //   - PATCH, GET, and other HTTP methods
 //   - conditional URLs (query strings in request url)
 //
-// Entries execute in order inside one WriteSession. The response is a
-// transaction-response Bundle envelope with per-entry status, location, etag, and
-// lastModified.
+// Entries execute in order inside one WriteSession. Referential integrity
+// treats POST/PUT identities from every entry as already present, so an
+// Observation may precede the Patient it references in the same bundle.
+// Matching urn:uuid fullUrl values are also treated as present. The response
+// is a transaction-response Bundle envelope with per-entry status, location,
+// etag, and lastModified.
 //
 // # Resource ID policy
 //
