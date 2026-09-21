@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
@@ -137,6 +138,7 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		installs:                  db.RegistryInstallStore(),
 		moduleStore:               db.ModuleStore(),
 		jobStore:                  db.JobStore(),
+		blobStore:                 b.resolveBulkBlobStore(state),
 		resources:                 db.ResourceStore(),
 		history:                   db.HistoryStore(),
 		searchStore:               db.SearchStore(),
@@ -194,6 +196,7 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		installs:                  tdb.RegistryInstallStore(),
 		moduleStore:               tdb.ModuleStore(),
 		jobStore:                  tdb.JobStore(),
+		blobStore:                 b.resolveBulkBlobStore(state),
 		resources:                 tdb.ResourceStore(),
 		history:                   tdb.HistoryStore(),
 		searchStore:               tdb.SearchStore(),
@@ -222,6 +225,7 @@ type persistenceContext struct {
 	installs                  store.RegistryInstallStore
 	moduleStore               store.ModuleStore
 	jobStore                  store.JobStore
+	blobStore                 store.BlobStore
 	resources                 store.ResourceStore
 	history                   store.HistoryStore
 	searchStore               store.SearchStore
@@ -594,8 +598,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
-		exportFiles := export.NewInMemoryFileStore()
-		exportJobs := export.NewInMemoryJobStore()
+		exportFiles := resolveExportFileStore(pc.blobStore)
+		exportJobs := export.NewDurableJobStore(pc.jobStore)
 		exportExecutor := &export.Executor{
 			Resources: pc.resources,
 			Files:     exportFiles,
@@ -617,8 +621,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return fmt.Errorf("runtime: register bulk export handler: %w", err)
 		}
 		state.services.BulkExportService = exportSvc
-		importFiles := bulkimport.NewInMemoryFileStore()
-		importJobs := bulkimport.NewInMemoryJobStore()
+		importFiles := resolveImportFileStore(pc.blobStore)
+		importJobs := bulkimport.NewDurableJobStore(pc.jobStore)
 		importExecutor := &bulkimport.Executor{
 			Resources: state.services.ResourceService,
 			Files:     importFiles,
@@ -1048,6 +1052,35 @@ func (b *Builder) resolveReportingStore(state *wireState) store.ReportingTableSt
 		return state.services.TenantDB.ReportingTableStore()
 	}
 	return nil
+}
+
+func (b *Builder) resolveBulkBlobStore(state *wireState) store.BlobStore {
+	if b.blobStore != nil {
+		if blobs := b.blobStore.BlobStore(); blobs != nil {
+			return blobs
+		}
+	}
+	if state.services != nil && state.services.TenantDB != nil {
+		return state.services.TenantDB.BlobStore()
+	}
+	if state.sqliteDB != nil {
+		return binary.AsStore(state.sqliteDB.SQLiteBlobStore())
+	}
+	return nil
+}
+
+func resolveExportFileStore(blobs store.BlobStore) export.FileStore {
+	if blobs != nil {
+		return export.NewBlobFileStore(blobs)
+	}
+	return export.NewInMemoryFileStore()
+}
+
+func resolveImportFileStore(blobs store.BlobStore) bulkimport.FileStore {
+	if blobs != nil {
+		return bulkimport.NewBlobFileStore(blobs)
+	}
+	return bulkimport.NewInMemoryFileStore()
 }
 
 func (b *Builder) resolveViewExportFileStore(state *wireState) (view.ExportFileStore, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/client"
+	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/runtime"
 )
 
@@ -70,4 +71,59 @@ func TestRuntimeBulkExportSelfTest(t *testing.T) {
 		t.Fatalf("healthz status = %d", resp.StatusCode)
 	}
 	_ = time.Now()
+}
+
+func TestRuntimeBulkExportPersistsAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "bulk-persist.db")
+	coreModule := filepath.Join("..", "..", "modules", "core")
+	build := func() *runtime.Runtime {
+		t.Helper()
+		rt, err := runtime.New().
+			WithSQLite(dbPath).
+			WithModules(coreModule).
+			Build(ctx)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		return rt
+	}
+
+	rt := build()
+	if err := rt.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	svc := rt.Services().BulkExportService
+	job, err := svc.Kickoff(ctx, export.KickoffRequest{ResourceTypes: []string{"Patient"}})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		current, getErr := svc.GetJob(ctx, job.ID)
+		if getErr != nil {
+			t.Fatalf("GetJob: %v", getErr)
+		}
+		if current != nil && current.Status == export.StatusComplete {
+			job = current
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not complete: %#v", current)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := rt.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	rt = build()
+	defer func() { _ = rt.Shutdown(ctx) }()
+	got, err := rt.Services().BulkExportService.GetJob(ctx, job.ID)
+	if err != nil || got == nil {
+		t.Fatalf("GetJob after restart: %v %#v", err, got)
+	}
+	if got.Status != export.StatusComplete {
+		t.Fatalf("status after restart = %s", got.Status)
+	}
 }

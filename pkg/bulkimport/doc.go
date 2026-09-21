@@ -2,8 +2,10 @@
 //
 // The import service accepts a Parameters kickoff (Prefer: respond-async),
 // reads application/fhir+ndjson inputs, and creates or updates resources
-// through a ResourceWriter. Background execution integrates with pkg/jobs
-// via TypeImportBulk.
+// through a ResourceWriter. Runtime persists job records in store.JobStore
+// (type export.import.record) and input/error NDJSON in store.BlobStore:
+// the configured object-store adapter when present, otherwise the database
+// blob store. Background execution integrates with pkg/jobs via TypeImportBulk.
 //
 // Remote input.url values are fetched only when a URLLoader is configured.
 // The runtime wires HTTPLoader, which GETs http and https URLs with a 60s
