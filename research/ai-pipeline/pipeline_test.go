@@ -57,6 +57,17 @@ func TestAIPipelineProvenanceChain(t *testing.T) {
 	if !hasAuditAction(bundle.Audit, audit.ActionExecuteTool) {
 		t.Fatal("missing execute-tool audit")
 	}
+	if !hasAuditAction(bundle.Audit, audit.ActionInvokeModel) {
+		t.Fatal("missing invoke-model audit")
+	}
+	if bundle.Validation.FHIRVersion == "" || bundle.Validation.IGPackage == "" {
+		t.Fatalf("validation pin missing: %+v", bundle.Validation)
+	}
+	for _, in := range bundle.Inputs {
+		if in.Profile == "" {
+			t.Fatalf("input %+v missing base profile URL", in)
+		}
+	}
 }
 
 func TestAIPipelineDeterministic(t *testing.T) {

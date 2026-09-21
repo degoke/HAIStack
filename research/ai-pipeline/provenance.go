@@ -9,17 +9,18 @@ import (
 
 // ProvenanceBundle is the exportable FAIR artefact for one pipeline run.
 type ProvenanceBundle struct {
-	Artefact  string              `json:"artefact"`
-	Track     string              `json:"track"`
-	CreatedAt time.Time           `json:"createdAt"`
-	FAIR      FAIRMetadata        `json:"fair"`
-	Inputs    []InputRecord       `json:"inputs"`
-	View      ViewProvenance      `json:"view"`
-	Policy    PolicyProvenance    `json:"policy"`
-	Tool      ToolProvenance      `json:"tool"`
-	Model     ModelProvenance     `json:"model"`
-	Output    OutputProvenance    `json:"output"`
-	Audit     []store.AuditRecord `json:"audit"`
+	Artefact   string               `json:"artefact"`
+	Track      string               `json:"track"`
+	CreatedAt  time.Time            `json:"createdAt"`
+	FAIR       FAIRMetadata         `json:"fair"`
+	Inputs     []InputRecord        `json:"inputs"`
+	Validation ValidationProvenance `json:"validation"`
+	View       ViewProvenance       `json:"view"`
+	Policy     PolicyProvenance     `json:"policy"`
+	Tool       ToolProvenance       `json:"tool"`
+	Model      ModelProvenance      `json:"model"`
+	Output     OutputProvenance     `json:"output"`
+	Audit      []store.AuditRecord  `json:"audit"`
 }
 
 // FAIRMetadata records license and reuse constraints.
@@ -30,12 +31,23 @@ type FAIRMetadata struct {
 	Citation  string `json:"citation"`
 }
 
+// ValidationProvenance pins the FHIR/IG versions used to validate inputs.
+type ValidationProvenance struct {
+	FHIRVersion string `json:"fhirVersion"`
+	IGPackage   string `json:"igPackage"`
+	IGVersion   string `json:"igVersion"`
+	Canonical   string `json:"canonical,omitempty"`
+	GitCommit   string `json:"conformanceLockCommit,omitempty"`
+	Mode        string `json:"mode"`
+}
+
 // InputRecord is one hashed FHIR resource that entered the pipeline.
 type InputRecord struct {
 	ResourceType string `json:"resourceType"`
 	ID           string `json:"id"`
 	Hash         string `json:"hash"`
 	Validated    bool   `json:"validated"`
+	Profile      string `json:"profile,omitempty"`
 }
 
 // ViewProvenance identifies the ViewDefinition and its row set.

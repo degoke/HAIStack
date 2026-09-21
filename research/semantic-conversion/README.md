@@ -4,10 +4,12 @@ Paired FHIR instances documenting R4 → R5 mapping classes, with a scorer
 that reports **structural equivalence**, **semantic equivalence**, and
 **information-loss flags**.
 
-HAIStack `pkg/proto` currently ships Google FHIR **R4** only. R5 JSON in
-this corpus is the expected target shape; it is not round-tripped through
-an R5 codec (out of scope for issue #11). R4 inputs are parsed with
-`pkg/proto.NewGoogleR4Codec()`.
+This artefact is a **catalogue scorer**, not a converter. `ScoreAll`
+checks embedded R4/R5 JSON pairs. It does **not** transform R4 into R5.
+HAIStack `pkg/proto` currently ships Google FHIR **R4** only; a live R5
+codec is out of scope for issue #11. R4 inputs are parsed with
+`pkg/proto.NewGoogleR4Codec()`. The CLI report sets `"mode": "catalogue"`
+and `"converter": false`.
 
 ## Reproduce
 
@@ -21,12 +23,17 @@ go run ./research/semantic-conversion
 The generator produces **≥50 pairs** across Patient, Observation,
 Condition, and MedicationRequest. **≥30 pairs** have distinct R4 and R5
 JSON. Categories `renamed`, `type`, `cardinality`, and `information_loss`
-always differ between versions; `identity` is the only class that keeps
-identical copies (stable elements that did not change).
+always differ between versions.
+
+`identity` documents **stable paths** (id, status, subject, quantities).
+R4 and R5 JSON may still differ on mapped fields that every R5 instance
+must carry — notably MedicationRequest `medicationCodeableConcept` →
+`medication.concept`. Every MedicationRequest R5 body uses R5
+`medication` (CodeableReference), not R4 `medication[x]`.
 
 | Category | What it exercises |
 |----------|-------------------|
-| `identity` | Unique stable instances (id, status, subject, quantities). R4 JSON equals R5. |
+| `identity` | Unique stable instances; StablePaths match across versions |
 | `cardinality` | Shape/count changes, e.g. Observation.specimen 0..1 → 0..* |
 | `type` | Choice or type shifts, e.g. Observation.bodySite CodeableConcept → BackboneElement; MedicationRequest.medication[x] → CodeableReference |
 | `renamed` | Field moves, e.g. Condition.asserter → participant; MedicationRequest.reasonCode → reason |

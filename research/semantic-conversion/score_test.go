@@ -42,8 +42,13 @@ func TestCorpusSizeAndDensity(t *testing.T) {
 		if mustDiffer && bytes.Equal(p.R4, p.R5) {
 			t.Fatalf("%s category %s is an identical R4/R5 copy", p.ID, p.Category)
 		}
-		if p.Category == "identity" && !bytes.Equal(p.R4, p.R5) {
-			t.Fatalf("%s identity pair must keep identical R4/R5 JSON", p.ID)
+		if p.ResourceType == "MedicationRequest" {
+			if bytes.Contains(p.R5, []byte("medicationCodeableConcept")) || bytes.Contains(p.R5, []byte("medicationReference")) {
+				t.Fatalf("%s R5 still uses R4 medication[x] field names", p.ID)
+			}
+			if !bytes.Contains(p.R5, []byte(`"medication"`)) {
+				t.Fatalf("%s R5 missing medication CodeableReference", p.ID)
+			}
 		}
 		if len(p.R4FHIRPath) == 0 {
 			t.Fatalf("%s missing R4 FHIRPath assertions", p.ID)
@@ -77,6 +82,9 @@ func TestScoreAll(t *testing.T) {
 	}
 	if report.Failed > 0 {
 		t.Fatalf("failures: %+v", report.Failures)
+	}
+	if report.Mode != "catalogue" || report.Converter {
+		t.Fatalf("scorer must be catalogue-only, mode=%q converter=%v", report.Mode, report.Converter)
 	}
 	if report.Passed != report.Pairs {
 		t.Fatalf("passed %d of %d", report.Passed, report.Pairs)

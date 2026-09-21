@@ -21,8 +21,8 @@ type Permission string
 
 // Role groups permissions under a named role.
 type Role struct {
-	Name        string       `json:"name"`
-	Permissions []Permission `json:"permissions,omitempty"`
+	Name        string       `json:"name" yaml:"name"`
+	Permissions []Permission `json:"permissions,omitempty" yaml:"permissions,omitempty"`
 }
 
 // TenantBinding links a principal to roles within one tenant.

@@ -33,11 +33,11 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 | Identifier | `research/ai-pipeline` |
 | License | Apache-2.0 |
 | Data | Synthetic patients and observations; no PHI |
-| IG / FHIR | FHIR R4 JSON; ViewDefinition `research_vitals_view` `1.0.0` |
+| IG / FHIR | FHIR R4 `4.0.1` base profiles; pin from `conformance-lock.json` (`haistack.fhir.r4`) |
 | Policy | deny-by-default DSL in `pipeline.go` |
 | Model | `stub-v1` deterministic adapter; no network |
 | Store | `research/internal/researchutil.MemoryResourceStore` (not `pkg/testkit`) |
-| Audit | `pkg/audit` memory store; actions `execute-view` and `execute-tool` |
+| Audit | `pkg/audit` memory store; actions `execute-view`, `execute-tool`, and `invoke-model` |
 
 ## What the bundle proves
 
@@ -45,6 +45,6 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 - The view name, version, and row hashes are recorded.
 - The policy document hash is recorded.
 - Tool citations point at the view and source Observation ids.
-- Audit events cover view execution and AI tool success.
+- Audit events cover view execution, AI tool success, and stub model invocation.
 
 This is an evaluation artefact, not a clinical model.

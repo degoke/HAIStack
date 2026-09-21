@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestIndependentGoldAndDefectivePipeline(t *testing.T) {
+func TestScorerDetectsPlantedDefects(t *testing.T) {
 	report, err := Evaluate(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -10,8 +10,8 @@ func TestIndependentGoldAndDefectivePipeline(t *testing.T) {
 	if report.Gold < 1 {
 		t.Fatal("gold set is empty")
 	}
-	if report.GoldMap == nil || report.PipelineMap == nil {
-		t.Fatal("expected goldMap and pipelineMap scores")
+	if report.GoldMap == nil || report.FixtureMap == nil {
+		t.Fatal("expected goldMap and fixtureMap scores")
 	}
 
 	g := report.GoldMap
@@ -24,9 +24,9 @@ func TestIndependentGoldAndDefectivePipeline(t *testing.T) {
 			g.TruePos, g.FalsePos, g.FalseNeg, report.Gold, g.Mismatches)
 	}
 
-	p := report.PipelineMap
+	p := report.FixtureMap
 	if p.F1 >= 1 || p.FalsePos < 1 || p.FalseNeg < 1 {
-		t.Fatalf("pipeline map must be independent of gold (expect F1<1 with FP and FN): f1=%v tp=%d fp=%d fn=%d mismatches=%+v",
+		t.Fatalf("defective fixture must score F1<1 with FP and FN: f1=%v tp=%d fp=%d fn=%d mismatches=%+v",
 			p.F1, p.TruePos, p.FalsePos, p.FalseNeg, p.Mismatches)
 	}
 	wantKind := map[string]string{
@@ -41,14 +41,14 @@ func TestIndependentGoldAndDefectivePipeline(t *testing.T) {
 	}
 	for src, kind := range wantKind {
 		if gotKind[src] != kind {
-			t.Fatalf("pipeline mismatch for %s: got %q want %q (mismatches=%+v)", src, gotKind[src], kind, p.Mismatches)
+			t.Fatalf("fixture mismatch for %s: got %q want %q (mismatches=%+v)", src, gotKind[src], kind, p.Mismatches)
 		}
 	}
 	if p.TruePos != 8 || p.FalsePos != 3 || p.FalseNeg != 1 {
-		t.Fatalf("unexpected pipeline confusion counts: tp=%d fp=%d fn=%d (want 8/3/1)", p.TruePos, p.FalsePos, p.FalseNeg)
+		t.Fatalf("unexpected fixture confusion counts: tp=%d fp=%d fn=%d (planted 8/3/1)", p.TruePos, p.FalsePos, p.FalseNeg)
 	}
 	if p.MapVersion == g.MapVersion {
-		t.Fatalf("pipeline map version %q must differ from gold %q", p.MapVersion, g.MapVersion)
+		t.Fatalf("fixture map version %q must differ from gold %q", p.MapVersion, g.MapVersion)
 	}
 
 	if report.AuditEvents != report.Gold {
@@ -59,7 +59,7 @@ func TestIndependentGoldAndDefectivePipeline(t *testing.T) {
 			t.Fatalf("incomplete provenance: %+v", prov)
 		}
 		if prov.ConceptMapVersion != p.MapVersion {
-			t.Fatalf("provenance version %q, pipeline %q", prov.ConceptMapVersion, p.MapVersion)
+			t.Fatalf("provenance version %q, fixture %q", prov.ConceptMapVersion, p.MapVersion)
 		}
 	}
 }

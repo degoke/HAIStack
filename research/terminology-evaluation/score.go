@@ -22,18 +22,18 @@ var goldConceptMapJSON []byte
 //go:embed gold/translations.json
 var goldJSON []byte
 
-//go:embed pipeline/conceptmap.json
-var pipelineConceptMapJSON []byte
+//go:embed fixture/defective-conceptmap.json
+var fixtureConceptMapJSON []byte
 
 const (
 	auditActionTranslate = "terminology.translate"
 	termScope            = "research"
 	goldMapID            = "haistack-vitals-to-loinc"
-	pipelineMapID        = "haistack-vitals-to-loinc-pipeline"
+	fixtureMapID         = "haistack-vitals-to-loinc-fixture"
 )
 
 // GoldFile is the expected translation catalogue. Tuples are independent of
-// the pipeline ConceptMap (see pipeline/conceptmap.json).
+// the defective fixture map (see fixture/defective-conceptmap.json).
 type GoldFile struct {
 	ConceptMap          string            `json:"conceptMap"`
 	ConceptMapVersion   string            `json:"conceptMapVersion"`
@@ -90,12 +90,12 @@ type Mismatch struct {
 	Kind       string `json:"kind"` // fp | fn
 }
 
-// Metrics is the quality report: gold-map control plus pipeline-map score.
+// Metrics is the report: gold-map harness control plus defective-fixture score.
 type Metrics struct {
 	Track       string       `json:"track"`
 	Gold        int          `json:"gold"`
 	GoldMap     *MapScore    `json:"goldMap"`
-	PipelineMap *MapScore    `json:"pipelineMap"`
+	FixtureMap  *MapScore    `json:"fixtureMap"`
 	Provenance  []Provenance `json:"provenance"`
 	AuditEvents int          `json:"auditEvents"`
 }
@@ -112,15 +112,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "terminology-evaluation: %v\n", err)
 		os.Exit(1)
 	}
-	if report.Gold < 1 || report.GoldMap == nil || report.PipelineMap == nil {
+	if report.Gold < 1 || report.GoldMap == nil || report.FixtureMap == nil {
 		os.Exit(1)
 	}
 	if !perfect(report.GoldMap, report.Gold) {
-		fmt.Fprintf(os.Stderr, "terminology-evaluation: gold ConceptMap must reproduce the independent translations (f1=%v)\n", report.GoldMap.F1)
+		fmt.Fprintf(os.Stderr, "terminology-evaluation: gold control failed (translator/scorer harness, f1=%v)\n", report.GoldMap.F1)
 		os.Exit(1)
 	}
-	if perfect(report.PipelineMap, report.Gold) {
-		fmt.Fprintf(os.Stderr, "terminology-evaluation: pipeline ConceptMap agreed with gold (f1=1); mapping quality is untested\n")
+	if perfect(report.FixtureMap, report.Gold) {
+		fmt.Fprintf(os.Stderr, "terminology-evaluation: defective fixture agreed with gold; scorer cannot report F1<1\n")
 		os.Exit(1)
 	}
 }
@@ -129,8 +129,9 @@ func perfect(s *MapScore, gold int) bool {
 	return s != nil && s.TruePos == gold && s.FalsePos == 0 && s.FalseNeg == 0
 }
 
-// Evaluate scores the gold ConceptMap (control) and the pipeline ConceptMap
-// (known defects) against the same independent translation catalogue.
+// Evaluate scores the gold ConceptMap (translator/scorer control) and a
+// planted defective fixture against the same independent translation
+// catalogue. The fixture is not an independently produced map.
 func Evaluate(ctx context.Context) (*Metrics, error) {
 	var gold GoldFile
 	if err := json.Unmarshal(goldJSON, &gold); err != nil {
@@ -142,7 +143,7 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 	}
 	auditStore := audit.NewMemoryStore()
 	logger := &audit.StoreAdapter{Store: auditStore, Now: researchutil.FixedTime}
-	pipelineScore, provenance, err := scoreMap(ctx, "pipeline", pipelineMapID, pipelineConceptMapJSON, gold, logger)
+	fixtureScore, provenance, err := scoreMap(ctx, "fixture", fixtureMapID, fixtureConceptMapJSON, gold, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +155,7 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 		Track:       "D",
 		Gold:        len(gold.Translations),
 		GoldMap:     goldScore,
-		PipelineMap: pipelineScore,
+		FixtureMap:  fixtureScore,
 		Provenance:  provenance,
 		AuditEvents: len(events),
 	}, nil

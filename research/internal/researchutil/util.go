@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -47,4 +49,22 @@ func MustJSON(v any) []byte {
 		panic(err)
 	}
 	return data
+}
+
+// RepoRoot walks up from the working directory until it finds go.mod.
+func RepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found from %s", dir)
+		}
+		dir = parent
+	}
 }

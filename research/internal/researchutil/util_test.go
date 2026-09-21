@@ -1,6 +1,10 @@
 package researchutil
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestHashBytesStable(t *testing.T) {
 	a := HashBytes([]byte("haistack"))
@@ -17,5 +21,15 @@ func TestParseResource(t *testing.T) {
 	}
 	if env.ID != "p1" || env.Hash == "" {
 		t.Fatalf("%+v", env)
+	}
+}
+
+func TestRepoRoot(t *testing.T) {
+	root, err := RepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("root %s: %v", root, err)
 	}
 }

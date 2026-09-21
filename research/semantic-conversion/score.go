@@ -14,8 +14,12 @@ import (
 )
 
 // ScoreReport is the conversion-corpus evaluation output.
+// Mode is "catalogue": the scorer checks embedded pairs. It does not convert
+// R4 JSON into R5 (there is no R5 codec / conversion pipeline).
 type ScoreReport struct {
 	Track      string         `json:"track"`
+	Mode       string         `json:"mode"`
+	Converter  bool           `json:"converter"`
 	Pairs      int            `json:"pairs"`
 	Passed     int            `json:"passed"`
 	Failed     int            `json:"failed"`
@@ -42,6 +46,8 @@ func ScoreAll(ctx context.Context) (*ScoreReport, error) {
 	pairs := Corpus()
 	report := &ScoreReport{
 		Track:      "B",
+		Mode:       "catalogue",
+		Converter:  false,
 		Pairs:      len(pairs),
 		ByCategory: map[string]int{},
 		ByType:     map[string]int{},

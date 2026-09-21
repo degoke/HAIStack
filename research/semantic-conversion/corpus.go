@@ -784,66 +784,47 @@ func conditionPairs() []Pair {
 }
 
 func medicationRequestPairs() []Pair {
-	medR5Concept := func(id, status, rxnorm string, extra map[string]any) json.RawMessage {
-		obj := map[string]any{
-			"resourceType": "MedicationRequest",
-			"id":           id,
-			"status":       status,
-			"intent":       "order",
-			"subject":      map[string]any{"reference": "Patient/pat-1"},
-			"medication": map[string]any{
-				"concept": map[string]any{
-					"coding": []any{map[string]any{"system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": rxnorm}},
-					"text":   "Lisinopril",
-				},
-			},
-		}
-		for k, v := range extra {
-			obj[k] = v
-		}
-		return researchutil.MustJSON(obj)
-	}
 	return []Pair{
 		{
 			ID: "medreq-identity-lisinopril-active", ResourceType: "MedicationRequest", Category: "identity",
 			R4:          medReqJSON("medreq-identity-lisinopril-active", "active", "314076", nil),
-			R5:          medReqJSON("medreq-identity-lisinopril-active", "active", "314076", nil),
+			R5:          medReqR5JSON("medreq-identity-lisinopril-active", "active", "314076", nil),
 			StablePaths: []string{"id", "status", "intent", "subject"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.status = 'active'", true), fp("MedicationRequest.intent = 'order'", true)},
-			R5JSON:      []JSONCheck{equals("status", "active"), equals("intent", "order")},
-			Notes:       "status/intent/subject are stable; medication[x] mapping is a separate type pair.",
+			R5JSON:      []JSONCheck{equals("status", "active"), equals("intent", "order"), exists("medication.concept"), missing("medicationCodeableConcept")},
+			Notes:       "status/intent/subject are stable; R5 still uses medication CodeableReference.",
 		},
 		{
 			ID: "medreq-identity-completed", ResourceType: "MedicationRequest", Category: "identity",
 			R4:          medReqJSON("medreq-identity-completed", "completed", "197361", nil),
-			R5:          medReqJSON("medreq-identity-completed", "completed", "197361", nil),
+			R5:          medReqR5JSON("medreq-identity-completed", "completed", "197361", nil),
 			StablePaths: []string{"id", "status"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.status = 'completed'", true)},
-			R5JSON:      []JSONCheck{equals("status", "completed")},
+			R5JSON:      []JSONCheck{equals("status", "completed"), exists("medication.concept"), missing("medicationCodeableConcept")},
 		},
 		{
 			ID: "medreq-identity-with-dosage", ResourceType: "MedicationRequest", Category: "identity",
 			R4: medReqJSON("medreq-identity-with-dosage", "active", "314076", map[string]any{
 				"dosageInstruction": []any{map[string]any{"text": "5 mg oral daily"}},
 			}),
-			R5: medReqJSON("medreq-identity-with-dosage", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-identity-with-dosage", "active", "314076", map[string]any{
 				"dosageInstruction": []any{map[string]any{"text": "5 mg oral daily"}},
 			}),
 			StablePaths: []string{"id", "dosageInstruction"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.dosageInstruction.exists()", true)},
-			R5JSON:      []JSONCheck{equals("dosageInstruction.text", "5 mg oral daily")},
+			R5JSON:      []JSONCheck{equals("dosageInstruction.text", "5 mg oral daily"), exists("medication.concept")},
 		},
 		{
 			ID: "medreq-identity-requester", ResourceType: "MedicationRequest", Category: "identity",
 			R4: medReqJSON("medreq-identity-requester", "active", "314076", map[string]any{
 				"requester": map[string]any{"reference": "Practitioner/pr-1"},
 			}),
-			R5: medReqJSON("medreq-identity-requester", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-identity-requester", "active", "314076", map[string]any{
 				"requester": map[string]any{"reference": "Practitioner/pr-1"},
 			}),
 			StablePaths: []string{"id", "requester"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.requester.exists()", true)},
-			R5JSON:      []JSONCheck{equals("requester.reference", "Practitioner/pr-1")},
+			R5JSON:      []JSONCheck{equals("requester.reference", "Practitioner/pr-1"), exists("medication.concept")},
 		},
 		{
 			ID: "medreq-renamed-reason-code", ResourceType: "MedicationRequest", Category: "renamed",
@@ -852,7 +833,7 @@ func medicationRequestPairs() []Pair {
 					"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "38341003"}},
 				}},
 			}),
-			R5: medR5Concept("medreq-renamed-reason-code", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-reason-code", "active", "314076", map[string]any{
 				"reason": []any{map[string]any{
 					"concept": map[string]any{
 						"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "38341003"}},
@@ -869,7 +850,7 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-renamed-reason-reference", "active", "314076", map[string]any{
 				"reasonReference": []any{map[string]any{"reference": "Condition/cond-identity-hypertension"}},
 			}),
-			R5: medR5Concept("medreq-renamed-reason-reference", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-reason-reference", "active", "314076", map[string]any{
 				"reason": []any{map[string]any{
 					"reference": map[string]any{"reference": "Condition/cond-identity-hypertension"},
 				}},
@@ -884,7 +865,7 @@ func medicationRequestPairs() []Pair {
 				"reasonCode":      []any{map[string]any{"text": "hypertension"}},
 				"reasonReference": []any{map[string]any{"reference": "Condition/htn"}},
 			}),
-			R5: medR5Concept("medreq-renamed-reason-both", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-reason-both", "active", "314076", map[string]any{
 				"reason": []any{
 					map[string]any{"concept": map[string]any{"text": "hypertension"}},
 					map[string]any{"reference": map[string]any{"reference": "Condition/htn"}},
@@ -899,7 +880,7 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-renamed-reason-text", "active", "314076", map[string]any{
 				"reasonCode": []any{map[string]any{"text": "elevated blood pressure"}},
 			}),
-			R5: medR5Concept("medreq-renamed-reason-text", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-reason-text", "active", "314076", map[string]any{
 				"reason": []any{map[string]any{"concept": map[string]any{"text": "elevated blood pressure"}}},
 			}),
 			StablePaths: []string{"id"},
@@ -911,7 +892,7 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-renamed-reported", "active", "314076", map[string]any{
 				"reportedBoolean": true,
 			}),
-			R5: medR5Concept("medreq-renamed-reported", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-reported", "active", "314076", map[string]any{
 				"reported":          true,
 				"informationSource": []any{map[string]any{"reference": map[string]any{"reference": "Patient/pat-1"}}},
 			}),
@@ -925,7 +906,7 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-renamed-instantiates-canonical", "active", "314076", map[string]any{
 				"instantiatesCanonical": []any{"https://example.org/PlanDefinition/htn-rx"},
 			}),
-			R5: medR5Concept("medreq-renamed-instantiates-canonical", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-renamed-instantiates-canonical", "active", "314076", map[string]any{
 				"basedOn": []any{map[string]any{"reference": "https://example.org/PlanDefinition/htn-rx"}},
 			}),
 			StablePaths: []string{"id"},
@@ -936,7 +917,7 @@ func medicationRequestPairs() []Pair {
 		{
 			ID: "medreq-type-medication-codeableconcept-to-concept", ResourceType: "MedicationRequest", Category: "type",
 			R4:          medReqJSON("medreq-type-medication-codeableconcept-to-concept", "active", "314076", nil),
-			R5:          medR5Concept("medreq-type-medication-codeableconcept-to-concept", "active", "314076", nil),
+			R5:          medReqR5JSON("medreq-type-medication-codeableconcept-to-concept", "active", "314076", nil),
 			StablePaths: []string{"id", "status", "intent"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.medication.ofType(CodeableConcept).exists()", true)},
 			R5JSON:      []JSONCheck{exists("medication.concept"), missing("medicationCodeableConcept")},
@@ -955,7 +936,7 @@ func medicationRequestPairs() []Pair {
 				}
 				return researchutil.MustJSON(obj)
 			}(),
-			R5: medR5Concept("medreq-type-medication-reference-to-reference", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-type-medication-reference-to-reference", "active", "314076", map[string]any{
 				"medication": map[string]any{
 					"reference": map[string]any{"reference": "Medication/med-1"},
 				},
@@ -969,7 +950,7 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-card-dosage-additional", "active", "314076", map[string]any{
 				"dosageInstruction": []any{map[string]any{"text": "5 mg oral daily"}},
 			}),
-			R5: medReqJSON("medreq-card-dosage-additional", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-card-dosage-additional", "active", "314076", map[string]any{
 				"dosageInstruction": []any{
 					map[string]any{"text": "5 mg oral daily"},
 					map[string]any{"text": "hold if hypotensive"},
@@ -977,14 +958,14 @@ func medicationRequestPairs() []Pair {
 			}),
 			StablePaths: []string{"id"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.dosageInstruction.count() = 1", true)},
-			R5JSON:      []JSONCheck{count("dosageInstruction", 2)},
+			R5JSON:      []JSONCheck{count("dosageInstruction", 2), exists("medication.concept"), missing("medicationCodeableConcept")},
 		},
 		{
 			ID: "medreq-card-identifier-additional", ResourceType: "MedicationRequest", Category: "cardinality",
 			R4: medReqJSON("medreq-card-identifier-additional", "active", "314076", map[string]any{
 				"identifier": []any{map[string]any{"system": "https://example.org/rx", "value": "rx-1"}},
 			}),
-			R5: medReqJSON("medreq-card-identifier-additional", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-card-identifier-additional", "active", "314076", map[string]any{
 				"identifier": []any{
 					map[string]any{"system": "https://example.org/rx", "value": "rx-1"},
 					map[string]any{"system": "https://example.org/erx", "value": "erx-9"},
@@ -992,7 +973,7 @@ func medicationRequestPairs() []Pair {
 			}),
 			StablePaths: []string{"id", "status"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.identifier.count() = 1", true)},
-			R5JSON:      []JSONCheck{count("identifier", 2)},
+			R5JSON:      []JSONCheck{count("identifier", 2), exists("medication.concept"), missing("medicationCodeableConcept")},
 		},
 		{
 			ID: "medreq-cc-category-display", ResourceType: "MedicationRequest", Category: "codeableconcept",
@@ -1001,7 +982,7 @@ func medicationRequestPairs() []Pair {
 					"system": "http://terminology.hl7.org/CodeSystem/medicationrequest-category", "code": "community",
 				}}}},
 			}),
-			R5: medReqJSON("medreq-cc-category-display", "active", "314076", map[string]any{
+			R5: medReqR5JSON("medreq-cc-category-display", "active", "314076", map[string]any{
 				"category": []any{map[string]any{
 					"coding": []any{map[string]any{
 						"system":  "http://terminology.hl7.org/CodeSystem/medicationrequest-category",
@@ -1013,18 +994,18 @@ func medicationRequestPairs() []Pair {
 			}),
 			StablePaths: []string{"id"},
 			R4FHIRPath:  []FHIRPathAssert{fp("MedicationRequest.category.coding.code = 'community'", true)},
-			R5JSON:      []JSONCheck{equals("category.text", "Community")},
+			R5JSON:      []JSONCheck{equals("category.text", "Community"), exists("medication.concept"), missing("medicationCodeableConcept")},
 		},
 		{
 			ID: "medreq-loss-detected-issue", ResourceType: "MedicationRequest", Category: "information_loss",
 			R4: medReqJSON("medreq-loss-detected-issue", "active", "314076", map[string]any{
 				"detectedIssue": []any{map[string]any{"reference": "DetectedIssue/di-1"}},
 			}),
-			R5:              medReqJSON("medreq-loss-detected-issue", "active", "314076", nil),
+			R5:              medReqR5JSON("medreq-loss-detected-issue", "active", "314076", nil),
 			StablePaths:     []string{"id", "status"},
 			InformationLoss: []string{"MedicationRequest.detectedIssue"},
 			R4FHIRPath:      []FHIRPathAssert{fp("MedicationRequest.detectedIssue.exists()", true)},
-			R5JSON:          []JSONCheck{missing("detectedIssue")},
+			R5JSON:          []JSONCheck{missing("detectedIssue"), exists("medication.concept"), missing("medicationCodeableConcept")},
 			Notes:           "detectedIssue is not present on R5 MedicationRequest.",
 		},
 		{
@@ -1032,22 +1013,22 @@ func medicationRequestPairs() []Pair {
 			R4: medReqJSON("medreq-loss-detected-issue-cancelled", "cancelled", "314076", map[string]any{
 				"detectedIssue": []any{map[string]any{"reference": "DetectedIssue/di-2"}},
 			}),
-			R5:              medReqJSON("medreq-loss-detected-issue-cancelled", "cancelled", "314076", nil),
+			R5:              medReqR5JSON("medreq-loss-detected-issue-cancelled", "cancelled", "314076", nil),
 			StablePaths:     []string{"id"},
 			InformationLoss: []string{"MedicationRequest.detectedIssue"},
 			R4FHIRPath:      []FHIRPathAssert{fp("MedicationRequest.detectedIssue.exists()", true)},
-			R5JSON:          []JSONCheck{missing("detectedIssue"), equals("status", "cancelled")},
+			R5JSON:          []JSONCheck{missing("detectedIssue"), equals("status", "cancelled"), exists("medication.concept")},
 		},
 		{
 			ID: "medreq-loss-instantiates-uri", ResourceType: "MedicationRequest", Category: "information_loss",
 			R4: medReqJSON("medreq-loss-instantiates-uri", "active", "314076", map[string]any{
 				"instantiatesUri": []any{"https://example.org/legacy-protocol"},
 			}),
-			R5:              medReqJSON("medreq-loss-instantiates-uri", "active", "314076", nil),
+			R5:              medReqR5JSON("medreq-loss-instantiates-uri", "active", "314076", nil),
 			StablePaths:     []string{"id", "status"},
 			InformationLoss: []string{"MedicationRequest.instantiatesUri"},
 			R4FHIRPath:      []FHIRPathAssert{fp("MedicationRequest.instantiatesUri.exists()", true)},
-			R5JSON:          []JSONCheck{missing("instantiatesUri")},
+			R5JSON:          []JSONCheck{missing("instantiatesUri"), exists("medication.concept"), missing("medicationCodeableConcept")},
 			Notes:           "instantiatesUri was removed from R5 MedicationRequest.",
 		},
 	}
@@ -1112,6 +1093,26 @@ func conditionJSON(id, clinical, code, asserter string, extra map[string]any) js
 	}
 	if asserter != "" {
 		obj["asserter"] = map[string]any{"reference": asserter}
+	}
+	for k, v := range extra {
+		obj[k] = v
+	}
+	return researchutil.MustJSON(obj)
+}
+
+func medReqR5JSON(id, status, rxnorm string, extra map[string]any) json.RawMessage {
+	obj := map[string]any{
+		"resourceType": "MedicationRequest",
+		"id":           id,
+		"status":       status,
+		"intent":       "order",
+		"subject":      map[string]any{"reference": "Patient/pat-1"},
+		"medication": map[string]any{
+			"concept": map[string]any{
+				"coding": []any{map[string]any{"system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": rxnorm}},
+				"text":   "Lisinopril",
+			},
+		},
 	}
 	for k, v := range extra {
 		obj[k] = v

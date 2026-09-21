@@ -12,29 +12,35 @@ import (
 
 // YAMLFile is a machine-readable authorization scenario catalogue.
 type YAMLFile struct {
-	Version   string         `yaml:"version"`
-	Scenarios []YAMLScenario `yaml:"scenarios"`
+	Version   string                         `yaml:"version"`
+	Roles     []auth.Role                    `yaml:"roles"`
+	Policies  map[string]auth.PolicyDocument `yaml:"policies"`
+	Scenarios []YAMLScenario                 `yaml:"scenarios"`
 }
 
 // YAMLScenario is one vendor-neutral policy × SMART-scope test case.
 //
 // ExpectAllow is the intersection of SMART scope grants and pkg/auth
 // policy allows. A case is allowed only when both layers permit the action.
+//
+// Policy names a document in YAMLFile.Policies. PolicyDocument embeds a
+// portable pkg/auth policy inline. Named Go policy enums are not used.
 type YAMLScenario struct {
-	Name         string `yaml:"name"`
-	Doc          string `yaml:"doc"`
-	Principal    string `yaml:"principal"`
-	Scopes       string `yaml:"scopes"`
-	Policy       string `yaml:"policy"`
-	Action       string `yaml:"action"`
-	ResourceType string `yaml:"resourceType"`
-	ResourceID   string `yaml:"resourceId"`
-	ViewName     string `yaml:"viewName"`
-	ToolName     string `yaml:"toolName"`
-	PatientID    string `yaml:"patientId"`
-	PatientScope string `yaml:"patientScope"`
-	Tenant       string `yaml:"tenant"`
-	ExpectAllow  bool   `yaml:"expectAllow"`
+	Name           string               `yaml:"name"`
+	Doc            string               `yaml:"doc"`
+	Principal      string               `yaml:"principal"`
+	Scopes         string               `yaml:"scopes"`
+	Policy         string               `yaml:"policy"`
+	PolicyDocument *auth.PolicyDocument `yaml:"policyDocument"`
+	Action         string               `yaml:"action"`
+	ResourceType   string               `yaml:"resourceType"`
+	ResourceID     string               `yaml:"resourceId"`
+	ViewName       string               `yaml:"viewName"`
+	ToolName       string               `yaml:"toolName"`
+	PatientID      string               `yaml:"patientId"`
+	PatientScope   string               `yaml:"patientScope"`
+	Tenant         string               `yaml:"tenant"`
+	ExpectAllow    bool                 `yaml:"expectAllow"`
 }
 
 // LoadYAMLFile reads a YAML scenario catalogue from disk.
@@ -65,20 +71,26 @@ func ScenariosFromYAML(file YAMLFile) ([]Scenario, error) {
 		if spec.Name == "" {
 			return nil, fmt.Errorf("authztest: yaml scenario[%d] missing name", i)
 		}
+		doc, err := resolveYAMLPolicy(file, spec)
+		if err != nil {
+			return nil, fmt.Errorf("authztest: yaml scenario %s: %w", spec.Name, err)
+		}
 		spec := spec
+		policy := doc
+		roles := append([]auth.Role(nil), file.Roles...)
 		out = append(out, Scenario{
 			Name: spec.Name,
 			Doc:  spec.Doc,
 			Run: func(ctx context.Context, kit *Kit) error {
-				return runYAMLScenario(ctx, kit, spec)
+				return runYAMLScenario(ctx, kit, spec, policy, roles)
 			},
 		})
 	}
 	return out, nil
 }
 
-func runYAMLScenario(ctx context.Context, kit *Kit, spec YAMLScenario) error {
-	eng, err := engineForYAMLPolicy(spec.Policy)
+func runYAMLScenario(ctx context.Context, kit *Kit, spec YAMLScenario, policy auth.PolicyDocument, roles []auth.Role) error {
+	eng, err := engineForYAMLPolicy(policy, roles)
 	if err != nil {
 		return fmt.Errorf("%s: %w", spec.Name, err)
 	}
@@ -168,47 +180,28 @@ func overlayTenant(tenant auth.TenantContext, spec YAMLScenario) auth.TenantCont
 	return tenant
 }
 
-func engineForYAMLPolicy(name string) (*auth.Engine, error) {
-	cfg := BaseConfig()
-	switch name {
-	case "", "base":
-		cfg.Policy = BasePolicy()
-	case "observation-only":
-		cfg.Roles = []auth.Role{{
-			Name:        "clinician",
-			Permissions: []auth.Permission{"*.read", "observation.read", "patient.read", "appointment.read"},
-		}, {
-			Name:        "tenant-admin",
-			Permissions: []auth.Permission{"*.read", "module.install"},
-		}, {
-			Name:        "backend",
-			Permissions: []auth.Permission{"*.read", "patient.read"},
-		}}
-		cfg.Policy = NarrowObservationPolicy()
-	case "deny-first":
-		cfg = NarrowEngineConfigWithDenyFirst()
-	case "allow-all-read":
-		cfg.Policy = allowAllReadPolicy()
-	default:
-		return nil, fmt.Errorf("unknown policy %q", name)
+func resolveYAMLPolicy(file YAMLFile, spec YAMLScenario) (auth.PolicyDocument, error) {
+	if spec.PolicyDocument != nil {
+		return *spec.PolicyDocument, nil
 	}
-	return auth.NewEngine(cfg)
+	name := spec.Policy
+	if name == "" {
+		name = "base"
+	}
+	doc, ok := file.Policies[name]
+	if !ok {
+		return auth.PolicyDocument{}, fmt.Errorf("unknown policy %q (declare it under policies:)", name)
+	}
+	return doc, nil
 }
 
-func allowAllReadPolicy() *auth.PolicyDocument {
-	return &auth.PolicyDocument{
-		Version: "1",
-		Rules: []auth.PolicyRule{
-			{
-				Name:   "allow-all-read",
-				Effect: auth.EffectAllow,
-				Match: auth.RuleMatch{
-					Actions: []string{auth.ActionRead, auth.ActionWrite, auth.ActionExecuteView, auth.ActionExecuteAITool, auth.ActionPatientAccess},
-				},
-				Reason: "broad policy allows when scopes grant",
-			},
-		},
+func engineForYAMLPolicy(doc auth.PolicyDocument, roles []auth.Role) (*auth.Engine, error) {
+	cfg := BaseConfig()
+	if len(roles) > 0 {
+		cfg.Roles = roles
 	}
+	cfg.Policy = &doc
+	return auth.NewEngine(cfg)
 }
 
 func bundleForYAML(adapter *smart.AuthAdapter, spec YAMLScenario) (smart.AuthBundle, error) {

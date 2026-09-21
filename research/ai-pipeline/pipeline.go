@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
 	"github.com/degoke/health-ai-stack/pkg/audit"
@@ -86,12 +88,11 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	resources := researchutil.NewMemoryResourceStore()
 	auditStore := audit.NewMemoryStore()
 
-	inputs, err := loadAndValidate(ctx, resources)
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
 		return nil, err
 	}
-
-	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	inputs, validation, err := loadAndValidate(ctx, resources, engine)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +196,22 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	if modelRes == nil {
 		return nil, fmt.Errorf("stub model returned nil")
 	}
+	if err := (&audit.StoreAdapter{Store: auditStore, Now: now}).Log(ctx, audit.Event{
+		ID:             "research-invoke-model",
+		Timestamp:      now(),
+		Actor:          pipelineActor,
+		Tenant:         pipelineTenant,
+		Action:         audit.ActionInvokeModel,
+		Outcome:        audit.OutcomeSuccess,
+		ToolName:       stub.Name(),
+		ConversationID: conversationID,
+		Details: map[string]string{
+			"adapter": stub.Name(),
+			"seed":    strconv.FormatInt(modelSeed, 10),
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("audit invoke-model: %w", err)
+	}
 
 	rows, columns := viewRows(toolRes.Data)
 	rowHash, err := researchutil.HashJSON(rows)
@@ -223,6 +240,9 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	if !hasAuditAction(events, audit.ActionExecuteTool) {
 		return nil, fmt.Errorf("missing %s audit event", audit.ActionExecuteTool)
 	}
+	if !hasAuditAction(events, audit.ActionInvokeModel) {
+		return nil, fmt.Errorf("missing %s audit event", audit.ActionInvokeModel)
+	}
 
 	return &ProvenanceBundle{
 		Artefact:  "haistack-research-ai-pipeline",
@@ -234,7 +254,8 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 			PHI:       false,
 			Citation:  "See CITATION.cff and research/README.md",
 		},
-		Inputs: inputs,
+		Inputs:     inputs,
+		Validation: validation,
 		View: ViewProvenance{
 			Name:       viewName,
 			Version:    viewVersion,
@@ -266,46 +287,113 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	}, nil
 }
 
-func loadAndValidate(ctx context.Context, resources store.ResourceStore) ([]InputRecord, error) {
-	validator, err := validate.NewEngine(validate.Config{})
+func loadAndValidate(ctx context.Context, resources store.ResourceStore, engine fhirpath.Engine) ([]InputRecord, ValidationProvenance, error) {
+	catalog, pin, err := loadPinnedCatalog()
 	if err != nil {
-		return nil, err
+		return nil, ValidationProvenance{}, err
+	}
+	validator, err := validate.NewEngine(validate.Config{
+		ProfileCatalog: catalog,
+		FHIRPath:       engine,
+	})
+	if err != nil {
+		return nil, pin, err
 	}
 	var inputs []InputRecord
 	var envelopes []*types.ResourceEnvelope
 	for _, p := range pipelinePatients() {
 		env, err := patientEnvelope(p)
 		if err != nil {
-			return nil, err
+			return nil, pin, err
 		}
 		envelopes = append(envelopes, env)
 	}
 	for _, o := range pipelineObservations() {
 		env, err := observationEnvelope(o)
 		if err != nil {
-			return nil, err
+			return nil, pin, err
 		}
 		envelopes = append(envelopes, env)
 	}
+	opts := validate.ValidateOptions{
+		ProfileCatalog:     catalog,
+		EnforceBaseProfile: true,
+		Mode:               validate.ValidationModeFast,
+	}
 	for _, env := range envelopes {
-		result, err := validator.Validate(ctx, env, validate.ValidateOptions{})
+		result, err := validator.Validate(ctx, env, opts)
 		if err != nil {
-			return nil, fmt.Errorf("validate %s/%s: %w", env.ResourceType, env.ID, err)
+			return nil, pin, fmt.Errorf("validate %s/%s: %w", env.ResourceType, env.ID, err)
 		}
 		if result == nil || !result.Valid {
-			return nil, fmt.Errorf("validate %s/%s: invalid", env.ResourceType, env.ID)
+			return nil, pin, fmt.Errorf("validate %s/%s: invalid %+v", env.ResourceType, env.ID, result)
 		}
 		if err := resources.Create(ctx, env); err != nil {
-			return nil, err
+			return nil, pin, err
 		}
 		inputs = append(inputs, InputRecord{
 			ResourceType: env.ResourceType,
 			ID:           env.ID,
 			Hash:         env.Hash,
 			Validated:    true,
+			Profile:      validate.BaseStructureDefinitionURL(env.ResourceType),
 		})
 	}
-	return inputs, nil
+	return inputs, pin, nil
+}
+
+type conformanceLock struct {
+	IGPackage struct {
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Canonical string `json:"canonical"`
+	} `json:"igPackage"`
+	FHIRVersion string `json:"fhirVersion"`
+	GitCommit   string `json:"gitCommit"`
+}
+
+func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, error) {
+	root, err := researchutil.RepoRoot()
+	if err != nil {
+		return nil, ValidationProvenance{}, err
+	}
+	lockPath := filepath.Join(root, "conformance-lock.json")
+	lockBytes, err := os.ReadFile(lockPath)
+	if err != nil {
+		return nil, ValidationProvenance{}, fmt.Errorf("read conformance-lock: %w", err)
+	}
+	var lock conformanceLock
+	if err := json.Unmarshal(lockBytes, &lock); err != nil {
+		return nil, ValidationProvenance{}, err
+	}
+	pin := ValidationProvenance{
+		FHIRVersion: lock.FHIRVersion,
+		IGPackage:   lock.IGPackage.Name,
+		IGVersion:   lock.IGPackage.Version,
+		Canonical:   lock.IGPackage.Canonical,
+		GitCommit:   lock.GitCommit,
+		Mode:        "r4-base-profile",
+	}
+	sdDir := filepath.Join(root, "pkg/registry/internal/bundles/r4/structure-definitions")
+	var resources [][]byte
+	for _, name := range []string{"Patient.json", "Observation.json"} {
+		raw, err := os.ReadFile(filepath.Join(sdDir, name))
+		if err != nil {
+			return nil, pin, fmt.Errorf("load %s: %w", name, err)
+		}
+		resources = append(resources, raw)
+	}
+	catalog, err := validate.LoadProfileCatalogFromJSON(resources)
+	if err != nil {
+		return nil, pin, err
+	}
+	igDir := filepath.Join(root, "conformance/fsh-generated/resources")
+	if st, err := os.Stat(igDir); err == nil && st.IsDir() {
+		if ig, err := validate.LoadProfileCatalogFromDir(igDir); err == nil {
+			catalog = validate.MergeProfileCatalogs(catalog, ig)
+		}
+	}
+	return catalog, pin, nil
 }
 
 func viewRows(data any) ([]map[string]any, []string) {

@@ -1,6 +1,114 @@
 version: "1"
 # Vendor-neutral SMART scope ∩ policy scenarios for HAIStack research Track C.
 # Executed by pkg/testkit/authztest (shared runner) and go run ./research/policy-semantics.
+# Policy documents and the role catalog live in this file (portable pkg/auth DSL).
+roles:
+  - name: clinician
+    permissions:
+      - appointment.read
+      - read-patient-summary
+      - read-appointment
+      - patient.read
+      - observation.read
+      - "*.read"
+  - name: tenant-admin
+    permissions:
+      - module.install
+      - read-appointment
+      - appointment.read
+      - read-patient-summary
+  - name: backend
+    permissions:
+      - "*.read"
+      - patient.read
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: appointment-rw
+        effect: allow
+        match:
+          actions: [read, write]
+          resourceTypes: [Appointment]
+          anyPermissions: [appointment.read]
+        reason: clinicians may access appointments
+      - name: patient-read
+        effect: allow
+        match:
+          actions: [read]
+          resourceTypes: [Patient]
+          anyPermissions: [patient.read]
+        reason: patient read allowed
+      - name: patient-summary-view
+        effect: allow
+        match:
+          actions: [execute-view]
+          viewNames: [patient_summary_view]
+        reason: view allowed
+      - name: ai-run-view
+        effect: allow
+        match:
+          actions: [execute-ai-tool]
+          toolNames: [run_view]
+        reason: ai may run view tool
+      - name: patient-access
+        effect: allow
+        match:
+          actions: [patient-access]
+        reason: patient compartment access
+      - name: device-push
+        effect: allow
+        match:
+          actions: [push-device-event]
+          deviceTrusted: true
+          deviceStatuses: [active]
+        reason: trusted device may push
+      - name: install-scheduling
+        effect: allow
+        match:
+          actions: [install-module]
+          moduleNames: [scheduling]
+          roles: [tenant-admin]
+        reason: admin may install scheduling
+  observation-only:
+    version: "1"
+    rules:
+      - name: observation-only
+        effect: allow
+        match:
+          actions: [read]
+          resourceTypes: [Observation]
+          anyPermissions: [observation.read, "*.read"]
+        reason: policy allows observation only
+      - name: patient-access
+        effect: allow
+        match:
+          actions: [patient-access]
+        reason: patient compartment access
+  allow-all-read:
+    version: "1"
+    rules:
+      - name: allow-all-read
+        effect: allow
+        match:
+          actions: [read, write, execute-view, execute-ai-tool, patient-access]
+        reason: broad policy allows when scopes grant
+  deny-first:
+    version: "1"
+    rules:
+      - name: deny-appointment
+        effect: deny
+        match:
+          actions: [read]
+          resourceTypes: [Appointment]
+        reason: blocked by deny-first rule
+      - name: allow-appointment
+        effect: allow
+        match:
+          actions: [read]
+          resourceTypes: [Appointment]
+          anyPermissions: [appointment.read]
+        reason: would allow
 scenarios:
   - name: broad_scope_matching_policy_allows_observation
     doc: "Example 1 — user/*.read ∩ observation-only policy allows Observation read."
