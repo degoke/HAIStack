@@ -23,11 +23,15 @@ import (
 // parquet-go's OpenFile remaps TIMESTAMP logical types to INT64 regardless of
 // the footer's physical type, so Schema().Lookup and Pages() fail with
 // "cannot decode INT64 from input of size 12". This helper is a workaround for
-// files written by this package (PLAIN INT96, DataPage V1 or V2): it uses file
-// metadata physical type INT96 and expands definition levels so the result is
-// row-aligned. Null annotation slots are nil. A single path element matches a
-// unique leaf name; pass the full schema path when names collide (for example
-// effectivePeriod.__start_start vs valuePeriod.__start_start).
+// files written by this package (PLAIN INT96, DataPage V1 or V2). Dictionary
+// pages and non-PLAIN encodings are rejected.
+//
+// Null annotation slots are nil. Optional, non-repeated columns are row-aligned
+// (result length matches File.NumRows()). LIST/repeated parents are
+// definition-level aligned: one entry per list element, which can exceed
+// NumRows. A single path element matches a unique leaf name; pass the full
+// schema path when names collide (for example effectivePeriod.__start_start vs
+// valuePeriod.__start_start).
 func ReadInt96MillisColumn(r io.ReaderAt, size int64, path ...string) ([]*time.Time, error) {
 	if len(path) == 0 {
 		return nil, fmt.Errorf("parquetfhir: column path is required")
@@ -98,6 +102,9 @@ func resolveInt96Column(schema *parquet.Schema, path []string) ([]string, parque
 }
 
 func decodeInt96Chunk(r io.ReaderAt, chunk format.ColumnChunk, maxRep, maxDef byte) ([]*time.Time, error) {
+	// Page layout is decoded here because parquet-go remaps TIMESTAMP pages to
+	// INT64. Keep this in sync with GenericWriter PLAIN INT96 output in
+	// row_writer.go (DataPage V1 and V2).
 	offset := chunk.MetaData.DataPageOffset
 	if chunk.MetaData.DictionaryPageOffset != 0 {
 		offset = chunk.MetaData.DictionaryPageOffset

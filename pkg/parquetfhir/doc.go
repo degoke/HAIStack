@@ -12,8 +12,9 @@
 // _parquetTimestampEncoding=int96 (query or Parameters body) to emit spec
 // INT96 + TIMESTAMP(MILLIS) via a typed parquet.Row writer. Values are Unix
 // millis packed with Int64ToInt96. parquet-go remaps TIMESTAMP to INT64 on
-// read; use ReadInt96MillisColumn to round-trip those columns (row-aligned,
-// path-qualified when leaf names collide). WriteResourcesStreaming uses a
+// read; use ReadInt96MillisColumn to round-trip those columns (PLAIN INT96
+// workaround; optional columns are row-aligned, LIST columns are
+// definition-level aligned). WriteResourcesStreaming uses a
 // two-pass replay model for bounded memory. Use _parquetLayout=fhir on view
 // export/run operations and analytics lakehouse sinks.
 package parquetfhir

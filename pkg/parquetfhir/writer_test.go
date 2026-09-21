@@ -107,12 +107,12 @@ func TestInteropSpecObservationPeriodStartINT96TimestampAnnotations(t *testing.T
 		},
 	}
 	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
-	assertMetadataPhysicalType(t, data, format.Int96, "__start_start")
-	assertMetadataPhysicalType(t, data, format.Int96, "__start_end")
-	assertMetadataPhysicalType(t, data, format.Int96, "__end_start")
-	assertMetadataPhysicalType(t, data, format.Int96, "__end_end")
-	assertMetadataTimestampMillis(t, data, "__start_start")
-	assertMetadataTimestampMillis(t, data, "__start_end")
+	assertMetadataPhysicalType(t, data, format.Int96, "effectivePeriod", "__start_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "effectivePeriod", "__start_end")
+	assertMetadataPhysicalType(t, data, format.Int96, "effectivePeriod", "__end_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "effectivePeriod", "__end_end")
+	assertMetadataTimestampMillis(t, data, "effectivePeriod", "__start_start")
+	assertMetadataTimestampMillis(t, data, "effectivePeriod", "__start_end")
 	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__start_start")
 	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 11, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__end_start")
 }
@@ -158,8 +158,54 @@ func TestINT96TimestampAnnotationsDisambiguatesPeriodPaths(t *testing.T) {
 	if _, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), "__start_start"); err == nil {
 		t.Fatal("expected ambiguous __start_start to require a full path")
 	}
+	assertMetadataPhysicalType(t, data, format.Int96, "effectivePeriod", "__start_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "valuePeriod", "__start_start")
+	assertMetadataTimestampMillis(t, data, "effectivePeriod", "__start_start")
+	assertMetadataTimestampMillis(t, data, "valuePeriod", "__start_start")
 	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__start_start")
 	assertInt96MillisRoundTrip(t, data, time.Date(2022, 3, 1, 0, 0, 0, 0, time.UTC), "valuePeriod", "__start_start")
+}
+
+func TestINT96TimestampAnnotationsRepeatingComponentExceedsNumRows(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType": "Observation",
+			"id":           "obs-components",
+			"status":       "final",
+			"component": []any{
+				map[string]any{"valuePeriod": map[string]any{"start": "2022-01-01T00:00:00Z"}},
+				map[string]any{"valuePeriod": map[string]any{"start": "2022-01-02T00:00:00Z"}},
+			},
+		},
+		{"resourceType": "Observation", "id": "obs-empty", "status": "final"},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if file.NumRows() != 2 {
+		t.Fatalf("rows=%d, want 2", file.NumRows())
+	}
+	path := []string{"component", "list", "element", "valuePeriod", "__start_start"}
+	assertMetadataPhysicalType(t, data, format.Int96, path...)
+	got, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), path...)
+	if err != nil {
+		t.Fatalf("ReadInt96MillisColumn: %v", err)
+	}
+	if len(got) <= int(file.NumRows()) {
+		t.Fatalf("len=%d, want definition-level length greater than NumRows=%d; columns=%v", len(got), file.NumRows(), file.Schema().Columns())
+	}
+	present := 0
+	for _, ts := range got {
+		if ts != nil {
+			present++
+		}
+	}
+	if present != 2 {
+		t.Fatalf("present=%d, want 2 list-element timestamps, values=%v", present, got)
+	}
 }
 
 func TestWriteResourcesStreamingINT96TimestampAnnotations(t *testing.T) {
@@ -639,44 +685,91 @@ func assertColumnDecimal(t *testing.T, schema *parquet.Schema, precision, scale 
 	}
 }
 
-func schemaElementByName(t *testing.T, data []byte, name string) format.SchemaElement {
+func schemaElementByPath(t *testing.T, data []byte, path ...string) format.SchemaElement {
 	t.Helper()
 	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	for _, elem := range file.Metadata().Schema {
-		if elem.Name == name {
-			return elem
+	resolved := resolveTestColumnPath(t, file.Schema(), path...)
+	leaf, ok := file.Schema().Lookup(resolved...)
+	if !ok {
+		t.Fatalf("column %v not found in %#v", resolved, file.Schema().Columns())
+	}
+	return leafSchemaElement(t, file.Metadata(), leaf.ColumnIndex)
+}
+
+func resolveTestColumnPath(t *testing.T, schema *parquet.Schema, path ...string) []string {
+	t.Helper()
+	if len(path) == 0 {
+		t.Fatal("column path is required")
+	}
+	if len(path) > 1 {
+		if _, ok := schema.Lookup(path...); !ok {
+			t.Fatalf("column %v not found in %#v", path, schema.Columns())
+		}
+		return path
+	}
+	name := path[0]
+	var matches [][]string
+	for _, col := range schema.Columns() {
+		if len(col) > 0 && col[len(col)-1] == name {
+			matches = append(matches, col)
 		}
 	}
-	t.Fatalf("schema element %q not found in %#v", name, file.Metadata().Schema)
+	if len(matches) == 0 {
+		t.Fatalf("column %q not found in %#v", name, schema.Columns())
+	}
+	if len(matches) > 1 {
+		listed := make([]string, len(matches))
+		for i, col := range matches {
+			listed[i] = strings.Join(col, ".")
+		}
+		t.Fatalf("column %q is ambiguous; use a full path (matches %s)", name, strings.Join(listed, ", "))
+	}
+	return matches[0]
+}
+
+func leafSchemaElement(t *testing.T, meta *format.FileMetaData, colIndex int) format.SchemaElement {
+	t.Helper()
+	leaf := 0
+	for i := 1; i < len(meta.Schema); i++ {
+		elem := meta.Schema[i]
+		if !elem.Type.Valid {
+			continue
+		}
+		if leaf == colIndex {
+			return elem
+		}
+		leaf++
+	}
+	t.Fatalf("leaf column index %d not found in %#v", colIndex, meta.Schema)
 	return format.SchemaElement{}
 }
 
-func assertMetadataPhysicalType(t *testing.T, data []byte, want format.Type, name string) {
+func assertMetadataPhysicalType(t *testing.T, data []byte, want format.Type, path ...string) {
 	t.Helper()
-	elem := schemaElementByName(t, data, name)
+	elem := schemaElementByPath(t, data, path...)
 	if !elem.Type.Valid {
-		t.Fatalf("column %s missing physical type", name)
+		t.Fatalf("column %v missing physical type", path)
 	}
 	if elem.Type.V != want {
-		t.Fatalf("column %s physical type=%s, want %s", name, elem.Type.V, want)
+		t.Fatalf("column %v physical type=%s, want %s", path, elem.Type.V, want)
 	}
 }
 
-func assertMetadataTimestampMillis(t *testing.T, data []byte, name string) {
+func assertMetadataTimestampMillis(t *testing.T, data []byte, path ...string) {
 	t.Helper()
-	elem := schemaElementByName(t, data, name)
+	elem := schemaElementByPath(t, data, path...)
 	ts, ok := elem.LogicalType.Value.(*format.TimestampType)
 	if !ok {
-		t.Fatalf("column %s logical type=%T, want TIMESTAMP", name, elem.LogicalType.Value)
+		t.Fatalf("column %v logical type=%T, want TIMESTAMP", path, elem.LogicalType.Value)
 	}
 	if !ts.IsAdjustedToUTC {
-		t.Fatalf("column %s TIMESTAMP not UTC-adjusted", name)
+		t.Fatalf("column %v TIMESTAMP not UTC-adjusted", path)
 	}
 	if _, ok := ts.Unit.Value.(*format.MilliSeconds); !ok {
-		t.Fatalf("column %s TIMESTAMP unit=%v, want MILLIS", name, ts.Unit.Value)
+		t.Fatalf("column %v TIMESTAMP unit=%v, want MILLIS", path, ts.Unit.Value)
 	}
 }
 
