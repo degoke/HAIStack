@@ -187,6 +187,7 @@ Build failures roll back partially opened resources before returning an error.
 | `SearchService` | When `WithSearch()` |
 | `SyncEngine` | When sync hub configured |
 | `FHIRPathEngine` | Always |
+| `CQL` (via SDC adapter) | Always (Patient-context subset in `pkg/cql`) |
 | `TenantDB` | Postgres modes |
 | `BlobStore`, `ExternalSearch`, `Warehouse` | Cloud mode adapters |
 

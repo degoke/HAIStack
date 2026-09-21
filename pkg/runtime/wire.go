@@ -11,6 +11,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/cql"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
@@ -347,6 +348,22 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 	state.services.FHIRPathEngine = engine
+	cqlEngine, err := cql.NewEngine(cql.Config{
+		FHIRPath:  engine,
+		Retriever: cql.StoreRetriever{Resources: pc.resources},
+	})
+	if err != nil {
+		return fmt.Errorf("runtime: cql engine: %w", err)
+	}
+	cqlProvider := cql.Provider{
+		Engine: cqlEngine,
+		Libraries: &cql.StoreLibraryResolver{
+			Resources: pc.resources,
+			Registry:  pc.definitions,
+			Engine:    cqlEngine,
+		},
+		Retriever: cql.StoreRetriever{Resources: pc.resources},
+	}
 	viewRegistry := view.NewRegistry()
 
 	if len(b.packageInstalls) > 0 {
@@ -442,11 +459,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		EnforceDeclaredProfiles: true,
 		Terminology:             state.services.TerminologyService,
 	})
+	fhirPath := sdc.FHIRPathExpressions{Engine: engine}
+	exprProvider := sdc.ComposeExpressions(fhirPath, nil, cqlProvider)
 	validator := &sdc.ResponseValidator{
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
 		Options: sdc.ValidationOptions{
-			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+			Expressions: exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 		},
 	}
@@ -675,15 +694,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
-		fhirPath := sdc.FHIRPathExpressions{Engine: engine}
-		exprProvider := sdc.ExpressionProvider(fhirPath)
+		var fhirQuery sdc.FHIRQueryProvider
 		if state.services.SearchService != nil {
-			exprProvider = sdc.ComposeExpressions(
-				fhirPath,
-				sdc.NewSearchFHIRQueryProvider(state.services.SearchService),
-				nil,
-			)
+			fhirQuery = sdc.NewSearchFHIRQueryProvider(state.services.SearchService)
 		}
+		exprProvider = sdc.ComposeExpressions(fhirPath, fhirQuery, cqlProvider)
+		validator.Options.Expressions = exprProvider
 		sdcService = hahttp.CoreSDCService{
 			Resources:   state.services.ResourceService,
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},

@@ -1,0 +1,136 @@
+package cql
+
+import (
+	"context"
+	"time"
+
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/types"
+)
+
+// Engine compiles and evaluates a bounded CQL subset.
+type Engine struct {
+	fhirpath         fhirpath.Engine
+	retriever        Retriever
+	now              func() time.Time
+	maxExpressionLen int
+}
+
+// Config configures a CQL engine.
+type Config struct {
+	// FHIRPath is optional. When nil, NewEngine constructs a default engine
+	// for resource-root path evaluation.
+	FHIRPath fhirpath.Engine
+	// Retriever loads clinical resources for CQL retrieve expressions.
+	Retriever Retriever
+	// Now overrides the evaluation clock (defaults to time.Now UTC).
+	Now func() time.Time
+	// MaxExpressionLen caps CQL source length (default 65536).
+	MaxExpressionLen int
+}
+
+const DefaultMaxExpressionLen = 65536
+
+// Library is a compiled CQL library.
+type Library struct {
+	Name     string
+	Version  string
+	Using    string
+	Context  string
+	Includes []Include
+	Defines  []Define
+	Source   string
+	URL      string
+}
+
+// Include records an included CQL library. FHIRHelpers is provided as a builtin.
+type Include struct {
+	Name    string
+	Version string
+	Called  string
+}
+
+// Define is a named CQL expression.
+type Define struct {
+	Name       string
+	Access     string
+	Expression Node
+	Source     string
+}
+
+// EvalContext is the evaluation environment for a CQL expression.
+type EvalContext struct {
+	Patient     any
+	Parameters  map[string]any
+	Libraries   []*Library
+	LibraryRefs []string
+	Contained   []map[string]any
+	Language    string
+	Now         time.Time
+	Retriever   Retriever
+}
+
+// Retriever executes CQL retrieve ([Observation], …) against a data source.
+type Retriever interface {
+	Retrieve(ctx context.Context, req RetrieveRequest, patient any) ([]any, error)
+}
+
+// RetrieveRequest names a FHIR resource type and optional terminology filter.
+type RetrieveRequest struct {
+	ResourceType string
+	Terminology  string
+}
+
+// LibraryResolver loads a CQL library by canonical URL (url or url|version).
+type LibraryResolver interface {
+	Resolve(ctx context.Context, canonical string) (*Library, error)
+}
+
+// Request is passed through sdc.CQLProvider.EvaluateCQL as the input value
+// when the SDC adapter has questionnaire or language metadata.
+type Request struct {
+	Language    string
+	Name        string
+	Patient     any
+	Parameters  map[string]any
+	Libraries   []*Library
+	LibraryRefs []string
+	Contained   []map[string]any
+	Input       any
+}
+
+// StaticLibraries resolves libraries from an in-memory canonical table.
+type StaticLibraries map[string]*Library
+
+func (s StaticLibraries) Resolve(_ context.Context, canonical string) (*Library, error) {
+	if s == nil {
+		return nil, ErrLibraryNotFound
+	}
+	if lib, ok := s[canonical]; ok && lib != nil {
+		return lib, nil
+	}
+	url, version := splitCanonical(canonical)
+	var matches []*Library
+	for key, lib := range s {
+		if lib == nil {
+			continue
+		}
+		if key == url || lib.URL == url || lib.Name == url {
+			if version == "" || lib.Version == version || key == canonical {
+				matches = append(matches, lib)
+			}
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return nil, errf("%w: ambiguous CQL library canonical %s", ErrLibraryNotFound, canonical)
+	}
+	return nil, errf("%w: %s", ErrLibraryNotFound, canonical)
+}
+
+// EnvelopeLibrary parses a FHIR Library resource envelope into CQL source.
+func EnvelopeLibrary(env *types.ResourceEnvelope) (source string, url, name, version string, err error) {
+	return parseLibraryEnvelope(env)
+}

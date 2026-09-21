@@ -211,3 +211,19 @@ func TestRequiredExpressionValidation(t *testing.T) {
 		t.Fatal("expected required expression issue")
 	}
 }
+
+func TestCQFLibraryCanonicalIsParsed(t *testing.T) {
+	q, err := DecodeQuestionnaire([]byte(`{
+		"resourceType":"Questionnaire","url":"http://example/q","status":"active",
+		"extension":[
+			{"url":"http://hl7.org/fhir/StructureDefinition/cqf-library","valueCanonical":"http://example.org/Library/Demo"}
+		],
+		"item":[{"linkId":"x","type":"string"}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.CQFLibraries) != 1 || q.CQFLibraries[0].LibraryCanonical != "http://example.org/Library/Demo" {
+		t.Fatalf("cqf-library: %#v", q.CQFLibraries)
+	}
+}

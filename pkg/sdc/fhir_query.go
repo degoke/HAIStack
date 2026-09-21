@@ -155,7 +155,7 @@ func (p MultiExpressionProvider) Evaluate(ctx context.Context, e Expression, inp
 		if p.FHIRQuery != nil {
 			return p.FHIRQuery.Evaluate(ctx, e, input)
 		}
-	case "text/cql":
+	case CQLLanguage, CQLIdentifierLanguage, CQLApplicationLang, CQLApplicationXLang:
 		if p.CQL != nil {
 			return p.CQL.Evaluate(ctx, e, input)
 		}
@@ -284,6 +284,24 @@ func extractFHIRQueryProvider(provider ExpressionProvider) FHIRQueryProvider {
 		return extractFHIRQueryProvider(p.base)
 	case scopedExpressionProvider:
 		return extractFHIRQueryProvider(p.inner)
+	default:
+		return nil
+	}
+}
+
+func extractCQLProvider(provider ExpressionProvider) CQLProvider {
+	switch p := provider.(type) {
+	case CQLExpressions:
+		return p.Provider
+	case MultiExpressionProvider:
+		if p.CQL != nil {
+			return extractCQLProvider(p.CQL)
+		}
+		return nil
+	case contextualExpressionProvider:
+		return extractCQLProvider(p.base)
+	case scopedExpressionProvider:
+		return extractCQLProvider(p.inner)
 	default:
 		return nil
 	}
