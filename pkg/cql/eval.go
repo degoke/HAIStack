@@ -643,17 +643,20 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
 	}
-	lv, rv := left[0], right[0]
 	switch n.op {
 	case "=":
-		return []any{cqlEqual(lv, rv)}, nil
+		return []any{cqlEqualValues(left, right)}, nil
 	case "!=":
-		return []any{!cqlEqual(lv, rv)}, nil
+		return []any{!cqlEqualValues(left, right)}, nil
 	case "~":
-		return []any{cqlEquivalent(lv, rv)}, nil
+		return []any{cqlEquivalentValues(left, right)}, nil
 	case "!~":
-		return []any{!cqlEquivalent(lv, rv)}, nil
+		return []any{!cqlEquivalentValues(left, right)}, nil
 	case "<", ">", "<=", ">=":
+		if len(left) != 1 || len(right) != 1 {
+			return nil, nil
+		}
+		lv, rv := left[0], right[0]
 		cmp, ok := cqlCompare(lv, rv)
 		if !ok {
 			return nil, nil
@@ -669,7 +672,10 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return []any{cmp >= 0}, nil
 		}
 	case "+", "-", "*", "/", "div", "mod":
-		return evalArithmetic(n.op, lv, rv)
+		if len(left) != 1 || len(right) != 1 {
+			return nil, nil
+		}
+		return evalArithmetic(n.op, left[0], right[0])
 	}
 	return nil, errf("%w: operator %q", ErrUnsupported, n.op)
 }
@@ -958,13 +964,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) == 0 || len(args[0]) == 0 {
 			return nil, nil
 		}
-		return []any{args[0][0]}, nil
+		return listValueResult(args[0][0]), nil
 	case "last":
 		if len(args) == 0 || len(args[0]) == 0 {
 			return nil, nil
 		}
 		a := args[0]
-		return []any{a[len(a)-1]}, nil
+		return listValueResult(a[len(a)-1]), nil
 	case "count":
 		if len(args) == 0 {
 			return []any{int64(0)}, nil
@@ -1674,6 +1680,28 @@ func listValueResult(v any) []any {
 	return []any{v}
 }
 
+func cqlEqualValues(left, right []any) bool {
+	if len(left) != 1 || len(right) != 1 {
+		return cqlEqual(left, right)
+	}
+	return cqlEqual(left[0], right[0])
+}
+
+func cqlEquivalentValues(left, right []any) bool {
+	if len(left) != 1 || len(right) != 1 {
+		if len(left) != len(right) {
+			return false
+		}
+		for i := range left {
+			if !cqlEquivalent(left[i], right[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return cqlEquivalent(left[0], right[0])
+}
+
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
 	if q1, ok := asQuantity(lv); ok {
 		if q2, ok := asQuantity(rv); ok {
@@ -2093,6 +2121,10 @@ func flattenJSON(v any) []any {
 	case []any:
 		var out []any
 		for _, el := range x {
+			if _, ok := el.([]any); ok {
+				out = append(out, el)
+				continue
+			}
 			out = append(out, flattenJSON(el)...)
 		}
 		return out

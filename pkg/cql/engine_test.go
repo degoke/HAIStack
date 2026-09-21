@@ -1958,3 +1958,79 @@ func TestStartsWithRequiresStrings(t *testing.T) {
 		t.Fatalf("startsWith mixed types must be null: %#v", got)
 	}
 }
+
+func TestListEqualityComparesAllElements(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{1, 2} = {1, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{1, 2} = {1, 3} must be false: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 2} = {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{1, 2} = {1, 2}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 2} != {1, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{1, 2} != {1, 3}: %#v", got)
+	}
+}
+
+func TestNestedListSurvivesMemberAccess(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{ x: {{1, 2}} }.x.count()", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("tuple nested list count: %#v", got)
+	}
+}
+
+func TestFirstFunctionUnwrapsNestedList(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "First({{1, 2}}).count()", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(2) {
+		t.Fatalf("First({{1, 2}}).count() must be 2: %#v", got)
+	}
+}
+
+func TestDateTimeConstructorUsesCompareZone(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "DateTime(2021, 1, 1, 3, 0, 0) during Interval[@2021-01-01T00:00:00-05:00, @2021-01-01T23:59:59-05:00]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("naive DateTime during EST day: %#v", got)
+	}
+}
+
+func TestReplaceRequiresStrings(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'abc'.replace(1, 'x')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("replace mixed types must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'abc'.replace('b', 'x')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "axc" {
+		t.Fatalf("replace strings: %#v", got)
+	}
+}

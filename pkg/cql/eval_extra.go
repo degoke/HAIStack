@@ -261,7 +261,7 @@ func constructDate(args [][]any, dateTime bool) ([]any, error) {
 	if dateTime && len(parts) > 5 {
 		s = parts[5]
 	}
-	loc := time.UTC
+	loc := naiveDateTimeLoc
 	if !dateTime {
 		loc = dateOnlyLoc
 	}
@@ -321,16 +321,14 @@ func stringContains(args [][]any) ([]any, error) {
 }
 
 func stringReplace(args [][]any) ([]any, error) {
-	if len(args) < 3 || len(args[0]) == 0 {
+	if len(args) < 3 || len(args[0]) == 0 || len(args[1]) == 0 || len(args[2]) == 0 {
 		return nil, nil
 	}
-	s := fmt.Sprint(unwrapPrimitive(args[0][0]))
-	old, newv := "", ""
-	if len(args[1]) > 0 {
-		old = fmt.Sprint(unwrapPrimitive(args[1][0]))
-	}
-	if len(args[2]) > 0 {
-		newv = fmt.Sprint(unwrapPrimitive(args[2][0]))
+	s, sok := unwrapPrimitive(args[0][0]).(string)
+	old, ook := unwrapPrimitive(args[1][0]).(string)
+	newv, nok := unwrapPrimitive(args[2][0]).(string)
+	if !sok || !ook || !nok {
+		return nil, nil
 	}
 	return []any{strings.ReplaceAll(s, old, newv)}, nil
 }
