@@ -79,7 +79,7 @@ func TestParseQueryAdvancedFeatures(t *testing.T) {
 }
 
 func TestParseQueryUnsupportedFeatures(t *testing.T) {
-	_, err := search.ParseQueryValues("Patient", map[string][]string{"subject.name.family": {"Smith"}})
+	_, err := search.ParseQueryValues("Patient", map[string][]string{"subject.organization.partof.name": {"Acme"}})
 	if !errors.Is(err, search.ErrUnsupportedFeature) {
 		t.Fatalf("expected chain depth error, got %v", err)
 	}
@@ -89,9 +89,14 @@ func TestParseQueryUnsupportedFeatures(t *testing.T) {
 		t.Fatalf("expected modifier error, got %v", err)
 	}
 
-	_, err = search.ParseQueryValues("Patient", map[string][]string{"_include": {"*:general-practitioner"}})
+	_, err = search.ParseQueryValues("Patient", map[string][]string{"_include:iterate": {"Patient:general-practitioner"}})
 	if !errors.Is(err, search.ErrUnsupportedFeature) {
-		t.Fatalf("expected wildcard include error, got %v", err)
+		t.Fatalf("expected iterate include error, got %v", err)
+	}
+
+	_, err = search.ParseQueryValues("Patient", map[string][]string{"_has:Observation:subject:_has:Encounter:diagnosis:_has:Condition:subject:code": {"x"}})
+	if !errors.Is(err, search.ErrUnsupportedFeature) {
+		t.Fatalf("expected nested _has depth error, got %v", err)
 	}
 }
 

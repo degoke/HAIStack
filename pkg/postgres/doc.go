@@ -147,6 +147,7 @@
 //   - date.<name>                      → hai_search_date
 //   - number.<name>                    → hai_search_number
 //   - reference.<name> or ref.<name>   → hai_search_reference
+//   - uri.<name>                       → hai_search_string
 //
 // Keys without a prefix default to hai_search_string. QueryPrepared supports the "by-field"
 // plan (args: key, value). AnalyticsStore QueryPrepared supports "by-name-since"

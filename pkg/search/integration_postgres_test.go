@@ -18,6 +18,10 @@ import (
 )
 
 func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {
+	return openPostgresSearchHarnessTypes(t, "Patient", "Observation")
+}
+
+func openPostgresSearchHarnessTypes(t *testing.T, types ...string) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {
 	t.Helper()
 	ctx := context.Background()
 	db := postgrestest.SharedDB(t)
@@ -34,7 +38,7 @@ func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Ser
 	if err := manager.SeedBundled(ctx); err != nil {
 		t.Fatalf("SeedBundled: %v", err)
 	}
-	for _, rt := range []string{"Patient", "Observation"} {
+	for _, rt := range types {
 		if err := manager.EnableResource(ctx, rt); err != nil {
 			t.Fatalf("EnableResource %s: %v", rt, err)
 		}
@@ -465,6 +469,126 @@ func TestPostgresIncludePatient(t *testing.T) {
 	}
 	if len(result.Included) != 1 || result.Included[0].ID != "pat-1" {
 		t.Fatalf("included = %#v", result.Included)
+	}
+}
+
+func TestPostgresHasReverseChain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, patientResource(t, "pat-2", "Smith", "556")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Patient", mustValues(t, map[string]string{
+		"_has:Observation:subject:code": "8867-4",
+	}))
+	if err != nil {
+		t.Fatalf("_has search: %v", err)
+	}
+	if len(result.Resources) != 1 || result.Resources[0].ID != "pat-1" {
+		t.Fatalf("_has search = %#v", result.Resources)
+	}
+}
+
+func TestPostgresTwoHopChain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Organization")
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, organizationResource(t, "org-1", "Acme")); err != nil {
+		t.Fatalf("Create organization: %v", err)
+	}
+	if _, err := svc.Create(ctx, patientWithOrganization(t, "pat-1", "Doe", "org-1")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"subject.organization.name": "Acme",
+	}))
+	if err != nil {
+		t.Fatalf("two-hop search: %v", err)
+	}
+	if len(result.Resources) != 1 || result.Resources[0].ID != "obs-1" {
+		t.Fatalf("two-hop search = %#v", result.Resources)
+	}
+}
+
+func TestPostgresUriBelowAndWildcardInclude(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping postgres integration test in short mode")
+	}
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Questionnaire")
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-1", "http://example.org/fhir/Questionnaire/q-1")); err != nil {
+		t.Fatalf("Create questionnaire: %v", err)
+	}
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-2", "http://other.org/fhir/Questionnaire/q-2")); err != nil {
+		t.Fatalf("Create questionnaire: %v", err)
+	}
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-3", "http://example.org/fhirExtra")); err != nil {
+		t.Fatalf("Create questionnaire extra: %v", err)
+	}
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-4", "http://example.org/fhir")); err != nil {
+		t.Fatalf("Create questionnaire prefix: %v", err)
+	}
+
+	result, err := searchSvc.Search(ctx, "Questionnaire", mustValues(t, map[string]string{
+		"url:below": "http://example.org/fhir",
+	}))
+	if err != nil {
+		t.Fatalf("uri:below search: %v", err)
+	}
+	got := map[string]bool{}
+	for _, res := range result.Resources {
+		got[res.ID] = true
+	}
+	if !got["q-1"] || !got["q-4"] || got["q-2"] || got["q-3"] {
+		t.Fatalf("uri:below search = %#v, want q-1 and q-4 (not q-2/q-3 prefixExtra)", result.Resources)
+	}
+
+	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
+		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
+		t.Fatalf("Create observation: %v", err)
+	}
+	included, err := searchSvc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:*",
+	}))
+	if err != nil {
+		t.Fatalf("wildcard include: %v", err)
+	}
+	if len(included.Included) == 0 {
+		t.Fatal("expected wildcard include to expand referenced resources")
+	}
+	foundPatient := false
+	for _, inc := range included.Included {
+		if inc.ResourceType == "Patient" && inc.ID == "pat-1" {
+			foundPatient = true
+		}
+	}
+	if !foundPatient {
+		t.Fatalf("wildcard include missing patient: %#v", included.Included)
 	}
 }
 

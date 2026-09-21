@@ -53,6 +53,8 @@ func parseSearchFieldKey(key string) (searchTable, string, error) {
 		return searchTableNumber, parts[1], nil
 	case "reference", "ref":
 		return searchTableReference, parts[1], nil
+	case "uri":
+		return searchTableString, parts[1], nil
 	default:
 		return searchTableString, key, nil
 	}
@@ -136,6 +138,15 @@ func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) 
 	table, fieldKey, err := parseSearchFieldKey(match.FieldKey)
 	if err != nil {
 		return nil, err
+	}
+	op := match.Operator
+	if op == "" {
+		op = "eq"
+	}
+	switch op {
+	case "eq", "exact", "=":
+	default:
+		return nil, fmt.Errorf("%w: sqlite LookupMatch operator %q", store.ErrUnsupportedFeature, op)
 	}
 	query := fmt.Sprintf(`
 		SELECT resource_id FROM %s

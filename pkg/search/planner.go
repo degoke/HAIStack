@@ -20,6 +20,7 @@ func ResolveQuery(reg Registry, q *Query) (*Query, error) {
 	resolved := *q
 	resolved.Params = nil
 	resolved.Chains = nil
+	resolved.Has = nil
 	resolved.Includes = nil
 	resolved.RevIncludes = nil
 	resolved.Sort = nil
@@ -40,20 +41,28 @@ func ResolveQuery(reg Registry, q *Query) (*Query, error) {
 		resolved.Chains = append(resolved.Chains, resolvedChain)
 	}
 
-	for _, inc := range q.Includes {
-		resolvedInc, err := resolveInclude(reg, q.ResourceType, inc)
+	for _, has := range q.Has {
+		resolvedHas, err := resolveHasClause(reg, q.ResourceType, has)
 		if err != nil {
 			return nil, err
 		}
-		resolved.Includes = append(resolved.Includes, resolvedInc)
+		resolved.Has = append(resolved.Has, resolvedHas)
+	}
+
+	for _, inc := range q.Includes {
+		expanded, err := resolveIncludes(reg, q.ResourceType, inc)
+		if err != nil {
+			return nil, err
+		}
+		resolved.Includes = append(resolved.Includes, expanded...)
 	}
 
 	for _, rev := range q.RevIncludes {
-		resolvedRev, err := resolveRevInclude(reg, q.ResourceType, rev)
+		expanded, err := resolveRevIncludes(reg, q.ResourceType, rev)
 		if err != nil {
 			return nil, err
 		}
-		resolved.RevIncludes = append(resolved.RevIncludes, resolvedRev)
+		resolved.RevIncludes = append(resolved.RevIncludes, expanded...)
 	}
 
 	for _, sortField := range q.Sort {
@@ -150,6 +159,27 @@ func resolveChainClause(reg Registry, resourceType string, chain ChainClause) (C
 	if refInfo.Type != "reference" {
 		return ChainClause{}, fmt.Errorf("%w: chain left-hand %q is not a reference", ErrInvalidQuery, chain.RefCode)
 	}
+
+	if chain.Nested != nil {
+		targetType, err := inferChainTargetType(reg, refInfo, chain.Nested.RefCode)
+		if err != nil {
+			return ChainClause{}, err
+		}
+		if !reg.IsResourceEnabled(targetType) {
+			return ChainClause{}, ErrResourceTypeDisabled
+		}
+		nested, err := resolveChainClause(reg, targetType, *chain.Nested)
+		if err != nil {
+			return ChainClause{}, err
+		}
+		return ChainClause{
+			RefCode:     chain.RefCode,
+			RefFieldKey: fieldKeyForParam(chain.RefCode, "reference"),
+			TargetType:  targetType,
+			Nested:      &nested,
+		}, nil
+	}
+
 	targetType, err := inferChainTargetType(reg, refInfo, chain.Param.Code)
 	if err != nil {
 		return ChainClause{}, err
@@ -169,6 +199,62 @@ func resolveChainClause(reg Registry, resourceType string, chain ChainClause) (C
 		TargetType:  targetType,
 		Param:       resolvedParam,
 	}, nil
+}
+
+func resolveHasClause(reg Registry, searchType string, has HasClause) (HasClause, error) {
+	if !reg.IsResourceEnabled(has.SourceType) {
+		return HasClause{}, ErrResourceTypeDisabled
+	}
+	refInfo, err := lookupParam(reg, has.SourceType, has.RefCode)
+	if err != nil {
+		return HasClause{}, err
+	}
+	if refInfo.Type != "reference" {
+		return HasClause{}, fmt.Errorf("%w: _has reference %q is not a reference", ErrInvalidQuery, has.RefCode)
+	}
+	if err := validateHasTarget(refInfo, searchType); err != nil {
+		return HasClause{}, err
+	}
+
+	resolved := HasClause{
+		SourceType:  has.SourceType,
+		RefCode:     has.RefCode,
+		RefFieldKey: fieldKeyForParam(has.RefCode, "reference"),
+	}
+
+	switch {
+	case has.Nested != nil:
+		nested, err := resolveHasClause(reg, has.SourceType, *has.Nested)
+		if err != nil {
+			return HasClause{}, err
+		}
+		resolved.Nested = &nested
+	case has.Chain != nil:
+		chain, err := resolveChainClause(reg, has.SourceType, *has.Chain)
+		if err != nil {
+			return HasClause{}, err
+		}
+		resolved.Chain = &chain
+	default:
+		param, err := resolveParamClause(reg, has.SourceType, has.Param)
+		if err != nil {
+			return HasClause{}, err
+		}
+		resolved.Param = param
+	}
+	return resolved, nil
+}
+
+func validateHasTarget(refInfo ParameterInfo, searchType string) error {
+	if len(refInfo.Target) == 0 {
+		return nil
+	}
+	for _, target := range refInfo.Target {
+		if target == searchType {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: _has reference %q does not target %s", ErrInvalidQuery, refInfo.Code, searchType)
 }
 
 func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode string) (string, error) {
@@ -198,33 +284,175 @@ func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode strin
 	return refInfo.Target[0], nil
 }
 
-func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) (IncludeDirective, error) {
-	info, err := lookupParam(reg, resourceType, inc.ParamCode)
-	if err != nil {
-		return IncludeDirective{}, err
+// maxWildcardIncludeExpansion is the maximum number of include/revinclude
+// directives produced from one _include/_revinclude value, including *:* wildcards.
+// Multi-target reference params emit a single directive (empty TargetType);
+// disabled targets are skipped at include-Read time.
+const maxWildcardIncludeExpansion = 512
+
+func resolveIncludes(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
+	if inc.ParamCode != "*" {
+		resolved, err := resolveInclude(reg, resourceType, inc)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkIncludeExpansionLimit("_include", len(resolved)); err != nil {
+			return nil, err
+		}
+		return resolved, nil
 	}
-	if info.Type != "reference" {
-		return IncludeDirective{}, fmt.Errorf("%w: _include param %q is not a reference", ErrInvalidQuery, inc.ParamCode)
+	var out []IncludeDirective
+	for _, info := range reg.SearchParametersFor(resourceType) {
+		if info.Type != "reference" {
+			continue
+		}
+		if inc.TargetType != "" && inc.TargetType != "*" && !paramTargets(info, inc.TargetType) {
+			continue
+		}
+		resolved, err := resolveInclude(reg, resourceType, IncludeDirective{
+			SourceType: resourceType,
+			ParamCode:  info.Code,
+			TargetType: inc.TargetType,
+		})
+		if err != nil {
+			continue
+		}
+		out = append(out, resolved...)
 	}
-	targetType := inc.TargetType
-	if targetType == "" && len(info.Target) == 1 {
-		targetType = info.Target[0]
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: _include %s:* matched no reference parameters", ErrInvalidQuery, resourceType)
 	}
-	if len(info.Target) > 1 {
-		// Multi-target references are resolved at expansion time.
-		targetType = ""
+	if err := checkIncludeExpansionLimit("_include", len(out)); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func resolveRevIncludes(reg Registry, targetType string, rev RevIncludeDirective) ([]RevIncludeDirective, error) {
+	if rev.SourceType != "*" && rev.ParamCode != "*" {
+		resolved, err := resolveRevInclude(reg, targetType, rev)
+		if err != nil {
+			return nil, err
+		}
+		return []RevIncludeDirective{resolved}, nil
+	}
+
+	sourceTypes := []string{rev.SourceType}
+	if rev.SourceType == "*" {
+		sourceTypes = reg.EnabledResourceTypes()
+	}
+
+	var out []RevIncludeDirective
+	for _, sourceType := range sourceTypes {
+		if !reg.IsResourceEnabled(sourceType) {
+			continue
+		}
+		for _, info := range reg.SearchParametersFor(sourceType) {
+			if info.Type != "reference" {
+				continue
+			}
+			if rev.ParamCode != "*" && info.Code != rev.ParamCode {
+				continue
+			}
+			if !paramTargets(info, targetType) && len(info.Target) > 0 {
+				continue
+			}
+			resolved, err := resolveRevInclude(reg, targetType, RevIncludeDirective{
+				SourceType: sourceType,
+				ParamCode:  info.Code,
+				TargetType: targetType,
+			})
+			if err != nil {
+				continue
+			}
+			out = append(out, resolved)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: _revinclude %s:%s matched no reference parameters", ErrInvalidQuery, rev.SourceType, rev.ParamCode)
+	}
+	if err := checkIncludeExpansionLimit("_revinclude", len(out)); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func checkIncludeExpansionLimit(kind string, n int) error {
+	if n > maxWildcardIncludeExpansion {
+		return fmt.Errorf("%w: %s expanded to %d directives (max %d)", ErrInvalidQuery, kind, n, maxWildcardIncludeExpansion)
+	}
+	return nil
+}
+
+func paramTargets(info ParameterInfo, targetType string) bool {
+	if targetType == "" || targetType == "*" {
+		return true
 	}
 	if len(info.Target) == 0 {
-		return IncludeDirective{}, fmt.Errorf("%w: _include param %q has no target types", ErrInvalidQuery, inc.ParamCode)
+		return true
 	}
-	if targetType != "" && !reg.IsResourceEnabled(targetType) {
-		return IncludeDirective{}, ErrResourceTypeDisabled
+	for _, t := range info.Target {
+		if t == targetType {
+			return true
+		}
 	}
-	return IncludeDirective{
+	return false
+}
+
+func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
+	info, err := lookupParam(reg, resourceType, inc.ParamCode)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != "reference" {
+		return nil, fmt.Errorf("%w: _include param %q is not a reference", ErrInvalidQuery, inc.ParamCode)
+	}
+	if len(info.Target) == 0 {
+		return nil, fmt.Errorf("%w: _include param %q has no target types", ErrInvalidQuery, inc.ParamCode)
+	}
+	targetType := inc.TargetType
+	if targetType == "*" {
+		targetType = ""
+	}
+	if targetType != "" {
+		if !paramTargets(info, targetType) && len(info.Target) > 0 {
+			return nil, fmt.Errorf("%w: _include param %q does not target %s", ErrInvalidQuery, inc.ParamCode, targetType)
+		}
+		if !reg.IsResourceEnabled(targetType) {
+			return nil, ErrResourceTypeDisabled
+		}
+		return []IncludeDirective{{
+			SourceType: resourceType,
+			ParamCode:  inc.ParamCode,
+			TargetType: targetType,
+		}}, nil
+	}
+
+	// One directive per param code. When several targets are enabled, leave
+	// TargetType empty and skip disabled types at include-Read time. Skip the
+	// include entirely when no target type is enabled (e.g. Observation.encounter
+	// with Encounter and EpisodeOfCare both disabled).
+	enabled := 0
+	var onlyEnabled string
+	for _, target := range info.Target {
+		if !reg.IsResourceEnabled(target) {
+			continue
+		}
+		enabled++
+		onlyEnabled = target
+	}
+	if enabled == 0 {
+		return nil, ErrResourceTypeDisabled
+	}
+	targetType = ""
+	if enabled == 1 {
+		targetType = onlyEnabled
+	}
+	return []IncludeDirective{{
 		SourceType: resourceType,
 		ParamCode:  inc.ParamCode,
 		TargetType: targetType,
-	}, nil
+	}}, nil
 }
 
 func resolveRevInclude(reg Registry, targetType string, rev RevIncludeDirective) (RevIncludeDirective, error) {
@@ -322,16 +550,19 @@ func BuildPlan(q *Query) (*Plan, error) {
 	}
 
 	for _, chain := range q.Chains {
-		pp, err := buildParamPlan(chain.TargetType, chain.Param)
+		cp, err := buildChainPlan(chain)
 		if err != nil {
 			return nil, err
 		}
-		plan.ChainPlans = append(plan.ChainPlans, ChainPlan{
-			RefCode:     chain.RefCode,
-			RefFieldKey: chain.RefFieldKey,
-			TargetType:  chain.TargetType,
-			ParamPlan:   *pp,
-		})
+		plan.ChainPlans = append(plan.ChainPlans, *cp)
+	}
+
+	for _, has := range q.Has {
+		hp, err := buildHasPlan(has)
+		if err != nil {
+			return nil, err
+		}
+		plan.HasPlans = append(plan.HasPlans, *hp)
 	}
 
 	for _, inc := range q.Includes {
@@ -352,6 +583,63 @@ func BuildPlan(q *Query) (*Plan, error) {
 		})
 	}
 
+	return plan, nil
+}
+
+func buildChainPlan(chain ChainClause) (*ChainPlan, error) {
+	plan := &ChainPlan{
+		RefCode:     chain.RefCode,
+		RefFieldKey: chain.RefFieldKey,
+		TargetType:  chain.TargetType,
+	}
+	if chain.Nested != nil {
+		nested, err := buildChainPlan(*chain.Nested)
+		if err != nil {
+			return nil, err
+		}
+		plan.Nested = nested
+		return plan, nil
+	}
+	pp, err := buildParamPlan(chain.TargetType, chain.Param)
+	if err != nil {
+		return nil, err
+	}
+	if pp == nil {
+		return nil, fmt.Errorf("%w: chained search %q has no value", ErrInvalidQuery, chain.RefCode)
+	}
+	plan.ParamPlan = *pp
+	return plan, nil
+}
+
+func buildHasPlan(has HasClause) (*HasPlan, error) {
+	plan := &HasPlan{
+		SourceType:  has.SourceType,
+		RefCode:     has.RefCode,
+		RefFieldKey: has.RefFieldKey,
+	}
+	switch {
+	case has.Nested != nil:
+		nested, err := buildHasPlan(*has.Nested)
+		if err != nil {
+			return nil, err
+		}
+		plan.Nested = nested
+	case has.Chain != nil:
+		chain, err := buildChainPlan(*has.Chain)
+		if err != nil {
+			return nil, err
+		}
+		plan.ChainPlan = chain
+	default:
+		pp, err := buildParamPlan(has.SourceType, has.Param)
+		if err != nil {
+			return nil, err
+		}
+		if pp == nil {
+			return nil, fmt.Errorf("%w: _has %s:%s has no value", ErrInvalidQuery, has.SourceType, has.RefCode)
+		}
+		plan.ParamPlan = *pp
+	}
 	return plan, nil
 }
 
