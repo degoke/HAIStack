@@ -212,9 +212,14 @@ func TestEvalString(t *testing.T) {
 		t.Fatalf("EvalString empty: err = %v, want ErrEmptyResult", err)
 	}
 
-	_, err = eng.EvalString(ctx, "Patient.name.exists()", env)
+	_, err = eng.EvalString(ctx, "Patient.name.count()", env)
 	if !errors.Is(err, fhirpath.ErrTypeMismatch) {
 		t.Fatalf("EvalString non-string: err = %v, want ErrTypeMismatch", err)
+	}
+
+	s, err = eng.EvalString(ctx, "Patient.name.exists()", env)
+	if err != nil || s != "true" {
+		t.Fatalf("EvalString boolean: %q, %v", s, err)
 	}
 }
 
@@ -227,6 +232,27 @@ func TestValueStringSupportsTemporalFHIRPathValues(t *testing.T) {
 		{name: "date", value: fhirpath.NewValue(system.MustParseDate("2025-01-15")), want: "2025-01-15"},
 		{name: "time", value: fhirpath.NewValue(system.MustParseTime("12:30:00")), want: "12:30:00"},
 		{name: "datetime", value: fhirpath.NewValue(system.MustParseDateTime("2025-01-15T12:30:00Z")), want: "2025-01-15T12:30:00Z"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.value.String()
+			if err != nil || got != tc.want {
+				t.Fatalf("String()=%q err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValueStringSupportsBoolean(t *testing.T) {
+	cases := []struct {
+		name  string
+		value fhirpath.Value
+		want  string
+	}{
+		{name: "system true", value: fhirpath.NewValue(system.Boolean(true)), want: "true"},
+		{name: "system false", value: fhirpath.NewValue(system.Boolean(false)), want: "false"},
+		{name: "proto true", value: fhirpath.NewValue(&dtpb.Boolean{Value: true}), want: "true"},
+		{name: "proto false", value: fhirpath.NewValue(&dtpb.Boolean{Value: false}), want: "false"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

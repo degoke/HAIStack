@@ -30,6 +30,30 @@ func TestMatchResourceParameter_ObservationCategory(t *testing.T) {
 	}
 }
 
+func TestMatchResourceParameter_PatientActive(t *testing.T) {
+	ctx := context.Background()
+	reg := search.NewSnapshotRegistry(testSnapshot(t, "Patient"))
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := patientActiveEnvelope(t, "pat-active", true)
+	inactive := patientActiveEnvelope(t, "pat-inactive", false)
+
+	matched, known := search.MatchResourceParameter(ctx, reg, engine, "Patient", active, "active", []string{"true"})
+	if !known || !matched {
+		t.Fatalf("active=true match = %v known = %v", matched, known)
+	}
+	matched, known = search.MatchResourceParameter(ctx, reg, engine, "Patient", inactive, "active", []string{"true"})
+	if !known || matched {
+		t.Fatalf("inactive should not match active=true, match = %v known = %v", matched, known)
+	}
+	matched, known = search.MatchResourceParameter(ctx, reg, engine, "Patient", inactive, "active", []string{"false"})
+	if !known || !matched {
+		t.Fatalf("active=false match = %v known = %v", matched, known)
+	}
+}
+
 func observationEnvelope(t *testing.T, id, category string) *types.ResourceEnvelope {
 	t.Helper()
 	payload := map[string]any{
@@ -47,6 +71,25 @@ func observationEnvelope(t *testing.T, id, category string) *types.ResourceEnvel
 	}
 	codec := types.NewJSONCodec()
 	envelope, err := codec.ParseJSON("Observation", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return envelope
+}
+
+func patientActiveEnvelope(t *testing.T, id string, active bool) *types.ResourceEnvelope {
+	t.Helper()
+	payload := map[string]any{
+		"resourceType": "Patient",
+		"id":           id,
+		"active":       active,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := types.NewJSONCodec()
+	envelope, err := codec.ParseJSON("Patient", data)
 	if err != nil {
 		t.Fatal(err)
 	}

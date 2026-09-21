@@ -2,6 +2,7 @@ package fhirpath
 
 import (
 	"fmt"
+	"strconv"
 
 	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 	"github.com/shopspring/decimal"
@@ -77,6 +78,12 @@ func (v Value) Bool() (bool, error) {
 // String coerces a singleton string result.
 func (v Value) String() (string, error) {
 	switch val := v.raw.(type) {
+	case system.Boolean:
+		return strconv.FormatBool(bool(val)), nil
+	case *dtpb.Boolean:
+		return strconv.FormatBool(val.GetValue()), nil
+	case bool:
+		return strconv.FormatBool(val), nil
 	case system.String:
 		return string(val), nil
 	case system.Date:

@@ -24,6 +24,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/structuremap"
+	"github.com/degoke/health-ai-stack/pkg/subscriptions"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -31,16 +32,17 @@ import (
 )
 
 type wireState struct {
-	services      *ServiceContainer
-	httpHandler   http.Handler
-	jobRunner     *jobs.Runner
-	syncProcessor *hasync.JobProcessor
-	analyticsCDC  *analytics.CDCProcessor
-	reindexWorker *search.ReindexWorker
-	syncEngine    *hasync.Engine
-	sqliteDB      *sqlite.DB
-	postgresDB    *postgres.DB
-	cleanup       cleanupStack
+	services              *ServiceContainer
+	httpHandler           http.Handler
+	jobRunner             *jobs.Runner
+	syncProcessor         *hasync.JobProcessor
+	analyticsCDC          *analytics.CDCProcessor
+	subscriptionProcessor *subscriptions.Processor
+	reindexWorker         *search.ReindexWorker
+	syncEngine            *hasync.Engine
+	sqliteDB              *sqlite.DB
+	postgresDB            *postgres.DB
+	cleanup               cleanupStack
 }
 
 type cleanupStack struct {
@@ -96,6 +98,7 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
 	rt.analyticsCDC = state.analyticsCDC
+	rt.subscriptionProcessor = state.subscriptionProcessor
 	rt.reindexWorker = state.reindexWorker
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
@@ -150,6 +153,8 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		terminologyInstalls:       db.TerminologyInstallStore(syncTenantID),
 		terminologyInstallFactory: sqlite.NewTerminologyInstallStoreFactory(db),
 		reindexJobs:               false,
+		subscriptions:             db.SubscriptionStore(),
+		subscriptionDeliveries:    db.SubscriptionDeliveryStore(),
 	})
 }
 
@@ -205,6 +210,8 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		terminologyInstalls:       tdb.TerminologyInstallStore(),
 		terminologyInstallFactory: postgres.NewTerminologyInstallStoreFactory(db),
 		reindexJobs:               b.searchEnabled,
+		subscriptions:             tdb.SubscriptionStore(),
+		subscriptionDeliveries:    tdb.SubscriptionDeliveryStore(),
 	})
 }
 
@@ -231,6 +238,8 @@ type persistenceContext struct {
 	terminologyInstalls       store.TerminologyInstallStore
 	terminologyInstallFactory store.TerminologyInstallStoreFactory
 	terminologyScope          string
+	subscriptions             store.SubscriptionStore
+	subscriptionDeliveries    store.SubscriptionDeliveryStore
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
@@ -385,9 +394,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	state.services.RegistrySnapshot = snapshot
 
 	var indexer search.Indexer
-	var searchRegistry *search.SnapshotRegistry
+	searchRegistry := search.NewSnapshotRegistry(snapshot)
 	if b.searchEnabled {
-		searchRegistry = search.NewSnapshotRegistry(snapshot)
 		indexer, err = search.NewRegistryIndexer(search.RegistryIndexerConfig{
 			Registry: searchRegistry,
 			Engine:   engine,
@@ -549,6 +557,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				return fmt.Errorf("runtime: register reindex handler: %w", err)
 			}
 		}
+	}
+
+	if err := b.wireSubscriptions(state, pc, engine, searchRegistry, runner); err != nil {
+		return fmt.Errorf("runtime: subscriptions: %w", err)
 	}
 
 	packageInstaller := b.newPackageInstaller(regManager, conformanceRuntime, engine, viewRegistry)
@@ -765,6 +777,56 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		rootCfg.SyncMiddleware = b.syncMiddleware
 	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
+	return nil
+}
+
+func (b *Builder) wireSubscriptions(
+	state *wireState,
+	pc persistenceContext,
+	engine fhirpath.Engine,
+	searchRegistry search.Registry,
+	runner *jobs.Runner,
+) error {
+	matcher := &subscriptions.Matcher{
+		Engine:   engine,
+		Registry: searchRegistry,
+	}
+	state.services.SubscriptionMatcher = matcher
+
+	if pc.subscriptions != nil {
+		state.services.SubscriptionManager = &subscriptions.Manager{Store: pc.subscriptions}
+	}
+
+	if pc.outboxEvents != nil && pc.syncCursors != nil && pc.subscriptions != nil && pc.jobStore != nil {
+		processor := &subscriptions.Processor{
+			Events:        pc.outboxEvents,
+			Cursors:       pc.syncCursors,
+			Subscriptions: pc.subscriptions,
+			Jobs:          pc.jobStore,
+			Resources:     pc.resources,
+			History:       pc.history,
+			Matcher:       matcher,
+			Scope:         pc.syncTenantID,
+		}
+		state.subscriptionProcessor = processor
+		state.services.SubscriptionProcessor = processor
+	}
+
+	handlers := subscriptions.NewHandlerRegistry()
+	state.services.SubscriptionHandlers = handlers
+	if runner != nil && pc.subscriptions != nil {
+		worker := &subscriptions.DeliveryWorker{
+			Subscriptions: pc.subscriptions,
+			Deliveries:    pc.subscriptionDeliveries,
+			Resources:     pc.resources,
+			History:       pc.history,
+			Webhook:       &subscriptions.WebhookDispatcher{},
+			Local:         &subscriptions.LocalDispatcher{Registry: handlers},
+		}
+		if err := runner.Register(jobs.TypeSubscriptionsDeliver, jobs.HandlerFunc(worker.HandleJob)); err != nil {
+			return fmt.Errorf("register delivery handler: %w", err)
+		}
+	}
 	return nil
 }
 
