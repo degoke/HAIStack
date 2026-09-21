@@ -131,11 +131,13 @@ func evaluateRequest(ctx context.Context, eng *auth.Engine, adapter *smart.AuthA
 			Tenant:       tenant,
 			ResourceType: sc.ResourceType,
 			ID:           sc.ResourceID,
+			PatientID:    OverlayPatientID(sc),
 		}
 		if haveSMART {
 			req = adapter.ToReadRequest(bundle, sc.ResourceType, sc.ResourceID)
 			req.Tenant = tenant
 			req.Principal = principal
+			req.PatientID = OverlayPatientID(sc)
 		}
 		return eng.CanReadResource(ctx, req)
 	case auth.ActionWrite:
@@ -145,6 +147,7 @@ func evaluateRequest(ctx context.Context, eng *auth.Engine, adapter *smart.AuthA
 			Operation:    "update",
 			ResourceType: sc.ResourceType,
 			ID:           sc.ResourceID,
+			PatientID:    OverlayPatientID(sc),
 		}
 		return eng.CanWriteResource(ctx, req)
 	case auth.ActionExecuteAITool:
@@ -185,16 +188,11 @@ func smartVerb(action string) (smart.AccessVerb, bool) {
 	}
 }
 
-// OverlayPatientID is SEMANTICS gate 2's target patient: Patient.id, else the
-// authored compartment patient, else the SMART launch patient.
+// OverlayPatientID is SEMANTICS gate 2's target patient: Patient.id, or the
+// patient reference on the scenario resource body (Observation.subject,
+// Appointment.participant.actor). Launch patient is not a stand-in.
 func OverlayPatientID(sc Scenario) string {
-	if strings.EqualFold(sc.ResourceType, "Patient") {
-		return sc.ResourceID
-	}
-	if sc.CompartmentPatient != "" {
-		return sc.CompartmentPatient
-	}
-	return sc.LaunchPatient
+	return auth.OverlayPatientID(sc.ResourceType, sc.ResourceID, auth.CompartmentPatientFromJSON(sc.ResourceType, sc.Resource))
 }
 
 func consentAllows(c *ConsentState, sc Scenario) (bool, string) {

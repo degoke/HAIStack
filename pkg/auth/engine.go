@@ -107,7 +107,7 @@ func (e *Engine) CanReadResource(ctx context.Context, req ReadRequest) (Decision
 	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
 		return d, nil
 	}
-	if d := e.checkPatientScopeConstraint(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
+	if d := e.checkPatientScopeConstraint(req.Tenant, OverlayPatientID(req.ResourceType, req.ID, req.PatientID)); !d.Allowed {
 		return d, nil
 	}
 	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
@@ -137,7 +137,7 @@ func (e *Engine) CanWriteResource(ctx context.Context, req WriteRequest) (Decisi
 	if d := e.checkTenantBinding(req.Principal, req.Tenant); !d.Allowed {
 		return d, nil
 	}
-	if d := e.checkPatientScopeConstraint(req.Tenant, patientIDFromSubject(req.ID, req.ResourceType)); !d.Allowed {
+	if d := e.checkPatientScopeConstraint(req.Tenant, OverlayPatientID(req.ResourceType, req.ID, req.PatientID)); !d.Allowed {
 		return d, nil
 	}
 	perms, roles, err := e.catalog.PermissionsFor(req.Principal, req.Tenant)
@@ -306,8 +306,9 @@ func (e *Engine) CanInstallModule(ctx context.Context, req ModuleInstallRequest)
 // CheckPatientScope enforces patient-level access for SMART launch and
 // patient-scoped principals. An empty TenantContext.PatientScope is unrestricted.
 // A scoped principal may only access the listed patient id and resources in that
-// compartment (enforced on Patient reads/writes in Engine and on loaded resources
-// via CheckEnvelopePatientScope in HTTP/search paths).
+// compartment (enforced on Patient reads/writes and on ReadRequest/WriteRequest
+// PatientID for Observation.subject / Appointment.participant.actor; loaded
+// envelopes also use CheckEnvelopePatientScope in HTTP/search paths).
 func (e *Engine) CheckPatientScope(ctx context.Context, req PatientScopeRequest) (Decision, error) {
 	if err := requirePrincipalTenant(req.Principal, req.Tenant); err != nil {
 		return Decision{}, err
@@ -458,13 +459,6 @@ func checkAnyRequiredPermission(have []Permission, required []string) Decision {
 	d := Deny(fmt.Sprintf("missing any of required permissions: %v", required))
 	d.RequiredPermissions = append([]string(nil), required...)
 	return d
-}
-
-func patientIDFromSubject(id, resourceType string) string {
-	if resourceType == "Patient" {
-		return id
-	}
-	return ""
 }
 
 func isRoleNotFound(err error) bool {

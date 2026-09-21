@@ -40,22 +40,21 @@ evaluation of the translator or of an external mapping.
 
 The published command prints **Translate-resolved ConceptMap identity**
 (`conceptMapUrl`, `conceptMapVersion`, `sourceSystemVersion`). Those fields
-are copied from the ConceptMap body by `$translate`. It does **not** print
+are copied from the ConceptMap body by `$translate`. Exact / narrow / broad
+/ unmatched counts and class precision/recall are **test-only** (`Evaluate`
+plus `go test`); they are not command JSON. There is no published
+`implementsMap`, class-total, `accuracy`, or `consistency` ratio, and no
 gold translation rows (`HB` exact, …): `cases.json` restates
-`conceptmap.json`. There is no published `implementsMap`, class-total,
-`accuracy`, or `consistency` ratio. Tests still assert that `$translate`
-matches authored cases (gold consistency) and class P/R on the known-error
-map.
+`conceptmap.json`.
 
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
 
 **Precision** and **recall** are computed by `Evaluate` as one-vs-rest on
 class labels (omitted when predicted or support is 0). A right class with
-a wrong target fails the case and is not a class false positive. Those
-scores are asserted in tests, not printed as a published artefact.
+a wrong target fails the case and is not a class false positive.
 
-**Provenance** fields in the dump come from the `terminology.translate`
+**Provenance** identity fields come from the `terminology.translate`
 audit event **emitted by `pkg/terminology.Translate`**. They are copied
 from the resolved ConceptMap body (`url`, `version`, `sourceUri` version).
 A failed audit emit aborts the run. The harness stores the ConceptMap at

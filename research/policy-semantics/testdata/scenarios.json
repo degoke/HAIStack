@@ -55,26 +55,73 @@
     },
     {
       "id": "patient_scope_observation_same_compartment",
-      "doc": "Patient-scoped principal may read an Observation whose compartment patient matches the scope.",
+      "doc": "Patient-scoped principal may read an Observation whose subject is their patient.",
       "principal": "clinician",
       "policy": "narrow-observation",
       "patientScope": "pat-1",
-      "compartmentPatient": "pat-1",
       "action": "read",
       "resourceType": "Observation",
       "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
       "expectAllow": true
     },
     {
       "id": "patient_scope_observation_other_compartment",
-      "doc": "Patient-scoped principal cannot read an Observation whose compartment patient is a different id.",
+      "doc": "Patient-scoped principal cannot read an Observation whose subject is a different patient.",
       "principal": "clinician",
       "policy": "narrow-observation",
       "patientScope": "pat-1",
-      "compartmentPatient": "pat-2",
       "action": "read",
       "resourceType": "Observation",
       "resourceId": "obs-2",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-2" },
+        "code": { "text": "toy" }
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "patient_scope_appointment_other_compartment",
+      "doc": "Patient-scoped principal cannot read an Appointment whose participant is a different patient.",
+      "principal": "clinician",
+      "policy": "base",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a2",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a2",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-2" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "smart_patient_scope_appointment_other_compartment",
+      "doc": "SMART launch patient cannot read an Appointment whose participant is a different patient.",
+      "principal": "clinician",
+      "policy": "base",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a2",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a2",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-2" }, "status": "accepted" }]
+      },
       "expectAllow": false
     },
     {
@@ -87,6 +134,12 @@
       "action": "read",
       "resourceType": "Appointment",
       "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
       "expectAllow": false
     },
     {
@@ -96,10 +149,16 @@
       "policy": "narrow-observation",
       "scopes": "patient/*.read",
       "launchPatient": "pat-1",
-      "compartmentPatient": "pat-1",
       "action": "read",
       "resourceType": "Observation",
       "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
       "expectAllow": true
     },
     {
@@ -112,6 +171,12 @@
       "action": "read",
       "resourceType": "Appointment",
       "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
       "expectAllow": false
     },
     {
@@ -124,6 +189,12 @@
       "action": "write",
       "resourceType": "Appointment",
       "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
       "expectAllow": false
     },
     {
@@ -155,10 +226,16 @@
       "policy": "narrow-observation",
       "scopes": "patient/*.read",
       "launchPatient": "pat-1",
-      "compartmentPatient": "pat-1",
       "action": "read",
       "resourceType": "Observation",
       "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
       "consent": {
         "status": "active",
         "patientId": "pat-1",
@@ -175,10 +252,16 @@
       "policy": "narrow-observation",
       "scopes": "patient/*.read",
       "launchPatient": "pat-1",
-      "compartmentPatient": "pat-1",
       "action": "read",
       "resourceType": "Observation",
       "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
       "consent": {
         "status": "active",
         "patientId": "pat-1",

@@ -154,14 +154,14 @@ func TestPatientOverlayDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
 
 func TestPatientOverlayObservationDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
 	sc := policysemantics.Scenario{
-		ID:                 "obs-compartment-before-consent",
-		Principal:          "clinician",
-		Policy:             "narrow-observation",
-		PatientScope:       "pat-1",
-		CompartmentPatient: "pat-2",
-		Action:             "read",
-		ResourceType:       "Observation",
-		ResourceID:         "obs-1",
+		ID:           "obs-compartment-before-consent",
+		Principal:    "clinician",
+		Policy:       "narrow-observation",
+		PatientScope: "pat-1",
+		Action:       "read",
+		ResourceType: "Observation",
+		ResourceID:   "obs-1",
+		Resource:     []byte(`{"resourceType":"Observation","id":"obs-1","subject":{"reference":"Patient/pat-2"}}`),
 		Consent: &policysemantics.ConsentState{
 			Status:        "active",
 			PatientID:     "pat-2",
@@ -180,25 +180,27 @@ func TestPatientOverlayObservationDenyIsNotOverwrittenByConsentDeny(t *testing.T
 	}
 	want := `principal scoped to patient "pat-1" cannot access "pat-2"`
 	if report.Results[0].Reason != want {
-		t.Fatalf("Observation compartment overlay must fail before consent, got %q", report.Results[0].Reason)
+		t.Fatalf("Observation.subject overlay must fail before consent, got %q", report.Results[0].Reason)
 	}
 }
 
 func TestOverlayPatientID(t *testing.T) {
 	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
-		ResourceType: "Patient", ResourceID: "pat-1", CompartmentPatient: "pat-9", LaunchPatient: "pat-8",
+		ResourceType: "Patient", ResourceID: "pat-1", LaunchPatient: "pat-8",
+		Resource: []byte(`{"subject":{"reference":"Patient/pat-9"}}`),
 	}); got != "pat-1" {
 		t.Fatalf("Patient.id = %q", got)
 	}
 	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
-		ResourceType: "Observation", ResourceID: "obs-1", CompartmentPatient: "pat-2", LaunchPatient: "pat-1",
+		ResourceType: "Observation", ResourceID: "obs-1", LaunchPatient: "pat-1",
+		Resource: []byte(`{"resourceType":"Observation","id":"obs-1","subject":{"reference":"Patient/pat-2"}}`),
 	}); got != "pat-2" {
-		t.Fatalf("compartment = %q", got)
+		t.Fatalf("Observation.subject = %q", got)
 	}
 	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
-		ResourceType: "Observation", ResourceID: "obs-1", LaunchPatient: "pat-1",
-	}); got != "pat-1" {
-		t.Fatalf("launch fallback = %q", got)
+		ResourceType: "Appointment", ResourceID: "a1", LaunchPatient: "pat-1",
+	}); got != "" {
+		t.Fatalf("launch must not stand in for Appointment compartment, got %q", got)
 	}
 }
 

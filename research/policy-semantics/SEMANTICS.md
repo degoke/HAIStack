@@ -34,12 +34,12 @@ for an allow.
 
 The research runner applies gates 1–5 in that order (identity, patient overlay,
 SMART, consent, policy). Gate 2's target patient is `Patient.id` when the
-resource is a Patient, otherwise the authored `compartmentPatient` (the
-compartment patient of an Observation, Appointment, …). When that field is
-empty, the runner falls back to the SMART `launchPatient`. Production
-`pkg/auth.CanReadResource` still only extracts `Patient.id`; loaded
-non-Patient resources are scoped by `CheckEnvelopePatientScope`. The catalogue
-runner has no envelope, so it uses `CheckPatientOverlay` with that target id.
+resource is a Patient, otherwise the Patient reference on the scenario
+resource body (`Observation.subject`, `Appointment.participant.actor`),
+via `pkg/auth.CompartmentPatientFromJSON` / `CanReadResource.PatientID`.
+Launch patient is not a stand-in for compartment membership. Loaded
+production resources use the same overlay through
+`CheckEnvelopePatientScope`.
 
 The compact form used in SMART discussions:
 
@@ -129,21 +129,36 @@ patient id.
 
 ### 6. `patient_scope_observation_same_compartment`
 
-PatientScope=`pat-1`, request `read Observation/obs-1` whose authored
-compartment patient is `pat-1`. Policy allows Observation.
+PatientScope=`pat-1`, request `read Observation/obs-1` whose
+`subject.reference` is `Patient/pat-1`. Policy allows Observation.
 
-**Result: allow.** Gate 2 matches the Observation's compartment patient, not
-the Observation id.
+**Result: allow.** Gate 2 matches `Observation.subject`, not the Observation
+id.
 
 ### 7. `patient_scope_observation_other_compartment`
 
-PatientScope=`pat-1`, request `read Observation/obs-2` whose authored
-compartment patient is `pat-2`.
+PatientScope=`pat-1`, request `read Observation/obs-2` whose
+`subject.reference` is `Patient/pat-2`.
 
 **Result: deny.** Overlay fails before policy. Reason mentions the scoped
 patient id versus `pat-2`.
 
-### 8. `smart_scope_allows_policy_denies`
+### 8. `patient_scope_appointment_other_compartment`
+
+PatientScope=`pat-1`, request `read Appointment/a2` whose
+`participant.actor` is `Patient/pat-2`. Policy would allow Appointment.
+
+**Result: deny.** Overlay fails before policy.
+
+### 9. `smart_patient_scope_appointment_other_compartment`
+
+SMART `patient/*.read`, launch patient `pat-1`, request `read Appointment/a2`
+whose `participant.actor` is `Patient/pat-2`.
+
+**Result: deny.** Overlay fails before SMART/policy. Launch patient is not
+treated as the Appointment's compartment patient.
+
+### 10. `smart_scope_allows_policy_denies`
 
 SMART `patient/*.read` (grants every resource type) + Observation-only
 policy. Request: `read Appointment/a1` for launch patient `pat-1`.
@@ -151,14 +166,14 @@ policy. Request: `read Appointment/a1` for launch patient `pat-1`.
 **Result: deny.** Scopes grant Appointment.read; policy does not. This is
 policy narrowing of SMART scopes.
 
-### 9. `smart_scope_and_policy_allow_observation`
+### 11. `smart_scope_and_policy_allow_observation`
 
 Same token and Observation-only policy. Request: `read Observation/obs-1`
-with compartment patient `pat-1` (the launch patient).
+with `subject.reference` `Patient/pat-1` (the launch patient).
 
 **Result: allow.** Overlay, SMART, and policy all pass.
 
-### 10. `smart_scope_denies_policy_would_allow`
+### 12. `smart_scope_denies_policy_would_allow`
 
 SMART `patient/Observation.read` (no Appointment) + base policy that allows
 Appointment. Request: `read Appointment/a1`.
@@ -166,46 +181,46 @@ Appointment. Request: `read Appointment/a1`.
 **Result: deny.** `RequiredPermissions` includes `Appointment.read`, which
 the scope-derived permission set does not contain. Scopes ∩ policy.
 
-### 11. `smart_scope_denies_write`
+### 13. `smart_scope_denies_write`
 
 SMART `patient/Appointment.read` + base policy that allows Appointment write.
 Request: `write Appointment/a1`.
 
 **Result: deny.** SMART write gate (Appointment.read does not grant write).
 
-### 12. `cross_tenant_denied`
+### 14. `cross_tenant_denied`
 
 Clinician bound to `tenant-a`. Request tenant `tenant-b`.
 
 **Result: deny.** Tenant-binding gate.
 
-### 13. `purpose_of_use_mismatch`
+### 15. `purpose_of_use_mismatch`
 
 Allow rule requires `purposeOfUse: TREAT`. Request purpose `ETREAT`.
 
 **Result: deny.** Rule does not match; default deny.
 
-### 14. `consent_permit_observation`
+### 16. `consent_permit_observation`
 
 Active R4 Consent, provision `permit` on Observation/read for `pat-1`.
 SMART `patient/*.read` + Observation-only policy. Request: read Observation.
 
 **Result: allow.** Consent permit applies and does not block.
 
-### 15. `consent_deny_observation`
+### 17. `consent_deny_observation`
 
-Same as (14) but provision `type: deny` on Observation.
+Same as (16) but provision `type: deny` on Observation.
 
 **Result: deny.** Consent overlay fails even though scopes and policy allow.
 This is the research Consent pattern (R5/R6 Permission is future work).
 
-### 16. `ai_tool_run_view_allowed`
+### 18. `ai_tool_run_view_allowed`
 
 Base policy allows `execute-ai-tool` for `run_view`.
 
 **Result: allow.**
 
-### 17. `ai_tool_write_denied`
+### 19. `ai_tool_write_denied`
 
 Request `execute-ai-tool` `write_fhir_resource` with no matching rule.
 

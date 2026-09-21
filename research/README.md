@@ -27,7 +27,7 @@ reproducible artefacts rather than leaving the evidence implicit.
 | A | [`benchmarks/`](./benchmarks) | Vendor-neutral FHIR benchmark suite | `pkg/store`, `pkg/view`, `research/internal/memstore` |
 | B | [`semantic-conversion/`](./semantic-conversion) | R4/R5 semantic-conversion corpora | `pkg/types`, `pkg/fhirpath`, `pkg/proto` (R4 codec; R5 planned) |
 | C | [`policy-semantics/`](./policy-semantics) | Computable consent / policy semantics | `pkg/auth`, `pkg/smart`, `pkg/testkit/authztest` |
-| D | [`terminology-evaluation/`](./terminology-evaluation) | `$translate` output dump and audit provenance | `pkg/terminology`, `pkg/conceptmap`, `pkg/audit` |
+| D | [`terminology-evaluation/`](./terminology-evaluation) | `$translate` provenance identity; class metrics in tests | `pkg/terminology`, `pkg/conceptmap`, `pkg/audit` |
 | E (P0) | [`ai-pipeline/`](./ai-pipeline) | Reproducible FHIR → AI pipelines | `pkg/ai`, `pkg/view`, `pkg/auth`, `pkg/audit`, `pkg/validate` |
 
 Tracks E and C are P0 (product differentiation and SMART ecosystem need).
@@ -43,7 +43,7 @@ From the repository root (Go 1.26+):
 | `make research-ai-pipeline` | Track E: FHIR → view → policy → AI tool → seeded stub → provenance bundle |
 | `make research-policy` | Track C: policy-semantics catalogue (≥10 scope ∩ policy examples) |
 | `make research-conversion` | Track B: ≥50 paired R4/R5 instances + scoring |
-| `make research-terminology` | Track D: `$translate` dump + audit provenance |
+| `make research-terminology` | Track D: Translate-resolved ConceptMap identity (class P/R in tests) |
 | `make research-benchmarks` | Track A: seeded datasets + portable workloads + HAIStack runner |
 | `make research` | All of the above |
 

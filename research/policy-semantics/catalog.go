@@ -14,22 +14,22 @@ func DefaultCatalog() ([]Scenario, error) {
 // Scenario is one vendor-neutral authorization case: principal + scopes +
 // consent + request → expected decision.
 type Scenario struct {
-	ID                 string        `json:"id"`
-	Doc                string        `json:"doc"`
-	Principal          string        `json:"principal"`
-	Policy             string        `json:"policy"`
-	Scopes             string        `json:"scopes,omitempty"`
-	LaunchPatient      string        `json:"launchPatient,omitempty"`
-	PatientScope       string        `json:"patientScope,omitempty"`
-	CompartmentPatient string        `json:"compartmentPatient,omitempty"`
-	Tenant             string        `json:"tenant,omitempty"`
-	PurposeOfUse       string        `json:"purposeOfUse,omitempty"`
-	Action             string        `json:"action"`
-	ResourceType       string        `json:"resourceType,omitempty"`
-	ResourceID         string        `json:"resourceId,omitempty"`
-	ToolName           string        `json:"toolName,omitempty"`
-	Consent            *ConsentState `json:"consent,omitempty"`
-	ExpectAllow        bool          `json:"expectAllow"`
+	ID            string          `json:"id"`
+	Doc           string          `json:"doc"`
+	Principal     string          `json:"principal"`
+	Policy        string          `json:"policy"`
+	Scopes        string          `json:"scopes,omitempty"`
+	LaunchPatient string          `json:"launchPatient,omitempty"`
+	PatientScope  string          `json:"patientScope,omitempty"`
+	Tenant        string          `json:"tenant,omitempty"`
+	PurposeOfUse  string          `json:"purposeOfUse,omitempty"`
+	Action        string          `json:"action"`
+	ResourceType  string          `json:"resourceType,omitempty"`
+	ResourceID    string          `json:"resourceId,omitempty"`
+	Resource      json.RawMessage `json:"resource,omitempty"`
+	ToolName      string          `json:"toolName,omitempty"`
+	Consent       *ConsentState   `json:"consent,omitempty"`
+	ExpectAllow   bool            `json:"expectAllow"`
 }
 
 // ConsentState is a portable R4 Consent / future Permission projection.
