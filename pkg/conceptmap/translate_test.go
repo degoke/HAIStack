@@ -43,6 +43,9 @@ func TestTranslatorMapsSourceCoding(t *testing.T) {
 	if resolved.URL != m.URL {
 		t.Fatalf("resolved map URL = %q", resolved.URL)
 	}
+	if len(codings) != 1 || codings[0]["code"] != "male" {
+		t.Fatalf("TranslateResolved coding = %#v", codings)
+	}
 }
 
 func TestTranslatorRejectsNoMap(t *testing.T) {

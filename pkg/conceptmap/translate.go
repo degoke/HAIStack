@@ -25,7 +25,6 @@ type TranslateRequest struct {
 }
 
 // Translate returns target codings for a source coding.
-// Translate returns target codings for a source coding.
 func (t Translator) Translate(ctx context.Context, req TranslateRequest) ([]map[string]any, error) {
 	codings, _, err := t.TranslateResolved(ctx, req)
 	return codings, err
