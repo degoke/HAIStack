@@ -63,3 +63,13 @@ func TestValidateExportFilename(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRouteVRead(t *testing.T) {
+	route, err := parseRoute("/fhir", "/fhir/Patient/pat-1/_history/v2")
+	if err != nil {
+		t.Fatalf("parseRoute: %v", err)
+	}
+	if route.kind != routeVRead || route.resourceType != "Patient" || route.id != "pat-1" || route.versionID != "v2" {
+		t.Fatalf("route=%+v", route)
+	}
+}

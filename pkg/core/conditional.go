@@ -100,8 +100,8 @@ func (s *ResourceService) DeleteIfMatch(ctx context.Context, resourceType, id, e
 	return nil
 }
 
-// PatchIfMatch applies JSON Patch and commits it only when expectedVersion
-// still matches the current resource version.
+// PatchIfMatch applies JSON Patch or FHIR Patch and commits it only when
+// expectedVersion still matches the current resource version.
 func (s *ResourceService) PatchIfMatch(ctx context.Context, resourceType, id string, patchJSON []byte, expectedVersion string) (*types.ResourceEnvelope, error) {
 	if resourceType == "" || id == "" || expectedVersion == "" {
 		return nil, invalidErr("resourceType, id, and expected version are required", nil)
@@ -126,9 +126,9 @@ func (s *ResourceService) PatchIfMatch(ctx context.Context, resourceType, id str
 		}
 		return nil, exceptionErr("read resource for patch", err)
 	}
-	patchedJSON, err := applyJSONPatch(current.JSON, patchJSON)
+	patchedJSON, err := applyPatchDocument(current.JSON, patchJSON)
 	if err != nil {
-		return nil, invalidErr("apply JSON Patch", err)
+		return nil, invalidErr("apply patch", err)
 	}
 	if err := validatePatchedIdentity(patchedJSON, resourceType, id); err != nil {
 		return nil, err

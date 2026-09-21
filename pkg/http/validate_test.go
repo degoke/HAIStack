@@ -321,6 +321,7 @@ func TestCoreValidateServiceRejectsUnknownElement(t *testing.T) {
 func TestCapabilityStatementAdvertisesValidateOperation(t *testing.T) {
 	h := newTestHandler(t, hahttp.Config{
 		ResourceService:  &fakeResourceService{},
+		ValidateService:  &recordingValidateService{},
 		CapabilitySource: fakeCapabilitySource{snapshot: registryCapabilitySnapshot()},
 	})
 	rec := doRequest(t, h, http.MethodGet, "/fhir/metadata", nil)

@@ -56,6 +56,13 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 		if route.resourceType == "Group" && route.id != "" {
 			req.GroupID = route.id
 		}
+		if route.resourceType == "Patient" {
+			if route.id != "" {
+				req.PatientID = route.id
+			} else {
+				req.PatientExport = true
+			}
+		}
 		if principal, tenant, ok := identityFromContext(r.Context()); ok {
 			req.TenantID = tenant.TenantID
 			req.PrincipalID = principal.ID
