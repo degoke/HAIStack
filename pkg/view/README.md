@@ -203,7 +203,7 @@ TODO: Parameters parsing currently accepts only `valueString` wrappers. Typed FH
 
 ## Parquet export sizing
 
-Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse filesystem partitions stream directly to disk. Blob uploads and `$viewdefinition-export` artifacts stream the finished parquet file from disk via `store.PutBlobFromPath` / `ExportFileStore.PutStream` — callers no longer `os.ReadFile` the whole object.
+Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes in row groups (default 1000 rows). Lakehouse filesystem partitions stream directly to disk. Blob uploads and `$viewdefinition-export` artifacts stream the finished parquet file from disk via `store.PutBlobFromPath` / `ExportFileStore.PutStream` — callers no longer `os.ReadFile` the whole object. Artifact download uses `ExportService.OpenFile` (HTTP copies the stream) so GetFile is a convenience wrapper over Open.
 
 Practical guidance:
 

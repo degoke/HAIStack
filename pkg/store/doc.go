@@ -133,7 +133,9 @@
 //     io.Reader without requiring the caller to materialize []byte. PutBlob and
 //     PutBlobFromPath use PutStream when available and otherwise fall back to Put.
 //   - BlobStoreWithOpen.Open(ctx, key) streams a payload. OpenBlob uses Open when
-//     available and otherwise wraps Get. Postgres BYTEA Open still materializes.
+//     available and otherwise wraps Get. Postgres BYTEA Open still materializes
+//     inline data, follows in-store Location pointers, and errors on a URI Location
+//     with no payload.
 //   - BlobObject adds Location for an opaque backend locator without exposing object-storage
 //     SDK types. Head returns metadata without payload bytes when the backend supports it.
 //

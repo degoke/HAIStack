@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -241,6 +242,21 @@ func TestPrefixedFileStorePayloads(t *testing.T) {
 	if ct != "application/fhir+ndjson" || string(openData) != "streamed" {
 		t.Fatalf("open %q %q", ct, openData)
 	}
+	ptrRC, _, err := files.Open(ctx, "job/ptr.ndjson")
+	if err != nil {
+		t.Fatalf("Open ptr: %v", err)
+	}
+	t.Cleanup(func() { _ = ptrRC.Close() })
+	ptrData, err := io.ReadAll(ptrRC)
+	if err != nil {
+		t.Fatalf("Open ptr read: %v", err)
+	}
+	if string(ptrData) != "hydrated" {
+		t.Fatalf("open ptr = %q", ptrData)
+	}
+	if _, _, err := files.Open(ctx, "job/s3ptr.ndjson"); err == nil || errors.Is(err, binary.ErrNotFound) {
+		t.Fatalf("Open unresolved location should not look missing: %v", err)
+	}
 }
 
 type memStoreBlobs struct {
@@ -294,4 +310,39 @@ func (s *memStoreBlobs) Delete(_ context.Context, key string) error {
 	defer s.mu.Unlock()
 	delete(s.data, key)
 	return nil
+}
+
+func (s *memStoreBlobs) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	return s.open(ctx, key, nil)
+}
+
+func (s *memStoreBlobs) open(ctx context.Context, key string, seen map[string]struct{}) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	if data != nil {
+		return io.NopCloser(bytes.NewReader(data)), &head, nil
+	}
+	loc := strings.TrimSpace(obj.Location)
+	if loc == "" {
+		return io.NopCloser(bytes.NewReader(nil)), &head, nil
+	}
+	if strings.Contains(loc, "://") {
+		return nil, nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, loc)
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	if _, ok := seen[key]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", key)
+	}
+	seen[key] = struct{}{}
+	if _, ok := seen[loc]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", loc)
+	}
+	return s.open(ctx, loc, seen)
 }

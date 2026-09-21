@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -96,8 +97,14 @@ func (s *BlobStore) Get(ctx context.Context, key string) (*store.BlobObject, err
 }
 
 // Open streams a blob. The BYTEA column is loaded in full, then wrapped in a
-// reader; use an object-store adapter for multi-GB objects.
+// reader; use an object-store adapter for multi-GB objects. In-store Location
+// pointers are followed here. A URI Location without payload is an error, not
+// an empty body.
 func (s *BlobStore) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	return s.open(ctx, key, nil)
+}
+
+func (s *BlobStore) open(ctx context.Context, key string, seen map[string]struct{}) (io.ReadCloser, *store.BlobObject, error) {
 	obj, err := s.Get(ctx, key)
 	if err != nil {
 		return nil, nil, err
@@ -105,7 +112,27 @@ func (s *BlobStore) Open(ctx context.Context, key string) (io.ReadCloser, *store
 	head := *obj
 	data := head.Data
 	head.Data = nil
-	return io.NopCloser(bytes.NewReader(data)), &head, nil
+	if data != nil {
+		return io.NopCloser(bytes.NewReader(data)), &head, nil
+	}
+	loc := strings.TrimSpace(obj.Location)
+	if loc == "" {
+		return io.NopCloser(bytes.NewReader(nil)), &head, nil
+	}
+	if strings.Contains(loc, "://") {
+		return nil, nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, loc)
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	if _, ok := seen[key]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", key)
+	}
+	seen[key] = struct{}{}
+	if _, ok := seen[loc]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", loc)
+	}
+	return s.open(ctx, loc, seen)
 }
 
 func (s *BlobStore) Head(ctx context.Context, key string) (*store.BlobObject, error) {

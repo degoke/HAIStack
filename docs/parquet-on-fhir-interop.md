@@ -39,7 +39,7 @@ Watermarks are stored at the exported `maxLastUpdated` (inclusive). Search prefi
 
 ## Memory behavior
 
-`WriteResourcesStreaming` performs one candidate scan, observes schema from each resource, spills raw JSON to a temp NDJSON file, then encodes parquet in bounded row groups. Lakehouse blob uploads and `$viewdefinition-export` artifacts write parquet to a temp file, then stream that file into storage via `BlobStore.PutStream` / `ExportFileStore.PutStream`.
+`WriteResourcesStreaming` performs one candidate scan, observes schema from each resource, spills raw JSON to a temp NDJSON file, then encodes parquet in bounded row groups. Lakehouse blob uploads and `$viewdefinition-export` artifacts write parquet to a temp file, then stream that file into storage via `BlobStore.PutStream` / `ExportFileStore.PutStream`. Bulk `$export` NDJSON uses the same temp-file + `PutStream` path.
 
 ### Sizing guidance
 

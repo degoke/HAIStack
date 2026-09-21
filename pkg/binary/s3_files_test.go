@@ -174,4 +174,62 @@ func TestPrefixedFileStoreRoundTripThroughS3(t *testing.T) {
 	if ct != "application/fhir+ndjson" || !bytes.Equal(got, body) {
 		t.Fatalf("got %q %q", ct, got)
 	}
+	rc, openCT, err := files.Open(ctx, "job-1/Patient.ndjson")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	if openCT != "application/fhir+ndjson" || !bytes.Equal(openData, body) {
+		t.Fatalf("open %q %q", openCT, openData)
+	}
+}
+
+func TestS3PutStreamRejectsSizeMismatch(t *testing.T) {
+	t.Parallel()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := server.Client()
+	base := client.Transport
+	client.Transport = roundTripDrainBody{base: base}
+	store, err := binary.NewS3BlobStore(binary.S3Config{
+		Endpoint:        server.URL,
+		Region:          "us-east-1",
+		Bucket:          "bucket",
+		AccessKeyID:     "access",
+		SecretAccessKey: "secret",
+		UsePathStyle:    true,
+		HTTPClient:      client,
+	})
+	if err != nil {
+		t.Fatalf("NewS3BlobStore: %v", err)
+	}
+	_, err = store.PutStream(context.Background(), "blob-mismatch", bytes.NewReader([]byte("hello-world")), 4, "application/octet-stream")
+	if err == nil {
+		t.Fatal("expected size mismatch error")
+	}
+	if !strings.Contains(err.Error(), "declared size") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+type roundTripDrainBody struct {
+	base http.RoundTripper
+}
+
+func (t roundTripDrainBody) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
+		req.Body = http.NoBody
+		req.ContentLength = 0
+		req.Header.Del("Content-Length")
+	}
+	return t.base.RoundTrip(req)
 }

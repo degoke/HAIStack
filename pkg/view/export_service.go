@@ -1,8 +1,10 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -232,12 +234,33 @@ func (s *ExportService) FileURL(jobID, filename string) string {
 	return fmt.Sprintf("%s/ViewDefinition/$viewdefinition-export/files/%s/%s", s.basePath, jobID, filename)
 }
 
-// GetFile returns one exported artifact.
-func (s *ExportService) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+// OpenFile streams one exported artifact without assembling a full []byte.
+func (s *ExportService) OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
 	if s == nil || s.files == nil {
 		return nil, "", fmt.Errorf("view: export file store is required")
 	}
-	return s.files.Get(ctx, jobID, filename)
+	if opener, ok := s.files.(ExportFileStoreWithStream); ok {
+		return opener.Open(ctx, jobID, filename)
+	}
+	data, ct, err := s.files.Get(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
+}
+
+// GetFile returns one exported artifact.
+func (s *ExportService) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	rc, ct, err := s.OpenFile(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, ct, nil
 }
 
 // StatusURL returns the polling URL for a job.

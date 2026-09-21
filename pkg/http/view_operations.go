@@ -29,6 +29,7 @@ type ViewExportService interface {
 	StatusURL(jobID string) string
 	FileURL(jobID, filename string) string
 	GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error)
+	OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error)
 }
 
 func (h *handler) handleViewDefinitionRun(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -186,17 +187,12 @@ func (h *handler) handleViewDefinitionExportFile(w http.ResponseWriter, r *http.
 		writeError(w, err)
 		return
 	}
-	data, contentType, err := h.cfg.ViewExportService.GetFile(r.Context(), jobID, filename)
+	data, contentType, err := h.cfg.ViewExportService.OpenFile(r.Context(), jobID, filename)
 	if err != nil {
 		writeError(w, notFound("view export file not found"))
 		return
 	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	writeFileBody(w, data, contentType, "application/octet-stream")
 }
 
 type viewExportJobResponse struct {

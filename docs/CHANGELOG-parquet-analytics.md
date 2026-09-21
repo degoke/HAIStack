@@ -10,7 +10,7 @@
 - HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
 - HTTP `$viewdefinition-run` support for the same operation context fields.
 - `store.BlobStoreWithStream` and `binary.BlobStoreWithStream` (`PutStream`) so parquet lakehouse and `$viewdefinition-export` uploads stream from the temp file without `os.ReadFile`. Helpers: `store.PutBlob`, `store.PutBlobFromPath`, `binary.CopyChunks`, `binary.PutBlobStream`.
-- `store.BlobStoreWithOpen` / `binary.BlobStoreWithOpen` (`Open`) so downloads stream without assembling a full `[]byte`. Helpers: `store.OpenBlob`, `binary.ChunkReader`.
+- `store.BlobStoreWithOpen` / `binary.BlobStoreWithOpen` (`Open`) so downloads stream without assembling a full `[]byte`. Helpers: `store.OpenBlob`, `binary.ChunkReader`. `export.Service.OpenFile` / `view.ExportService.OpenFile` stream HTTP artifact downloads.
 
 ### Changed
 
@@ -18,6 +18,7 @@
 - Incremental watermarks prefer `maxLastUpdated` from exported resources over process wall clock when available.
 - `Metadata.filtered` semantics are mode-specific (expanded view rows vs matching FHIR resources); see `pkg/view/README.md`.
 - Lakehouse blob upload and `$viewdefinition-export` parquet artifacts stream from the temp file via `store.BlobStoreWithStream` / `view.ExportFileStoreWithStream` instead of `os.ReadFile` + `Put([]byte)`.
+- Bulk `$export` writes NDJSON to a temp file and uploads with `FileStore.PutStream`. `PrefixedFileStore.Open` returns the backend stream and does not re-hydrate `Location` (pointer-only BYTEA rows are resolved in Postgres `BlobStore.Open`). S3 `PutStream` rejects a 2xx whose hashed byte count differs from the declared `Content-Length`.
 
 ### Deprecated
 

@@ -61,6 +61,29 @@ func (s *LocalFileStore) PutStream(_ context.Context, path string, r io.Reader, 
 	return os.Rename(tmp, full)
 }
 
+func putFileFromPath(ctx context.Context, files FileStore, path, srcPath, contentType string) error {
+	if files == nil {
+		return fmt.Errorf("export: file store is required")
+	}
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if streamer, ok := files.(FileStoreWithStream); ok {
+		return streamer.PutStream(ctx, path, f, info.Size(), contentType)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	return files.Put(ctx, path, data, contentType)
+}
+
 func (s *LocalFileStore) Get(ctx context.Context, path string) ([]byte, string, error) {
 	rc, ct, err := s.Open(ctx, path)
 	if err != nil {

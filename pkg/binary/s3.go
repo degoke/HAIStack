@@ -123,6 +123,9 @@ func (s *S3BlobStore) putStream(ctx context.Context, blobID string, r io.Reader,
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("s3 put blob: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	if h.n != size {
+		return nil, fmt.Errorf("%w: uploaded %d bytes, declared size %d", ErrInvalidArgument, h.n, size)
+	}
 	return &BlobDescriptor{
 		BlobID:      blobID,
 		SHA256:      h.sumHex(),

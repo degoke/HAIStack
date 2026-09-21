@@ -1,8 +1,10 @@
 package http_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -85,6 +87,14 @@ func (f *fakeViewExportService) GetFile(_ context.Context, jobID, filename strin
 		return nil, "", errNotFound("file")
 	}
 	return data, "application/fhir+ndjson", nil
+}
+
+func (f *fakeViewExportService) OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	data, ct, err := f.GetFile(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
 }
 
 type simpleError string

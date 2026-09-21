@@ -101,21 +101,9 @@ func (s *PrefixedFileStore) Open(ctx context.Context, path string) (io.ReadClose
 		}
 		return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
 	}
-	if obj.Data == nil && strings.TrimSpace(obj.Location) != "" && !strings.Contains(obj.Location, "://") {
-		_ = rc.Close()
-		data, err := hydrateBlobPayload(ctx, s.blobs, obj, nil)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
-			}
-			return nil, "", fmt.Errorf("%s: file %q: %w", fileStorePkg(s), path, err)
-		}
-		ct := obj.ContentType
-		if ct == "" {
-			ct = s.defaultCT
-		}
-		return io.NopCloser(bytes.NewReader(data)), ct, nil
-	}
+	// Open already returns the payload stream. Do not treat Location as another
+	// blob key: AsStore copies Pointer.Ref there (chunk-store blob IDs, local
+	// file paths, s3:// URIs). Pointer-only BYTEA rows are resolved in Open.
 	ct := obj.ContentType
 	if ct == "" {
 		ct = s.defaultCT

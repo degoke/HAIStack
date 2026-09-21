@@ -1,10 +1,10 @@
 package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -88,8 +88,25 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 }
 
 func (e *Executor) exportType(ctx context.Context, req ExecuteRequest, resourceType string) (*OutputFile, []ErrorFile, error) {
-	var buf bytes.Buffer
-	var errBuf bytes.Buffer
+	outFile, err := os.CreateTemp("", "haistack-export-*.ndjson")
+	if err != nil {
+		return nil, nil, fmt.Errorf("export: create temp file: %w", err)
+	}
+	outPath := outFile.Name()
+	defer func() {
+		_ = outFile.Close()
+		_ = os.Remove(outPath)
+	}()
+	errFile, err := os.CreateTemp("", "haistack-export-*.error.ndjson")
+	if err != nil {
+		return nil, nil, fmt.Errorf("export: create temp error file: %w", err)
+	}
+	errPathTmp := errFile.Name()
+	defer func() {
+		_ = errFile.Close()
+		_ = os.Remove(errPathTmp)
+	}()
+
 	exported := 0
 	errorsWritten := 0
 
@@ -118,23 +135,29 @@ func (e *Executor) exportType(ctx context.Context, req ExecuteRequest, resourceT
 				"issue":        fmt.Sprintf("marshal %s/%s: %v", resourceType, id, err),
 			})
 			if errorsWritten > 0 {
-				_ = errBuf.WriteByte('\n')
+				_, _ = errFile.Write([]byte{'\n'})
 			}
-			_, _ = errBuf.Write(errLine)
+			_, _ = errFile.Write(errLine)
 			errorsWritten++
 			continue
 		}
 		if exported > 0 {
-			_ = buf.WriteByte('\n')
+			_, _ = outFile.Write([]byte{'\n'})
 		}
-		_, _ = buf.Write(line)
+		_, _ = outFile.Write(line)
 		exported++
+	}
+	if err := outFile.Close(); err != nil {
+		return nil, nil, err
+	}
+	if err := errFile.Close(); err != nil {
+		return nil, nil, err
 	}
 
 	var output *OutputFile
 	if exported > 0 {
 		path := filePath(req.JobID, resourceType)
-		if err := e.Files.Put(ctx, path, buf.Bytes(), "application/fhir+ndjson"); err != nil {
+		if err := putFileFromPath(ctx, e.Files, path, outPath, "application/fhir+ndjson"); err != nil {
 			return nil, nil, err
 		}
 		output = &OutputFile{
@@ -146,7 +169,7 @@ func (e *Executor) exportType(ctx context.Context, req ExecuteRequest, resourceT
 	var errFiles []ErrorFile
 	if errorsWritten > 0 {
 		errPath := errorFilePath(req.JobID, resourceType)
-		if err := e.Files.Put(ctx, errPath, errBuf.Bytes(), "application/fhir+ndjson"); err != nil {
+		if err := putFileFromPath(ctx, e.Files, errPath, errPathTmp, "application/fhir+ndjson"); err != nil {
 			return nil, nil, err
 		}
 		errFiles = append(errFiles, ErrorFile{
