@@ -62,10 +62,11 @@ func (s *InMemoryJobStore) Update(_ context.Context, job Job) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.jobs[job.ID]; !exists {
+	existing, exists := s.jobs[job.ID]
+	if !exists {
 		return fmt.Errorf("export: job %q not found", job.ID)
 	}
-	s.jobs[job.ID] = job
+	s.jobs[job.ID] = applyCancelGuard(existing, job)
 	return nil
 }
 

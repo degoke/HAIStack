@@ -148,6 +148,9 @@ func TestBlobFileStoreRoundTrip(t *testing.T) {
 	if err := files.Put(ctx, "../escape", body, ""); err == nil {
 		t.Fatal("expected invalid path")
 	}
+	if err := files.Put(ctx, "job-1/Patient..ndjson", body, ""); err != nil {
+		t.Fatalf("Patient..ndjson: %v", err)
+	}
 }
 
 func TestDurableStoresSurviveSQLiteReopen(t *testing.T) {
@@ -241,5 +244,117 @@ func TestBulkExportWithDurableStores(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"id":"p1"`) {
 		t.Fatalf("file = %q", data)
+	}
+}
+
+type errGetJobStore struct {
+	inner store.JobStore
+	err   error
+}
+
+func (s errGetJobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
+	return s.inner.Enqueue(ctx, job)
+}
+func (s errGetJobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRecord, error) {
+	return s.inner.ClaimNext(ctx, jobType)
+}
+func (s errGetJobStore) Update(ctx context.Context, job store.JobRecord) error {
+	return s.inner.Update(ctx, job)
+}
+func (s errGetJobStore) Get(ctx context.Context, id string) (*store.JobRecord, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.inner.Get(ctx, id)
+}
+
+func TestDurableJobStoreGetPreservesStoreErrors(t *testing.T) {
+	ctx := context.Background()
+	jobsStore := export.NewDurableJobStore(errGetJobStore{
+		inner: jobs.NewInMemoryJobStore(),
+		err:   fmt.Errorf("connection refused"),
+	})
+	got, err := jobsStore.Get(ctx, "job-1")
+	if err == nil || got != nil {
+		t.Fatalf("Get = %#v %v", got, err)
+	}
+	if jobs.IsMissing(err) {
+		t.Fatalf("connection error treated as missing: %v", err)
+	}
+	if err := jobsStore.Update(ctx, export.Job{ID: "job-1", Status: export.StatusComplete}); err == nil {
+		t.Fatal("expected Update to return store error")
+	} else if jobs.IsMissing(err) {
+		t.Fatalf("Update treated failure as missing: %v", err)
+	}
+}
+
+func TestDurableJobStoreUpdateDoesNotUncancel(t *testing.T) {
+	ctx := context.Background()
+	jobsStore := export.NewDurableJobStore(jobs.NewInMemoryJobStore())
+	job := export.Job{ID: "job-1", Status: export.StatusInProgress}
+	if err := jobsStore.Create(ctx, job); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cancelled := job
+	cancelled.Status = export.StatusCancelled
+	cancelled.CancelRequested = true
+	if err := jobsStore.Update(ctx, cancelled); err != nil {
+		t.Fatalf("Update cancelled: %v", err)
+	}
+	complete := job
+	complete.Status = export.StatusComplete
+	if err := jobsStore.Update(ctx, complete); err != nil {
+		t.Fatalf("Update complete: %v", err)
+	}
+	got, err := jobsStore.Get(ctx, job.ID)
+	if err != nil || got == nil {
+		t.Fatalf("Get: %v %#v", err, got)
+	}
+	if got.Status != export.StatusCancelled || !got.CancelRequested {
+		t.Fatalf("got = %#v", got)
+	}
+}
+
+type failNthEnqueue struct {
+	*jobs.InMemoryJobStore
+	n     int
+	failN int
+}
+
+func (s *failNthEnqueue) Enqueue(ctx context.Context, job store.JobRecord) error {
+	s.n++
+	if s.n >= s.failN {
+		return fmt.Errorf("queue full")
+	}
+	return s.InMemoryJobStore.Enqueue(ctx, job)
+}
+
+func TestKickoffMarksJobErrorWhenEnqueueFails(t *testing.T) {
+	now := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	resources := &memoryResources{byType: map[string]map[string]*types.ResourceEnvelope{}}
+	files := export.NewInMemoryFileStore()
+	queue := &failNthEnqueue{InMemoryJobStore: jobs.NewInMemoryJobStore(), failN: 2}
+	jobsStore := export.NewDurableJobStore(queue)
+	svc, err := export.NewService(export.Config{
+		Jobs:     jobsStore,
+		Files:    files,
+		Executor: &export.Executor{Resources: resources, Files: files},
+		JobQueue: queue,
+		BasePath: "/fhir",
+		Now:      func() time.Time { return now },
+		NewID:    func() string { return "job-1" },
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := svc.Kickoff(context.Background(), export.KickoffRequest{ResourceTypes: []string{"Patient"}}); err == nil {
+		t.Fatal("expected Kickoff enqueue error")
+	}
+	got, err := jobsStore.Get(context.Background(), "job-1")
+	if err != nil || got == nil {
+		t.Fatalf("Get: %v %#v", err, got)
+	}
+	if got.Status != export.StatusError {
+		t.Fatalf("status = %s, want error", got.Status)
 	}
 }

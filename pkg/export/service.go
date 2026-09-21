@@ -92,6 +92,9 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 			Now: s.now,
 		})
 		if err != nil {
+			if markErr := s.failJob(ctx, &job, err); markErr != nil {
+				return nil, fmt.Errorf("export: enqueue: %w (mark failed: %v)", err, markErr)
+			}
 			return nil, err
 		}
 	} else if err := s.RunJob(ctx, id); err != nil {

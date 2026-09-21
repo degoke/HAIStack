@@ -24,6 +24,7 @@
 //   - Handler / HandlerFunc — process one claimed JobRecord
 //   - Runner — Register, RunOnce, RunLoop against a store.JobStore
 //   - Enqueue / NewJob / MarshalPayload — typed payload helpers with defaults
+//   - GetRecord / Lookup / WriteRecord / IsMissing — durable status-row helpers
 //   - Backoff / NextRunAfter / ApplyHandlerResult — retry and status helpers
 //   - InMemoryJobStore — concurrent-safe store.JobStore for tests/dev
 //

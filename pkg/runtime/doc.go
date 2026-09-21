@@ -130,8 +130,9 @@
 // implementations live outside pkg/runtime. Adapters need only the methods
 // required for dependency registration and future wiring in this phase.
 // Bulk $export/$import files use the blob adapter's store.BlobStore when it is
-// non-nil; otherwise they use Postgres TenantDB.BlobStore or the SQLite blob
-// store. Job status records persist in store.JobStore.
+// non-nil; otherwise they use the chunked Postgres blob store or the SQLite blob
+// store. Job status records persist in store.JobStore. Wiring fails if neither
+// an adapter nor a database blob store is available.
 //
 // Adapters may implement CloseableAdapter to participate in Shutdown.
 //

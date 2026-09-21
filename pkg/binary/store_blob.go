@@ -74,7 +74,7 @@ func (a *storeAdapter) Delete(ctx context.Context, key string) error {
 
 func mapStoreBlobError(key string, err error) error {
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("blob not found: %s", key)
+		return fmt.Errorf("blob not found: %s: %w", key, ErrNotFound)
 	}
 	return err
 }

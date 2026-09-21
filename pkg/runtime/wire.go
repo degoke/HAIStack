@@ -598,7 +598,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
-		exportFiles := resolveExportFileStore(pc.blobStore)
+		if pc.blobStore == nil {
+			return fmt.Errorf("runtime: bulk file store requires a blob store")
+		}
+		exportFiles := export.NewBlobFileStore(pc.blobStore)
 		exportJobs := export.NewDurableJobStore(pc.jobStore)
 		exportExecutor := &export.Executor{
 			Resources: pc.resources,
@@ -621,7 +624,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return fmt.Errorf("runtime: register bulk export handler: %w", err)
 		}
 		state.services.BulkExportService = exportSvc
-		importFiles := resolveImportFileStore(pc.blobStore)
+		importFiles := bulkimport.NewBlobFileStore(pc.blobStore)
 		importJobs := bulkimport.NewDurableJobStore(pc.jobStore)
 		importExecutor := &bulkimport.Executor{
 			Resources: state.services.ResourceService,
@@ -1061,26 +1064,12 @@ func (b *Builder) resolveBulkBlobStore(state *wireState) store.BlobStore {
 		}
 	}
 	if state.services != nil && state.services.TenantDB != nil {
-		return state.services.TenantDB.BlobStore()
+		return binary.AsStore(state.services.TenantDB.PostgresBlobStore())
 	}
 	if state.sqliteDB != nil {
 		return binary.AsStore(state.sqliteDB.SQLiteBlobStore())
 	}
 	return nil
-}
-
-func resolveExportFileStore(blobs store.BlobStore) export.FileStore {
-	if blobs != nil {
-		return export.NewBlobFileStore(blobs)
-	}
-	return export.NewInMemoryFileStore()
-}
-
-func resolveImportFileStore(blobs store.BlobStore) bulkimport.FileStore {
-	if blobs != nil {
-		return bulkimport.NewBlobFileStore(blobs)
-	}
-	return bulkimport.NewInMemoryFileStore()
 }
 
 func (b *Builder) resolveViewExportFileStore(state *wireState) (view.ExportFileStore, error) {

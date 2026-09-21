@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
 func TestRuntimeShutdownReturnsBackgroundWorkerError(t *testing.T) {
@@ -35,5 +37,34 @@ func TestRuntimeShutdownCleansUpAfterCallerContextExpires(t *testing.T) {
 	}
 	if err := rt.Shutdown(context.Background()); err != nil {
 		t.Fatalf("second Shutdown: %v", err)
+	}
+}
+
+type stubBlobAdapter struct {
+	blobs store.BlobStore
+}
+
+func (s stubBlobAdapter) Name() string               { return "stub-object-store" }
+func (s stubBlobAdapter) BlobStore() store.BlobStore { return s.blobs }
+
+type memRuntimeBlobs struct {
+	store.BlobStore
+}
+
+func TestResolveBulkBlobStorePrefersObjectStoreAdapter(t *testing.T) {
+	adapterBlobs := &memRuntimeBlobs{}
+	b := &Builder{blobStore: stubBlobAdapter{blobs: adapterBlobs}}
+	state := &wireState{services: &ServiceContainer{}}
+	got := b.resolveBulkBlobStore(state)
+	if got != store.BlobStore(adapterBlobs) {
+		t.Fatalf("got %#v, want adapter blob store", got)
+	}
+}
+
+func TestResolveBulkBlobStoreNilAdapterFallsThrough(t *testing.T) {
+	b := &Builder{blobStore: stubBlobAdapter{}}
+	state := &wireState{services: &ServiceContainer{}}
+	if got := b.resolveBulkBlobStore(state); got != nil {
+		t.Fatalf("got %#v, want nil without sqlite/postgres", got)
 	}
 }

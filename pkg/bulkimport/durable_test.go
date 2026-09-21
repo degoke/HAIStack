@@ -202,3 +202,39 @@ func TestDurableStoresSurviveSQLiteReopen(t *testing.T) {
 		t.Fatalf("file = %q", data)
 	}
 }
+
+type errGetJobStore struct {
+	inner store.JobStore
+	err   error
+}
+
+func (s errGetJobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
+	return s.inner.Enqueue(ctx, job)
+}
+func (s errGetJobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRecord, error) {
+	return s.inner.ClaimNext(ctx, jobType)
+}
+func (s errGetJobStore) Update(ctx context.Context, job store.JobRecord) error {
+	return s.inner.Update(ctx, job)
+}
+func (s errGetJobStore) Get(ctx context.Context, id string) (*store.JobRecord, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.inner.Get(ctx, id)
+}
+
+func TestDurableJobStoreGetPreservesStoreErrors(t *testing.T) {
+	ctx := context.Background()
+	jobsStore := bulkimport.NewDurableJobStore(errGetJobStore{
+		inner: jobs.NewInMemoryJobStore(),
+		err:   fmt.Errorf("connection refused"),
+	})
+	got, err := jobsStore.Get(ctx, "job-1")
+	if err == nil || got != nil {
+		t.Fatalf("Get = %#v %v", got, err)
+	}
+	if jobs.IsMissing(err) {
+		t.Fatalf("connection error treated as missing: %v", err)
+	}
+}

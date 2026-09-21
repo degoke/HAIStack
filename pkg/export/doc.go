@@ -4,7 +4,7 @@
 // scans resources through store.ResourceStore, and writes NDJSON artifacts to a
 // FileStore. Runtime persists job records in store.JobStore (type export.bulk.record)
 // and files in store.BlobStore: the configured object-store adapter when present,
-// otherwise the database blob store. Background execution integrates with pkg/jobs
+// otherwise the chunked Postgres or SQLite blob store. Background execution integrates with pkg/jobs
 // via TypeExportBulk.
 //
 // HTTP adapters in pkg/http expose:
