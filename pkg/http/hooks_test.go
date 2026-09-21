@@ -179,6 +179,63 @@ func TestOutgoingHookRunsOnHistoryBundle(t *testing.T) {
 	}
 }
 
+func TestOutgoingHookRunsOnEverythingBundle(t *testing.T) {
+	reg := hooks.NewRegistry()
+	var seenAction hooks.Action
+	var seenType, seenOp, seenEnvelopeType string
+	if err := reg.On(hooks.Outgoing, func(_ context.Context, event *hooks.Event) error {
+		seenAction = event.Action
+		seenType = event.ResourceType
+		seenOp = event.Operation
+		if event.Resource == nil {
+			return errors.New("missing $everything bundle")
+		}
+		seenEnvelopeType = event.Resource.ResourceType
+		event.Resource.JSON = []byte(strings.ReplaceAll(string(event.Resource.JSON), `"Doe"`, `"REDACTED"`))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			readFn: func(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+				if resourceType == "Patient" && id == "pat-1" {
+					return patientEnvelope(id, "Doe"), nil
+				}
+				return nil, errors.New("not found")
+			},
+		},
+		SearchService: &fakeSearchService{
+			searchFn: func(_ context.Context, resourceType string, _ url.Values) (*search.SearchBundle, error) {
+				return &search.SearchBundle{ResourceType: resourceType}, nil
+			},
+		},
+		Hooks: reg,
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/$everything?_type=Observation", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if seenAction != hooks.ActionOperation {
+		t.Fatalf("outgoing action = %q, want operation", seenAction)
+	}
+	if seenType != "Patient" {
+		t.Fatalf("outgoing resourceType = %q, want Patient (query type, not Bundle)", seenType)
+	}
+	if seenOp != "$everything" {
+		t.Fatalf("outgoing operation = %q, want $everything", seenOp)
+	}
+	if seenEnvelopeType != "Bundle" {
+		t.Fatalf("outgoing resource envelope type = %q, want Bundle", seenEnvelopeType)
+	}
+	if !strings.Contains(rec.Body.String(), "REDACTED") {
+		t.Fatalf("expected PHI-stripped $everything bundle, got %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"Doe"`) {
+		t.Fatalf("original family still present: %s", rec.Body.String())
+	}
+}
+
 func TestOutgoingHookRunsOnMetadata(t *testing.T) {
 	reg := hooks.NewRegistry()
 	var seenAction hooks.Action
