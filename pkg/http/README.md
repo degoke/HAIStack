@@ -63,6 +63,7 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `POST` | `/fhir/$import` | System bulk import kickoff (`Prefer: respond-async`, Parameters + NDJSON) | 202 + `Content-Location` when `BulkImportService` configured |
 | `GET` | `/fhir/$import/status/{jobId}` | Poll import status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$import/status/{jobId}` | Cancel import | 202 |
+| `GET` | `/fhir/$import/files/{jobId}/{file}` | Download import error NDJSON artifact | 200 |
 | `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
 | `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
 | `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |

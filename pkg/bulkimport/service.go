@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/google/uuid"
@@ -120,10 +121,10 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 
 func (s *Service) prepareInputs(ctx context.Context, req *KickoffRequest) error {
 	if strings.TrimSpace(req.InputFormat) != "" && !strings.EqualFold(req.InputFormat, InputFormatNDJSON) {
-		return fmt.Errorf("import: unsupported inputFormat %q", req.InputFormat)
+		return invalidImport(fmt.Sprintf("import: unsupported inputFormat %q", req.InputFormat))
 	}
 	if len(req.Inputs) == 0 {
-		return fmt.Errorf("import: at least one input is required")
+		return invalidImport("import: at least one input is required")
 	}
 	for i := range req.Inputs {
 		input := &req.Inputs[i]
@@ -131,14 +132,14 @@ func (s *Service) prepareInputs(ctx context.Context, req *KickoffRequest) error 
 			continue
 		}
 		if strings.TrimSpace(input.URL) == "" {
-			return fmt.Errorf("import: input %d requires NDJSON or url", i)
+			return invalidImport(fmt.Sprintf("import: input %d requires NDJSON or url", i))
 		}
 		if s.loader == nil {
-			return fmt.Errorf("import: input url %q cannot be fetched; provide inline NDJSON", input.URL)
+			return invalidImport(fmt.Sprintf("import: input url %q cannot be fetched; provide inline NDJSON", input.URL))
 		}
 		data, err := s.loader.Load(ctx, input.URL)
 		if err != nil {
-			return fmt.Errorf("import: load %s: %w", input.URL, err)
+			return invalidImport(fmt.Sprintf("import: load %s: %v", input.URL, err))
 		}
 		input.NDJSON = data
 	}
@@ -188,6 +189,17 @@ func (s *Service) StatusURL(jobID string) string {
 	return s.publicURL + "/$import/status/" + jobID
 }
 
+// FileURL returns the public URL prefix for import error artifacts.
+func (s *Service) FileURL(jobID string) string {
+	return s.publicURL + "/$import/files/" + jobID
+}
+
+// GetFile serves one import error artifact.
+func (s *Service) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	path := jobID + "/" + strings.TrimPrefix(filename, "/")
+	return s.files.Get(ctx, path)
+}
+
 // RunJob executes one import job synchronously.
 func (s *Service) RunJob(ctx context.Context, jobID string) error {
 	job, err := s.jobs.Get(ctx, jobID)
@@ -212,6 +224,7 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 	result, err := s.executor.Execute(ctx, ExecuteRequest{
 		JobID:       jobID,
 		Inputs:      job.Request.Inputs,
+		BaseFileURL: s.FileURL(jobID),
 		IsCancelled: isCancelled,
 		OnProgress: func(done, total int) {
 			if total <= 0 {
@@ -221,26 +234,54 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 			if getErr != nil || current == nil {
 				return
 			}
+			if current.Status == StatusCancelled || current.CancelRequested {
+				return
+			}
 			current.Progress = fmt.Sprintf("%d%%", (done*100)/total)
 			_ = s.jobs.Update(ctx, *current)
 		},
 	})
 	if err != nil {
-		if isCancelled() {
-			job.Status = StatusCancelled
-			job.CompletedAt = nowUTC(s.now)
-			return s.jobs.Update(ctx, *job)
+		current, getErr := s.jobs.Get(ctx, jobID)
+		if getErr != nil {
+			return getErr
 		}
-		return s.failJob(ctx, job, err)
+		if current == nil {
+			return fmt.Errorf("import: job %q not found", jobID)
+		}
+		if current.CancelRequested || current.Status == StatusCancelled {
+			current.Status = StatusCancelled
+			current.CompletedAt = nowUTC(s.now)
+			return s.jobs.Update(ctx, *current)
+		}
+		return s.failJob(ctx, current, err)
 	}
 
-	job.Status = StatusComplete
-	job.TransactionTime = nowUTC(s.now)
-	job.CompletedAt = job.TransactionTime
-	job.Progress = "100%"
-	job.Output = result.Output
-	job.Errors = result.Errors
-	return s.jobs.Update(ctx, *job)
+	return s.completeJob(ctx, jobID, result)
+}
+
+func (s *Service) completeJob(ctx context.Context, jobID string, result *ExecuteResult) error {
+	current, err := s.jobs.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return fmt.Errorf("import: job %q not found", jobID)
+	}
+	if current.Status == StatusCancelled || current.CancelRequested {
+		current.Status = StatusCancelled
+		current.CompletedAt = nowUTC(s.now)
+		return s.jobs.Update(ctx, *current)
+	}
+	current.Status = StatusComplete
+	current.TransactionTime = nowUTC(s.now)
+	current.CompletedAt = current.TransactionTime
+	current.Progress = "100%"
+	if result != nil {
+		current.Output = result.Output
+		current.Errors = result.Errors
+	}
+	return s.jobs.Update(ctx, *current)
 }
 
 func (s *Service) failJob(ctx context.Context, job *Job, cause error) error {
@@ -266,4 +307,8 @@ func nowUTC(now func() time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return now().UTC()
+}
+
+func invalidImport(message string) error {
+	return &core.ServiceError{Kind: core.ErrorKindInvalid, Message: message}
 }

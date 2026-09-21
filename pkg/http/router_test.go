@@ -28,6 +28,19 @@ func TestParseRouteBulkImportStatus(t *testing.T) {
 	}
 }
 
+func TestParseRouteBulkImportFileAcceptsArtifactFilename(t *testing.T) {
+	route, err := parseRoute("/fhir", "/fhir/$import/files/import-job-1/error-0-Patient.ndjson")
+	if err != nil {
+		t.Fatalf("parseRoute: %v", err)
+	}
+	if route.kind != routeBulkImportFile {
+		t.Fatalf("kind=%v", route.kind)
+	}
+	if route.filename != "error-0-Patient.ndjson" {
+		t.Fatalf("filename=%q", route.filename)
+	}
+}
+
 func TestParseRouteBulkExportFileAcceptsArtifactFilename(t *testing.T) {
 	route, err := parseRoute("/fhir", "/fhir/$export/files/export-job-1/Patient.ndjson")
 	if err != nil {

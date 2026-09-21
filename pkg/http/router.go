@@ -29,6 +29,7 @@ const (
 	routeBulkExportStatus
 	routeBulkExportFile
 	routeBulkImportStatus
+	routeBulkImportFile
 	routeMaterializeStatus
 	routeViewExportStatus
 	routeViewExportFile
@@ -57,7 +58,8 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 
 	parts := strings.Split(rel, "/")
 	if len(parts) >= 2 && parts[0] == "$import" {
-		if parts[1] == "status" {
+		switch parts[1] {
+		case "status":
 			if len(parts) != 3 {
 				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
 			}
@@ -65,6 +67,17 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 				return parsedRoute{}, err
 			}
 			return parsedRoute{kind: routeBulkImportStatus, jobID: parts[2]}, nil
+		case "files":
+			if len(parts) != 4 {
+				return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+			}
+			if err := validateID(parts[2]); err != nil {
+				return parsedRoute{}, err
+			}
+			if err := validateExportFilename(parts[3]); err != nil {
+				return parsedRoute{}, err
+			}
+			return parsedRoute{kind: routeBulkImportFile, jobID: parts[2], filename: parts[3]}, nil
 		}
 	}
 	if len(parts) >= 2 && parts[0] == "$export" {

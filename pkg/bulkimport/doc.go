@@ -9,4 +9,5 @@
 //   - POST /fhir/$import
 //   - GET /fhir/$import/status/{jobId}
 //   - DELETE /fhir/$import/status/{jobId}
+//   - GET /fhir/$import/files/{jobId}/{filename} — download import error NDJSON
 package bulkimport

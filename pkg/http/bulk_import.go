@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 )
 
-// BulkImportService handles FHIR Bulk Data import kickoff, polling, and cancellation.
+// BulkImportService handles FHIR Bulk Data import kickoff, polling, cancellation,
+// and error-artifact download.
 type BulkImportService interface {
 	Kickoff(ctx context.Context, req bulkimport.KickoffRequest) (*bulkimport.Job, error)
 	GetJob(ctx context.Context, jobID string) (*bulkimport.Job, error)
 	Cancel(ctx context.Context, jobID string) error
 	Manifest(job *bulkimport.Job) *bulkimport.Manifest
 	StatusURL(jobID string) string
+	GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error)
 }
 
 func (h *handler) handleBulkImport(w http.ResponseWriter, r *http.Request) {
@@ -27,11 +28,11 @@ func (h *handler) handleBulkImport(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, r.Method, http.MethodPost)
 		return
 	}
-	if err := h.authorizeExport(r.Context(), ""); err != nil {
+	if err := h.authorizeImportWrite(r.Context()); err != nil {
 		writeError(w, err)
 		return
 	}
-	if strings.ToLower(r.Header.Get("Prefer")) != "respond-async" {
+	if !prefersRespondAsync(r.Header.Get("Prefer")) {
 		writeError(w, invalidRequest("Prefer: respond-async is required for bulk import kickoff", nil))
 		return
 	}
@@ -65,12 +66,12 @@ func (h *handler) handleBulkImportStatus(w http.ResponseWriter, r *http.Request,
 		writeError(w, notImplementedEndpoint(r.URL.Path))
 		return
 	}
-	if err := h.authorizeExport(r.Context(), ""); err != nil {
-		writeError(w, err)
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
+		if err := h.authorizeRead(r.Context(), "Parameters", ""); err != nil {
+			writeError(w, err)
+			return
+		}
 		job, err := h.cfg.BulkImportService.GetJob(r.Context(), jobID)
 		if err != nil {
 			writeError(w, err)
@@ -97,6 +98,10 @@ func (h *handler) handleBulkImportStatus(w http.ResponseWriter, r *http.Request,
 			writeError(w, invalidRequest(job.LastError, nil))
 		}
 	case http.MethodDelete:
+		if err := h.authorizeImportWrite(r.Context()); err != nil {
+			writeError(w, err)
+			return
+		}
 		if err := h.cfg.BulkImportService.Cancel(r.Context(), jobID); err != nil {
 			writeError(w, err)
 			return
@@ -105,4 +110,36 @@ func (h *handler) handleBulkImportStatus(w http.ResponseWriter, r *http.Request,
 	default:
 		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodDelete)
 	}
+}
+
+func (h *handler) handleBulkImportFile(w http.ResponseWriter, r *http.Request, jobID, filename string) {
+	if h.cfg.BulkImportService == nil {
+		writeError(w, notImplementedEndpoint(r.URL.Path))
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, r.Method, http.MethodGet)
+		return
+	}
+	if err := h.authorizeRead(r.Context(), "Binary", ""); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, contentType, err := h.cfg.BulkImportService.GetFile(r.Context(), jobID, filename)
+	if err != nil {
+		writeError(w, notFound("import file not found"))
+		return
+	}
+	if contentType == "" {
+		contentType = "application/fhir+ndjson"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// authorizeImportWrite requires write access for system-level $import. SMART has
+// no dedicated import scope; a read-only export token must not be able to write.
+func (h *handler) authorizeImportWrite(ctx context.Context) error {
+	return h.authorizeWrite(ctx, "operation", "Parameters", "")
 }

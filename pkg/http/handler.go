@@ -156,6 +156,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBulkExportFile(w, r, route.jobID, route.filename)
 	case routeBulkImportStatus:
 		h.handleBulkImportStatus(w, r, route.jobID)
+	case routeBulkImportFile:
+		h.handleBulkImportFile(w, r, route.jobID, route.filename)
 	case routeMaterializeStatus:
 		h.handleViewMaterializeStatus(w, r, route.jobID)
 	case routeViewExportStatus:

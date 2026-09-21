@@ -82,6 +82,7 @@
 //   - POST   /fhir/$import                     — system bulk import kickoff (async; requires BulkImportService)
 //   - GET    /fhir/$import/status/{jobId}      — import status polling / manifest
 //   - DELETE /fhir/$import/status/{jobId}      — cancel import
+//   - GET    /fhir/$import/files/{jobId}/{file} — download import error NDJSON
 //   - GET    /fhir/Group/{id}/$export          — group bulk export kickoff (async)
 //   - GET    /fhir/$export/status/{jobId}      — export status polling / manifest
 //   - DELETE /fhir/$export/status/{jobId}      — cancel export

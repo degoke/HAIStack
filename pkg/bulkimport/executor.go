@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -29,6 +30,7 @@ type Executor struct {
 type ExecuteRequest struct {
 	JobID       string
 	Inputs      []InputFile
+	BaseFileURL string
 	IsCancelled func() bool
 	OnProgress  func(done, total int)
 }
@@ -57,7 +59,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 		if req.OnProgress != nil {
 			req.OnProgress(i, total)
 		}
-		output, errFile, err := e.importInput(ctx, codec, req.JobID, i, input)
+		output, errFile, err := e.importInput(ctx, codec, req, i, input)
 		if err != nil {
 			return nil, err
 		}
@@ -74,8 +76,8 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 	return result, nil
 }
 
-func (e *Executor) importInput(ctx context.Context, codec types.ResourceCodec, jobID string, index int, input InputFile) (*CountFile, *ErrorFile, error) {
-	data, _, err := e.Files.Get(ctx, inputPath(jobID, index, input.Type))
+func (e *Executor) importInput(ctx context.Context, codec types.ResourceCodec, req ExecuteRequest, index int, input InputFile) (*CountFile, *ErrorFile, error) {
+	data, _, err := e.Files.Get(ctx, inputPath(req.JobID, index, input.Type))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -106,14 +108,17 @@ func (e *Executor) importInput(ctx context.Context, codec types.ResourceCodec, j
 	if errorsWritten == 0 {
 		return output, nil, nil
 	}
-	errPath := errorPath(jobID, index, input.Type)
+	errPath := errorPath(req.JobID, index, input.Type)
 	if err := e.Files.Put(ctx, errPath, errBuf.Bytes(), InputFormatNDJSON); err != nil {
 		return nil, nil, err
 	}
-	return output, &ErrorFile{Type: input.Type, URL: errPath}, nil
+	return output, &ErrorFile{Type: input.Type, URL: errorFileURL(req.BaseFileURL, req.JobID, index, input.Type)}, nil
 }
 
 func upsertResource(ctx context.Context, writer ResourceWriter, env *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if err := stripServerAssignedMeta(env); err != nil {
+		return nil, err
+	}
 	if env.ID == "" {
 		return writer.Create(ctx, env)
 	}
@@ -125,6 +130,23 @@ func upsertResource(ctx context.Context, writer ResourceWriter, env *types.Resou
 		return nil, err
 	}
 	return writer.Create(ctx, env)
+}
+
+// stripServerAssignedMeta matches CLI restore: types.SetMeta(env.JSON, types.Meta{})
+// clears meta.versionId and meta.lastUpdated while preserving profile/tag, then
+// VersionID (and LastUpdated) are cleared on the envelope before persist.
+func stripServerAssignedMeta(env *types.ResourceEnvelope) error {
+	if env == nil {
+		return fmt.Errorf("import: resource envelope is required")
+	}
+	cleaned, err := types.SetMeta(env.JSON, types.Meta{})
+	if err != nil {
+		return fmt.Errorf("import: clear meta: %w", err)
+	}
+	env.JSON = cleaned
+	env.VersionID = ""
+	env.LastUpdated = time.Time{}
+	return nil
 }
 
 func writeImportError(buf *bytes.Buffer, count *int, message string) {
@@ -150,11 +172,24 @@ func inputPath(jobID string, index int, resourceType string) string {
 	return fmt.Sprintf("%s/input-%d-%s.ndjson", jobID, index, sanitizeType(resourceType))
 }
 
-func errorPath(jobID string, index int, resourceType string) string {
+func errorFilename(index int, resourceType string) string {
 	if resourceType == "" {
 		resourceType = "Resource"
 	}
-	return fmt.Sprintf("%s/error-%d-%s.ndjson", jobID, index, sanitizeType(resourceType))
+	return fmt.Sprintf("error-%d-%s.ndjson", index, sanitizeType(resourceType))
+}
+
+func errorPath(jobID string, index int, resourceType string) string {
+	return jobID + "/" + errorFilename(index, resourceType)
+}
+
+func errorFileURL(baseFileURL, jobID string, index int, resourceType string) string {
+	name := errorFilename(index, resourceType)
+	base := strings.TrimSuffix(baseFileURL, "/")
+	if base == "" {
+		return errorPath(jobID, index, resourceType)
+	}
+	return base + "/" + name
 }
 
 func sanitizeType(resourceType string) string {

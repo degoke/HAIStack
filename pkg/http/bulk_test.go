@@ -19,22 +19,34 @@ import (
 )
 
 type bulkAuthChecker struct {
-	allow bool
-	calls int
+	allowExport bool
+	allowWrite  bool
+	allowRead   bool
+	exportCalls int
+	writeCalls  int
+	readCalls   int
 }
 
 func (c *bulkAuthChecker) AuthorizeRead(context.Context, auth.Principal, auth.TenantContext, string, string) (auth.Decision, error) {
-	return auth.Allow("ok"), nil
+	c.readCalls++
+	if c.allowRead {
+		return auth.Allow("ok"), nil
+	}
+	return auth.Deny("denied"), nil
 }
 func (c *bulkAuthChecker) AuthorizeWrite(context.Context, auth.Principal, auth.TenantContext, string, string, string) (auth.Decision, error) {
-	return auth.Allow("ok"), nil
+	c.writeCalls++
+	if c.allowWrite {
+		return auth.Allow("ok"), nil
+	}
+	return auth.Deny("denied"), nil
 }
 func (c *bulkAuthChecker) AuthorizeSearch(context.Context, auth.Principal, auth.TenantContext, string) (auth.Decision, error) {
 	return auth.Allow("ok"), nil
 }
 func (c *bulkAuthChecker) AuthorizeExport(_ context.Context, _ auth.Principal, _ auth.TenantContext, _ string) (auth.Decision, error) {
-	c.calls++
-	if c.allow {
+	c.exportCalls++
+	if c.allowExport {
 		return auth.Allow("ok"), nil
 	}
 	return auth.Deny("denied"), nil
@@ -81,7 +93,7 @@ func newBulkExportService(t *testing.T) hahttp.BulkExportService {
 }
 
 func TestBulkExportKickoffPollManifest(t *testing.T) {
-	checker := &bulkAuthChecker{allow: true}
+	checker := &bulkAuthChecker{allowExport: true}
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService:   &bulkResourceService{},
 		BulkExportService: newBulkExportService(t),
@@ -102,7 +114,7 @@ func TestBulkExportKickoffPollManifest(t *testing.T) {
 	if statusURL == "" {
 		t.Fatal("missing Content-Location")
 	}
-	if checker.calls == 0 {
+	if checker.exportCalls == 0 {
 		t.Fatal("expected export authorization")
 	}
 
@@ -130,7 +142,7 @@ func TestBulkExportUnauthorized(t *testing.T) {
 		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
 			return auth.Principal{ID: "user-1", Kind: auth.KindUser}, auth.TenantContext{TenantID: "tenant-a"}, nil
 		},
-		AuthChecker: &bulkAuthChecker{allow: false},
+		AuthChecker: &bulkAuthChecker{allowExport: false},
 	})
 	req := httptest.NewRequest(http.MethodGet, "/fhir/$export", nil)
 	req.Header.Set("Prefer", "respond-async")
@@ -192,7 +204,7 @@ func newBulkImportService(t *testing.T, writer *importWriter) hahttp.BulkImportS
 }
 
 func TestBulkImportKickoffPollManifest(t *testing.T) {
-	checker := &bulkAuthChecker{allow: true}
+	checker := &bulkAuthChecker{allowWrite: true, allowRead: true}
 	writer := &importWriter{}
 	handler := newTestHandler(t, hahttp.Config{
 		ResourceService:   &bulkResourceService{},
@@ -216,8 +228,11 @@ func TestBulkImportKickoffPollManifest(t *testing.T) {
 	if statusURL == "" {
 		t.Fatal("missing Content-Location")
 	}
-	if checker.calls == 0 {
-		t.Fatal("expected import authorization")
+	if checker.writeCalls == 0 {
+		t.Fatal("expected import write authorization")
+	}
+	if checker.exportCalls != 0 {
+		t.Fatalf("import kickoff used export auth (%d calls)", checker.exportCalls)
 	}
 
 	pollReq := httptest.NewRequest(http.MethodGet, statusURL, nil)
@@ -280,5 +295,134 @@ func TestCapabilityStatementAdvertisesImportWhenConfigured(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"name":"import"`) {
 		t.Fatalf("expected $import advertised, got %s", rec.Body.String())
+	}
+}
+
+func TestBulkImportUnauthorizedWithoutWrite(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, &importWriter{}),
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &bulkAuthChecker{allowExport: true, allowWrite: false, allowRead: true},
+	})
+	body := `{"resourceType":"Parameters","parameter":[{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{\"resourceType\":\"Patient\",\"id\":\"p1\"}"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportInvalidParameters(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, &importWriter{}),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(`{"resourceType":"Patient","id":"p1"}`))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportURLWithoutLoaderIsBadRequest(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, &importWriter{}),
+	})
+	body := `{"resourceType":"Parameters","parameter":[{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"url","valueUri":"https://example.test/Patient.ndjson"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportAcceptsPreferCommaForm(t *testing.T) {
+	writer := &importWriter{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, writer),
+	})
+	body := `{"resourceType":"Parameters","parameter":[{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{\"resourceType\":\"Patient\",\"id\":\"p1\"}"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async, wait=10")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("kickoff status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkExportAcceptsPreferCommaForm(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkExportService: newBulkExportService(t),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/fhir/$export?_type=Patient", nil)
+	req.Header.Set("Prefer", "respond-async, wait=10")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("kickoff status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportErrorFileDownload(t *testing.T) {
+	writer := &importWriter{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, writer),
+	})
+	body := `{"resourceType":"Parameters","parameter":[{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{\"resourceType\":\"Patient\",\"id\":\"p1\"}\nnot-json"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("kickoff status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	statusURL := rec.Header().Get("Content-Location")
+	pollReq := httptest.NewRequest(http.MethodGet, statusURL, nil)
+	pollReq.Header.Set("Accept", "application/json")
+	pollRec := httptest.NewRecorder()
+	handler.ServeHTTP(pollRec, pollReq)
+	if pollRec.Code != http.StatusOK {
+		t.Fatalf("poll status = %d body = %s", pollRec.Code, pollRec.Body.String())
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(pollRec.Body.Bytes(), &manifest); err != nil {
+		t.Fatalf("manifest decode: %v", err)
+	}
+	errors, ok := manifest["error"].([]any)
+	if !ok || len(errors) != 1 {
+		t.Fatalf("manifest error = %#v", manifest["error"])
+	}
+	errObj, _ := errors[0].(map[string]any)
+	fileURL, _ := errObj["url"].(string)
+	if fileURL == "" {
+		t.Fatal("missing error file url")
+	}
+	fileReq := httptest.NewRequest(http.MethodGet, fileURL, nil)
+	fileRec := httptest.NewRecorder()
+	handler.ServeHTTP(fileRec, fileReq)
+	if fileRec.Code != http.StatusOK {
+		t.Fatalf("file status = %d body = %s", fileRec.Code, fileRec.Body.String())
+	}
+	if !strings.Contains(fileRec.Body.String(), "OperationOutcome") {
+		t.Fatalf("error artifact = %s", fileRec.Body.String())
 	}
 }
