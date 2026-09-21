@@ -11,7 +11,8 @@ import (
 //
 // parquet-go's schemaElementTypeOf remaps TIMESTAMP to INT64 on read, so
 // File.Schema and Pages cannot round-trip these columns. Use
-// ReadInt96MillisColumn, which decodes from file metadata physical type.
+// ReadInt96MillisColumn for row-aligned, path-qualified reads from file
+// metadata physical type INT96.
 type timestampMillisInt96Type struct {
 	parquet.Type
 	logical   *format.LogicalType

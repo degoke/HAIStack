@@ -71,8 +71,8 @@ func TestInteropSpecPatientINT96TimestampAnnotations(t *testing.T) {
 	assertMetadataTimestampMillis(t, data, "__birthDate_start")
 	assertMetadataTimestampMillis(t, data, "__birthDate_end")
 	assertParquetGoCannotReadINT96Timestamp(t, data, "__birthDate_start")
-	assertInt96MillisRoundTrip(t, data, "__birthDate_start", time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
-	assertInt96MillisRoundTrip(t, data, "__birthDate_end", time.Date(1970, 1, 1, 23, 59, 59, 999000000, time.UTC))
+	assertInt96MillisRoundTrip(t, data, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), "__birthDate_start")
+	assertInt96MillisRoundTrip(t, data, time.Date(1970, 1, 1, 23, 59, 59, 999000000, time.UTC), "__birthDate_end")
 }
 
 func TestInteropSpecObservationINT96TimestampAnnotations(t *testing.T) {
@@ -90,7 +90,7 @@ func TestInteropSpecObservationINT96TimestampAnnotations(t *testing.T) {
 	assertMetadataPhysicalType(t, data, format.Int96, "__effectiveDateTime_end")
 	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_start")
 	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_end")
-	assertInt96MillisRoundTrip(t, data, "__effectiveDateTime_start", time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC))
+	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC), "__effectiveDateTime_start")
 }
 
 func TestInteropSpecObservationPeriodStartINT96TimestampAnnotations(t *testing.T) {
@@ -113,8 +113,53 @@ func TestInteropSpecObservationPeriodStartINT96TimestampAnnotations(t *testing.T
 	assertMetadataPhysicalType(t, data, format.Int96, "__end_end")
 	assertMetadataTimestampMillis(t, data, "__start_start")
 	assertMetadataTimestampMillis(t, data, "__start_end")
-	assertInt96MillisRoundTrip(t, data, "__start_start", time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC))
-	assertInt96MillisRoundTrip(t, data, "__end_start", time.Date(2022, 2, 11, 0, 0, 0, 0, time.UTC))
+	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__start_start")
+	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 11, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__end_start")
+}
+
+func TestINT96TimestampAnnotationsRowAlignedNulls(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{"resourceType": "Patient", "id": "with-date", "birthDate": "1970-01-01"},
+		{"resourceType": "Patient", "id": "without-date"},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	got, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), "__birthDate_start")
+	if err != nil {
+		t.Fatalf("ReadInt96MillisColumn: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len=%d, want 2 row-aligned values", len(got))
+	}
+	if got[0] == nil || !got[0].Equal(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("row0=%v, want 1970-01-01 start", got[0])
+	}
+	if got[1] != nil {
+		t.Fatalf("row1=%v, want nil annotation", got[1])
+	}
+}
+
+func TestINT96TimestampAnnotationsDisambiguatesPeriodPaths(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType": "Observation",
+			"id":           "obs-periods",
+			"status":       "final",
+			"effectivePeriod": map[string]any{
+				"start": "2022-02-10T00:00:00Z",
+			},
+			"valuePeriod": map[string]any{
+				"start": "2022-03-01T00:00:00Z",
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	if _, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), "__start_start"); err == nil {
+		t.Fatal("expected ambiguous __start_start to require a full path")
+	}
+	assertInt96MillisRoundTrip(t, data, time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC), "effectivePeriod", "__start_start")
+	assertInt96MillisRoundTrip(t, data, time.Date(2022, 3, 1, 0, 0, 0, 0, time.UTC), "valuePeriod", "__start_start")
 }
 
 func TestWriteResourcesStreamingINT96TimestampAnnotations(t *testing.T) {
@@ -656,17 +701,17 @@ func assertParquetGoCannotReadINT96Timestamp(t *testing.T, data []byte, name str
 	}
 }
 
-func assertInt96MillisRoundTrip(t *testing.T, data []byte, name string, want time.Time) {
+func assertInt96MillisRoundTrip(t *testing.T, data []byte, want time.Time, path ...string) {
 	t.Helper()
-	got, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), name)
+	got, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), path...)
 	if err != nil {
-		t.Fatalf("ReadInt96MillisColumn(%q): %v", name, err)
+		t.Fatalf("ReadInt96MillisColumn(%v): %v", path, err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("ReadInt96MillisColumn(%q) len=%d, want 1", name, len(got))
+		t.Fatalf("ReadInt96MillisColumn(%v) len=%d, want 1", path, len(got))
 	}
-	if !got[0].Equal(want) {
-		t.Fatalf("ReadInt96MillisColumn(%q)=%v, want %v", name, got[0], want)
+	if got[0] == nil || !got[0].Equal(want) {
+		t.Fatalf("ReadInt96MillisColumn(%v)=%v, want %v", path, got[0], want)
 	}
 }
 

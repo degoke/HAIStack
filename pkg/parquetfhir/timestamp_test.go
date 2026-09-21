@@ -1,9 +1,11 @@
 package parquetfhir
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
 )
 
@@ -47,5 +49,45 @@ func TestApplyTimestampEncodingConvertsTimes(t *testing.T) {
 	}, TimestampEncodingInt64)
 	if _, ok := unchanged["__birthDate_start"].(time.Time); !ok {
 		t.Fatalf("int64 path should keep time.Time, got %T", unchanged["__birthDate_start"])
+	}
+}
+
+func TestReadInt96MillisColumnDataPageV1OptionalNulls(t *testing.T) {
+	schema := parquet.NewSchema("row", parquet.Group{
+		"ts": parquet.Optional(parquet.Leaf(newTimestampMillisInt96Type())),
+	})
+	var buf bytes.Buffer
+	w := parquet.NewGenericWriter[map[string]any](&buf, schema, parquet.DataPageVersion(1))
+	rows := []map[string]any{
+		{"ts": timestampToInt96(time.UnixMilli(0).UTC())},
+		{},
+		{"ts": timestampToInt96(time.UnixMilli(1000).UTC())},
+	}
+	parquetRows := make([]parquet.Row, len(rows))
+	for i, row := range rows {
+		parquetRows[i] = schema.Deconstruct(nil, row)
+	}
+	if _, err := w.WriteRows(parquetRows); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	data := buf.Bytes()
+	got, err := ReadInt96MillisColumn(bytes.NewReader(data), int64(len(data)), "ts")
+	if err != nil {
+		t.Fatalf("ReadInt96MillisColumn: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len=%d, want 3 row-aligned values", len(got))
+	}
+	if got[0] == nil || !got[0].Equal(time.UnixMilli(0).UTC()) {
+		t.Fatalf("row0=%v, want epoch", got[0])
+	}
+	if got[1] != nil {
+		t.Fatalf("row1=%v, want nil", got[1])
+	}
+	if got[2] == nil || !got[2].Equal(time.UnixMilli(1000).UTC()) {
+		t.Fatalf("row2=%v, want 1000ms", got[2])
 	}
 }

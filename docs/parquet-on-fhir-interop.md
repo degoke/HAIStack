@@ -22,14 +22,14 @@ Automated tests validate schema shape against spec Patient/Observation examples 
 Manual verification recommended for your target stack:
 
 - **DuckDB** — `SELECT * FROM read_parquet('file.parquet')`
-- **Apache Spark 3.x** — `spark.read.parquet(path)`
+- **Apache Spark 3.x** — `spark.read.parquet(path)`. Spark/Hive often treat INT96 as julian-day + nanos-of-day and will misread HAIStack millis-packed values unless they honor `TIMESTAMP(MILLIS)`.
 - **Trino/Presto** — hive parquet connector
 
 ## API entry points
 
 - `$viewdefinition-run?_format=parquet&_parquetLayout=fhir`
 - `$viewdefinition-export` with the same parameters
-- Optional `_parquetTimestampEncoding=int96` (query or Parameters body `parquetTimestampEncoding` / `_parquetTimestampEncoding`; default `int64`). Non-empty body values override query, matching `_parquetLayout` / `_format`.
+- Optional `_parquetTimestampEncoding=int96` on query `_parquetTimestampEncoding` / `parquetTimestampEncoding`, or Parameters body `parquetTimestampEncoding` / `_parquetTimestampEncoding` (default `int64`). A non-empty body value overrides query, matching export body `format`. `_parquetLayout` and run `_format` remain query-only.
 - Analytics sinks: `ParquetLayout: view.ParquetLayoutFHIR` + `Executor` with `ProfileCatalog`; `TimestampEncoding: view.TimestampEncodingInt96` for spec INT96 columns
 
 ## Incremental export
