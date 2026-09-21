@@ -93,6 +93,9 @@ func (stubHistoryStore) AppendVersion(context.Context, store.ResourceVersion) er
 func (stubHistoryStore) GetHistory(context.Context, string, string) ([]store.ResourceVersion, error) {
 	return nil, nil
 }
+func (stubHistoryStore) GetVersion(context.Context, string, string, string) (store.ResourceVersion, error) {
+	return store.ResourceVersion{}, nil
+}
 
 type stubSearchStore struct{}
 

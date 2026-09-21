@@ -33,6 +33,8 @@ type KickoffRequest struct {
 	ResourceTypes  []string
 	Since          time.Time
 	GroupID        string
+	PatientID      string
+	PatientExport  bool
 	TypeFilter     string
 	OutputFormat   string
 	RequestURL     string

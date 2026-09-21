@@ -167,7 +167,7 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 		return nil
 	}
 
-	patientIDs, err := s.resolveGroupPatients(ctx, job.Request.GroupID)
+	patientIDs, err := s.resolveExportPatients(ctx, job.Request)
 	if err != nil {
 		return s.failJob(ctx, job, err)
 	}
@@ -216,6 +216,38 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 	job.Output = result.Output
 	job.Errors = result.Errors
 	return s.jobs.Update(ctx, *job)
+}
+
+func (s *Service) resolveExportPatients(ctx context.Context, req KickoffRequest) ([]string, error) {
+	if req.PatientID != "" {
+		return []string{req.PatientID}, nil
+	}
+	if req.PatientExport {
+		return s.listPatientIDs(ctx)
+	}
+	return s.resolveGroupPatients(ctx, req.GroupID)
+}
+
+func (s *Service) listPatientIDs(ctx context.Context) ([]string, error) {
+	if s.executor == nil || s.executor.Resources == nil {
+		return nil, nil
+	}
+	var all []string
+	pageSize := 100
+	for {
+		ids, err := s.executor.Resources.ListIDs(ctx, "Patient", pageSize, len(all))
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		all = append(all, ids...)
+		if len(ids) < pageSize {
+			break
+		}
+	}
+	return all, nil
 }
 
 func (s *Service) resolveGroupPatients(ctx context.Context, groupID string) ([]string, error) {

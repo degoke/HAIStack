@@ -53,7 +53,9 @@ func (o *jsonPatchOp) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Patch applies a JSON Patch (RFC 6902) to an existing resource.
+// Patch applies a JSON Patch (RFC 6902) or FHIR Patch Parameters document
+// to an existing resource. JSON Patch bodies are arrays; FHIR Patch bodies
+// are Parameters resources.
 func (s *ResourceService) Patch(ctx context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error) {
 	return s.patchAndCommit(ctx, resourceType, id, patchJSON, "")
 }
@@ -86,9 +88,9 @@ func (s *ResourceService) patchAndCommit(ctx context.Context, resourceType, id s
 		}
 		return nil, exceptionErr("read resource for patch", err)
 	}
-	patchedJSON, err := applyJSONPatch(current.JSON, patchJSON)
+	patchedJSON, err := applyPatchDocument(current.JSON, patchJSON)
 	if err != nil {
-		return nil, invalidErr("apply JSON Patch", err)
+		return nil, invalidErr("apply patch", err)
 	}
 	if err := validatePatchedIdentity(patchedJSON, resourceType, id); err != nil {
 		return nil, err
