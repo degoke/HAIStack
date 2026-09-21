@@ -300,8 +300,11 @@ func stringPred(args [][]any, fn func(string, string) bool) ([]any, error) {
 	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
 		return nil, nil
 	}
-	a := fmt.Sprint(unwrapPrimitive(args[0][0]))
-	b := fmt.Sprint(unwrapPrimitive(args[1][0]))
+	a, aok := unwrapPrimitive(args[0][0]).(string)
+	b, bok := unwrapPrimitive(args[1][0]).(string)
+	if !aok || !bok {
+		return nil, nil
+	}
 	return []any{fn(a, b)}, nil
 }
 
@@ -309,7 +312,12 @@ func stringContains(args [][]any) ([]any, error) {
 	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
 		return nil, nil
 	}
-	return []any{strings.Contains(fmt.Sprint(unwrapPrimitive(args[0][0])), fmt.Sprint(unwrapPrimitive(args[1][0])))}, nil
+	a, aok := unwrapPrimitive(args[0][0]).(string)
+	b, bok := unwrapPrimitive(args[1][0]).(string)
+	if !aok || !bok {
+		return nil, nil
+	}
+	return []any{strings.Contains(a, b)}, nil
 }
 
 func stringReplace(args [][]any) ([]any, error) {

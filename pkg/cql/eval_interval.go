@@ -47,7 +47,7 @@ func (st *evalState) evalBetween(n *betweenNode) ([]any, error) {
 		return nil, nil
 	}
 	iv := Interval{Low: singletonOrList(low), High: singletonOrList(high), LowClosed: true, HighClosed: true}
-	return []any{intervalContains(iv, x[0], false)}, nil
+	return intervalContainsResult(iv, x[0], false)
 }
 
 func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
@@ -106,7 +106,7 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 			return []any{intervalIncludes(li, ri, strings.HasPrefix(n.op, "properly"))}, nil
 		}
 		if lok {
-			return []any{intervalContains(li, right[0], strings.HasPrefix(n.op, "properly"))}, nil
+			return intervalContainsResult(li, right[0], strings.HasPrefix(n.op, "properly"))
 		}
 	case "included in", "during", "properly included in", "properly during":
 		proper := strings.HasPrefix(n.op, "properly")
@@ -114,7 +114,7 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 			return []any{intervalIncludes(ri, li, proper)}, nil
 		}
 		if rok {
-			return []any{intervalContains(ri, left[0], proper)}, nil
+			return intervalContainsResult(ri, left[0], proper)
 		}
 	case "overlaps":
 		if lok && rok {
@@ -237,29 +237,37 @@ func intervalBound(v any) any {
 	return v
 }
 
-func intervalContains(iv Interval, point any, properly bool) bool {
+func intervalContainsResult(iv Interval, point any, properly bool) ([]any, error) {
+	ok, comparable := intervalContains(iv, point, properly)
+	if !comparable {
+		return nil, nil
+	}
+	return []any{ok}, nil
+}
+
+func intervalContains(iv Interval, point any, properly bool) (bool, bool) {
 	if point == nil {
-		return false
+		return false, false
 	}
 	if iv.Low != nil {
 		cmp, ok := cqlCompare(point, iv.Low)
 		if !ok {
-			return false
+			return false, false
 		}
 		if cmp < 0 || (cmp == 0 && (!iv.LowClosed || properly)) {
-			return false
+			return false, true
 		}
 	}
 	if iv.High != nil {
 		cmp, ok := cqlCompare(point, iv.High)
 		if !ok {
-			return false
+			return false, false
 		}
 		if cmp > 0 || (cmp == 0 && (!iv.HighClosed || properly)) {
-			return false
+			return false, true
 		}
 	}
-	return true
+	return true, true
 }
 
 func intervalIncludes(outer, inner Interval, properly bool) bool {

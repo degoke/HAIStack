@@ -1620,6 +1620,7 @@ func parseNumber(text string) any {
 }
 
 var dateOnlyLoc = time.FixedZone("CQL-DATE", 0)
+var naiveDateTimeLoc = time.FixedZone("CQL-DATETIME", 0)
 
 func isDateOnlyString(text string) bool {
 	text = strings.TrimSpace(text)
@@ -1633,11 +1634,43 @@ func isDateOnlyString(text string) bool {
 	return false
 }
 
+func isNaiveDateTimeString(text string) bool {
+	text = strings.TrimSpace(text)
+	i := strings.IndexAny(text, "Tt")
+	if i < 0 {
+		return false
+	}
+	rest := text[i+1:]
+	if strings.ContainsAny(rest, "Zz") {
+		return false
+	}
+	for j, r := range rest {
+		if r == '+' {
+			return false
+		}
+		if r == '-' && j >= 2 {
+			return false
+		}
+	}
+	return true
+}
+
 func isDateOnlyTime(t time.Time) bool {
 	if t.Location() == nil {
 		return false
 	}
 	return t.Location() == dateOnlyLoc || t.Location().String() == "CQL-DATE"
+}
+
+func isNaiveDateTimeTime(t time.Time) bool {
+	if t.Location() == nil {
+		return false
+	}
+	return t.Location() == naiveDateTimeLoc || t.Location().String() == "CQL-DATETIME"
+}
+
+func isFloatingTime(t time.Time) bool {
+	return isDateOnlyTime(t) || isNaiveDateTimeTime(t)
 }
 
 func parseCQLDate(text string) (time.Time, error) {
@@ -1654,6 +1687,9 @@ func parseCQLDate(text string) (time.Time, error) {
 		if tm, err := time.Parse(layout, text); err == nil {
 			if isDateOnlyString(text) {
 				return time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, dateOnlyLoc), nil
+			}
+			if isNaiveDateTimeString(text) {
+				return time.Date(tm.Year(), tm.Month(), tm.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), naiveDateTimeLoc), nil
 			}
 			return tm, nil
 		}

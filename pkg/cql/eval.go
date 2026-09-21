@@ -101,11 +101,7 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			if len(v) == 0 {
-				out = append(out, nil)
-				continue
-			}
-			out = append(out, v...)
+			out = append(out, wrapListElement(el, v))
 		}
 		return out, nil
 	case *tupleNode:
@@ -570,7 +566,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
-				return []any{intervalContains(iv, left[0], false)}, nil
+				return intervalContainsResult(iv, left[0], false)
 			}
 		}
 		return []any{containsValue(right, left[0])}, nil
@@ -588,7 +584,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if len(left) == 1 {
 			if iv, ok := asInterval(left[0]); ok {
-				return []any{intervalContains(iv, right[0], false)}, nil
+				return intervalContainsResult(iv, right[0], false)
 			}
 		}
 		return []any{containsValue(left, right[0])}, nil
@@ -835,12 +831,12 @@ func (st *evalState) evalMethod(name string, recv []any, rawArgs []Node, args []
 		if len(recv) == 0 {
 			return nil, nil
 		}
-		return []any{recv[0]}, nil
+		return listValueResult(recv[0]), nil
 	case "last":
 		if len(recv) == 0 {
 			return nil, nil
 		}
-		return []any{recv[len(recv)-1]}, nil
+		return listValueResult(recv[len(recv)-1]), nil
 	case "count":
 		return []any{countNonNull(recv)}, nil
 	case "exists":
@@ -1392,7 +1388,7 @@ func (st *evalState) memberValues(item any, name string) ([]any, bool) {
 		vals, err := st.engine.fhirpath.Eval(st.ctx, name, item)
 		if err == nil {
 			if out, ok := convertFHIRPathCollection(vals); ok && len(out) > 0 {
-				return out, true
+				return coerceTemporalValues(name, out), true
 			}
 		}
 	}
@@ -1628,31 +1624,54 @@ func temporalLocation(v any) *time.Location {
 }
 
 func asTemporal(v any, loc *time.Location) (time.Time, bool) {
-	v = unwrapPrimitive(v)
-	if t, ok := v.(time.Time); ok {
-		if isDateOnlyTime(t) {
-			if loc == nil {
-				loc = time.UTC
-			}
-			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc), true
-		}
-		return t, true
-	}
-	s, ok := v.(string)
+	t, ok := asTime(v)
 	if !ok {
 		return time.Time{}, false
 	}
-	tm, err := parseCQLDate(s)
-	if err != nil {
-		return time.Time{}, false
-	}
-	if isDateOnlyString(s) {
+	if isFloatingTime(t) {
 		if loc == nil {
-			loc = time.UTC
+			loc = t.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
 		}
-		return time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc), true
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc), true
 	}
-	return tm, true
+	return t, true
+}
+
+func wrapListElement(el Node, v []any) any {
+	if isListValued(el) {
+		if v == nil {
+			return []any{}
+		}
+		return append([]any{}, v...)
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	if len(v) == 1 {
+		return v[0]
+	}
+	return append([]any{}, v...)
+}
+
+func isListValued(n Node) bool {
+	switch n.(type) {
+	case *listNode, *retrieveNode, *queryNode:
+		return true
+	}
+	return false
+}
+
+func listValueResult(v any) []any {
+	if v == nil {
+		return []any{nil}
+	}
+	if list, ok := v.([]any); ok {
+		return append([]any{}, list...)
+	}
+	return []any{v}
 }
 
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
@@ -1743,8 +1762,8 @@ func cqlEqual(a, b any) bool {
 			return cqlEqual(ia.Low, ib.Low) && cqlEqual(ia.High, ib.High) && ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
 		}
 	}
-	if ta, ok := asTime(a); ok {
-		if tb, ok := asTime(b); ok {
+	if ta, aok := asTemporal(a, temporalLocation(b)); aok {
+		if tb, bok := asTemporal(b, temporalLocation(a)); bok {
 			return ta.Equal(tb)
 		}
 	}
@@ -2007,7 +2026,7 @@ func fieldValues(v any, name string) ([]any, bool) {
 	}
 	if obj, ok := asObject(v); ok {
 		if raw, exists := obj[name]; exists {
-			return flattenJSON(raw), true
+			return flattenField(name, raw), true
 		}
 		var fold []string
 		var choice []string
@@ -2026,14 +2045,44 @@ func fieldValues(v any, name string) ([]any, bool) {
 		sort.Strings(fold)
 		sort.Strings(choice)
 		if len(fold) > 0 {
-			return flattenJSON(obj[fold[0]]), true
+			return flattenField(fold[0], obj[fold[0]]), true
 		}
 		if len(choice) > 0 {
-			return flattenJSON(obj[choice[0]]), true
+			return flattenField(choice[0], obj[choice[0]]), true
 		}
 		return nil, false
 	}
 	return nil, false
+}
+
+func flattenField(name string, raw any) []any {
+	return coerceTemporalValues(name, flattenJSON(raw))
+}
+
+func coerceTemporalValues(name string, vals []any) []any {
+	if !isTemporalFieldName(name) {
+		return vals
+	}
+	out := make([]any, len(vals))
+	for i, v := range vals {
+		if s, ok := unwrapPrimitive(v).(string); ok {
+			if tm, err := parseCQLDate(s); err == nil {
+				out[i] = tm
+				continue
+			}
+		}
+		out[i] = v
+	}
+	return out
+}
+
+func isTemporalFieldName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch n {
+	case "issued", "birthdate", "start", "end", "low", "high":
+		return true
+	}
+	return strings.HasSuffix(n, "datetime") || strings.HasSuffix(n, "date") || strings.HasSuffix(n, "instant")
 }
 
 func flattenJSON(v any) []any {

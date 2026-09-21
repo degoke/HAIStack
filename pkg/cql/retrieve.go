@@ -328,7 +328,10 @@ func isCodeableChoiceField(key, name string) bool {
 	if rest == "" || rest[0] < 'A' || rest[0] > 'Z' {
 		return false
 	}
-	return strings.EqualFold(rest, "CodeableConcept") || strings.EqualFold(rest, "Coding") || strings.EqualFold(rest, "Reference")
+	if strings.EqualFold(rest, "CodeableConcept") || strings.EqualFold(rest, "Coding") {
+		return true
+	}
+	return strings.EqualFold(rest, "Reference") && strings.EqualFold(name, "medication")
 }
 
 // primaryCodeFields are the implicit FHIR elements CQL retrieve filters on
@@ -473,7 +476,7 @@ func codingMatchesExact(codes []fhirCoding, system, code, term string) bool {
 		if term == "" {
 			continue
 		}
-		if c.Code == term || c.Text == term {
+		if c.Code == term {
 			return true
 		}
 		if sys, cd, ok := splitSystemCode(term); ok {

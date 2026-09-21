@@ -987,8 +987,8 @@ func TestRetrieveCodeEqualsAndEquivalent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("code = text: %#v", got)
+	if len(got) != 0 {
+		t.Fatalf("code = must not match text: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), `[Observation: code = "Heart rate"]`, env)
 	if err != nil {
@@ -1801,5 +1801,160 @@ func TestRetrieveCodeCaseIsExact(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != int64(0) {
 		t.Fatalf("implicit miss: %#v", got)
+	}
+}
+
+func TestListLiteralsDoNotFlatten(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{{1, 2}}.count()", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("{{1, 2}} count: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, {2, 3}}.count()", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(2) {
+		t.Fatalf("{1, {2, 3}} count: %#v", got)
+	}
+	obs1, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"a","status":"final","code":{"text":"A"},"subject":{"reference":"Patient/ada"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs2, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"b","status":"final","code":{"text":"B"},"subject":{"reference":"Patient/ada"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err = NewEngine(Config{
+		Retriever: StaticRetriever{obs1, obs2},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = eng.Eval(context.Background(), "{[Observation]}.count()", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("{[Observation]} must wrap the retrieve: %#v", got)
+	}
+}
+
+func TestStringDoesNotCompareAsDate(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'2024' > @2020-01-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("string vs Date compare must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'2021-01-01' during Interval[@2021-01-01T00:00:00-05:00, @2021-01-01T23:59:59-05:00]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("string during Interval must be null: %#v", got)
+	}
+}
+
+func TestDateEqualsZonedMidnight(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "@2021-01-01 = @2021-01-01T00:00:00-05:00", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("date-only = zoned midnight: %#v", got)
+	}
+}
+
+func TestNaiveDateTimeUsesCompareZone(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "n",
+		"status": "final",
+		"code": {"text": "N"},
+		"effectiveDateTime": "2021-01-02T03:00:00",
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := time.FixedZone("EST", -5*3600)
+	got, err := eng.Eval(context.Background(), `[Observation].effective during "Measurement Period"`, EvalContext{
+		Patient: adaPatient(t),
+		Parameters: map[string]any{
+			"Measurement Period": Interval{
+				Low:        time.Date(2021, 1, 1, 0, 0, 0, 0, loc),
+				High:       time.Date(2021, 1, 1, 23, 59, 59, 999999999, loc),
+				LowClosed:  true,
+				HighClosed: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("naive Jan 2 03:00 must not be during EST Jan 1: %#v", got)
+	}
+}
+
+func TestValuePathDoesNotFollowValueReference(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "o",
+		"status": "final",
+		"code": {"text": "A"},
+		"valueReference": {"reference": "Condition/c1"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cond, err := types.NewJSONCodec().ParseJSON("Condition", []byte(`{
+		"resourceType": "Condition",
+		"id": "c1",
+		"code": {"coding": [{"code": "E11"}]}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs, cond},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "[Observation: value in 'E11'].count()", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("value path must not follow valueReference: %#v", got)
+	}
+}
+
+func TestStartsWithRequiresStrings(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'1'.startsWith(1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("startsWith mixed types must be null: %#v", got)
 	}
 }
