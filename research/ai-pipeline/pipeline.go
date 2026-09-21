@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
 	"github.com/degoke/health-ai-stack/pkg/audit"
@@ -174,6 +173,7 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	toolRes, err := aiExec.ExecuteTool(ctx, ai.ToolRequest{
 		ToolName:       ai.ToolRunView,
 		Actor:          pipelineActor,
+		TenantID:       pipelineTenant,
 		Subject:        "research/vitals",
 		ConversationID: conversationID,
 		Input: map[string]any{
@@ -187,6 +187,7 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 
 	modelRes, err := aiExec.InvokeModel(ctx, ai.ToolRequest{
 		Actor:          pipelineActor,
+		TenantID:       pipelineTenant,
 		ConversationID: conversationID,
 		ModelHint:      "local",
 	}, "Summarize permissioned vitals for research evaluation.", toolRes.Context)
@@ -195,22 +196,6 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	}
 	if modelRes == nil {
 		return nil, fmt.Errorf("stub model returned nil")
-	}
-	if err := (&audit.StoreAdapter{Store: auditStore, Now: now}).Log(ctx, audit.Event{
-		ID:             "research-invoke-model",
-		Timestamp:      now(),
-		Actor:          pipelineActor,
-		Tenant:         pipelineTenant,
-		Action:         audit.ActionInvokeModel,
-		Outcome:        audit.OutcomeSuccess,
-		ToolName:       stub.Name(),
-		ConversationID: conversationID,
-		Details: map[string]string{
-			"adapter": stub.Name(),
-			"seed":    strconv.FormatInt(modelSeed, 10),
-		},
-	}); err != nil {
-		return nil, fmt.Errorf("audit invoke-model: %w", err)
 	}
 
 	rows, columns := viewRows(toolRes.Data)
@@ -316,9 +301,10 @@ func loadAndValidate(ctx context.Context, resources store.ResourceStore, engine 
 		envelopes = append(envelopes, env)
 	}
 	opts := validate.ValidateOptions{
-		ProfileCatalog:     catalog,
-		EnforceBaseProfile: true,
-		Mode:               validate.ValidationModeFast,
+		ProfileCatalog:          catalog,
+		EnforceBaseProfile:      true,
+		EnforceDeclaredProfiles: true,
+		Mode:                    validate.ValidationModeFast,
 	}
 	for _, env := range envelopes {
 		result, err := validator.Validate(ctx, env, opts)
@@ -331,12 +317,16 @@ func loadAndValidate(ctx context.Context, resources store.ResourceStore, engine 
 		if err := resources.Create(ctx, env); err != nil {
 			return nil, pin, err
 		}
+		profile := validate.BaseStructureDefinitionURL(env.ResourceType)
+		if env.ResourceType == "Patient" {
+			profile = haiPatientProfileURL
+		}
 		inputs = append(inputs, InputRecord{
 			ResourceType: env.ResourceType,
 			ID:           env.ID,
 			Hash:         env.Hash,
 			Validated:    true,
-			Profile:      validate.BaseStructureDefinitionURL(env.ResourceType),
+			Profile:      profile,
 		})
 	}
 	return inputs, pin, nil
@@ -366,13 +356,20 @@ func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, e
 	if err := json.Unmarshal(lockBytes, &lock); err != nil {
 		return nil, ValidationProvenance{}, err
 	}
+	igRel := "modules/core/ig"
 	pin := ValidationProvenance{
 		FHIRVersion: lock.FHIRVersion,
 		IGPackage:   lock.IGPackage.Name,
 		IGVersion:   lock.IGPackage.Version,
 		Canonical:   lock.IGPackage.Canonical,
 		GitCommit:   lock.GitCommit,
-		Mode:        "r4-base-profile",
+		Mode:        "r4-base-and-declared-ig",
+		Profiles: []string{
+			validate.BaseStructureDefinitionURL("Patient"),
+			validate.BaseStructureDefinitionURL("Observation"),
+			haiPatientProfileURL,
+		},
+		IGResources: igRel,
 	}
 	sdDir := filepath.Join(root, "pkg/registry/internal/bundles/r4/structure-definitions")
 	var resources [][]byte
@@ -387,13 +384,15 @@ func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, e
 	if err != nil {
 		return nil, pin, err
 	}
-	igDir := filepath.Join(root, "conformance/fsh-generated/resources")
-	if st, err := os.Stat(igDir); err == nil && st.IsDir() {
-		if ig, err := validate.LoadProfileCatalogFromDir(igDir); err == nil {
-			catalog = validate.MergeProfileCatalogs(catalog, ig)
-		}
+	igDir := filepath.Join(root, igRel)
+	ig, err := validate.LoadProfileCatalogFromDir(igDir)
+	if err != nil {
+		return nil, pin, fmt.Errorf("load compiled IG from %s: %w", igRel, err)
 	}
-	return catalog, pin, nil
+	if _, ok := ig.GetStructureDefinition(haiPatientProfileURL); !ok {
+		return nil, pin, fmt.Errorf("compiled IG %s is missing %s", igRel, haiPatientProfileURL)
+	}
+	return validate.MergeProfileCatalogs(catalog, ig), pin, nil
 }
 
 func viewRows(data any) ([]map[string]any, []string) {

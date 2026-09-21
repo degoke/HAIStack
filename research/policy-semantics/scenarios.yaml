@@ -1,7 +1,9 @@
 version: "1"
 # Vendor-neutral SMART scope ∩ policy scenarios for HAIStack research Track C.
 # Executed by pkg/testkit/authztest (shared runner) and go run ./research/policy-semantics.
-# Policy documents and the role catalog live in this file (portable pkg/auth DSL).
+# Policy documents, roles, and principals live in this file (portable pkg/auth DSL).
+# observation-only grants clinician *.read so SMART user/*.read satisfies
+# RequiredPermissions; policy rules still narrow the allowed resource types.
 roles:
   - name: clinician
     permissions:
@@ -10,7 +12,6 @@ roles:
       - read-appointment
       - patient.read
       - observation.read
-      - "*.read"
   - name: tenant-admin
     permissions:
       - module.install
@@ -21,6 +22,27 @@ roles:
     permissions:
       - "*.read"
       - patient.read
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+  admin:
+    id: user-admin
+    kind: user
+    tenant: tenant-a
+    roles: [tenant-admin]
+  backend:
+    id: backend-app
+    kind: service
+    clientId: backend-app
+    tenant: tenant-a
+    roles: [backend]
+policyRoleGrants:
+  observation-only:
+    clinician:
+      - "*.read"
 policies:
   base:
     version: "1"

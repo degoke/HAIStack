@@ -72,6 +72,8 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // InvokeModel routes an optional model invocation using the configured ModelRouter.
 // Tool execution does not require a model adapter; this helper is for callers that
 // want to combine tool output with model generation in the same session.
+// When a model is actually invoked, the call is audited as invoke-model
+// (AuditRecord.Action) through the same AuditLogger seam as ExecuteTool.
 func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, context string) (*ModelResponse, error) {
 	if e.cfg.RequireConversationID {
 		if err := validateConversationID(req.ConversationID); err != nil {
@@ -81,12 +83,46 @@ func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, con
 	if e.cfg.ModelRouter == nil {
 		return nil, nil
 	}
-	return e.cfg.ModelRouter.Invoke(ctx, ModelRequest{
+	resp, err := e.cfg.ModelRouter.Invoke(ctx, ModelRequest{
 		Hint:    req.ModelHint,
 		Prompt:  prompt,
 		Context: context,
 		Tools:   toolNames(e.cfg.Registry),
 	})
+	if resp == nil && err == nil {
+		return nil, nil
+	}
+	outcome := "success"
+	details := map[string]string{}
+	if req.ModelHint != "" {
+		details["hint"] = req.ModelHint
+	}
+	toolName := req.ModelHint
+	if resp != nil && resp.Adapter != "" {
+		details["adapter"] = resp.Adapter
+		toolName = resp.Adapter
+	}
+	if err != nil {
+		outcome = outcomeForError(err)
+		details["error"] = err.Error()
+	}
+	if auditErr := e.logAuditRecord(ctx, req, AuditRecord{
+		Action:         "invoke-model",
+		ToolName:       toolName,
+		Actor:          req.Actor,
+		Tenant:         req.TenantID,
+		Subject:        req.Subject,
+		Outcome:        outcome,
+		Details:        details,
+		ConversationID: req.ConversationID,
+		Timestamp:      e.cfg.Now(),
+	}); auditErr != nil && e.cfg.AuditRequired {
+		if err != nil {
+			return nil, errors.Join(err, auditErr)
+		}
+		return nil, auditErr
+	}
+	return resp, err
 }
 
 func toolNames(reg *Registry) []string {
@@ -656,13 +692,7 @@ func filterAllowedFields(requested map[string]any, allowed []string) map[string]
 }
 
 func (e *Executor) logAudit(ctx context.Context, req ToolRequest, toolName, outcome string, details map[string]string) error {
-	if e.cfg.Audit == nil {
-		if e.cfg.AuditRequired {
-			return ErrMissingAudit
-		}
-		return nil
-	}
-	if err := e.cfg.Audit.LogToolAccess(ctx, AuditRecord{
+	return e.logAuditRecord(ctx, req, AuditRecord{
 		ToolName:       toolName,
 		Actor:          req.Actor,
 		Tenant:         req.TenantID,
@@ -671,7 +701,32 @@ func (e *Executor) logAudit(ctx context.Context, req ToolRequest, toolName, outc
 		Details:        details,
 		ConversationID: req.ConversationID,
 		Timestamp:      e.cfg.Now(),
-	}); err != nil {
+	})
+}
+
+func (e *Executor) logAuditRecord(ctx context.Context, req ToolRequest, rec AuditRecord) error {
+	if e.cfg.Audit == nil {
+		if e.cfg.AuditRequired {
+			return ErrMissingAudit
+		}
+		return nil
+	}
+	if rec.Timestamp.IsZero() {
+		rec.Timestamp = e.cfg.Now()
+	}
+	if rec.Actor == "" {
+		rec.Actor = req.Actor
+	}
+	if rec.Tenant == "" {
+		rec.Tenant = req.TenantID
+	}
+	if rec.Subject == "" {
+		rec.Subject = req.Subject
+	}
+	if rec.ConversationID == "" {
+		rec.ConversationID = req.ConversationID
+	}
+	if err := e.cfg.Audit.LogToolAccess(ctx, rec); err != nil {
 		if e.cfg.AuditRequired {
 			return fmt.Errorf("%w: %v", ErrAuditFailed, err)
 		}

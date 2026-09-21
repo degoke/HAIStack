@@ -9,9 +9,8 @@ on:
 permissions:
   contents: read
 
-# Reproducibility checks for research artefacts. Not a required status check
-# while the suite is bootstrapped (issue #11). Failures are still visible on
-# the workflow run.
+# Reproducibility checks for research artefacts. Failures fail the PR job.
+# The same `make research` target also runs in ci.yml so it is a blocking check.
 jobs:
   research:
     runs-on: ubuntu-latest

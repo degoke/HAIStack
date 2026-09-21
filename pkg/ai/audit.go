@@ -10,6 +10,7 @@ import (
 
 // AuditRecord captures one AI tool invocation for the audit seam.
 type AuditRecord struct {
+	Action         string            `json:"action,omitempty"`
 	ToolName       string            `json:"toolName"`
 	Actor          string            `json:"actor"`
 	Tenant         string            `json:"tenant,omitempty"`
@@ -35,7 +36,8 @@ func (f AuditLoggerFunc) LogToolAccess(ctx context.Context, rec AuditRecord) err
 }
 
 // AuditStoreAdapter writes AI audit records through pkg/audit into a
-// store.AuditStore. Action naming is owned by pkg/audit (execute-tool).
+// store.AuditStore. Action naming is owned by pkg/audit: ExecuteTool maps to
+// execute-tool, and InvokeModel maps to invoke-model.
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
@@ -47,7 +49,7 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 	if a == nil || a.Store == nil {
 		return nil
 	}
-	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.AIToolCallEvent{
+	ev := audit.AIToolCallEvent{
 		Actor:          rec.Actor,
 		Tenant:         rec.Tenant,
 		Subject:        rec.Subject,
@@ -56,5 +58,9 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 		ConversationID: rec.ConversationID,
 		Details:        rec.Details,
 		Timestamp:      rec.Timestamp,
-	})
+	}
+	if rec.Action == audit.ActionInvokeModel {
+		return audit.LogAIModelInvoke(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, ev)
+	}
+	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, ev)
 }

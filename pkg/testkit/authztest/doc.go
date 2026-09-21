@@ -11,7 +11,9 @@
 // Machine-readable YAML catalogues (research/policy-semantics and testdata)
 // are loaded with ParseYAML / LoadYAMLFile and executed through
 // ScenariosFromYAML. YAML cases evaluate SMART scope grants ∩ pkg/auth policy
-// allows, matching the policy-semantics research artefact.
+// allows, matching the policy-semantics research artefact. Principals, roles,
+// and policy documents are declared in the YAML; policyRoleGrants overlays
+// extra role permissions per named policy.
 //
 // This package is for tests only. Production code must not import authztest.
 package authztest

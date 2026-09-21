@@ -87,6 +87,12 @@ func TestEmitHelpersActionNames(t *testing.T) {
 		{"view", func() error {
 			return audit.LogViewAccess(ctx, logger, audit.ViewAccessEvent{Actor: "u", ViewName: "summary", Version: "1", Outcome: audit.OutcomeSuccess})
 		}, audit.ActionExecuteView},
+		{"ai-tool", func() error {
+			return audit.LogAIToolCall(ctx, logger, audit.AIToolCallEvent{Actor: "u", ToolName: "run_view", Outcome: audit.OutcomeSuccess})
+		}, audit.ActionExecuteTool},
+		{"invoke-model", func() error {
+			return audit.LogAIModelInvoke(ctx, logger, audit.AIToolCallEvent{Actor: "u", ToolName: "stub-v1", Outcome: audit.OutcomeSuccess})
+		}, audit.ActionInvokeModel},
 	}
 
 	for _, tc := range cases {

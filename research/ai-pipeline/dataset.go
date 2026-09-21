@@ -41,11 +41,20 @@ func pipelineObservations() []synthObservation {
 	}
 }
 
+const haiPatientProfileURL = "http://haistack.example.org/fhir/StructureDefinition/hai-patient"
+
 func patientEnvelope(p synthPatient) (*types.ResourceEnvelope, error) {
 	return researchutil.ParseResource("Patient", researchutil.MustJSON(map[string]any{
 		"resourceType": "Patient",
 		"id":           p.ID,
-		"gender":       p.Gender,
+		"meta": map[string]any{
+			"profile": []any{haiPatientProfileURL},
+		},
+		"identifier": []any{map[string]any{
+			"system": "http://fhir.haistack.io/sid/mrn",
+			"value":  "mrn-" + p.ID,
+		}},
+		"gender": p.Gender,
 		"name": []any{map[string]any{
 			"family": p.Family,
 			"given":  []any{p.Given},

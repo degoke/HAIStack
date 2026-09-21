@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
+	"github.com/degoke/health-ai-stack/pkg/audit"
 )
 
 func TestRegistry_GenericAndConvenienceTools(t *testing.T) {
@@ -757,6 +758,57 @@ func TestExecutor_InvokeModelUsesRouter(t *testing.T) {
 	}
 	if resp == nil || resp.Adapter != "cloud" {
 		t.Fatalf("resp = %#v", resp)
+	}
+}
+
+func TestExecutor_InvokeModelAudits(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{})
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Policy: h.policy,
+		Audit:  h.audit,
+		ModelRouter: &ai.ModelRouter{
+			Local: &fakeModelAdapter{name: "stub-v1"},
+		},
+		Now: h.clock.Now,
+	})
+	resp, err := h.exec.InvokeModel(context.Background(), ai.ToolRequest{
+		Actor:          "user-clinician",
+		TenantID:       "tenant-research",
+		ConversationID: "conv-1",
+		ModelHint:      "local",
+	}, "summarize", "{}")
+	if err != nil {
+		t.Fatalf("InvokeModel: %v", err)
+	}
+	if resp == nil || resp.Adapter != "stub-v1" {
+		t.Fatalf("resp = %#v", resp)
+	}
+	recs := h.audit.Records()
+	if len(recs) != 1 {
+		t.Fatalf("audit records = %#v", recs)
+	}
+	if recs[0].Action != "invoke-model" || recs[0].ToolName != "stub-v1" || recs[0].Outcome != "success" {
+		t.Fatalf("audit = %#v", recs[0])
+	}
+	if recs[0].Actor != "user-clinician" || recs[0].ConversationID != "conv-1" {
+		t.Fatalf("audit identity = %#v", recs[0])
+	}
+}
+
+func TestAuditStoreAdapter_InvokeModelAction(t *testing.T) {
+	mem := audit.NewMemoryStore()
+	adapter := &ai.AuditStoreAdapter{Store: mem}
+	if err := adapter.LogToolAccess(context.Background(), ai.AuditRecord{
+		Action:   audit.ActionInvokeModel,
+		ToolName: "stub-v1",
+		Actor:    "user-clinician",
+		Outcome:  audit.OutcomeSuccess,
+	}); err != nil {
+		t.Fatalf("LogToolAccess: %v", err)
+	}
+	recs := mem.Records()
+	if len(recs) != 1 || recs[0].Action != audit.ActionInvokeModel || recs[0].ToolName != "stub-v1" {
+		t.Fatalf("records = %#v", recs)
 	}
 }
 

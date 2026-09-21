@@ -29,8 +29,12 @@ The CLI loads `scenarios.yaml` (≥10 cases) and executes them against
 `pkg/testkit/authztest.ParseYAML` / `ScenariosFromYAML` is the shared
 scenario runner requested by issue #11 (also used by the authorization
 test suite). YAML cases fail unless **both** SMART `ScopeImplies` and the
-policy engine allow the action. Policy documents and the role catalog are declared in `scenarios.yaml`
-(portable `pkg/auth` DSL), not as Go-named enums. Track C is the exception to “testkit is tests-only”:
+policy engine allow the action. Policy documents, the role catalog, and
+principals are declared in `scenarios.yaml` (portable `pkg/auth` DSL), not as
+Go-named enums or hardcoded fixture IDs. `policyRoleGrants` overlays extra
+role permissions per named policy (clinician `*.read` only for
+`observation-only`, so SMART `user/*.read` can satisfy RequiredPermissions
+while the policy DSL still narrows). Track C is the exception to “testkit is tests-only”:
 the YAML catalogue is the artefact. Tracks A and E do **not** import
 `pkg/testkit`.
 

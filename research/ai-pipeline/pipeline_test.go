@@ -63,9 +63,35 @@ func TestAIPipelineProvenanceChain(t *testing.T) {
 	if bundle.Validation.FHIRVersion == "" || bundle.Validation.IGPackage == "" {
 		t.Fatalf("validation pin missing: %+v", bundle.Validation)
 	}
+	if bundle.Validation.Mode != "r4-base-and-declared-ig" {
+		t.Fatalf("validation mode = %q, want r4-base-and-declared-ig (actual profiles, not lock citation only)", bundle.Validation.Mode)
+	}
+	if bundle.Validation.IGResources != "modules/core/ig" {
+		t.Fatalf("ig resources = %q, want compiled modules/core/ig", bundle.Validation.IGResources)
+	}
+	hasHai := false
+	for _, p := range bundle.Validation.Profiles {
+		if p == haiPatientProfileURL {
+			hasHai = true
+			break
+		}
+	}
+	if !hasHai {
+		t.Fatalf("validation profiles missing hai-patient: %+v", bundle.Validation.Profiles)
+	}
 	for _, in := range bundle.Inputs {
 		if in.Profile == "" {
-			t.Fatalf("input %+v missing base profile URL", in)
+			t.Fatalf("input %+v missing profile URL", in)
+		}
+		switch in.ResourceType {
+		case "Patient":
+			if in.Profile != haiPatientProfileURL {
+				t.Fatalf("patient %s profile = %q, want hai-patient", in.ID, in.Profile)
+			}
+		case "Observation":
+			if in.Profile != "http://hl7.org/fhir/StructureDefinition/Observation" {
+				t.Fatalf("observation %s profile = %q", in.ID, in.Profile)
+			}
 		}
 	}
 }

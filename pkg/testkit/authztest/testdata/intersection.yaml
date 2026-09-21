@@ -7,7 +7,6 @@ roles:
       - read-appointment
       - patient.read
       - observation.read
-      - "*.read"
   - name: tenant-admin
     permissions:
       - module.install
@@ -18,6 +17,27 @@ roles:
     permissions:
       - "*.read"
       - patient.read
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+  admin:
+    id: user-admin
+    kind: user
+    tenant: tenant-a
+    roles: [tenant-admin]
+  backend:
+    id: backend-app
+    kind: service
+    clientId: backend-app
+    tenant: tenant-a
+    roles: [backend]
+policyRoleGrants:
+  observation-only:
+    clinician:
+      - "*.read"
 policies:
   observation-only:
     version: "1"

@@ -96,3 +96,28 @@ func TestScoreAll(t *testing.T) {
 		t.Fatalf("differing pairs = %d, want ≥30", report.Differing)
 	}
 }
+
+func TestInformationLossFlagsAbsentOnR5(t *testing.T) {
+	for _, p := range Corpus() {
+		if len(p.InformationLoss) == 0 {
+			continue
+		}
+		for _, flag := range p.InformationLoss {
+			absent, err := informationLossAbsent(p.R5, p.ResourceType, flag)
+			if err != nil {
+				t.Fatalf("%s flag %q: %v", p.ID, flag, err)
+			}
+			if !absent {
+				t.Fatalf("%s flag %q is still present on R5", p.ID, flag)
+			}
+		}
+	}
+	kept := []byte(`{"resourceType":"Patient","id":"x","photo":[{"title":"kept"}]}`)
+	absent, err := informationLossAbsent(kept, "Patient", "Patient.photo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absent {
+		t.Fatal("expected Patient.photo present on R5 to fail the loss check")
+	}
+}

@@ -115,8 +115,20 @@ func scorePair(ctx context.Context, codec *proto.GoogleR4Codec, engine fhirpath.
 				errs = append(errs, fmt.Sprintf("r5 json %s %q: not satisfied (value=%v)", c.Op, c.Path, c.Value))
 			}
 		}
+		for _, flag := range pair.InformationLoss {
+			absent, err := informationLossAbsent(r5env.JSON, pair.ResourceType, flag)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("informationLoss %q: %v", flag, err))
+				continue
+			}
+			if !absent {
+				errs = append(errs, fmt.Sprintf("informationLoss %q still present on R5", flag))
+			}
+		}
 	} else if len(pair.R5JSON) > 0 {
 		errs = append(errs, "r5 json checks: missing resource")
+	} else if len(pair.InformationLoss) > 0 {
+		errs = append(errs, "informationLoss: missing R5 resource")
 	}
 	if pair.Category == "information_loss" && len(pair.InformationLoss) == 0 {
 		errs = append(errs, "information_loss category requires flags")
@@ -152,6 +164,46 @@ func evalJSONCheck(raw []byte, c JSONCheck) (bool, error) {
 	default:
 		return false, fmt.Errorf("unsupported json check op %q", c.Op)
 	}
+}
+
+func informationLossAbsent(raw []byte, resourceType, flag string) (bool, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false, err
+	}
+	path := strings.TrimSpace(flag)
+	if path == "" {
+		return false, fmt.Errorf("empty flag")
+	}
+	if resourceType != "" && strings.HasPrefix(path, resourceType+".") {
+		path = strings.TrimPrefix(path, resourceType+".")
+	}
+	if strings.HasPrefix(path, "extension[") && strings.HasSuffix(path, "]") {
+		url := strings.TrimSuffix(strings.TrimPrefix(path, "extension["), "]")
+		return extensionURLAbsent(obj, url), nil
+	}
+	return len(walkJSON(obj, strings.Split(path, "."))) == 0, nil
+}
+
+func extensionURLAbsent(obj map[string]any, url string) bool {
+	raw, ok := obj["extension"]
+	if !ok || raw == nil {
+		return true
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return true
+	}
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fmt.Sprint(m["url"]) == url {
+			return false
+		}
+	}
+	return true
 }
 
 func asInt(v any) (int, bool) {
