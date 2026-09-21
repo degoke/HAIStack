@@ -214,7 +214,7 @@ To work on this repository:
 
 ```bash
 git clone https://github.com/degoke/HAIStack.git
-cd health-ai-stack
+cd HAIStack
 go test ./...
 ```
 
