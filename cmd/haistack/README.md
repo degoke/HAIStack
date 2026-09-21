@@ -109,10 +109,26 @@ runtime:
   httpAddr: 127.0.0.1:8080
   enableSearch: true
   modulePaths: []
+oauth:
+  enabled: true
+  production: false
+  issuerURL: ""                    # defaults to http://{runtime.httpAddr}
+  registrationAccessToken: ""      # or OAUTH_REGISTRATION_TOKEN
+  autoApprove: null                # defaults true in dev, false in production
 sync:
   hubURL: ""
   nodeID: runtime-node
 ```
+
+`haistack serve` mounts the built-in SMART OAuth server when `oauth.enabled` is true (default) and HTTP is configured. SMART discovery is available at `{issuer}/fhir/.well-known/smart-configuration` and tenant-scoped routes at `{issuer}/t/{tenantId}/.well-known/smart-configuration`. Signing keys persist in the database when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set, otherwise to `{sqlite-dir}/oauth/oauth-signing.pem`.
+
+**Production checklist**
+
+1. Set `oauth.issuerURL` to your public https issuer (pin before first start).
+2. Set `oauth.production: true` and `OAUTH_REGISTRATION_TOKEN`.
+3. Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`, `OAUTH_SESSION_SECRET`, and `OAUTH_LOGIN_USERS`.
+4. Set `oauth.autoApprove: false` (enforced when production is on).
+5. Back up DB signing keys or `oauth-signing.pem` beside your database.
 
 ### Precedence
 
@@ -140,6 +156,17 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `HAISTACK_MODULE_PATHS` | `runtime.modulePaths` (comma-separated) |
 | `HAISTACK_SYNC_HUB_URL` | `sync.hubURL` |
 | `HAISTACK_SYNC_NODE_ID` | `sync.nodeID` |
+| `HAISTACK_OAUTH_ENABLED` | `oauth.enabled` |
+| `HAISTACK_OAUTH_PRODUCTION` | `oauth.production` |
+| `HAISTACK_OAUTH_ISSUER_URL` | `oauth.issuerURL` |
+| `HAISTACK_OAUTH_AUTO_APPROVE` | `oauth.autoApprove` |
+| `HAISTACK_OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `OAUTH_REGISTRATION_TOKEN` | `oauth.registrationAccessToken` |
+| `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | DB signing key encryption (production) |
+| `OAUTH_SIGNING_KEY_ROTATE` | Set to `1` to rotate the active DB signing key on startup |
+| `OAUTH_SESSION_SECRET` | `/oauth/login` session cookie signing (production) |
+| `OAUTH_LOGIN_USERS` | Production login directory (`username:password` or bcrypt hashes) |
+| `HAISTACK_PRODUCTION=1` | enables `oauth.production` |
 
 ### Persistent flags
 

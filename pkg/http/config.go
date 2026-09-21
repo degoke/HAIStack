@@ -191,7 +191,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.AuthMiddleware != nil {
 		handler = cfg.AuthMiddleware(handler)
 	} else if cfg.PrincipalResolver != nil && cfg.AuthChecker != nil {
-		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker, cfg.AuthBundleResolver)
+		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker, cfg.AuthBundleResolver, cfg.BasePath)
 	}
 	if cfg.RateLimit.Requests > 0 && cfg.RateLimit.Window > 0 {
 		handler = NewRateLimitMiddleware(cfg.RateLimit)(handler)
