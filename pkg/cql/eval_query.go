@@ -256,7 +256,7 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 	}
 	sort.SliceStable(keyedRows, func(i, j int) bool {
 		for ki, k := range keys {
-			cmp, ok := cqlCompare(keyedRows[i].keys[ki], keyedRows[j].keys[ki])
+			cmp, ok := st.compareContext().Compare(keyedRows[i].keys[ki], keyedRows[j].keys[ki])
 			if !ok || cmp == 0 {
 				continue
 			}
@@ -315,7 +315,7 @@ func listExcept(left, right []any) []any {
 	return out
 }
 
-func listExtremum(args [][]any, min bool) ([]any, error) {
+func listExtremum(args [][]any, min bool, vcmp compareCtx) ([]any, error) {
 	if len(args) == 0 || args[0] == nil {
 		return nil, nil
 	}
@@ -330,7 +330,7 @@ func listExtremum(args [][]any, min bool) ([]any, error) {
 			found = true
 			continue
 		}
-		cmp, ok := cqlCompare(item, best)
+		cmp, ok := vcmp.Compare(item, best)
 		if !ok {
 			continue
 		}

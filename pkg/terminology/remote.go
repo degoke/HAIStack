@@ -50,6 +50,7 @@ type RemoteProvider struct {
 	circuitOpenAt time.Time
 	lookupCache   map[string]cacheEntry[*LookupResult]
 	expandCache   map[string]cacheEntry[*Expansion]
+	subsumesCache map[string]cacheEntry[bool]
 }
 
 type cacheEntry[T any] struct {
@@ -194,6 +195,38 @@ func (p *RemoteProvider) ValidateCode(ctx context.Context, r ValidateCodeRequest
 		return &ValidationResult{Status: Valid, Message: parameterString(params, "message")}, nil
 	}
 	return &ValidationResult{Status: Invalid, Message: firstNonEmpty(parameterString(params, "message"), "code is not valid")}, nil
+}
+
+// Subsumes calls CodeSystem/$subsumes (codeA subsumes codeB).
+func (p *RemoteProvider) Subsumes(ctx context.Context, r SubsumesRequest) (bool, error) {
+	if strings.TrimSpace(r.System) == "" || strings.TrimSpace(r.BroadCode) == "" || strings.TrimSpace(r.NarrowCode) == "" {
+		return false, nil
+	}
+	key := r.System + "|" + r.Version + "|" + r.BroadCode + "|" + r.NarrowCode
+	if v, ok := p.cachedSubsumes(key); ok {
+		return v, nil
+	}
+	params, err := p.callParameters(ctx, "CodeSystem/$subsumes", url.Values{
+		"system":  {r.System},
+		"codeA":   {r.BroadCode},
+		"codeB":   {r.NarrowCode},
+		"version": optionalQuery(r.Version),
+	})
+	if err != nil {
+		if isUnavailable(err) {
+			return false, err
+		}
+		return false, err
+	}
+	if params == nil {
+		return false, nil
+	}
+	out := parameterBool(params, "outcome")
+	if !out {
+		out = parameterBool(params, "result")
+	}
+	p.storeSubsumes(key, out)
+	return out, nil
 }
 
 func (p *RemoteProvider) callParameters(ctx context.Context, operation string, query url.Values) (map[string]any, error) {
@@ -447,7 +480,7 @@ func (p *RemoteProvider) storeLookup(key string, value *LookupResult) {
 		p.lookupCache = map[string]cacheEntry[*LookupResult]{}
 	}
 	p.lookupCache[key] = cacheEntry[*LookupResult]{value: value, expiresAt: time.Now().Add(p.cacheTTL)}
-	p.trimCache(len(p.lookupCache) + len(p.expandCache))
+	p.trimCache(p.cacheSize())
 }
 
 func (p *RemoteProvider) cachedExpand(key string) (*Expansion, bool) {
@@ -476,7 +509,40 @@ func (p *RemoteProvider) storeExpand(key string, value *Expansion) {
 		p.expandCache = map[string]cacheEntry[*Expansion]{}
 	}
 	p.expandCache[key] = cacheEntry[*Expansion]{value: value, expiresAt: time.Now().Add(p.cacheTTL)}
-	p.trimCache(len(p.lookupCache) + len(p.expandCache))
+	p.trimCache(p.cacheSize())
+}
+
+func (p *RemoteProvider) cachedSubsumes(key string) (bool, bool) {
+	if p.cacheTTL <= 0 {
+		return false, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.subsumesCache == nil {
+		return false, false
+	}
+	entry, ok := p.subsumesCache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return false, false
+	}
+	return entry.value, true
+}
+
+func (p *RemoteProvider) storeSubsumes(key string, value bool) {
+	if p.cacheTTL <= 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.subsumesCache == nil {
+		p.subsumesCache = map[string]cacheEntry[bool]{}
+	}
+	p.subsumesCache[key] = cacheEntry[bool]{value: value, expiresAt: time.Now().Add(p.cacheTTL)}
+	p.trimCache(p.cacheSize())
+}
+
+func (p *RemoteProvider) cacheSize() int {
+	return len(p.lookupCache) + len(p.expandCache) + len(p.subsumesCache)
 }
 
 func (p *RemoteProvider) trimCache(size int) {
@@ -485,13 +551,19 @@ func (p *RemoteProvider) trimCache(size int) {
 	}
 	for key := range p.lookupCache {
 		delete(p.lookupCache, key)
-		if len(p.lookupCache)+len(p.expandCache) <= p.maxCacheEntries {
+		if p.cacheSize() <= p.maxCacheEntries {
 			return
 		}
 	}
 	for key := range p.expandCache {
 		delete(p.expandCache, key)
-		if len(p.lookupCache)+len(p.expandCache) <= p.maxCacheEntries {
+		if p.cacheSize() <= p.maxCacheEntries {
+			return
+		}
+	}
+	for key := range p.subsumesCache {
+		delete(p.subsumesCache, key)
+		if p.cacheSize() <= p.maxCacheEntries {
 			return
 		}
 	}

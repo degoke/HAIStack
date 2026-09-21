@@ -145,7 +145,7 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 	unit, before, after := splitSameOp(n.op)
 	unknown := false
 	for i := range left {
-		eq := sameAsPair(left[i], right[i], unit, before, after)
+		eq := sameAsPair(left[i], right[i], unit, before, after, st.compareContext())
 		if eq == nil {
 			unknown = true
 			continue
@@ -160,7 +160,7 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 	return []any{true}, nil
 }
 
-func sameAsPair(lv, rv any, unit string, before, after bool) []any {
+func sameAsPair(lv, rv any, unit string, before, after bool, vcmp compareCtx) []any {
 	lt, lok := asTime(lv)
 	rt, rok := asTime(rv)
 	var cmp int
@@ -168,7 +168,7 @@ func sameAsPair(lv, rv any, unit string, before, after bool) []any {
 	if lok && rok {
 		cmp, ok = samePrecisionCompare(lt, rt, unit)
 	} else {
-		cmp, ok = cqlCompare(lv, rv)
+		cmp, ok = vcmp.Compare(lv, rv)
 	}
 	if !ok {
 		return nil
@@ -289,7 +289,7 @@ func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error)
 	return acc, nil
 }
 
-func collapseIntervals(v []any, per *Quantity) []any {
+func collapseIntervals(v []any, per *Quantity, vcmp compareCtx) []any {
 	var ivs []Interval
 	for _, item := range v {
 		if item == nil || unwrapPrimitive(item) == nil {
@@ -321,8 +321,8 @@ func collapseIntervals(v []any, per *Quantity) []any {
 				if used[j] {
 					continue
 				}
-				if collapseMergeable(cur, ivs[j], per) {
-					merged, ok := intervalUnion(cur, ivs[j])
+				if collapseMergeable(cur, ivs[j], per, vcmp) {
+					merged, ok := intervalUnion(cur, ivs[j], vcmp)
 					if ok {
 						cur = merged
 						used[j] = true
@@ -341,17 +341,17 @@ func collapseIntervals(v []any, per *Quantity) []any {
 	return out
 }
 
-func collapseMergeable(a, b Interval, per *Quantity) bool {
-	if intervalOverlaps(a, b) || intervalMeets(a, b) {
+func collapseMergeable(a, b Interval, per *Quantity, vcmp compareCtx) bool {
+	if intervalOverlaps(a, b, vcmp) || intervalMeets(a, b, vcmp) {
 		return true
 	}
 	if per == nil {
 		return false
 	}
-	if ae, ok := intervalExpandHigh(a, *per); ok && (intervalOverlaps(ae, b) || intervalMeets(ae, b) || intervalSuccessorMeets(ae, b)) {
+	if ae, ok := intervalExpandHigh(a, *per); ok && (intervalOverlaps(ae, b, vcmp) || intervalMeets(ae, b, vcmp) || intervalSuccessorMeets(ae, b)) {
 		return true
 	}
-	if be, ok := intervalExpandHigh(b, *per); ok && (intervalOverlaps(a, be) || intervalMeets(a, be) || intervalSuccessorMeets(a, be)) {
+	if be, ok := intervalExpandHigh(b, *per); ok && (intervalOverlaps(a, be, vcmp) || intervalMeets(a, be, vcmp) || intervalSuccessorMeets(a, be)) {
 		return true
 	}
 	return false
@@ -433,16 +433,16 @@ func successorValue(v any, pred bool) (any, bool) {
 	return nil, false
 }
 
-func intervalUnion(a, b Interval) (Interval, bool) {
+func intervalUnion(a, b Interval, vcmp compareCtx) (Interval, bool) {
 	out := Interval{LowClosed: true, HighClosed: true}
 	if a.Low == nil || b.Low == nil {
 		out.Low = nil
 	} else {
-		cmp, ok := cqlCompare(a.Low, b.Low)
+		ord, ok := vcmp.Compare(a.Low, b.Low)
 		if !ok {
 			return Interval{}, false
 		}
-		if cmp <= 0 {
+		if ord <= 0 {
 			out.Low, out.LowClosed = a.Low, a.LowClosed
 		} else {
 			out.Low, out.LowClosed = b.Low, b.LowClosed
@@ -451,11 +451,11 @@ func intervalUnion(a, b Interval) (Interval, bool) {
 	if a.High == nil || b.High == nil {
 		out.High = nil
 	} else {
-		cmp, ok := cqlCompare(a.High, b.High)
+		ord, ok := vcmp.Compare(a.High, b.High)
 		if !ok {
 			return Interval{}, false
 		}
-		if cmp >= 0 {
+		if ord >= 0 {
 			out.High, out.HighClosed = a.High, a.HighClosed
 		} else {
 			out.High, out.HighClosed = b.High, b.HighClosed
@@ -911,14 +911,22 @@ func quantityValuesComparable(qa, qb Quantity, conv UCUMConverter) (float64, flo
 	if sameUnit(qa.Unit, qb.Unit) {
 		return qa.Value, qb.Value, true
 	}
-	if conv, ok := convertQuantityValue(qb, qa.Unit, conv); ok {
-		return qa.Value, conv.Value, true
-	}
-	if conv, ok := convertQuantityValue(qa, qb.Unit, conv); ok {
-		return conv.Value, qb.Value, true
-	}
 	if isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit) {
 		return toSeconds(qa), toSeconds(qb), true
+	}
+	if !quantitySameDimension(qa.Unit, qb.Unit, conv) {
+		return 0, 0, false
+	}
+	va, ok1 := quantitySIValue(qa, conv)
+	vb, ok2 := quantitySIValue(qb, conv)
+	if ok1 && ok2 {
+		return va, vb, true
+	}
+	if convQ, ok := convertQuantityValue(qb, qa.Unit, conv); ok {
+		return qa.Value, convQ.Value, true
+	}
+	if convQ, ok := convertQuantityValue(qa, qb.Unit, conv); ok {
+		return convQ.Value, qb.Value, true
 	}
 	return 0, 0, false
 }

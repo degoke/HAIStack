@@ -489,7 +489,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "tolist":
 		return toListResult(v), nil
 	case "collapse":
-		return collapseIntervals(v, nil), nil
+		return collapseIntervals(v, nil, st.compareContext()), nil
 	case "expand":
 		return expandValues(v, nil), nil
 	case "successor", "predecessor":
@@ -541,8 +541,9 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
-					if intervalOverlaps(li, ri) || intervalMeets(li, ri) {
-						merged, ok := intervalUnion(li, ri)
+					cmp := st.compareContext()
+					if intervalOverlaps(li, ri, cmp) || intervalMeets(li, ri, cmp) {
+						merged, ok := intervalUnion(li, ri, cmp)
 						if !ok {
 							return nil, nil
 						}
@@ -642,16 +643,16 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
-				return intervalContainsAll(iv, left)
+				return intervalContainsAll(iv, left, st.compareContext())
 			}
 		}
 		if isListValued(n.left) {
 			if pointsVersusIntervals(left, right) {
-				return allPointsInAnyInterval(left, right), nil
+				return st.allPointsInAnyInterval(left, right), nil
 			}
 			return containsResult(right, membershipItem(n.left, left)), nil
 		}
-		return containsResultWithIntervals(right, membershipItem(n.left, left)), nil
+		return st.containsResultWithIntervals(right, membershipItem(n.left, left)), nil
 	case "contains":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -673,16 +674,16 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if len(left) == 1 {
 			if iv, ok := asInterval(left[0]); ok {
-				return intervalContainsAll(iv, right)
+				return intervalContainsAll(iv, right, st.compareContext())
 			}
 		}
 		if isListValued(n.right) {
 			if pointsVersusIntervals(right, left) {
-				return allPointsInAnyInterval(right, left), nil
+				return st.allPointsInAnyInterval(right, left), nil
 			}
 			return containsResult(left, membershipItem(n.right, right)), nil
 		}
-		return containsResultWithIntervals(left, membershipItem(n.right, right)), nil
+		return st.containsResultWithIntervals(left, membershipItem(n.right, right)), nil
 	case "intersect":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -695,7 +696,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
-					out, ok := intervalIntersect(li, ri)
+					out, ok := intervalIntersect(li, ri, st.compareContext())
 					if !ok {
 						return nil, nil
 					}
@@ -716,7 +717,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
-					return intervalExcept(li, ri), nil
+					return intervalExcept(li, ri, st.compareContext()), nil
 				}
 			}
 		}
@@ -762,14 +763,14 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	case "=":
 		return cqlEqualResult(left, right), nil
 	case "!=":
-		if neq := cqlNotEqualResult(left, right); neq != nil {
+		if neq := st.cqlNotEqualResult(left, right); neq != nil {
 			return neq, nil
 		}
 		return nil, nil
 	case "~":
-		return cqlEquivalentResult(left, right), nil
+		return st.cqlEquivalentResult(left, right), nil
 	case "!~":
-		eq := cqlEquivalentResult(left, right)
+		eq := st.cqlEquivalentResult(left, right)
 		if len(eq) == 0 {
 			return nil, nil
 		}
@@ -784,7 +785,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		lv, rv := left[0], right[0]
-		cmp, ok := cqlCompare(lv, rv)
+		cmp, ok := st.compareContext().Compare(lv, rv)
 		if !ok {
 			return nil, nil
 		}
@@ -1277,9 +1278,9 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return flattenValues(args[0]), nil
 	case "min":
-		return listExtremum(args, true)
+		return listExtremum(args, true, st.compareContext())
 	case "max":
-		return listExtremum(args, false)
+		return listExtremum(args, false, st.compareContext())
 	case "sum":
 		return listSum(args)
 	case "avg", "average":
@@ -1370,7 +1371,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 				per = &Quantity{Value: f}
 			}
 		}
-		return collapseIntervals(args[0], per), nil
+		return collapseIntervals(args[0], per, st.compareContext()), nil
 	case "expand":
 		if len(args) == 0 {
 			return nil, nil
@@ -1644,7 +1645,7 @@ func (st *evalState) filterRetrieveDates(items []any, n *retrieveNode) ([]any, e
 			continue
 		}
 		for _, v := range vals {
-			if valueInDateWindow(v, *window) {
+			if st.valueInDateWindow(v, *window) {
 				out = append(out, item)
 				break
 			}
@@ -1696,14 +1697,15 @@ func (st *evalState) retrieveDateWindow(n *retrieveNode) (*Interval, bool, error
 	return &iv, true, nil
 }
 
-func valueInDateWindow(v any, window Interval) bool {
+func (st *evalState) valueInDateWindow(v any, window Interval) bool {
 	if v == nil {
 		return false
 	}
+	cmp := st.compareContext()
 	if iv, ok := asInterval(v); ok {
-		return intervalOverlaps(iv, window)
+		return intervalOverlaps(iv, window, cmp)
 	}
-	ok, comparable := intervalContains(window, v, false)
+	ok, comparable := intervalContains(window, v, false, cmp)
 	return comparable && ok
 }
 
@@ -2427,14 +2429,15 @@ func cqlEqualResult(left, right []any) []any {
 	return cqlEqual3List(left, right)
 }
 
-func cqlNotEqualResult(left, right []any) []any {
+func (st *evalState) cqlNotEqualResult(left, right []any) []any {
 	if left == nil || right == nil {
 		return nil
 	}
+	cmp := st.compareContext()
 	if len(left) == 1 && len(right) == 1 {
 		if qa, oka := asQuantity(left[0]); oka {
 			if qb, okb := asQuantity(right[0]); okb {
-				return []any{!cqlEquivalent(qa, qb)}
+				return []any{!cmp.Equivalent(qa, qb)}
 			}
 		}
 	}
@@ -2484,29 +2487,30 @@ func cqlEqual3Value(a, b any) []any {
 	return []any{cqlEqual(a, b)}
 }
 
-func cqlEquivalentResult(left, right []any) []any {
+func (st *evalState) cqlEquivalentResult(left, right []any) []any {
 	if left == nil && right == nil {
 		return []any{true}
 	}
 	if left == nil || right == nil {
 		return []any{false}
 	}
-	return []any{cqlEquivalentValues(left, right)}
+	return []any{st.cqlEquivalentValues(left, right)}
 }
 
-func cqlEquivalentValues(left, right []any) bool {
+func (st *evalState) cqlEquivalentValues(left, right []any) bool {
+	cmp := st.compareContext()
 	if len(left) != 1 || len(right) != 1 {
 		if len(left) != len(right) {
 			return false
 		}
 		for i := range left {
-			if !cqlEquivalent(left[i], right[i]) {
+			if !cmp.Equivalent(left[i], right[i]) {
 				return false
 			}
 		}
 		return true
 	}
-	return cqlEquivalent(left[0], right[0])
+	return cmp.Equivalent(left[0], right[0])
 }
 
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
@@ -2778,34 +2782,7 @@ func existsNonNull(v []any) bool {
 }
 
 func cqlEquivalent(a, b any) bool {
-	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
-	if cqlEqual(a, b) {
-		return true
-	}
-	if ra, ok := asRatio(a); ok {
-		if rb, ok := asRatio(b); ok {
-			return ratioEquivalent(ra, rb)
-		}
-	}
-	if qa, ok := asQuantity(a); ok {
-		if qb, ok := asQuantity(b); ok {
-			va, vb, ok := quantityValuesComparable(qa, qb, defaultUCUM)
-			if ok && va == vb {
-				return true
-			}
-		}
-	}
-	if ca, ok := asCodeLike(a); ok {
-		if cb, ok := asCodeLike(b); ok {
-			return codesEquivalent(ca, cb)
-		}
-	}
-	sa, aok := a.(string)
-	sb, bok := b.(string)
-	if aok && bok {
-		return strings.EqualFold(sa, sb)
-	}
-	return false
+	return cqlEquivalentUCUM(a, b, nil)
 }
 
 func asCodeLike(v any) (fhirCoding, bool) {
@@ -2856,73 +2833,7 @@ func clockInZone(t time.Time) time.Time {
 }
 
 func cqlCompare(a, b any) (int, bool) {
-	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
-	if ra, ok := asRatio(a); ok {
-		if rb, ok := asRatio(b); ok {
-			return ratioCompare(ra, rb, defaultUCUM)
-		}
-	}
-	if qa, ok := asQuantity(a); ok {
-		if qb, ok := asQuantity(b); ok {
-			va, vb, ok := quantityValuesComparable(qa, qb, defaultUCUM)
-			if ok {
-				if va < vb {
-					return -1, true
-				}
-				if va > vb {
-					return 1, true
-				}
-				return 0, true
-			}
-			if sameUnit(qa.Unit, qb.Unit) || (isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit)) {
-				va, vb := qa.Value, qb.Value
-				if !sameUnit(qa.Unit, qb.Unit) {
-					va, vb = toSeconds(qa), toSeconds(qb)
-				}
-				if va < vb {
-					return -1, true
-				}
-				if va > vb {
-					return 1, true
-				}
-				return 0, true
-			}
-		}
-	}
-	if ta, aok := asTemporal(a, temporalLocation(b)); aok {
-		if tb, bok := asTemporal(b, temporalLocation(a)); bok {
-			if ta.Before(tb) {
-				return -1, true
-			}
-			if ta.After(tb) {
-				return 1, true
-			}
-			return 0, true
-		}
-	}
-	if fa, ok := asFloat(a); ok {
-		if fb, ok := asFloat(b); ok {
-			if fa < fb {
-				return -1, true
-			}
-			if fa > fb {
-				return 1, true
-			}
-			return 0, true
-		}
-	}
-	sa, aok := a.(string)
-	sb, bok := b.(string)
-	if aok && bok {
-		if sa < sb {
-			return -1, true
-		}
-		if sa > sb {
-			return 1, true
-		}
-		return 0, true
-	}
-	return 0, false
+	return cqlCompareUCUM(a, b, nil)
 }
 
 func containsValue(list []any, item any) bool {
@@ -2955,17 +2866,18 @@ func containsResult(list []any, item any) []any {
 	return []any{false}
 }
 
-func containsResultWithIntervals(list []any, item any) []any {
+func (st *evalState) containsResultWithIntervals(list []any, item any) []any {
 	if item == nil {
 		return nil
 	}
 	if _, ok := asInterval(item); ok {
 		return containsResult(list, item)
 	}
+	cmp := st.compareContext()
 	unknown := false
 	for _, el := range list {
 		if iv, ok := asInterval(el); ok {
-			ok, comparable := intervalContains(iv, item, false)
+			ok, comparable := intervalContains(iv, item, false, cmp)
 			if !comparable {
 				unknown = true
 				continue
@@ -3015,10 +2927,10 @@ func pointsVersusIntervals(points, intervals []any) bool {
 	return true
 }
 
-func allPointsInAnyInterval(points, intervals []any) []any {
+func (st *evalState) allPointsInAnyInterval(points, intervals []any) []any {
 	unknown := false
 	for _, p := range points {
-		res := containsResultWithIntervals(intervals, p)
+		res := st.containsResultWithIntervals(intervals, p)
 		if res == nil {
 			unknown = true
 			continue

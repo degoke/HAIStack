@@ -55,9 +55,10 @@ func (st *evalState) evalBetween(n *betweenNode) ([]any, error) {
 		return nil, nil
 	}
 	iv := Interval{Low: singletonOrList(low), High: singletonOrList(high), LowClosed: true, HighClosed: true}
+	cmp := st.compareContext()
 	unknown := false
 	for _, item := range x {
-		ok, comparable := intervalContains(iv, item, false)
+		ok, comparable := intervalContains(iv, item, false, cmp)
 		if !comparable {
 			unknown = true
 			continue
@@ -156,7 +157,7 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	unknown := false
 	for _, lv := range left {
 		for _, rv := range right {
-			res := intervalRelOne(base, lv, rv)
+			res := intervalRelOne(base, lv, rv, st.compareContext())
 			if res == nil {
 				unknown = true
 				continue
@@ -172,17 +173,17 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	return []any{true}, nil
 }
 
-func intervalRelOne(base string, lv, rv any) []any {
+func intervalRelOne(base string, lv, rv any, vcmp compareCtx) []any {
 	li, lok := asInterval(lv)
 	ri, rok := asInterval(rv)
 	switch base {
 	case "includes", "properly includes":
 		proper := strings.HasPrefix(base, "properly")
 		if lok && rok {
-			return []any{intervalIncludes(li, ri, proper)}
+			return []any{intervalIncludes(li, ri, proper, vcmp)}
 		}
 		if lok {
-			ok, comparable := intervalContains(li, rv, proper)
+			ok, comparable := intervalContains(li, rv, proper, vcmp)
 			if !comparable {
 				return nil
 			}
@@ -191,10 +192,10 @@ func intervalRelOne(base string, lv, rv any) []any {
 	case "included in", "during", "properly included in", "properly during":
 		proper := strings.HasPrefix(base, "properly")
 		if lok && rok {
-			return []any{intervalIncludes(ri, li, proper)}
+			return []any{intervalIncludes(ri, li, proper, vcmp)}
 		}
 		if rok {
-			ok, comparable := intervalContains(ri, lv, proper)
+			ok, comparable := intervalContains(ri, lv, proper, vcmp)
 			if !comparable {
 				return nil
 			}
@@ -202,27 +203,27 @@ func intervalRelOne(base string, lv, rv any) []any {
 		}
 	case "overlaps":
 		if lok && rok {
-			return []any{intervalOverlaps(li, ri)}
+			return []any{intervalOverlaps(li, ri, vcmp)}
 		}
 	case "overlaps before":
 		if lok && rok {
-			return []any{intervalOverlapsBefore(li, ri)}
+			return []any{intervalOverlapsBefore(li, ri, vcmp)}
 		}
 	case "overlaps after":
 		if lok && rok {
-			return []any{intervalOverlapsAfter(li, ri)}
+			return []any{intervalOverlapsAfter(li, ri, vcmp)}
 		}
 	case "starts":
 		if lok && rok {
-			return []any{intervalStarts(li, ri)}
+			return []any{intervalStarts(li, ri, vcmp)}
 		}
 	case "ends":
 		if lok && rok {
-			return []any{intervalEnds(li, ri)}
+			return []any{intervalEnds(li, ri, vcmp)}
 		}
 	case "meets":
 		if lok && rok {
-			return []any{intervalMeets(li, ri)}
+			return []any{intervalMeets(li, ri, vcmp)}
 		}
 	case "meets before":
 		if lok && rok {
@@ -234,27 +235,27 @@ func intervalRelOne(base string, lv, rv any) []any {
 		}
 	case "before":
 		if lok && rok {
-			cmp, ok := cqlCompare(li.High, ri.Low)
-			return []any{ok && (cmp < 0 || (!li.HighClosed && cmp == 0) || (!ri.LowClosed && cmp == 0))}
+			ord, ok := vcmp.Compare(li.High, ri.Low)
+			return []any{ok && (ord < 0 || (!li.HighClosed && ord == 0) || (!ri.LowClosed && ord == 0))}
 		}
-		cmp, ok := cqlCompare(lv, rv)
+		ord, ok := vcmp.Compare(lv, rv)
 		if !ok {
 			return nil
 		}
-		return []any{cmp < 0}
+		return []any{ord < 0}
 	case "after":
 		if lok && rok {
-			cmp, ok := cqlCompare(li.Low, ri.High)
-			return []any{ok && (cmp > 0 || (!li.LowClosed && cmp == 0) || (!ri.HighClosed && cmp == 0))}
+			ord, ok := vcmp.Compare(li.Low, ri.High)
+			return []any{ok && (ord > 0 || (!li.LowClosed && ord == 0) || (!ri.HighClosed && ord == 0))}
 		}
-		cmp, ok := cqlCompare(lv, rv)
+		ord, ok := vcmp.Compare(lv, rv)
 		if !ok {
 			return nil
 		}
-		return []any{cmp > 0}
+		return []any{ord > 0}
 	case "contains":
 		if lok {
-			ok, comparable := intervalContains(li, rv, false)
+			ok, comparable := intervalContains(li, rv, false, vcmp)
 			if !comparable {
 				return nil
 			}
@@ -450,18 +451,18 @@ func intervalBound(v any) any {
 	return v
 }
 
-func intervalContainsResult(iv Interval, point any, properly bool) ([]any, error) {
-	ok, comparable := intervalContains(iv, point, properly)
+func intervalContainsResult(iv Interval, point any, properly bool, vcmp compareCtx) ([]any, error) {
+	ok, comparable := intervalContains(iv, point, properly, vcmp)
 	if !comparable {
 		return nil, nil
 	}
 	return []any{ok}, nil
 }
 
-func intervalContainsAll(iv Interval, points []any) ([]any, error) {
+func intervalContainsAll(iv Interval, points []any, vcmp compareCtx) ([]any, error) {
 	unknown := false
 	for _, item := range points {
-		ok, comparable := intervalContains(iv, item, false)
+		ok, comparable := intervalContains(iv, item, false, vcmp)
 		if !comparable {
 			unknown = true
 			continue
@@ -476,33 +477,33 @@ func intervalContainsAll(iv Interval, points []any) ([]any, error) {
 	return []any{true}, nil
 }
 
-func intervalContains(iv Interval, point any, properly bool) (bool, bool) {
+func intervalContains(iv Interval, point any, properly bool, vcmp compareCtx) (bool, bool) {
 	if point == nil {
 		return false, false
 	}
 	if iv.Low != nil {
-		cmp, ok := cqlCompare(point, iv.Low)
+		ord, ok := vcmp.Compare(point, iv.Low)
 		if !ok {
 			return false, false
 		}
-		if cmp < 0 || (cmp == 0 && (!iv.LowClosed || properly)) {
+		if ord < 0 || (ord == 0 && (!iv.LowClosed || properly)) {
 			return false, true
 		}
 	}
 	if iv.High != nil {
-		cmp, ok := cqlCompare(point, iv.High)
+		ord, ok := vcmp.Compare(point, iv.High)
 		if !ok {
 			return false, false
 		}
-		if cmp > 0 || (cmp == 0 && (!iv.HighClosed || properly)) {
+		if ord > 0 || (ord == 0 && (!iv.HighClosed || properly)) {
 			return false, true
 		}
 	}
 	return true, true
 }
 
-func intervalIncludes(outer, inner Interval, properly bool) bool {
-	if !intervalBoundIncludesLow(outer, inner) || !intervalBoundIncludesHigh(outer, inner) {
+func intervalIncludes(outer, inner Interval, properly bool, vcmp compareCtx) bool {
+	if !intervalBoundIncludesLow(outer, inner, vcmp) || !intervalBoundIncludesHigh(outer, inner, vcmp) {
 		return false
 	}
 	if properly && intervalBoundsEqual(outer, inner) {
@@ -511,41 +512,41 @@ func intervalIncludes(outer, inner Interval, properly bool) bool {
 	return true
 }
 
-func intervalBoundIncludesLow(outer, inner Interval) bool {
+func intervalBoundIncludesLow(outer, inner Interval, vcmp compareCtx) bool {
 	if inner.Low == nil {
 		return outer.Low == nil
 	}
 	if outer.Low == nil {
 		return true
 	}
-	cmp, ok := cqlCompare(inner.Low, outer.Low)
+	ord, ok := vcmp.Compare(inner.Low, outer.Low)
 	if !ok {
 		return false
 	}
-	if cmp > 0 {
+	if ord > 0 {
 		return true
 	}
-	if cmp == 0 {
+	if ord == 0 {
 		return outer.LowClosed || !inner.LowClosed
 	}
 	return false
 }
 
-func intervalBoundIncludesHigh(outer, inner Interval) bool {
+func intervalBoundIncludesHigh(outer, inner Interval, vcmp compareCtx) bool {
 	if inner.High == nil {
 		return outer.High == nil
 	}
 	if outer.High == nil {
 		return true
 	}
-	cmp, ok := cqlCompare(inner.High, outer.High)
+	ord, ok := vcmp.Compare(inner.High, outer.High)
 	if !ok {
 		return false
 	}
-	if cmp < 0 {
+	if ord < 0 {
 		return true
 	}
-	if cmp == 0 {
+	if ord == 0 {
 		return outer.HighClosed || !inner.HighClosed
 	}
 	return false
@@ -555,73 +556,73 @@ func intervalBoundsEqual(a, b Interval) bool {
 	return cqlEqual(a.Low, b.Low) && cqlEqual(a.High, b.High) && a.LowClosed == b.LowClosed && a.HighClosed == b.HighClosed
 }
 
-func intervalOverlaps(a, b Interval) bool {
+func intervalOverlaps(a, b Interval, vcmp compareCtx) bool {
 	if a.High != nil && b.Low != nil {
-		cmp, ok := cqlCompare(a.High, b.Low)
-		if ok && (cmp < 0 || (cmp == 0 && (!a.HighClosed || !b.LowClosed))) {
+		ord, ok := vcmp.Compare(a.High, b.Low)
+		if ok && (ord < 0 || (ord == 0 && (!a.HighClosed || !b.LowClosed))) {
 			return false
 		}
 	}
 	if b.High != nil && a.Low != nil {
-		cmp, ok := cqlCompare(b.High, a.Low)
-		if ok && (cmp < 0 || (cmp == 0 && (!b.HighClosed || !a.LowClosed))) {
+		ord, ok := vcmp.Compare(b.High, a.Low)
+		if ok && (ord < 0 || (ord == 0 && (!b.HighClosed || !a.LowClosed))) {
 			return false
 		}
 	}
 	return true
 }
 
-func intervalOverlapsBefore(a, b Interval) bool {
-	return intervalOverlaps(a, b) && intervalStartsBefore(a, b)
+func intervalOverlapsBefore(a, b Interval, vcmp compareCtx) bool {
+	return intervalOverlaps(a, b, vcmp) && intervalStartsBefore(a, b, vcmp)
 }
 
-func intervalOverlapsAfter(a, b Interval) bool {
-	return intervalOverlaps(a, b) && intervalEndsAfter(a, b)
+func intervalOverlapsAfter(a, b Interval, vcmp compareCtx) bool {
+	return intervalOverlaps(a, b, vcmp) && intervalEndsAfter(a, b, vcmp)
 }
 
-func intervalStartsBefore(a, b Interval) bool {
+func intervalStartsBefore(a, b Interval, vcmp compareCtx) bool {
 	if a.Low == nil {
 		return b.Low != nil
 	}
 	if b.Low == nil {
 		return false
 	}
-	cmp, ok := cqlCompare(a.Low, b.Low)
+	ord, ok := vcmp.Compare(a.Low, b.Low)
 	if !ok {
 		return false
 	}
-	if cmp < 0 {
+	if ord < 0 {
 		return true
 	}
-	return cmp == 0 && a.LowClosed && !b.LowClosed
+	return ord == 0 && a.LowClosed && !b.LowClosed
 }
 
-func intervalEndsAfter(a, b Interval) bool {
+func intervalEndsAfter(a, b Interval, vcmp compareCtx) bool {
 	if a.High == nil {
 		return b.High != nil
 	}
 	if b.High == nil {
 		return false
 	}
-	cmp, ok := cqlCompare(a.High, b.High)
+	ord, ok := vcmp.Compare(a.High, b.High)
 	if !ok {
 		return false
 	}
-	if cmp > 0 {
+	if ord > 0 {
 		return true
 	}
-	return cmp == 0 && a.HighClosed && !b.HighClosed
+	return ord == 0 && a.HighClosed && !b.HighClosed
 }
 
-func intervalStarts(a, b Interval) bool {
-	return cqlEqual(a.Low, b.Low) && intervalIncludes(b, a, false)
+func intervalStarts(a, b Interval, vcmp compareCtx) bool {
+	return cqlEqual(a.Low, b.Low) && intervalIncludes(b, a, false, vcmp)
 }
 
-func intervalEnds(a, b Interval) bool {
-	return cqlEqual(a.High, b.High) && intervalIncludes(b, a, false)
+func intervalEnds(a, b Interval, vcmp compareCtx) bool {
+	return cqlEqual(a.High, b.High) && intervalIncludes(b, a, false, vcmp)
 }
 
-func intervalMeets(a, b Interval) bool {
+func intervalMeets(a, b Interval, vcmp compareCtx) bool {
 	return intervalMeetsBefore(a, b) || intervalMeetsAfter(a, b)
 }
 
@@ -639,14 +640,14 @@ func intervalMeetsAfter(a, b Interval) bool {
 	return false
 }
 
-func intervalExcept(a, b Interval) []any {
-	if !intervalOverlaps(a, b) {
+func intervalExcept(a, b Interval, vcmp compareCtx) []any {
+	if !intervalOverlaps(a, b, vcmp) {
 		return []any{a}
 	}
-	if intervalIncludes(b, a, false) {
+	if intervalIncludes(b, a, false, vcmp) {
 		return nil
 	}
-	inter, ok := intervalIntersect(a, b)
+	inter, ok := intervalIntersect(a, b, vcmp)
 	if !ok {
 		return []any{a}
 	}
@@ -655,16 +656,16 @@ func intervalExcept(a, b Interval) []any {
 	if a.Low == nil && inter.Low != nil {
 		leftGap = true
 	} else if a.Low != nil && inter.Low != nil {
-		cmp, ok := cqlCompare(a.Low, inter.Low)
-		if ok && (cmp < 0 || (cmp == 0 && a.LowClosed && !inter.LowClosed)) {
+		ord, ok := vcmp.Compare(a.Low, inter.Low)
+		if ok && (ord < 0 || (ord == 0 && a.LowClosed && !inter.LowClosed)) {
 			leftGap = true
 		}
 	}
 	if a.High == nil && inter.High != nil {
 		rightGap = true
 	} else if a.High != nil && inter.High != nil {
-		cmp, ok := cqlCompare(a.High, inter.High)
-		if ok && (cmp > 0 || (cmp == 0 && a.HighClosed && !inter.HighClosed)) {
+		ord, ok := vcmp.Compare(a.High, inter.High)
+		if ok && (ord > 0 || (ord == 0 && a.HighClosed && !inter.HighClosed)) {
 			rightGap = true
 		}
 	}
@@ -732,13 +733,13 @@ func expandInterval(iv Interval, per *Quantity) []any {
 	}
 	if _, ok := asTime(iv.Low); ok {
 		if _, ok := asTime(iv.High); ok {
-			return expandTimeInterval(iv, per)
+			return expandTimeInterval(iv, per, compareCtx{})
 		}
 	}
 	return []any{iv}
 }
 
-func expandTimeInterval(iv Interval, per *Quantity) []any {
+func expandTimeInterval(iv Interval, per *Quantity, vcmp compareCtx) []any {
 	start, ok := asTime(iv.Low)
 	if !ok {
 		return nil
@@ -761,11 +762,11 @@ func expandTimeInterval(iv Interval, per *Quantity) []any {
 	}
 	var out []any
 	for {
-		cmp, ok := cqlCompare(t, end)
+		ord, ok := vcmp.Compare(t, end)
 		if !ok {
 			break
 		}
-		if cmp > 0 || (cmp == 0 && !iv.HighClosed) {
+		if ord > 0 || (ord == 0 && !iv.HighClosed) {
 			break
 		}
 		out = append(out, Interval{Low: t, High: t, LowClosed: true, HighClosed: true})
@@ -781,8 +782,8 @@ func expandTimeInterval(iv Interval, per *Quantity) []any {
 	return out
 }
 
-func intervalIntersect(a, b Interval) (Interval, bool) {
-	if !intervalOverlaps(a, b) {
+func intervalIntersect(a, b Interval, vcmp compareCtx) (Interval, bool) {
+	if !intervalOverlaps(a, b, vcmp) {
 		return Interval{}, false
 	}
 	out := Interval{LowClosed: true, HighClosed: true}
@@ -791,13 +792,13 @@ func intervalIntersect(a, b Interval) (Interval, bool) {
 	} else if b.Low == nil {
 		out.Low, out.LowClosed = a.Low, a.LowClosed
 	} else {
-		cmp, ok := cqlCompare(a.Low, b.Low)
+		ord, ok := vcmp.Compare(a.Low, b.Low)
 		if !ok {
 			return Interval{}, false
 		}
-		if cmp > 0 {
+		if ord > 0 {
 			out.Low, out.LowClosed = a.Low, a.LowClosed
-		} else if cmp < 0 {
+		} else if ord < 0 {
 			out.Low, out.LowClosed = b.Low, b.LowClosed
 		} else {
 			out.Low = a.Low
@@ -809,13 +810,13 @@ func intervalIntersect(a, b Interval) (Interval, bool) {
 	} else if b.High == nil {
 		out.High, out.HighClosed = a.High, a.HighClosed
 	} else {
-		cmp, ok := cqlCompare(a.High, b.High)
+		ord, ok := vcmp.Compare(a.High, b.High)
 		if !ok {
 			return Interval{}, false
 		}
-		if cmp < 0 {
+		if ord < 0 {
 			out.High, out.HighClosed = a.High, a.HighClosed
-		} else if cmp > 0 {
+		} else if ord > 0 {
 			out.High, out.HighClosed = b.High, b.HighClosed
 		} else {
 			out.High = a.High
