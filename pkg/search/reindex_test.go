@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -45,6 +46,9 @@ func (m *memSearchBackend) LookupMatch(_ context.Context, match store.SearchMatc
 	if op == "" {
 		op = "eq"
 	}
+	if !memOperatorSupported(op) {
+		return nil, fmt.Errorf("%w: mem LookupMatch operator %q", store.ErrUnsupportedFeature, op)
+	}
 	seen := make(map[string]struct{})
 	var ids []string
 	for _, entry := range m.entries {
@@ -68,6 +72,15 @@ func (m *memSearchBackend) LookupMatch(_ context.Context, match store.SearchMatc
 	return ids, nil
 }
 
+func memOperatorSupported(op string) bool {
+	switch op {
+	case "", "eq", "=", "exact", "below", "above", "contains":
+		return true
+	default:
+		return false
+	}
+}
+
 func memMatchValue(op, have, want string) bool {
 	switch op {
 	case "", "eq", "=":
@@ -84,7 +97,7 @@ func memMatchValue(op, have, want string) bool {
 	case "exact":
 		return have == want
 	default:
-		return have == want
+		return false
 	}
 }
 
@@ -286,5 +299,20 @@ func TestReindexWorkerRebuildsRows(t *testing.T) {
 	}
 	if len(result.Resources) != 1 || result.Resources[0].ID != "pat-1" {
 		t.Fatalf("search result = %#v", result.Resources)
+	}
+}
+
+func TestMemLookupMatchRejectsUnknownOperator(t *testing.T) {
+	backend := &memSearchBackend{entries: []store.SearchIndexEntry{
+		{ResourceType: "Patient", ID: "p1", Fields: map[string]string{"string.name": "Jane"}},
+	}}
+	_, err := backend.LookupMatch(context.Background(), store.SearchMatch{
+		ResourceType: "Patient",
+		FieldKey:     "string.name",
+		Value:        "Jane",
+		Operator:     "gt",
+	})
+	if !errors.Is(err, store.ErrUnsupportedFeature) {
+		t.Fatalf("err = %v, want store.ErrUnsupportedFeature", err)
 	}
 }

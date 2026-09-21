@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -768,6 +769,16 @@ func TestSearchStoreUriBelowAndAboveHierarchical(t *testing.T) {
 	}
 	if !gotAbove["q-prefix"] || !gotAbove["q-child"] || gotAbove["q-extra"] {
 		t.Fatalf("uri:above = %v, want prefix and self, not prefixExtra", above)
+	}
+
+	_, err = searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "gt",
+	})
+	if !errors.Is(err, store.ErrUnsupportedFeature) {
+		t.Fatalf("LookupMatch gt = %v, want store.ErrUnsupportedFeature", err)
 	}
 }
 

@@ -233,6 +233,9 @@ func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) 
 			ORDER BY resource_id`, table, table)
 		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
 	default:
+		if op != "" && op != "eq" && op != "exact" && op != "=" {
+			return nil, fmt.Errorf("%w: postgres LookupMatch operator %q", store.ErrUnsupportedFeature, op)
+		}
 		query = fmt.Sprintf(`
 			SELECT resource_id FROM %s
 			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND value = $4
