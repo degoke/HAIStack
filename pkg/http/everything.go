@@ -185,35 +185,93 @@ func (h *handler) everythingBySearch(ctx context.Context, patientID string, q co
 		}
 		seen := map[string]bool{}
 		for _, param := range paramsList {
-			params := url.Values{}
-			params.Set(param, "Patient/"+patientID)
-			params.Set("_count", "1000")
-			if !q.Since.IsZero() {
-				params.Set("_lastUpdated", "ge"+q.Since.UTC().Format(time.RFC3339Nano))
-			}
-			bundle, err := h.cfg.SearchService.SearchBundle(ctx, resourceType, params)
-			if err != nil {
+			if err := h.searchEverythingParam(ctx, patientID, resourceType, param, q, seen, appendEnv); err != nil {
 				return nil, err
 			}
-			if bundle == nil {
-				continue
-			}
-			for _, entry := range bundle.Entries {
-				if entry.Resource == nil || entry.Mode == "include" {
-					continue
-				}
-				key := entry.Resource.ResourceType + "/" + entry.Resource.ID
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				if !appendEnv(entry.Resource) {
-					return paginateEverythingHTTP(out, offset, limit), nil
-				}
+			if len(out) >= offset+limit {
+				return paginateEverythingHTTP(out, offset, limit), nil
 			}
 		}
 	}
 	return paginateEverythingHTTP(out, offset, limit), nil
+}
+
+const everythingSearchPageSize = 1000
+
+func (h *handler) searchEverythingParam(
+	ctx context.Context,
+	patientID, resourceType, param string,
+	q core.EverythingQuery,
+	seen map[string]bool,
+	appendEnv func(*types.ResourceEnvelope) bool,
+) error {
+	pageOffset := 0
+	for {
+		params := url.Values{}
+		params.Set(param, "Patient/"+patientID)
+		params.Set("_count", strconv.Itoa(everythingSearchPageSize))
+		if pageOffset > 0 {
+			params.Set("_offset", strconv.Itoa(pageOffset))
+		}
+		if !q.Since.IsZero() {
+			params.Set("_lastUpdated", "ge"+q.Since.UTC().Format(time.RFC3339Nano))
+		}
+		bundle, err := h.cfg.SearchService.SearchBundle(ctx, resourceType, params)
+		if err != nil {
+			return err
+		}
+		if bundle == nil {
+			return nil
+		}
+		matchCount := 0
+		added := 0
+		for _, entry := range bundle.Entries {
+			if entry.Resource == nil || entry.Mode == "include" {
+				continue
+			}
+			matchCount++
+			key := entry.Resource.ResourceType + "/" + entry.Resource.ID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			added++
+			if !appendEnv(entry.Resource) {
+				return nil
+			}
+		}
+		nextOffset, hasNext := everythingSearchNextOffset(bundle, pageOffset, matchCount)
+		if !hasNext || added == 0 {
+			return nil
+		}
+		if nextOffset <= pageOffset {
+			nextOffset = pageOffset + matchCount
+		}
+		if nextOffset <= pageOffset {
+			return nil
+		}
+		pageOffset = nextOffset
+	}
+}
+
+func everythingSearchNextOffset(bundle *search.SearchBundle, pageOffset, matchCount int) (int, bool) {
+	if bundle == nil {
+		return 0, false
+	}
+	if next := strings.TrimSpace(bundle.Links["next"]); next != "" {
+		if u, err := url.Parse(next); err == nil {
+			if raw := strings.TrimSpace(u.Query().Get("_offset")); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > pageOffset {
+					return n, true
+				}
+			}
+		}
+		return pageOffset + matchCount, matchCount > 0
+	}
+	if matchCount >= everythingSearchPageSize {
+		return pageOffset + matchCount, true
+	}
+	return 0, false
 }
 
 func resourceMatchesEverythingHTTP(env *types.ResourceEnvelope, patientID string, q core.EverythingQuery) bool {

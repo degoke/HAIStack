@@ -293,6 +293,79 @@ func TestEverythingSearchUnionsPerformer(t *testing.T) {
 	}
 }
 
+func TestEverythingPrefersSearchAndFollowsPages(t *testing.T) {
+	svc := mustCoreSQLiteService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatal(err)
+	}
+	coreOnly := map[string]any{
+		"resourceType": "Observation",
+		"id":           "obs-core",
+		"status":       "final",
+		"code":         map[string]any{"text": "demo"},
+		"subject":      map[string]any{"reference": "Patient/pat-1"},
+	}
+	coreData, _ := json.Marshal(coreOnly)
+	if _, err := svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: coreData}); err != nil {
+		t.Fatal(err)
+	}
+	obs := func(id string) *types.ResourceEnvelope {
+		return &types.ResourceEnvelope{
+			ResourceType: "Observation",
+			ID:           id,
+			JSON:         []byte(`{"resourceType":"Observation","id":"` + id + `","subject":{"reference":"Patient/pat-1"}}`),
+		}
+	}
+	var subjectOffsets []string
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: hahttp.CoreResourceService{Svc: svc},
+		SearchService: &fakeSearchService{
+			searchFn: func(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
+				if resourceType != "Observation" || params.Get("subject") == "" {
+					return &search.SearchBundle{ResourceType: resourceType}, nil
+				}
+				offset := params.Get("_offset")
+				subjectOffsets = append(subjectOffsets, offset)
+				if offset == "" || offset == "0" {
+					return &search.SearchBundle{
+						ResourceType: "Observation",
+						Entries: []search.BundleEntry{
+							{FullURL: "Observation/obs-1", Resource: obs("obs-1"), Mode: "match"},
+							{FullURL: "Observation/obs-2", Resource: obs("obs-2"), Mode: "match"},
+						},
+						Links: map[string]string{
+							"next": "/fhir/Observation?subject=Patient%2Fpat-1&_offset=2&_count=1000",
+						},
+					}, nil
+				}
+				return &search.SearchBundle{
+					ResourceType: "Observation",
+					Entries: []search.BundleEntry{
+						{FullURL: "Observation/obs-3", Resource: obs("obs-3"), Mode: "match"},
+					},
+				}, nil
+			},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/$everything?_type=Observation", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `"obs-core"`) {
+		t.Fatal("wired SearchService must be preferred over core Everything listing")
+	}
+	for _, id := range []string{"obs-1", "obs-2", "obs-3"} {
+		if !strings.Contains(body, `"`+id+`"`) {
+			t.Fatalf("missing %s in paged search $everything: %s", id, body)
+		}
+	}
+	if len(subjectOffsets) < 2 {
+		t.Fatalf("expected search to follow next page, offsets=%v", subjectOffsets)
+	}
+}
+
 func TestEverythingOmitsTotalWhenPaged(t *testing.T) {
 	svc := mustCoreSQLiteService(t)
 	ctx := context.Background()
