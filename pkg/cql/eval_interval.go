@@ -190,7 +190,7 @@ func asQuantity(v any) (Quantity, bool) {
 	return Quantity{Value: f, Unit: unit}, true
 }
 
-func asInterval(v any) (Interval, bool) {
+func isCQLInterval(v any) (Interval, bool) {
 	switch x := v.(type) {
 	case Interval:
 		return x, true
@@ -200,24 +200,41 @@ func asInterval(v any) (Interval, bool) {
 		}
 		return *x, true
 	}
+	return Interval{}, false
+}
+
+func asInterval(v any) (Interval, bool) {
+	if iv, ok := isCQLInterval(v); ok {
+		return iv, true
+	}
 	obj, ok := asObject(v)
 	if !ok {
 		return Interval{}, false
 	}
 	if low, has := obj["low"]; has {
 		high := obj["high"]
-		return Interval{Low: unwrapPrimitive(low), High: unwrapPrimitive(high), LowClosed: true, HighClosed: true}, true
+		return Interval{Low: intervalBound(low), High: intervalBound(high), LowClosed: true, HighClosed: true}, true
 	}
 	if start, has := obj["start"]; has {
 		end := obj["end"]
 		return Interval{
-			Low:        unwrapPrimitive(start),
-			High:       unwrapPrimitive(end),
+			Low:        intervalBound(start),
+			High:       intervalBound(end),
 			LowClosed:  true,
 			HighClosed: true,
 		}, true
 	}
 	return Interval{}, false
+}
+
+func intervalBound(v any) any {
+	v = unwrapPrimitive(v)
+	if s, ok := v.(string); ok {
+		if tm, err := parseCQLDate(s); err == nil {
+			return tm
+		}
+	}
+	return v
 }
 
 func intervalContains(iv Interval, point any, properly bool) bool {

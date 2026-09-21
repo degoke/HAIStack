@@ -113,10 +113,6 @@ func closedPeriodEnd(end time.Time) time.Time {
 	if local.Hour() == 0 && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0 {
 		return time.Date(local.Year(), local.Month(), local.Day(), 23, 59, 59, 999999999, loc)
 	}
-	utc := end.UTC()
-	if utc.Hour() == 0 && utc.Minute() == 0 && utc.Second() == 0 && utc.Nanosecond() == 0 {
-		return time.Date(utc.Year(), utc.Month(), utc.Day(), 23, 59, 59, 999999999, time.UTC)
-	}
 	return end
 }
 

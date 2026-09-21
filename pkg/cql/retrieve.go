@@ -210,7 +210,7 @@ func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest
 		return true, nil
 	}
 	codes := extractCodings(item, req.CodePath)
-	if len(codes) == 0 {
+	if len(codes) == 0 && req.CodePath == "" {
 		if c := codingFromValue(item); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
 			codes = []fhirCoding{c}
 		}
@@ -259,29 +259,73 @@ func extractCodings(v any, codePath string) []fhirCoding {
 	}
 	var out []fhirCoding
 	rt, _ := obj["resourceType"].(string)
-	if rt == "" {
+	if rt == "" && codePath == "" {
 		collectCodeable(obj, &out)
 		return out
 	}
 	fields := primaryCodeFields
 	if codePath != "" {
-		fields = []string{codePath}
+		fields = matchResourceFields(obj, codePath)
+		if len(fields) == 0 {
+			return nil
+		}
 	}
 	for _, field := range fields {
-		if raw, exists := obj[field]; exists {
-			collectCodeable(raw, &out)
+		raw, exists := obj[field]
+		if !exists {
+			continue
+		}
+		n := len(out)
+		collectCodeable(raw, &out)
+		if len(out) == n {
+			if c := codingFromValue(raw); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
+				out = append(out, c)
+			}
 		}
 	}
 	return out
 }
 
+func matchResourceFields(obj map[string]any, name string) []string {
+	var fold, choice []string
+	for k := range obj {
+		if k == name {
+			return []string{k}
+		}
+		if strings.EqualFold(k, name) {
+			fold = append(fold, k)
+			continue
+		}
+		if isCodeableChoiceField(k, name) {
+			choice = append(choice, k)
+		}
+	}
+	if len(fold) > 0 {
+		return fold
+	}
+	return choice
+}
+
+func isCodeableChoiceField(key, name string) bool {
+	if len(key) <= len(name) {
+		return false
+	}
+	if !strings.EqualFold(key[:len(name)], name) {
+		return false
+	}
+	rest := key[len(name):]
+	if rest == "" || rest[0] < 'A' || rest[0] > 'Z' {
+		return false
+	}
+	return strings.EqualFold(rest, "CodeableConcept") || strings.EqualFold(rest, "Coding")
+}
+
 // primaryCodeFields are the implicit FHIR elements CQL retrieve filters on
 // when no property path is named. Nested Quantity, Annotation, component,
-// category, reasonCode, bodySite, value, and meta.tag are ignored.
+// category, class, reasonCode, bodySite, value, and meta.tag are ignored.
 var primaryCodeFields = []string{
 	"code",
 	"type",
-	"class",
 	"medicationCodeableConcept",
 	"medication",
 	"vaccineCode",

@@ -384,6 +384,9 @@ func listAllAny(args [][]any, all bool) ([]any, error) {
 		return []any{all}, nil
 	}
 	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
 		b := asBool([]any{item})
 		if all {
 			if b == nil || !*b {

@@ -462,6 +462,10 @@ func TestClosedPeriodEndExpandsLocalMidnight(t *testing.T) {
 	if !closedPeriodEnd(midday).Equal(midday) {
 		t.Fatalf("non-midnight must stay put: %v", closedPeriodEnd(midday))
 	}
+	utcMidnightLocal := time.Date(2021, 1, 1, 5, 0, 0, 0, loc)
+	if !closedPeriodEnd(utcMidnightLocal).Equal(utcMidnightLocal) {
+		t.Fatalf("zoned 05:00 (UTC midnight) must not expand: %v", closedPeriodEnd(utcMidnightLocal))
+	}
 }
 
 func TestEvaluateMeasureIPGatesDenominatorAndNumerator(t *testing.T) {

@@ -513,8 +513,8 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, err
 		}
 		if len(left) == 1 && len(right) == 1 {
-			if li, ok := asInterval(left[0]); ok {
-				if ri, ok := asInterval(right[0]); ok {
+			if li, ok := isCQLInterval(left[0]); ok {
+				if ri, ok := isCQLInterval(right[0]); ok {
 					if intervalOverlaps(li, ri) || intervalMeets(li, ri) {
 						merged, ok := intervalUnion(li, ri)
 						if !ok {
@@ -590,8 +590,8 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, err
 		}
 		if len(left) == 1 && len(right) == 1 {
-			if li, ok := asInterval(left[0]); ok {
-				if ri, ok := asInterval(right[0]); ok {
+			if li, ok := isCQLInterval(left[0]); ok {
+				if ri, ok := isCQLInterval(right[0]); ok {
 					out, ok := intervalIntersect(li, ri)
 					if !ok {
 						return nil, nil
@@ -611,8 +611,8 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, err
 		}
 		if len(left) == 1 && len(right) == 1 {
-			if li, ok := asInterval(left[0]); ok {
-				if ri, ok := asInterval(right[0]); ok {
+			if li, ok := isCQLInterval(left[0]); ok {
+				if ri, ok := isCQLInterval(right[0]); ok {
 					return intervalExcept(li, ri), nil
 				}
 			}
@@ -993,6 +993,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		n, ok := asInt(args[0][0])
 		if !ok {
+			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+				parsed, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+				if err != nil {
+					return nil, nil
+				}
+				return []any{parsed}, nil
+			}
 			return nil, nil
 		}
 		return []any{n}, nil
@@ -1002,6 +1009,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		f, ok := asFloat(args[0][0])
 		if !ok {
+			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+				parsed, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+				if err != nil {
+					return nil, nil
+				}
+				return []any{parsed}, nil
+			}
 			return nil, nil
 		}
 		return []any{f}, nil
@@ -1011,6 +1025,14 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		b := asBool(args[0])
 		if b == nil {
+			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+				if strings.EqualFold(s, "true") {
+					return []any{true}, nil
+				}
+				if strings.EqualFold(s, "false") {
+					return []any{false}, nil
+				}
+			}
 			return nil, nil
 		}
 		return []any{*b}, nil
@@ -1020,11 +1042,11 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return []any{int64(len(fmt.Sprint(unwrapPrimitive(args[0][0]))))}, nil
 	case "today", "now":
+		t := clockInZone(st.now)
 		if n == "today" {
-			t := st.now.UTC()
-			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)}, nil
+			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())}, nil
 		}
-		return []any{st.now.UTC()}, nil
+		return []any{t}, nil
 	case "tointerval":
 		if len(args) == 0 || len(args[0]) == 0 {
 			return nil, nil
@@ -1047,10 +1069,22 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		tm, ok := asTime(args[0][0])
 		if !ok {
-			return nil, nil
+			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+				parsed, err := parseCQLDate(s)
+				if err != nil {
+					return nil, nil
+				}
+				tm = parsed
+			} else {
+				return nil, nil
+			}
 		}
 		if n == "todate" {
-			tm = time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC)
+			loc := tm.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
+			tm = time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc)
 		}
 		return []any{tm}, nil
 	case "flatten":
@@ -1146,12 +1180,13 @@ func (st *evalState) ageInYears(at *time.Time) ([]any, error) {
 	if at != nil && !at.IsZero() {
 		when = *at
 	}
-	when = when.UTC()
-	birth = birth.UTC()
-	years := when.Year() - birth.Year()
-	anniversary := time.Date(when.Year(), birth.Month(), birth.Day(), 0, 0, 0, 0, time.UTC)
-	if anniversary.Month() != birth.Month() {
-		anniversary = time.Date(when.Year(), birth.Month()+1, 0, 0, 0, 0, 0, time.UTC)
+	when = clockInZone(when)
+	loc := when.Location()
+	birthDay := birth.UTC()
+	years := when.Year() - birthDay.Year()
+	anniversary := time.Date(when.Year(), birthDay.Month(), birthDay.Day(), 0, 0, 0, 0, loc)
+	if anniversary.Month() != birthDay.Month() {
+		anniversary = time.Date(when.Year(), birthDay.Month()+1, 0, 0, 0, 0, 0, loc)
 	}
 	if when.Before(anniversary) {
 		years--
@@ -1502,18 +1537,8 @@ func asBool(v []any) *bool {
 	if len(v) == 0 {
 		return nil
 	}
-	switch x := unwrapPrimitive(v[0]).(type) {
-	case bool:
+	if x, ok := unwrapPrimitive(v[0]).(bool); ok {
 		return &x
-	case string:
-		if strings.EqualFold(x, "true") {
-			t := true
-			return &t
-		}
-		if strings.EqualFold(x, "false") {
-			t := false
-			return &t
-		}
 	}
 	return nil
 }
@@ -1533,9 +1558,6 @@ func asFloat(v any) (float64, bool) {
 	case json.Number:
 		f, err := x.Float64()
 		return f, err == nil
-	case string:
-		f, err := strconv.ParseFloat(x, 64)
-		return f, err == nil
 	}
 	return 0, false
 }
@@ -1549,13 +1571,8 @@ func asInt(v any) (int64, bool) {
 }
 
 func asTime(v any) (time.Time, bool) {
-	switch x := unwrapPrimitive(v).(type) {
-	case time.Time:
+	if x, ok := unwrapPrimitive(v).(time.Time); ok {
 		return x, true
-	case string:
-		if tm, err := parseCQLDate(x); err == nil {
-			return tm, true
-		}
 	}
 	return time.Time{}, false
 }
@@ -1680,6 +1697,9 @@ func cqlEqual(a, b any) bool {
 			return true
 		}
 	}
+	if fmt.Sprintf("%T", a) != fmt.Sprintf("%T", b) {
+		return false
+	}
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
@@ -1726,7 +1746,68 @@ func existsNonNull(v []any) bool {
 }
 
 func cqlEquivalent(a, b any) bool {
-	return strings.EqualFold(fmt.Sprint(unwrapPrimitive(a)), fmt.Sprint(unwrapPrimitive(b)))
+	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if cqlEqual(a, b) {
+		return true
+	}
+	if ca, ok := asCodeLike(a); ok {
+		if cb, ok := asCodeLike(b); ok {
+			return codesEquivalent(ca, cb)
+		}
+	}
+	sa, aok := a.(string)
+	sb, bok := b.(string)
+	if aok && bok {
+		return strings.EqualFold(sa, sb)
+	}
+	return false
+}
+
+func asCodeLike(v any) (fhirCoding, bool) {
+	switch x := v.(type) {
+	case Code:
+		return fhirCoding{System: x.System, Code: x.Code, Display: x.Display}, true
+	case fhirCoding:
+		return x, true
+	}
+	obj, ok := asObject(v)
+	if !ok {
+		return fhirCoding{}, false
+	}
+	if isCoding(obj) {
+		return fhirCoding{System: strField(obj, "system"), Code: strField(obj, "code"), Display: strField(obj, "display")}, true
+	}
+	if raw, ok := obj["coding"].([]any); ok && len(raw) > 0 {
+		if m, ok := raw[0].(map[string]any); ok {
+			return fhirCoding{System: strField(m, "system"), Code: strField(m, "code"), Display: strField(m, "display"), Text: strField(obj, "text")}, true
+		}
+	}
+	return fhirCoding{}, false
+}
+
+func codesEquivalent(a, b fhirCoding) bool {
+	if a.Code != "" && b.Code != "" && strings.EqualFold(a.Code, b.Code) {
+		if a.System == "" || b.System == "" || strings.EqualFold(a.System, b.System) {
+			return true
+		}
+	}
+	if a.Display != "" && b.Display != "" && strings.EqualFold(a.Display, b.Display) {
+		return true
+	}
+	if a.Text != "" && b.Text != "" && strings.EqualFold(a.Text, b.Text) {
+		return true
+	}
+	return false
+}
+
+func clockInZone(t time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	if t.Location() == nil {
+		return t.UTC()
+	}
+	return t
 }
 
 func cqlCompare(a, b any) (int, bool) {
@@ -1768,14 +1849,18 @@ func cqlCompare(a, b any) (int, bool) {
 			return 0, true
 		}
 	}
-	sa, sb := fmt.Sprint(a), fmt.Sprint(b)
-	if sa < sb {
-		return -1, true
+	sa, aok := a.(string)
+	sb, bok := b.(string)
+	if aok && bok {
+		if sa < sb {
+			return -1, true
+		}
+		if sa > sb {
+			return 1, true
+		}
+		return 0, true
 	}
-	if sa > sb {
-		return 1, true
-	}
-	return 0, true
+	return 0, false
 }
 
 func containsValue(list []any, item any) bool {
@@ -1860,7 +1945,7 @@ func fieldValues(v any, name string) ([]any, bool) {
 
 func flattenJSON(v any) []any {
 	if v == nil {
-		return nil
+		return []any{nil}
 	}
 	switch x := v.(type) {
 	case []any:
@@ -1869,6 +1954,11 @@ func flattenJSON(v any) []any {
 			out = append(out, flattenJSON(el)...)
 		}
 		return out
+	case string:
+		if tm, err := parseCQLDate(x); err == nil {
+			return []any{tm}
+		}
+		return []any{x}
 	default:
 		return []any{unwrapPrimitive(x)}
 	}

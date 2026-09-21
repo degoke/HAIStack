@@ -1189,6 +1189,20 @@ func TestRetrieveMatchesCategoryAndRelatedFields(t *testing.T) {
 	if len(got) != 1 || got[0] != int64(1) {
 		t.Fatalf("component code must not match retrieve: %#v", got)
 	}
+	got, err = eng.Eval(context.Background(), "[Observation: category in '8867-4'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("category retrieve must not fall back to code: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: Category in 'vital-signs'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("category retrieve is case-insensitive: %#v", got)
+	}
 }
 
 func TestQueryAggregateThenSort(t *testing.T) {
@@ -1334,5 +1348,172 @@ func TestUnionIdentifiesFHIRResources(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("resource union must distinct by type/id: %#v", got)
+	}
+}
+
+func TestSingletonUnionDoesNotTreatPeriodMapsAsIntervals(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), `{ {resourceType: 'Appointment', id: 'a1', start: @2020-01-01, end: @2020-01-02} } union { {resourceType: 'Appointment', id: 'a1', start: @2021-01-01, end: @2021-01-02} }`, EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("appointment union must distinct by id, not merge intervals: %#v", got)
+	}
+	obj, ok := got[0].(map[string]any)
+	if !ok || obj["id"] != "a1" {
+		t.Fatalf("expected appointment map, got %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `{ {start: @2020-01-01, end: @2020-06-01} } union Interval[@2020-07-01, @2020-12-31]`, EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("Period map union Interval must stay a list, got %#v", got)
+	}
+}
+
+func TestRetrieveValueChoiceAndEncounterClass(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "pos",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]},
+		"valueCodeableConcept": {"coding": [{"code": "positive"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := types.NewJSONCodec().ParseJSON("Encounter", []byte(`{
+		"resourceType": "Encounter",
+		"id": "e1",
+		"status": "finished",
+		"class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "IMP"},
+		"type": [{"coding": [{"code": "office"}]}],
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs, enc},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[Observation: value in 'positive'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("value[x] retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Encounter: 'IMP'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("implicit retrieve must not match Encounter.class: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Encounter: class in 'IMP'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("named class retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: status = '8867-4'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("named status retrieve must not fall back to Observation.code: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: category in '8867-4'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("missing category must not fall back to Observation.code: %#v", got)
+	}
+}
+
+func TestCQLDoesNotCoerceStringsAndSkipsAllTrueNulls(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'1' = 1", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("'1' = 1 must be false: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'true' and true", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("'true' and true must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 > 'a'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("incomparable compare must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "AllTrue(from {1, 2} X return if X = 2 then null else true)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("AllTrue must skip nulls: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ {id: 1, v: null} }.v", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != nil {
+		t.Fatalf("present JSON null must stay null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ system: 'http://loinc.org', code: '8867-4' } ~ { system: 'http://loinc.org', code: '8867-4', display: 'Heart rate' }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("code ~ must use system/code, not Sprint: %#v", got)
+	}
+}
+
+func TestAgeInYearsAndTodayUseClockZone(t *testing.T) {
+	loc := time.FixedZone("EST", -5*3600)
+	pat, err := types.NewJSONCodec().ParseJSON("Patient", []byte(`{
+		"resourceType": "Patient", "id": "ada", "birthDate": "2000-01-02"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2021, 1, 1, 23, 59, 59, 0, loc) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "AgeInYears()", EvalContext{Patient: pat, Now: time.Date(2021, 1, 1, 23, 59, 59, 0, loc)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(20) {
+		t.Fatalf("AgeInYears must use local period-end calendar: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Today()", EvalContext{Now: time.Date(2021, 1, 1, 23, 59, 59, 0, loc)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok := got[0].(time.Time)
+	if !ok || tm.Day() != 1 || tm.Month() != time.January || tm.Year() != 2021 {
+		t.Fatalf("Today() must use clock zone date: %#v", got)
 	}
 }
