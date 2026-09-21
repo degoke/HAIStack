@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -490,6 +492,40 @@ func TestSearchStoreIndexLookupRemove(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Fatalf("Lookup after remove = %v, want empty", ids)
+	}
+}
+
+func TestSearchStoreLookupMatchRejectsUnsupportedOperators(t *testing.T) {
+	db := openTestDB(t, tempDBPath(t))
+	ctx := context.Background()
+	searchStore := db.SearchStore()
+
+	if err := searchStore.Index(ctx, store.SearchIndexEntry{
+		ResourceType: "Questionnaire",
+		ID:           "q-1",
+		Fields:       map[string]string{"uri.url": "http://example.org/fhir/Questionnaire/q-1"},
+	}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	ids, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir/Questionnaire/q-1",
+		Operator:     "eq",
+	})
+	if err != nil || len(ids) != 1 || ids[0] != "q-1" {
+		t.Fatalf("LookupMatch eq = %v, %v", ids, err)
+	}
+
+	_, err = searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "below",
+	})
+	if !errors.Is(err, search.ErrUnsupportedFeature) {
+		t.Fatalf("LookupMatch below = %v, want ErrUnsupportedFeature", err)
 	}
 }
 

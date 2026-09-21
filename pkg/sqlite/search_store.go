@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -138,6 +139,15 @@ func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) 
 	table, fieldKey, err := parseSearchFieldKey(match.FieldKey)
 	if err != nil {
 		return nil, err
+	}
+	op := match.Operator
+	if op == "" {
+		op = "eq"
+	}
+	switch op {
+	case "eq", "exact", "=":
+	default:
+		return nil, fmt.Errorf("%w: sqlite LookupMatch operator %q", search.ErrUnsupportedFeature, op)
 	}
 	query := fmt.Sprintf(`
 		SELECT resource_id FROM %s

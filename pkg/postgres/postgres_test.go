@@ -699,6 +699,78 @@ func TestSearchStoreIndexLookupRemove(t *testing.T) {
 	}
 }
 
+func TestSearchStoreUriBelowAndAboveHierarchical(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "search-uri")
+	searchStore := tdb.SearchStore()
+
+	entries := []store.SearchIndexEntry{
+		{ResourceType: "Questionnaire", ID: "q-prefix", Fields: map[string]string{"uri.url": "http://example.org/fhir"}},
+		{ResourceType: "Questionnaire", ID: "q-child", Fields: map[string]string{"uri.url": "http://example.org/fhir/Questionnaire/q-1"}},
+		{ResourceType: "Questionnaire", ID: "q-extra", Fields: map[string]string{"uri.url": "http://example.org/fhirExtra"}},
+		{ResourceType: "Questionnaire", ID: "q-under", Fields: map[string]string{"uri.url": "http://example.org/fhir_x/child"}},
+		{ResourceType: "Questionnaire", ID: "q-wild", Fields: map[string]string{"uri.url": "http://example.org/fhirZx/child"}},
+	}
+	for _, entry := range entries {
+		if err := searchStore.Index(ctx, entry); err != nil {
+			t.Fatalf("Index %s: %v", entry.ID, err)
+		}
+	}
+
+	below, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "below",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch below: %v", err)
+	}
+	got := map[string]bool{}
+	for _, id := range below {
+		got[id] = true
+	}
+	if !got["q-prefix"] || !got["q-child"] || got["q-extra"] {
+		t.Fatalf("uri:below = %v, want prefix and prefix/child, not prefixExtra", below)
+	}
+
+	under, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir_x",
+		Operator:     "below",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch below underscore: %v", err)
+	}
+	gotUnder := map[string]bool{}
+	for _, id := range under {
+		gotUnder[id] = true
+	}
+	if !gotUnder["q-under"] || gotUnder["q-wild"] {
+		t.Fatalf("uri:below with _ = %v, want literal underscore (not LIKE wildcard)", under)
+	}
+
+	above, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir/Questionnaire/q-1",
+		Operator:     "above",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch above: %v", err)
+	}
+	gotAbove := map[string]bool{}
+	for _, id := range above {
+		gotAbove[id] = true
+	}
+	if !gotAbove["q-prefix"] || !gotAbove["q-child"] || gotAbove["q-extra"] {
+		t.Fatalf("uri:above = %v, want prefix and self, not prefixExtra", above)
+	}
+}
+
 func TestCursorStoreUpsertGetDelete(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()

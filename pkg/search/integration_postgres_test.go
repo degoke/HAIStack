@@ -538,6 +538,12 @@ func TestPostgresUriBelowAndWildcardInclude(t *testing.T) {
 	if _, err := svc.Create(ctx, questionnaireResource(t, "q-2", "http://other.org/fhir/Questionnaire/q-2")); err != nil {
 		t.Fatalf("Create questionnaire: %v", err)
 	}
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-3", "http://example.org/fhirExtra")); err != nil {
+		t.Fatalf("Create questionnaire extra: %v", err)
+	}
+	if _, err := svc.Create(ctx, questionnaireResource(t, "q-4", "http://example.org/fhir")); err != nil {
+		t.Fatalf("Create questionnaire prefix: %v", err)
+	}
 
 	result, err := searchSvc.Search(ctx, "Questionnaire", mustValues(t, map[string]string{
 		"url:below": "http://example.org/fhir",
@@ -545,8 +551,12 @@ func TestPostgresUriBelowAndWildcardInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uri:below search: %v", err)
 	}
-	if len(result.Resources) != 1 || result.Resources[0].ID != "q-1" {
-		t.Fatalf("uri:below search = %#v", result.Resources)
+	got := map[string]bool{}
+	for _, res := range result.Resources {
+		got[res.ID] = true
+	}
+	if !got["q-1"] || !got["q-4"] || got["q-2"] || got["q-3"] {
+		t.Fatalf("uri:below search = %#v, want q-1 and q-4 (not q-2/q-3 prefixExtra)", result.Resources)
 	}
 
 	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {

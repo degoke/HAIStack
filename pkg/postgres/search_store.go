@@ -195,16 +195,21 @@ func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) 
 			  AND (value LIKE $4 || '/%%' OR value LIKE $4 || '|%%')
 			ORDER BY resource_id`, table)
 		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
-	case (table == searchTableString) && op == "below":
+	case table == searchTableString && op == "below":
+		// Hierarchical uri:below: exact self or a child path (prefix + '/'),
+		// with LIKE metacharacters treated as literals.
 		query = fmt.Sprintf(`
 			SELECT resource_id FROM %s
-			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND value LIKE $4 || '%%'
+			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3
+			  AND (value = $4 OR value LIKE $5 ESCAPE '\')
 			ORDER BY resource_id`, table)
-		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
-	case (table == searchTableString) && op == "above":
+		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value, likeEscape(match.Value) + "/%"}
+	case table == searchTableString && op == "above":
+		// Hierarchical uri:above: exact self or the query URI is a child of value.
 		query = fmt.Sprintf(`
 			SELECT resource_id FROM %s
-			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3 AND $4 LIKE value || '%%'
+			WHERE tenant_id = $1 AND resource_type = $2 AND field_key = $3
+			  AND ($4 = value OR $4 LIKE replace(replace(replace(value, '\', '\\'), '%%', '\%%'), '_', '\_') || '/%%' ESCAPE '\')
 			ORDER BY resource_id`, table)
 		args = []any{s.tenantID, match.ResourceType, fieldKey, match.Value}
 	case (table == searchTableDate || table == searchTableNumber) && isComparator(op):
@@ -449,6 +454,11 @@ func (s *SearchStore) ListIndexedResourceIDs(ctx context.Context, resourceType s
 		return nil, fmt.Errorf("iterate indexed resource ids: %w", err)
 	}
 	return ids, nil
+}
+
+func likeEscape(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }
 
 func parseReferenceValue(value string) store.ReferenceLink {

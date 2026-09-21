@@ -284,13 +284,21 @@ func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode strin
 	return refInfo.Target[0], nil
 }
 
+// maxWildcardIncludeExpansion is the maximum number of concrete include/revinclude
+// directives produced from one _include/_revinclude value, including *:* wildcards.
+// Larger expansions are rejected rather than fanning out unbounded reference parameters.
+const maxWildcardIncludeExpansion = 64
+
 func resolveIncludes(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
 	if inc.ParamCode != "*" {
 		resolved, err := resolveInclude(reg, resourceType, inc)
 		if err != nil {
 			return nil, err
 		}
-		return []IncludeDirective{resolved}, nil
+		if err := checkIncludeExpansionLimit("_include", len(resolved)); err != nil {
+			return nil, err
+		}
+		return resolved, nil
 	}
 	var out []IncludeDirective
 	for _, info := range reg.SearchParametersFor(resourceType) {
@@ -308,10 +316,13 @@ func resolveIncludes(reg Registry, resourceType string, inc IncludeDirective) ([
 		if err != nil {
 			continue
 		}
-		out = append(out, resolved)
+		out = append(out, resolved...)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%w: _include %s:* matched no reference parameters", ErrInvalidQuery, resourceType)
+	}
+	if err := checkIncludeExpansionLimit("_include", len(out)); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -359,7 +370,17 @@ func resolveRevIncludes(reg Registry, targetType string, rev RevIncludeDirective
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%w: _revinclude %s:%s matched no reference parameters", ErrInvalidQuery, rev.SourceType, rev.ParamCode)
 	}
+	if err := checkIncludeExpansionLimit("_revinclude", len(out)); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func checkIncludeExpansionLimit(kind string, n int) error {
+	if n > maxWildcardIncludeExpansion {
+		return fmt.Errorf("%w: %s expanded to %d directives (max %d)", ErrInvalidQuery, kind, n, maxWildcardIncludeExpansion)
+	}
+	return nil
 }
 
 func paramTargets(info ParameterInfo, targetType string) bool {
@@ -377,13 +398,16 @@ func paramTargets(info ParameterInfo, targetType string) bool {
 	return false
 }
 
-func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) (IncludeDirective, error) {
+func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
 	info, err := lookupParam(reg, resourceType, inc.ParamCode)
 	if err != nil {
-		return IncludeDirective{}, err
+		return nil, err
 	}
 	if info.Type != "reference" {
-		return IncludeDirective{}, fmt.Errorf("%w: _include param %q is not a reference", ErrInvalidQuery, inc.ParamCode)
+		return nil, fmt.Errorf("%w: _include param %q is not a reference", ErrInvalidQuery, inc.ParamCode)
+	}
+	if len(info.Target) == 0 {
+		return nil, fmt.Errorf("%w: _include param %q has no target types", ErrInvalidQuery, inc.ParamCode)
 	}
 	targetType := inc.TargetType
 	if targetType == "*" {
@@ -391,25 +415,35 @@ func resolveInclude(reg Registry, resourceType string, inc IncludeDirective) (In
 	}
 	if targetType != "" {
 		if !paramTargets(info, targetType) && len(info.Target) > 0 {
-			return IncludeDirective{}, fmt.Errorf("%w: _include param %q does not target %s", ErrInvalidQuery, inc.ParamCode, targetType)
+			return nil, fmt.Errorf("%w: _include param %q does not target %s", ErrInvalidQuery, inc.ParamCode, targetType)
 		}
-	} else if len(info.Target) == 1 {
-		targetType = info.Target[0]
-	} else if len(info.Target) > 1 {
-		// Multi-target references are resolved at expansion time.
-		targetType = ""
+		if !reg.IsResourceEnabled(targetType) {
+			return nil, ErrResourceTypeDisabled
+		}
+		return []IncludeDirective{{
+			SourceType: resourceType,
+			ParamCode:  inc.ParamCode,
+			TargetType: targetType,
+		}}, nil
 	}
-	if len(info.Target) == 0 {
-		return IncludeDirective{}, fmt.Errorf("%w: _include param %q has no target types", ErrInvalidQuery, inc.ParamCode)
+
+	// Multi-target references (e.g. Observation.encounter → Encounter|EpisodeOfCare)
+	// expand only to enabled types so later Search reads never touch disabled types.
+	var out []IncludeDirective
+	for _, target := range info.Target {
+		if !reg.IsResourceEnabled(target) {
+			continue
+		}
+		out = append(out, IncludeDirective{
+			SourceType: resourceType,
+			ParamCode:  inc.ParamCode,
+			TargetType: target,
+		})
 	}
-	if targetType != "" && !reg.IsResourceEnabled(targetType) {
-		return IncludeDirective{}, ErrResourceTypeDisabled
+	if len(out) == 0 {
+		return nil, ErrResourceTypeDisabled
 	}
-	return IncludeDirective{
-		SourceType: resourceType,
-		ParamCode:  inc.ParamCode,
-		TargetType: targetType,
-	}, nil
+	return out, nil
 }
 
 func resolveRevInclude(reg Registry, targetType string, rev RevIncludeDirective) (RevIncludeDirective, error) {

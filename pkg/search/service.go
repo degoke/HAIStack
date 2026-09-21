@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -95,6 +96,10 @@ func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, erro
 	for _, ref := range execResult.Included {
 		res, err := s.resources.Read(ctx, ref.ResourceType, ref.ID)
 		if err != nil {
+			// FHIR _include/_revinclude: missing targets are omitted, not a search failure.
+			if isResourceNotFound(err) {
+				continue
+			}
 			return nil, fmt.Errorf("search: read included %s/%s: %w", ref.ResourceType, ref.ID, err)
 		}
 		projected, err := applyProjection(res, plan.Summary, plan.Elements)
@@ -154,4 +159,11 @@ func (s *Service) EnabledResourceTypes() []string {
 		return nil
 	}
 	return s.registry.EnabledResourceTypes()
+}
+
+func isResourceNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }

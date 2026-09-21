@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func TestParseQueryIncludeWildcards(t *testing.T) {
 }
 
 func TestResolveQueryHasUriTwoHopAndWildcards(t *testing.T) {
-	snapshot := testSnapshot(t, "Patient", "Observation", "Organization", "Questionnaire")
+	snapshot := testSnapshot(t, "Patient", "Observation", "Organization", "Questionnaire", "Encounter")
 	reg := search.NewSnapshotRegistry(snapshot)
 
 	hasQuery, err := search.ParseQueryValues("Patient", map[string][]string{
@@ -140,6 +141,11 @@ func TestResolveQueryHasUriTwoHopAndWildcards(t *testing.T) {
 	if !codes["subject"] || !codes["encounter"] {
 		t.Fatalf("expanded includes missing subject/encounter: %#v", resolvedInc.Includes)
 	}
+	for _, inc := range resolvedInc.Includes {
+		if inc.TargetType != "" && !reg.IsResourceEnabled(inc.TargetType) {
+			t.Fatalf("include targeted disabled type: %#v", inc)
+		}
+	}
 
 	revQuery, err := search.ParseQueryValues("Patient", map[string][]string{
 		"_revinclude": {"Observation:*"},
@@ -153,6 +159,43 @@ func TestResolveQueryHasUriTwoHopAndWildcards(t *testing.T) {
 	}
 	if len(resolvedRev.RevIncludes) == 0 {
 		t.Fatal("expected expanded revincludes")
+	}
+}
+
+func TestResolveQueryIncludeSkipsDisabledMultiTarget(t *testing.T) {
+	snapshot := testSnapshot(t, "Patient", "Observation")
+	reg := search.NewSnapshotRegistry(snapshot)
+	if reg.IsResourceEnabled("Encounter") || reg.IsResourceEnabled("EpisodeOfCare") {
+		t.Fatal("Encounter and EpisodeOfCare should be disabled")
+	}
+
+	explicit, err := search.ParseQueryValues("Observation", map[string][]string{
+		"_include": {"Observation:encounter"},
+	})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if _, err := search.ResolveQuery(reg, explicit); !errors.Is(err, search.ErrResourceTypeDisabled) {
+		t.Fatalf("ResolveQuery encounter = %v, want ErrResourceTypeDisabled", err)
+	}
+
+	wild, err := search.ParseQueryValues("Observation", map[string][]string{
+		"_include": {"Observation:*"},
+	})
+	if err != nil {
+		t.Fatalf("ParseQuery wildcard: %v", err)
+	}
+	resolved, err := search.ResolveQuery(reg, wild)
+	if err != nil {
+		t.Fatalf("ResolveQuery wildcard: %v", err)
+	}
+	for _, inc := range resolved.Includes {
+		if inc.ParamCode == "encounter" {
+			t.Fatalf("disabled multi-target encounter leaked: %#v", inc)
+		}
+		if inc.TargetType != "" && !reg.IsResourceEnabled(inc.TargetType) {
+			t.Fatalf("wildcard include targeted disabled type: %#v", inc)
+		}
 	}
 }
 
@@ -291,6 +334,54 @@ func TestStoreExecutorUriBelowAndWildcardInclude(t *testing.T) {
 	}
 	if len(incResult.Included) != 2 {
 		t.Fatalf("included = %#v", incResult.Included)
+	}
+}
+
+func TestServiceSearchOmitsMissingIncludes(t *testing.T) {
+	ctx := context.Background()
+	snapshot := testSnapshot(t, "Patient", "Observation", "Encounter")
+	reg := search.NewSnapshotRegistry(snapshot)
+	backend := &memAdvancedSearchBackend{memSearchBackend: memSearchBackend{
+		entries: []store.SearchIndexEntry{
+			{ResourceType: "Patient", ID: "pat-1", Fields: map[string]string{"token._id": "pat-1"}},
+			{ResourceType: "Observation", ID: "obs-1", Fields: map[string]string{
+				"token._id":           "obs-1",
+				"reference.subject":   "Patient/pat-1",
+				"reference.encounter": "Encounter/enc-1",
+			}},
+		},
+	}}
+	resources := newMemResourceStore()
+	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Patient", ID: "pat-1"})
+	_ = resources.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", ID: "obs-1"})
+
+	svc, err := search.NewService(search.ServiceConfig{
+		Registry:  reg,
+		Executor:  search.NewStoreExecutor(backend, resources),
+		Resources: resources,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := svc.Search(ctx, "Observation", mustValues(t, map[string]string{
+		"_id":      "obs-1",
+		"_include": "Observation:*",
+	}))
+	if err != nil {
+		t.Fatalf("Search wildcard include: %v", err)
+	}
+	foundPatient := false
+	for _, inc := range result.Included {
+		if inc.ResourceType == "Encounter" {
+			t.Fatalf("dangling Encounter was included: %#v", result.Included)
+		}
+		if inc.ResourceType == "Patient" && inc.ID == "pat-1" {
+			foundPatient = true
+		}
+	}
+	if !foundPatient {
+		t.Fatalf("expected Patient include, got %#v", result.Included)
 	}
 }
 
