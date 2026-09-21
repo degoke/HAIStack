@@ -88,8 +88,12 @@ func writeEnvelope(w http.ResponseWriter, status int, envelope *types.ResourceEn
 			*event = *formatted.hookEvent
 		}
 		event.Resource = envelope
-		event.ResourceType = envelope.ResourceType
-		event.ID = envelope.ID
+		if event.ResourceType == "" {
+			event.ResourceType = envelope.ResourceType
+		}
+		if event.ID == "" {
+			event.ID = envelope.ID
+		}
 		ctx := formatted.hookCtx
 		if ctx == nil {
 			ctx = context.Background()

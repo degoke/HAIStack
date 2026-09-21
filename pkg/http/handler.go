@@ -345,7 +345,10 @@ func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalidRequest("build CapabilityStatement", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeEnvelope(w, http.StatusOK, &types.ResourceEnvelope{
+		ResourceType: "CapabilityStatement",
+		JSON:         data,
+	}, nil)
 }
 
 func (h *handler) handleRead(w http.ResponseWriter, r *http.Request, resourceType, id string) {
@@ -503,7 +506,7 @@ func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request, resourceT
 }
 
 func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceType, id string) {
-	if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+	if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -844,7 +847,7 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 				return err
 			}
 		case http.MethodPatch:
-			if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+			if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 				return err
 			}
 		case http.MethodDelete:
