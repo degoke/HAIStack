@@ -105,11 +105,19 @@ func closedPeriodEnd(end time.Time) time.Time {
 	if end.IsZero() {
 		return end
 	}
+	loc := end.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	local := end.In(loc)
+	if local.Hour() == 0 && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0 {
+		return time.Date(local.Year(), local.Month(), local.Day(), 23, 59, 59, 999999999, loc)
+	}
 	utc := end.UTC()
 	if utc.Hour() == 0 && utc.Minute() == 0 && utc.Second() == 0 && utc.Nanosecond() == 0 {
 		return time.Date(utc.Year(), utc.Month(), utc.Day(), 23, 59, 59, 999999999, time.UTC)
 	}
-	return utc
+	return end
 }
 
 func normalizeReportType(reportType, subject string, patient any) string {
@@ -280,29 +288,33 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 	stratumPops := map[stratumKey]map[string]int{}
 	for _, subject := range subjects {
 		env.Patient = subject
+		oks := make([]bool, len(pops))
 		inIP := !hasIP
-		matched := map[string]bool{}
 		for i := range pops {
 			ok, _, err := evalPopulation(ctx, e, pops[i].def, env)
 			if err != nil {
 				return nil, nil, err
 			}
-			if !ok {
+			oks[i] = ok
+			if pops[i].code == "initial-population" && ok {
+				inIP = true
+			}
+		}
+		if hasIP && !inIP {
+			continue
+		}
+		matched := map[string]bool{}
+		for i := range pops {
+			if !oks[i] {
 				continue
 			}
 			pops[i].count++
 			matched[pops[i].code] = true
-			if pops[i].code == "initial-population" {
-				inIP = true
-			}
 			if reportType == "subject-list" {
 				if ref := patientReference(subject); ref != "" {
 					pops[i].subjects = append(pops[i].subjects, ref)
 				}
 			}
-		}
-		if !inIP {
-			continue
 		}
 		for si, strat := range g.Stratifier {
 			expr := strings.TrimSpace(strat.Criteria.Expression)
@@ -425,18 +437,40 @@ func evalPopulation(ctx context.Context, e *Engine, pop fhirMeasurePopulation, e
 	if err != nil {
 		return false, 0, errf("%w: population %s: %v", ErrMeasure, pop.Code.code(), err)
 	}
-	if len(vals) == 0 {
+	if !populationMembership(vals) {
 		return false, 0, nil
 	}
-	if len(vals) == 1 {
-		if b := asBool(vals); b != nil {
-			if *b {
-				return true, 1, nil
-			}
-			return false, 0, nil
-		}
-	}
 	return true, 1, nil
+}
+
+func populationMembership(vals []any) bool {
+	if len(vals) == 0 {
+		return false
+	}
+	if len(vals) == 1 {
+		v := unwrapPrimitive(vals[0])
+		if v == nil {
+			return false
+		}
+		if b, ok := v.(bool); ok {
+			return b
+		}
+		return true
+	}
+	for _, item := range vals {
+		v := unwrapPrimitive(item)
+		if v == nil {
+			continue
+		}
+		if b, ok := v.(bool); ok {
+			if b {
+				return true
+			}
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func populationCountMap(pops []popEval) map[string]int {
@@ -623,24 +657,29 @@ func evalSupplementalData(ctx context.Context, e *Engine, m fhirMeasure, subject
 }
 
 func subjectInInitialPopulation(ctx context.Context, e *Engine, m fhirMeasure, subject any, env EvalContext) (bool, error) {
-	hasIP := false
 	env.Patient = subject
 	for _, g := range m.Group {
+		groupHasIP := false
+		inGroupIP := false
 		for _, p := range g.Population {
 			if strings.ToLower(p.Code.code()) != "initial-population" {
 				continue
 			}
-			hasIP = true
+			groupHasIP = true
 			ok, _, err := evalPopulation(ctx, e, p, env)
 			if err != nil {
 				return false, err
 			}
 			if ok {
-				return true, nil
+				inGroupIP = true
+				break
 			}
 		}
+		if groupHasIP && !inGroupIP {
+			return false, nil
+		}
 	}
-	return !hasIP, nil
+	return true, nil
 }
 
 func applyObservationValue(obs map[string]any, vals []any) {

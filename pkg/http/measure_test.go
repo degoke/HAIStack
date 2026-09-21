@@ -251,6 +251,21 @@ define "Numerator": Patient.gender = 'female'
 		t.Fatalf("MinAge parameter was not forwarded; denominator=%d report=%#v", den, paramReport)
 	}
 
+	badDate := []byte(`{
+		"resourceType": "Parameters",
+		"parameter": [
+			{"name": "periodStart", "valueDate": "2020-01-01"},
+			{"name": "periodEnd", "valueDate": "2021-01-01"},
+			{"name": "reportType", "valueCode": "individual"},
+			{"name": "subject", "valueString": "Patient/ada"},
+			{"name": "AsOf", "valueDate": "not-a-date"}
+		]
+	}`)
+	rec = doRequest(t, h, http.MethodPost, "/fhir/Measure/adult/$evaluate-measure", badDate)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid extra date status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	empty := hahttp.CoreMeasureService{
 		Engine:    eng,
 		Libraries: cql.StaticLibraries{"http://example.org/Library/Adult": lib},

@@ -511,7 +511,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append(append([]any{}, left...), right...), nil
+		return distinctValues(append(append([]any{}, left...), right...)), nil
 	case "&":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -727,6 +727,7 @@ func (st *evalState) evalMember(n *memberNode) ([]any, error) {
 	for _, item := range base {
 		vals, ok := st.memberValues(item, n.name)
 		if !ok {
+			out = append(out, nil)
 			continue
 		}
 		out = append(out, vals...)
@@ -1166,6 +1167,10 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 			req.ValueSetURL = vs.URL
 			return req
 		}
+		if looksLikeCanonical(n.terminology) {
+			req.ValueSetURL = n.terminology
+			return req
+		}
 	}
 	if c := st.lookupCode(n.terminology); c != nil {
 		req.System = c.System
@@ -1177,6 +1182,14 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 		req.Code = code
 	}
 	return req
+}
+
+func looksLikeCanonical(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	return strings.Contains(s, "://") || strings.HasPrefix(strings.ToLower(s), "urn:")
 }
 
 func (st *evalState) terminology() fhirpath.TerminologyValidator {

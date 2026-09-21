@@ -102,7 +102,25 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		rows = append(rows, qr)
 	}
 	if q.agg != nil {
-		return st.evalAggregate(rows, q)
+		acc, err := st.evalAggregate(rows, q)
+		if err != nil {
+			return nil, err
+		}
+		if len(q.sort) == 0 {
+			return acc, nil
+		}
+		aggRows := make([]queryRow, len(acc))
+		for i, item := range acc {
+			aggRows[i] = queryRow{item: item, this: item, thisSet: true}
+		}
+		if err := st.sortQuery(aggRows, q.sort); err != nil {
+			return nil, err
+		}
+		out := make([]any, len(aggRows))
+		for i, row := range aggRows {
+			out[i] = row.item
+		}
+		return out, nil
 	}
 	if q.distinct {
 		rows = distinctQueryRows(rows)

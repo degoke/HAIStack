@@ -665,7 +665,7 @@ func TestRetrieveIgnoresQuantityAndNotes(t *testing.T) {
 	if len(got) != 1 || got[0] != int64(0) {
 		t.Fatalf("quantity unit must not match retrieve: %#v", got)
 	}
-	got, err = eng.Eval(context.Background(), "[Observation: 'http://unitsofmeasure.org'].count()", env)
+	got, err = eng.Eval(context.Background(), "[Observation: code = 'http://unitsofmeasure.org'].count()", env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,5 +1084,137 @@ func TestQueryDoesNotReadPatientWhenThisIsBound(t *testing.T) {
 	got, err := eng.Eval(context.Background(), "[Observation] where family = 'Lovelace'", EvalContext{Patient: adaPatient(t)})
 	if err == nil && len(got) != 0 {
 		t.Fatalf("Observation where family must not use Patient.family: %#v", got)
+	}
+}
+
+func TestUnionIsDistinct(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{1, 2} union {2, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || fmt.Sprint(got) != "[1 2 3]" {
+		t.Fatalf("union must be distinct: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 1} | {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || fmt.Sprint(got) != "[1 2]" {
+		t.Fatalf("list union must be distinct: %#v", got)
+	}
+}
+
+func TestRetrieveValueSetRequiresTerminology(t *testing.T) {
+	hit, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{hit},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library HeartLogic version '1.0.0'
+using FHIR version '4.0.1'
+valueset "Heart Rate": 'http://example.org/ValueSet/heart-rate'
+context Patient
+define "HR Count":
+  [Observation: "Heart Rate"].count()
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = eng.EvalDefine(context.Background(), lib, "HR Count", EvalContext{Patient: adaPatient(t)})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("declared valueset retrieve without terminology: %v", err)
+	}
+	_, err = eng.Eval(context.Background(), "[Observation: 'http://example.org/ValueSet/heart-rate']", EvalContext{Patient: adaPatient(t)})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("canonical valueset retrieve without terminology: %v", err)
+	}
+}
+
+func TestRetrieveMatchesCategoryAndRelatedFields(t *testing.T) {
+	cat, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]},
+		"category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "vital-signs"}]}],
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	comp, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "panel",
+		"status": "final",
+		"code": {"text": "Panel"},
+		"component": [{"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]}}],
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{cat, comp},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[Observation: 'vital-signs'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("category retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: '8867-4'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("component code must not match retrieve: %#v", got)
+	}
+}
+
+func TestQueryAggregateThenSort(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "from { {v: 3}, {v: 1}, {v: 2}, {v: 1} } X aggregate t starting {}: t union {X} sort by v", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("aggregate then sort: %#v", got)
+	}
+	v0, _ := got[0].(map[string]any)
+	v1, _ := got[1].(map[string]any)
+	v2, _ := got[2].(map[string]any)
+	if fmt.Sprint(v0["v"]) != "1" || fmt.Sprint(v1["v"]) != "2" || fmt.Sprint(v2["v"]) != "3" {
+		t.Fatalf("aggregate then sort: %#v", got)
+	}
+}
+
+func TestEvalMemberKeepsNullForMissingFields(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{ {id: 1, v: 10}, {id: 2} }.v", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || fmt.Sprint(got[0]) != "10" || got[1] != nil {
+		t.Fatalf("missing member must stay null: %#v", got)
 	}
 }

@@ -446,6 +446,217 @@ define "Numerator": false
 	}
 }
 
+func TestClosedPeriodEndExpandsLocalMidnight(t *testing.T) {
+	loc := time.FixedZone("EST", -5*3600)
+	got := closedPeriodEnd(time.Date(2021, 1, 1, 0, 0, 0, 0, loc))
+	want := time.Date(2021, 1, 1, 23, 59, 59, 999999999, loc)
+	if !got.Equal(want) || got.Location().String() != loc.String() {
+		t.Fatalf("local midnight: got %v want %v", got, want)
+	}
+	got = closedPeriodEnd(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+	want = time.Date(2021, 1, 1, 23, 59, 59, 999999999, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("utc midnight: got %v want %v", got, want)
+	}
+	midday := time.Date(2021, 1, 1, 15, 4, 5, 0, loc)
+	if !closedPeriodEnd(midday).Equal(midday) {
+		t.Fatalf("non-midnight must stay put: %v", closedPeriodEnd(midday))
+	}
+}
+
+func TestEvaluateMeasureIPGatesDenominatorAndNumerator(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Adult version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Measurement Period" Interval<DateTime>
+context Patient
+define "Initial Population":
+  AgeInYears() >= 18
+define "Denominator":
+  true
+define "Numerator":
+  true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	measure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+		"resourceType": "Measure",
+		"id": "adult",
+		"url": "http://example.org/Measure/Adult",
+		"scoring": {"coding": [{"code": "proportion"}]},
+		"group": [{"population": [
+			{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Initial Population"}},
+			{"code": {"coding": [{"code": "denominator"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Denominator"}},
+			{"code": {"coding": [{"code": "numerator"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Numerator"}}
+		]}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := types.NewJSONCodec().ParseJSON("Patient", []byte(`{
+		"resourceType": "Patient", "id": "kid", "gender": "male", "birthDate": "2020-01-01"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     measure,
+		PeriodStart: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+		ReportType:  "subject-list",
+		Patients:    []any{adaPatient(t), child},
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := decodeReport(t, report)
+	pops := populationCounts(t, decoded)
+	if pops["initial-population"] != 1 || pops["denominator"] != 1 || pops["numerator"] != 1 {
+		t.Fatalf("populations outside initial-population must not count: %#v", pops)
+	}
+	contained, _ := decoded["contained"].([]any)
+	for _, raw := range contained {
+		list, _ := raw.(map[string]any)
+		entries, _ := list["entry"].([]any)
+		for _, eraw := range entries {
+			e, _ := eraw.(map[string]any)
+			item, _ := e["item"].(map[string]any)
+			if item["reference"] == "Patient/kid" {
+				t.Fatalf("subject-list must not include patients outside IP: %#v", decoded)
+			}
+		}
+	}
+}
+
+func TestEvaluateMeasurePopulationNullAndFalseLists(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Adult version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Measurement Period" Interval<DateTime>
+context Patient
+define "Null Pop":
+  from {1} X return null
+define "False List":
+  {false, false}
+define "True List":
+  {false, true}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eval := func(expr string) int {
+		t.Helper()
+		measure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+			"resourceType": "Measure",
+			"id": "pop",
+			"url": "http://example.org/Measure/Pop",
+			"scoring": {"coding": [{"code": "cohort"}]},
+			"group": [{"population": [
+				{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "`+expr+`"}}
+			]}]
+		}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+			Measure:     measure,
+			PeriodStart: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+			ReportType:  "individual",
+			Patient:     adaPatient(t),
+			Libraries:   []*Library{lib},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return populationCounts(t, decodeReport(t, report))["initial-population"]
+	}
+	if n := eval("Null Pop"); n != 0 {
+		t.Fatalf("singleton null population: %d", n)
+	}
+	if n := eval("False List"); n != 0 {
+		t.Fatalf("{false, false} population: %d", n)
+	}
+	if n := eval("True List"); n != 1 {
+		t.Fatalf("{false, true} population: %d", n)
+	}
+}
+
+func TestEvaluateMeasureSDERequiresEveryGroupIP(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Adult version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Measurement Period" Interval<DateTime>
+context Patient
+define "Adult":
+  AgeInYears() >= 18
+define "Male":
+  Patient.gender = 'male'
+define "SDE Sex":
+  Patient.gender
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	measure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+		"resourceType": "Measure",
+		"id": "adult",
+		"url": "http://example.org/Measure/Adult",
+		"scoring": {"coding": [{"code": "cohort"}]},
+		"supplementalData": [{
+			"id": "sde-sex",
+			"code": {"coding": [{"code": "SEX"}]},
+			"criteria": {"language": "text/cql.identifier", "expression": "SDE Sex"}
+		}],
+		"group": [
+			{"population": [
+				{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Adult"}}
+			]},
+			{"population": [
+				{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Male"}}
+			]}
+		]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     measure,
+		PeriodStart: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+		ReportType:  "individual",
+		Patient:     adaPatient(t),
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contained, _ := decodeReport(t, report)["contained"].([]any)
+	if len(contained) != 0 {
+		t.Fatalf("SDE must require initial-population in every group, got %#v", contained)
+	}
+}
+
 func decodeReport(t *testing.T, env *types.ResourceEnvelope) map[string]any {
 	t.Helper()
 	var m map[string]any

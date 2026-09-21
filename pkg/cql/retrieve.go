@@ -224,7 +224,10 @@ func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest
 	if req.Code != "" {
 		return codingMatches(codes, req.System, req.Code, ""), nil
 	}
-	if req.ValueSetURL != "" && term != nil {
+	if req.ValueSetURL != "" {
+		if term == nil {
+			return false, errf("%w: valueset %s requires a terminology service", ErrUnsupported, req.ValueSetURL)
+		}
 		for _, c := range codes {
 			if c.Code == "" {
 				continue
@@ -236,12 +239,6 @@ func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest
 			if ok {
 				return true, nil
 			}
-		}
-		return false, nil
-	}
-	if req.ValueSetURL != "" {
-		if codingMatches(codes, "", "", req.ValueSetURL) || codingMatches(codes, "", "", req.Terminology) {
-			return true, nil
 		}
 		return false, nil
 	}
@@ -280,6 +277,10 @@ var primaryCodeFields = []string{
 	"code",
 	"type",
 	"class",
+	"category",
+	"reasonCode",
+	"bodySite",
+	"valueCodeableConcept",
 	"medicationCodeableConcept",
 	"medication",
 	"vaccineCode",

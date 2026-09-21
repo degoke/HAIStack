@@ -187,7 +187,11 @@ func parseEvaluateMeasureInput(req MeasureEvaluateRequest) (evaluateMeasureParam
 				out.measureCanonical = v
 			}
 		default:
-			if v, ok := parameterCQLValue(p); ok {
+			v, ok, err := parameterCQLValue(p)
+			if err != nil {
+				return evaluateMeasureParams{}, err
+			}
+			if ok {
 				if out.extra == nil {
 					out.extra = map[string]any{}
 				}
@@ -201,33 +205,34 @@ func parseEvaluateMeasureInput(req MeasureEvaluateRequest) (evaluateMeasureParam
 	return out, nil
 }
 
-func parameterCQLValue(p measureParameter) (any, bool) {
+func parameterCQLValue(p measureParameter) (any, bool, error) {
 	if p.ValueInteger != nil {
-		return *p.ValueInteger, true
+		return *p.ValueInteger, true, nil
 	}
 	if p.ValueBoolean != nil {
-		return *p.ValueBoolean, true
+		return *p.ValueBoolean, true, nil
 	}
 	if p.ValueDecimal != nil {
-		return *p.ValueDecimal, true
+		return *p.ValueDecimal, true, nil
 	}
 	if p.ValueQuantity != nil {
 		unit := p.ValueQuantity.Unit
 		if unit == "" {
 			unit = p.ValueQuantity.Code
 		}
-		return cql.Quantity{Value: p.ValueQuantity.Value, Unit: unit}, true
+		return cql.Quantity{Value: p.ValueQuantity.Value, Unit: unit}, true, nil
 	}
 	if v := firstMeasureParam(p.ValueDateTime, p.ValueDate); v != "" {
-		if tm, err := parseMeasureDate(v, p.Name); err == nil {
-			return tm, true
+		tm, err := parseMeasureDate(v, p.Name)
+		if err != nil {
+			return nil, false, err
 		}
-		return v, true
+		return tm, true, nil
 	}
 	if v := firstMeasureParam(p.ValueString, p.ValueCode, p.ValueCanonical); v != "" {
-		return v, true
+		return v, true, nil
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 func firstMeasureParam(values ...string) string {
