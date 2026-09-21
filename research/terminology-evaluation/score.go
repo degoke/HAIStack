@@ -17,17 +17,23 @@ import (
 )
 
 //go:embed gold/conceptmap.json
-var conceptMapJSON []byte
+var goldConceptMapJSON []byte
 
 //go:embed gold/translations.json
 var goldJSON []byte
 
+//go:embed pipeline/conceptmap.json
+var pipelineConceptMapJSON []byte
+
 const (
 	auditActionTranslate = "terminology.translate"
 	termScope            = "research"
+	goldMapID            = "haistack-vitals-to-loinc"
+	pipelineMapID        = "haistack-vitals-to-loinc-pipeline"
 )
 
-// GoldFile is the expected translation catalogue.
+// GoldFile is the expected translation catalogue. Tuples are independent of
+// the pipeline ConceptMap (see pipeline/conceptmap.json).
 type GoldFile struct {
 	ConceptMap          string            `json:"conceptMap"`
 	ConceptMapVersion   string            `json:"conceptMapVersion"`
@@ -57,20 +63,39 @@ type Provenance struct {
 	Equivalence         string    `json:"equivalence"`
 }
 
-// Metrics is the quality report.
+// MapScore is precision/recall/F1 for one ConceptMap against the gold tuples.
+type MapScore struct {
+	Source     string     `json:"source"`
+	MapVersion string     `json:"mapVersion"`
+	Exact      int        `json:"exact"`
+	Narrow     int        `json:"narrow"`
+	Broad      int        `json:"broad"`
+	Unmatched  int        `json:"unmatched"`
+	TruePos    int        `json:"truePositives"`
+	FalsePos   int        `json:"falsePositives"`
+	FalseNeg   int        `json:"falseNegatives"`
+	Precision  float64    `json:"precision"`
+	Recall     float64    `json:"recall"`
+	F1         float64    `json:"f1"`
+	Mismatches []Mismatch `json:"mismatches,omitempty"`
+}
+
+// Mismatch is one gold tuple the map did not reproduce.
+type Mismatch struct {
+	Source     string `json:"source"`
+	GoldTarget string `json:"goldTarget"`
+	GoldClass  string `json:"goldClass"`
+	GotTarget  string `json:"gotTarget"`
+	GotClass   string `json:"gotClass"`
+	Kind       string `json:"kind"` // fp | fn
+}
+
+// Metrics is the quality report: gold-map control plus pipeline-map score.
 type Metrics struct {
 	Track       string       `json:"track"`
 	Gold        int          `json:"gold"`
-	Exact       int          `json:"exact"`
-	Narrow      int          `json:"narrow"`
-	Broad       int          `json:"broad"`
-	Unmatched   int          `json:"unmatched"`
-	TruePos     int          `json:"truePositives"`
-	FalsePos    int          `json:"falsePositives"`
-	FalseNeg    int          `json:"falseNegatives"`
-	Precision   float64      `json:"precision"`
-	Recall      float64      `json:"recall"`
-	F1          float64      `json:"f1"`
+	GoldMap     *MapScore    `json:"goldMap"`
+	PipelineMap *MapScore    `json:"pipelineMap"`
 	Provenance  []Provenance `json:"provenance"`
 	AuditEvents int          `json:"auditEvents"`
 }
@@ -87,44 +112,80 @@ func main() {
 		fmt.Fprintf(os.Stderr, "terminology-evaluation: %v\n", err)
 		os.Exit(1)
 	}
-	if report.Gold < 1 || report.F1 < 1 {
+	if report.Gold < 1 || report.GoldMap == nil || report.PipelineMap == nil {
+		os.Exit(1)
+	}
+	if !perfect(report.GoldMap, report.Gold) {
+		fmt.Fprintf(os.Stderr, "terminology-evaluation: gold ConceptMap must reproduce the independent translations (f1=%v)\n", report.GoldMap.F1)
+		os.Exit(1)
+	}
+	if perfect(report.PipelineMap, report.Gold) {
+		fmt.Fprintf(os.Stderr, "terminology-evaluation: pipeline ConceptMap agreed with gold (f1=1); mapping quality is untested\n")
 		os.Exit(1)
 	}
 }
 
-// Evaluate scores the pipeline against the gold set and emits audit events.
+func perfect(s *MapScore, gold int) bool {
+	return s != nil && s.TruePos == gold && s.FalsePos == 0 && s.FalseNeg == 0
+}
+
+// Evaluate scores the gold ConceptMap (control) and the pipeline ConceptMap
+// (known defects) against the same independent translation catalogue.
 func Evaluate(ctx context.Context) (*Metrics, error) {
 	var gold GoldFile
 	if err := json.Unmarshal(goldJSON, &gold); err != nil {
 		return nil, err
 	}
-	cmap, err := conceptmap.ParseMap(conceptMapJSON)
+	goldScore, _, err := scoreMap(ctx, "gold", goldMapID, goldConceptMapJSON, gold, nil)
 	if err != nil {
 		return nil, err
+	}
+	auditStore := audit.NewMemoryStore()
+	logger := &audit.StoreAdapter{Store: auditStore, Now: researchutil.FixedTime}
+	pipelineScore, provenance, err := scoreMap(ctx, "pipeline", pipelineMapID, pipelineConceptMapJSON, gold, logger)
+	if err != nil {
+		return nil, err
+	}
+	events, err := auditStore.List(ctx, store.AuditQuery{Action: auditActionTranslate})
+	if err != nil {
+		return nil, err
+	}
+	return &Metrics{
+		Track:       "D",
+		Gold:        len(gold.Translations),
+		GoldMap:     goldScore,
+		PipelineMap: pipelineScore,
+		Provenance:  provenance,
+		AuditEvents: len(events),
+	}, nil
+}
+
+func scoreMap(ctx context.Context, source, resourceID string, mapJSON []byte, gold GoldFile, logger *audit.StoreAdapter) (*MapScore, []Provenance, error) {
+	cmap, err := conceptmap.ParseMap(mapJSON)
+	if err != nil {
+		return nil, nil, err
 	}
 	mem := terminology.NewMemoryStore()
 	if err := mem.PutResource(ctx, store.TerminologyResourceRecord{
 		ScopeID:      termScope,
 		ResourceType: "ConceptMap",
-		ResourceID:   "haistack-vitals-to-loinc",
-		CanonicalURL: gold.ConceptMap,
-		Version:      gold.ConceptMapVersion,
+		ResourceID:   resourceID,
+		CanonicalURL: cmap.URL,
+		Version:      cmap.Version,
 		Status:       "active",
-		ResourceJSON: conceptMapJSON,
+		ResourceJSON: mapJSON,
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	svc := terminology.NewLocalService(mem, termScope)
-	auditStore := audit.NewMemoryStore()
-	logger := &audit.StoreAdapter{Store: auditStore, Now: researchutil.FixedTime}
-
-	metrics := &Metrics{Track: "D", Gold: len(gold.Translations)}
+	metrics := &MapScore{Source: source, MapVersion: cmap.Version}
 	now := researchutil.FixedTime()
+	var provenance []Provenance
 
 	for _, g := range gold.Translations {
 		codings, err := svc.Translate(ctx, terminology.ConceptMapTranslateRequest{
-			URL:          gold.ConceptMap,
-			Version:      gold.ConceptMapVersion,
+			URL:          cmap.URL,
+			Version:      cmap.Version,
 			TargetSystem: gold.TargetSystem,
 			Coding:       terminology.Coding{System: gold.SourceSystem, Code: g.Source},
 		})
@@ -135,9 +196,12 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 		gotClass := classify(cmap, g.Source, gotCode, err)
 		scoreTranslation(metrics, g, gotCode, gotClass)
 
+		if logger == nil {
+			continue
+		}
 		prov := Provenance{
-			ConceptMapURL:       gold.ConceptMap,
-			ConceptMapVersion:   gold.ConceptMapVersion,
+			ConceptMapURL:       cmap.URL,
+			ConceptMapVersion:   cmap.Version,
 			SourceSystem:        gold.SourceSystem,
 			SourceSystemVersion: gold.SourceSystemVersion,
 			TargetSystem:        gold.TargetSystem,
@@ -146,18 +210,18 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 			TargetCode:          gotCode,
 			Equivalence:         gotClass,
 		}
-		metrics.Provenance = append(metrics.Provenance, prov)
+		provenance = append(provenance, prov)
 		if err := logger.Log(ctx, audit.Event{
 			ID:           "term-" + g.Source,
 			Timestamp:    now,
 			Actor:        "research-terminology",
 			Action:       auditActionTranslate,
-			Outcome:      outcomeFor(g, gotCode),
+			Outcome:      outcomeFor(g, gotCode, gotClass),
 			ResourceType: "ConceptMap",
-			ResourceID:   "haistack-vitals-to-loinc",
+			ResourceID:   resourceID,
 			Details: map[string]string{
-				"conceptMap":          gold.ConceptMap,
-				"conceptMapVersion":   gold.ConceptMapVersion,
+				"conceptMap":          cmap.URL,
+				"conceptMapVersion":   cmap.Version,
 				"sourceSystem":        gold.SourceSystem,
 				"sourceSystemVersion": gold.SourceSystemVersion,
 				"targetSystem":        gold.TargetSystem,
@@ -166,20 +230,15 @@ func Evaluate(ctx context.Context) (*Metrics, error) {
 				"equivalence":         gotClass,
 			},
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	events, err := auditStore.List(ctx, store.AuditQuery{Action: auditActionTranslate})
-	if err != nil {
-		return nil, err
-	}
-	metrics.AuditEvents = len(events)
 	metrics.Precision, metrics.Recall, metrics.F1 = prf(metrics.TruePos, metrics.FalsePos, metrics.FalseNeg)
-	return metrics, nil
+	return metrics, provenance, nil
 }
 
-func scoreTranslation(metrics *Metrics, g GoldTranslation, gotCode, gotClass string) {
+func scoreTranslation(metrics *MapScore, g GoldTranslation, gotCode, gotClass string) {
 	switch g.Equivalence {
 	case "unmatched":
 		metrics.Unmatched++
@@ -187,6 +246,7 @@ func scoreTranslation(metrics *Metrics, g GoldTranslation, gotCode, gotClass str
 			metrics.TruePos++
 		} else {
 			metrics.FalsePos++
+			metrics.Mismatches = append(metrics.Mismatches, mismatch(g, gotCode, gotClass, "fp"))
 		}
 	default:
 		match := gotCode == g.Target && gotClass == g.Equivalence
@@ -202,11 +262,25 @@ func scoreTranslation(metrics *Metrics, g GoldTranslation, gotCode, gotClass str
 			}
 			return
 		}
+		kind := "fp"
 		if gotCode == "" {
 			metrics.FalseNeg++
-			return
+			kind = "fn"
+		} else {
+			metrics.FalsePos++
 		}
-		metrics.FalsePos++
+		metrics.Mismatches = append(metrics.Mismatches, mismatch(g, gotCode, gotClass, kind))
+	}
+}
+
+func mismatch(g GoldTranslation, gotCode, gotClass, kind string) Mismatch {
+	return Mismatch{
+		Source:     g.Source,
+		GoldTarget: g.Target,
+		GoldClass:  g.Equivalence,
+		GotTarget:  gotCode,
+		GotClass:   gotClass,
+		Kind:       kind,
 	}
 }
 
@@ -248,11 +322,11 @@ func equivalenceClass(eq string) string {
 	}
 }
 
-func outcomeFor(g GoldTranslation, got string) string {
-	if g.Equivalence == "unmatched" && got == "" {
+func outcomeFor(g GoldTranslation, got, gotClass string) string {
+	if g.Equivalence == "unmatched" && got == "" && gotClass == "unmatched" {
 		return audit.OutcomeSuccess
 	}
-	if got == g.Target {
+	if got == g.Target && gotClass == g.Equivalence {
 		return audit.OutcomeSuccess
 	}
 	return audit.OutcomeError

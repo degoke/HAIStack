@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -20,6 +19,7 @@ type ScoreReport struct {
 	Pairs      int            `json:"pairs"`
 	Passed     int            `json:"passed"`
 	Failed     int            `json:"failed"`
+	Differing  int            `json:"differingPairs"`
 	ByCategory map[string]int `json:"byCategory"`
 	ByType     map[string]int `json:"byResourceType"`
 	LossFlags  int            `json:"informationLossFlags"`
@@ -50,6 +50,9 @@ func ScoreAll(ctx context.Context) (*ScoreReport, error) {
 		report.ByCategory[pair.Category]++
 		report.ByType[pair.ResourceType]++
 		report.LossFlags += len(pair.InformationLoss)
+		if string(pair.R4) != string(pair.R5) {
+			report.Differing++
+		}
 		if errs := scorePair(ctx, codec, engine, pair); len(errs) > 0 {
 			report.Failed++
 			report.Failures = append(report.Failures, PairFailure{ID: pair.ID, Errors: errs})
@@ -81,23 +84,33 @@ func scorePair(ctx context.Context, codec *proto.GoogleR4Codec, engine fhirpath.
 			}
 		}
 	}
-	for _, a := range pair.Assertions {
-		env := r4env
-		if strings.EqualFold(a.Version, "r5") {
-			env = r5env
+	if r4proto != nil {
+		for _, a := range pair.R4FHIRPath {
+			got, err := engine.EvalBool(ctx, a.Expr, r4proto)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("r4 fhirpath %q: %v", a.Expr, err))
+				continue
+			}
+			if got != a.Want {
+				errs = append(errs, fmt.Sprintf("r4 fhirpath %q: got %v want %v", a.Expr, got, a.Want))
+			}
 		}
-		if env == nil {
-			errs = append(errs, fmt.Sprintf("assertion %s %q: missing resource", a.Version, a.Expr))
-			continue
+	} else if len(pair.R4FHIRPath) > 0 {
+		errs = append(errs, "r4 fhirpath: missing proto envelope")
+	}
+	if r5env != nil {
+		for _, c := range pair.R5JSON {
+			got, err := evalJSONCheck(r5env.JSON, c)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("r5 json %s %q: %v", c.Op, c.Path, err))
+				continue
+			}
+			if !got {
+				errs = append(errs, fmt.Sprintf("r5 json %s %q: not satisfied (value=%v)", c.Op, c.Path, c.Value))
+			}
 		}
-		got, err := evalAssertion(ctx, engine, r4proto, env, a)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("assertion %s %q: %v", a.Version, a.Expr, err))
-			continue
-		}
-		if got != a.Want {
-			errs = append(errs, fmt.Sprintf("assertion %s %q: got %v want %v", a.Version, a.Expr, got, a.Want))
-		}
+	} else if len(pair.R5JSON) > 0 {
+		errs = append(errs, "r5 json checks: missing resource")
 	}
 	if pair.Category == "information_loss" && len(pair.InformationLoss) == 0 {
 		errs = append(errs, "information_loss category requires flags")
@@ -105,84 +118,47 @@ func scorePair(ctx context.Context, codec *proto.GoogleR4Codec, engine fhirpath.
 	return errs
 }
 
-func evalAssertion(ctx context.Context, engine fhirpath.Engine, r4proto, env *types.ResourceEnvelope, a Assertion) (bool, error) {
-	useFHIRPath := r4proto != nil && strings.EqualFold(a.Version, "r4") && !strings.Contains(a.Expr, "ofType")
-	if useFHIRPath {
-		got, err := engine.EvalBool(ctx, a.Expr, r4proto)
-		if err == nil {
-			return got, nil
-		}
-	}
-	return evalJSONBool(env.JSON, a.Expr)
-}
-
-func evalJSONBool(raw []byte, expr string) (bool, error) {
+func evalJSONCheck(raw []byte, c JSONCheck) (bool, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return false, err
 	}
-	expr = strings.TrimSpace(expr)
-	wantCount := -1
-	wantEqual := ""
-	exists := strings.HasSuffix(expr, ".exists()")
-	switch {
-	case exists:
-		expr = strings.TrimSuffix(expr, ".exists()")
-	case strings.Contains(expr, ".count() = "):
-		parts := strings.Split(expr, ".count() = ")
-		if len(parts) != 2 {
-			return false, fmt.Errorf("unsupported count expression %q", expr)
-		}
-		expr = parts[0]
-		n, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if err != nil {
-			return false, err
-		}
-		wantCount = n
-	case strings.Contains(expr, " = "):
-		parts := strings.SplitN(expr, " = ", 2)
-		expr = strings.TrimSpace(parts[0])
-		wantEqual = strings.Trim(strings.TrimSpace(parts[1]), "'\"")
-	default:
-		return false, fmt.Errorf("unsupported assertion %q", expr)
-	}
-	path := rewriteChoiceTypes(expr)
-	values := walkJSON(obj, path)
-	switch {
-	case exists:
+	values := walkJSON(obj, strings.Split(c.Path, "."))
+	switch c.Op {
+	case "exists":
 		return len(values) > 0, nil
-	case wantCount >= 0:
-		return len(values) == wantCount, nil
-	default:
+	case "missing":
+		return len(values) == 0, nil
+	case "count":
+		n, ok := asInt(c.Value)
+		if !ok {
+			return false, fmt.Errorf("count value %v is not an integer", c.Value)
+		}
+		return len(values) == n, nil
+	case "equals":
+		want := fmt.Sprint(c.Value)
 		for _, v := range values {
-			if fmt.Sprint(v) == wantEqual {
+			if fmt.Sprint(v) == want {
 				return true, nil
 			}
 		}
 		return false, nil
+	default:
+		return false, fmt.Errorf("unsupported json check op %q", c.Op)
 	}
 }
 
-func rewriteChoiceTypes(expr string) []string {
-	repl := []struct{ from, to string }{
-		{".ofType(boolean)", "Boolean"},
-		{".ofType(dateTime)", "DateTime"},
-		{".ofType(Quantity)", "Quantity"},
-		{".ofType(CodeableConcept)", "CodeableConcept"},
-		{".ofType(Age)", "Age"},
+func asInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
 	}
-	out := expr
-	for _, r := range repl {
-		if strings.Contains(out, r.from) {
-			out = strings.ReplaceAll(out, r.from, r.to)
-		}
-	}
-	out = strings.ReplaceAll(out, ".first()", "")
-	parts := strings.Split(out, ".")
-	if len(parts) > 0 {
-		parts = parts[1:] // drop resource type
-	}
-	return parts
 }
 
 func walkJSON(root any, path []string) []any {
@@ -198,7 +174,6 @@ func walkJSON(root any, path []string) []any {
 				if v, ok := n[p]; ok {
 					next = append(next, flatten(v)...)
 				}
-				// Choice types: deceasedBoolean when path is deceasedBoolean after rewrite
 			case []any:
 				for _, item := range n {
 					if m, ok := item.(map[string]any); ok {
@@ -255,6 +230,10 @@ func main() {
 	}
 	if report.Pairs < 50 {
 		fmt.Fprintf(os.Stderr, "semantic-conversion: need ≥50 pairs, got %d\n", report.Pairs)
+		os.Exit(1)
+	}
+	if report.Differing < 30 {
+		fmt.Fprintf(os.Stderr, "semantic-conversion: need ≥30 differing R4/R5 pairs, got %d\n", report.Differing)
 		os.Exit(1)
 	}
 	if report.Failed > 0 {

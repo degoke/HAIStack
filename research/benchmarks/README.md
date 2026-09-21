@@ -21,7 +21,7 @@ CI). Override with `HAISTACK_BENCH_SIZE=medium|large`.
 |------|------|
 | `workloads/*.yaml` | Portable workload definitions (read, search-scan, view) |
 | `generate.go` | Seeded synthetic dataset (`seed=11`) |
-| `runner.go` | HAIStack in-memory runner (`pkg/testkit/storetest` + `pkg/view`) |
+| `runner.go` | HAIStack in-memory runner (`researchutil.MemoryResourceStore` + `pkg/view`) |
 | `adapters/README.md` | Template for wiring HAPI or another server |
 
 ## Sizes

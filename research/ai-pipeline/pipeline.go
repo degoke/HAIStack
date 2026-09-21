@@ -13,7 +13,6 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/degoke/health-ai-stack/pkg/view"
@@ -84,7 +83,7 @@ func printPipeline() error {
 // Run executes the reproducible FHIR → view → AI tool → audit pipeline.
 func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	now := researchutil.FixedTime
-	resources := storetest.NewResourceStore()
+	resources := researchutil.NewMemoryResourceStore()
 	auditStore := audit.NewMemoryStore()
 
 	inputs, err := loadAndValidate(ctx, resources)
@@ -267,7 +266,7 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	}, nil
 }
 
-func loadAndValidate(ctx context.Context, resources *storetest.ResourceStore) ([]InputRecord, error) {
+func loadAndValidate(ctx context.Context, resources store.ResourceStore) ([]InputRecord, error) {
 	validator, err := validate.NewEngine(validate.Config{})
 	if err != nil {
 		return nil, err

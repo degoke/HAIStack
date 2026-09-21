@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/health-ai-stack/research/internal/researchutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,9 +76,9 @@ func Run(ctx context.Context, size string) (*BenchReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := storetest.NewResourceStore()
+	resources := researchutil.NewMemoryResourceStore()
 	for _, env := range append(append([]*types.ResourceEnvelope{}, patients...), observations...) {
-		if err := store.Create(ctx, env); err != nil {
+		if err := resources.Create(ctx, env); err != nil {
 			return nil, err
 		}
 	}
@@ -90,7 +91,7 @@ func Run(ctx context.Context, size string) (*BenchReport, error) {
 		return nil, err
 	}
 	viewExec, err := view.NewExecutor(view.Config{
-		Resources: store,
+		Resources: resources,
 		Engine:    engine,
 		Registry:  reg,
 	})
@@ -110,7 +111,7 @@ func Run(ctx context.Context, size string) (*BenchReport, error) {
 		Obs:      len(observations),
 	}
 	for _, wl := range workloads {
-		result, err := runWorkload(ctx, store, viewExec, patients, observations, wl)
+		result, err := runWorkload(ctx, resources, viewExec, patients, observations, wl)
 		if err != nil {
 			return nil, fmt.Errorf("workload %s: %w", wl.Name, err)
 		}
@@ -119,7 +120,7 @@ func Run(ctx context.Context, size string) (*BenchReport, error) {
 	return report, nil
 }
 
-func runWorkload(ctx context.Context, resources *storetest.ResourceStore, views *view.Executor, patients, observations []*types.ResourceEnvelope, wl WorkloadFile) (WorkloadResult, error) {
+func runWorkload(ctx context.Context, resources store.ResourceStore, views *view.Executor, patients, observations []*types.ResourceEnvelope, wl WorkloadFile) (WorkloadResult, error) {
 	var samples []time.Duration
 	start := time.Now()
 	ops := 0

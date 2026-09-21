@@ -22,4 +22,4 @@ type Adapter interface {
 ```
 
 HAIStack's runner in `runner.go` is the reference `Adapter` over
-`pkg/testkit/storetest` and `pkg/view`.
+`research/internal/researchutil.MemoryResourceStore` and `pkg/view`.

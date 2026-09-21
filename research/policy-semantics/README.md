@@ -27,9 +27,11 @@ The CLI loads `scenarios.yaml` (≥10 cases) and executes them against
 ## Runner
 
 `pkg/testkit/authztest.ParseYAML` / `ScenariosFromYAML` is the shared
-scenario runner (also used by the authorization test suite). YAML cases
-fail unless **both** SMART `ScopeImplies` and the policy engine allow the
-action.
+scenario runner requested by issue #11 (also used by the authorization
+test suite). YAML cases fail unless **both** SMART `ScopeImplies` and the
+policy engine allow the action. Track C is the exception to “testkit is
+tests-only”: the YAML catalogue is the artefact. Tracks A and E do **not**
+import `pkg/testkit`.
 
 This catalogue is vendor-neutral: the YAML does not mention HAPI, Firely,
 or other servers. Adapters can replay the same principal/scope/request

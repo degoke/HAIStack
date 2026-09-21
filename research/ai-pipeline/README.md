@@ -36,6 +36,7 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 | IG / FHIR | FHIR R4 JSON; ViewDefinition `research_vitals_view` `1.0.0` |
 | Policy | deny-by-default DSL in `pipeline.go` |
 | Model | `stub-v1` deterministic adapter; no network |
+| Store | `research/internal/researchutil.MemoryResourceStore` (not `pkg/testkit`) |
 | Audit | `pkg/audit` memory store; actions `execute-view` and `execute-tool` |
 
 ## What the bundle proves

@@ -91,7 +91,8 @@ name, model adapter/seed, citations, and audit events.
 | SMART | `pkg/smart` |
 | Terminology | `pkg/terminology`, `pkg/conceptmap` |
 | Proto / codec | `pkg/proto`, `pkg/types` |
-| Scenario runner | `pkg/testkit/authztest` |
+| Scenario runner | `pkg/testkit/authztest` (policy YAML; tests-only helper reused by Track C) |
+| Evaluation store | `research/internal/researchutil.MemoryResourceStore` (Tracks A and E; not `pkg/testkit`) |
 
 Related product issues: conformance IG pinning, authorization semantics,
 Bulk Data / analytics paths, and proof-of-conformance benchmarks.

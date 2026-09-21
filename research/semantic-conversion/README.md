@@ -1,8 +1,8 @@
 # Track B — Semantic conversion corpus (R4 → R5)
 
 Paired FHIR instances documenting R4 → R5 mapping classes, with a scorer
-that reports **structural equivalence**, **semantic equivalence**
-(FHIRPath assertions), and **information-loss flags**.
+that reports **structural equivalence**, **semantic equivalence**, and
+**information-loss flags**.
 
 HAIStack `pkg/proto` currently ships Google FHIR **R4** only. R5 JSON in
 this corpus is the expected target shape; it is not round-tripped through
@@ -19,16 +19,19 @@ go run ./research/semantic-conversion
 ```
 
 The generator produces **≥50 pairs** across Patient, Observation,
-Condition, and MedicationRequest. Categories:
+Condition, and MedicationRequest. **≥30 pairs** have distinct R4 and R5
+JSON. Categories `renamed`, `type`, `cardinality`, and `information_loss`
+always differ between versions; `identity` is the only class that keeps
+identical copies (stable elements that did not change).
 
 | Category | What it exercises |
 |----------|-------------------|
-| `identity` | Stable elements (id, status, subject, quantities) |
-| `cardinality` | e.g. Observation.specimen 0..1 → 0..* |
-| `type` | e.g. Observation.bodySite CodeableConcept → BackboneElement; MedicationRequest.medication |
-| `renamed` | e.g. Condition.asserter → participant; MedicationRequest.reasonCode → reason |
-| `codeableconcept` | Coding system/display shifts that remain conceptually same |
-| `information_loss` | R4 elements with no R5 counterpart (Condition.evidence, MedicationRequest.detectedIssue) |
+| `identity` | Unique stable instances (id, status, subject, quantities). R4 JSON equals R5. |
+| `cardinality` | Shape/count changes, e.g. Observation.specimen 0..1 → 0..* |
+| `type` | Choice or type shifts, e.g. Observation.bodySite CodeableConcept → BackboneElement; MedicationRequest.medication[x] → CodeableReference |
+| `renamed` | Field moves, e.g. Condition.asserter → participant; MedicationRequest.reasonCode → reason |
+| `codeableconcept` | Same concept with display/text presentation changes |
+| `information_loss` | R4 elements with no R5 counterpart (Condition.evidence, MedicationRequest.detectedIssue) or converter drops (Patient.photo) |
 
 ## Scoring
 
@@ -36,11 +39,13 @@ For each pair:
 
 1. Parse R4 JSON with `pkg/proto` (must succeed).
 2. Structural: compare documented stable paths on R4 vs R5 JSON.
-3. Semantic: FHIRPath assertions. R4 expressions that the engine can
-   evaluate against the proto envelope are run through `pkg/fhirpath`.
-   R5 (and `ofType()` choice) assertions use the same FHIRPath surface
-   evaluated against canonical JSON, because `pkg/proto` has no R5 codec yet.
-4. Record `informationLoss` flags from the pair metadata.
+3. Semantic (R4): `pkg/fhirpath.EvalBool` against the Google R4 proto
+   envelope. There is no JSON-walker fallback; a failing expression fails
+   the pair.
+4. Semantic (R5): structural JSON checks (`exists`, `missing`, `count`,
+   `equals`) on the expected R5 document. These are **not** FHIRPath —
+   `pkg/fhirpath` has no R5 codec.
+5. Record `informationLoss` flags from the pair metadata.
 
 Relationship to HL7: pairs follow published R4/R5 resource diffs where a
 mapping is defined. They are not a substitute for the HL7 version
