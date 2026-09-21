@@ -630,13 +630,11 @@ func parseELMCase(obj map[string]any) (Node, error) {
 		}
 		n.whens = append(n.whens, caseWhen{when: when, then: thenN})
 	}
-	if elseObj, ok := asObject(obj["else"]); ok {
-		e, err := parseELMExpr(elseObj)
-		if err != nil {
-			return nil, err
-		}
-		n.elseN = e
+	elseN, err := parseELMOptional(obj, "else")
+	if err != nil {
+		return nil, err
 	}
+	n.elseN = elseN
 	return n, nil
 }
 
@@ -672,7 +670,7 @@ func parseELMAge(obj map[string]any, typ string) (Node, error) {
 	if typ == "CalculateAgeAt" && len(ops) >= 2 {
 		at = ops[1]
 	}
-	if birth == nil || isELMPatientBirthDate(birth) {
+	if birth == nil || (isELMPatientBirthDate(birth) && isYearPrecision(precision)) {
 		if at != nil {
 			return &callNode{callee: &identNode{name: "AgeInYearsAt"}, args: []Node{at}}, nil
 		}
@@ -682,7 +680,14 @@ func parseELMAge(obj map[string]any, typ string) (Node, error) {
 	if asOf == nil {
 		asOf = &callNode{callee: &identNode{name: "Today"}, args: nil}
 	}
+	if isELMPatientBirthDate(birth) {
+		birth = &callNode{callee: &identNode{name: "ToDate"}, args: []Node{birth}}
+	}
 	return &durationNode{unit: precision, left: birth, right: asOf}, nil
+}
+
+func isYearPrecision(p string) bool {
+	return timeUnitName(p) == "year"
 }
 
 func isELMPatientBirthDate(n Node) bool {

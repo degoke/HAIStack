@@ -523,6 +523,40 @@ func TestAnnotationRecoveryIgnoresStatementLocators(t *testing.T) {
 	}
 }
 
+func TestCQLRecoveryIgnoresStatementLibraryStrings(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"library": map[string]any{
+			"identifier": map[string]any{"id": "Ann", "version": "1.0.0"},
+			"cql":        "library Ann version '1.0.0'\ncontext Patient\ndefine \"X\": true\n",
+			"statements": map[string]any{
+				"def": []any{
+					map[string]any{
+						"name": "X",
+						"cql":  "library Scrambled version '1.0.0'\ncontext Patient\ndefine \"Scrambled\": false\ndefine \"More\": 1\n",
+						"expression": map[string]any{
+							"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true",
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := elmLibraryEnvelope(t, string(payload))
+	src, _, _, _, err := EnvelopeLibrary(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(src, "Scrambled") {
+		t.Fatalf("statement library string leaked into recovery: %s", src)
+	}
+	if !strings.Contains(src, `define "X": true`) {
+		t.Fatalf("library-level cql: %s", src)
+	}
+}
+
 func TestInvalidIntervalBoundFails(t *testing.T) {
 	_, err := parseELMExpr(map[string]any{
 		"type": "Interval",
@@ -554,6 +588,38 @@ func TestInvalidIfElseFails(t *testing.T) {
 	})
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("expected invalid else error, got %v", err)
+	}
+}
+
+func TestInvalidCaseElseFails(t *testing.T) {
+	_, err := parseELMExpr(map[string]any{
+		"type": "Case",
+		"caseItem": []any{
+			map[string]any{
+				"when": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"},
+				"then": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+			},
+		},
+		"else": "broken",
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected invalid case else error, got %v", err)
+	}
+	n, err := parseELMExpr(map[string]any{
+		"type": "Case",
+		"caseItem": []any{
+			map[string]any{
+				"when": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"},
+				"then": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := n.(*caseNode)
+	if !ok || c.elseN != nil {
+		t.Fatalf("missing case else should be nil: %#v", n)
 	}
 }
 
@@ -602,6 +668,35 @@ func TestCalculateAgeUsesOperandUnlessPatientBirthDate(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != int64(16) {
 		t.Fatalf("CalculateAge of 2010-01-01: %#v", got)
+	}
+}
+
+func TestCalculateAgeBirthDateNonYearPrecision(t *testing.T) {
+	src := `{
+		"library": {
+			"identifier": {"id": "AgeLib", "version": "1.0.0"},
+			"statements": {"def": [{
+				"name": "Months",
+				"context": "Patient",
+				"expression": {
+					"type": "CalculateAge",
+					"precision": "Month",
+					"operand": {"type": "Property", "path": "birthDate", "source": {"type": "ExpressionRef", "name": "Patient"}}
+				}
+			}]}
+		}
+	}`
+	eng := testEngine(t)
+	lib, err := eng.ParseELM([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "Months", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(320) {
+		t.Fatalf("CalculateAge in months of birthDate: %#v", got)
 	}
 }
 

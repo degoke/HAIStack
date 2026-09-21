@@ -269,8 +269,17 @@ func recoverCQLFromELM(raw []byte) string {
 		}
 		return ""
 	}
+	obj, ok := asObject(v)
+	if !ok {
+		return ""
+	}
+	libObj := obj
+	if inner, ok := asObject(obj["library"]); ok {
+		libObj = inner
+	}
 	var found []string
-	walkCQLStrings(v, &found)
+	walkCQLStrings(libObj["cql"], &found)
+	walkCQLStrings(libObj["annotation"], &found)
 	best := ""
 	for _, s := range found {
 		if len(s) > len(best) {
