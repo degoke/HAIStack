@@ -18,7 +18,7 @@ type YAMLFile struct {
 
 // YAMLScenario is one vendor-neutral policy × SMART-scope test case.
 //
-// ExpectedAllow is the intersection of SMART scope grants and pkg/auth
+// ExpectAllow is the intersection of SMART scope grants and pkg/auth
 // policy allows. A case is allowed only when both layers permit the action.
 type YAMLScenario struct {
 	Name         string `yaml:"name"`
@@ -220,8 +220,7 @@ func bundleForYAML(adapter *smart.AuthAdapter, spec YAMLScenario) (smart.AuthBun
 	if err != nil {
 		return smart.AuthBundle{}, err
 	}
-	subject := "user-clinician"
-	clientID := ""
+	var subject, clientID string
 	switch spec.Principal {
 	case "", "clinician":
 		subject = "user-clinician"

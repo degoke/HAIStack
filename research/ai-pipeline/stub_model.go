@@ -33,8 +33,7 @@ func (m *StubModel) Invoke(_ context.Context, req ai.ModelRequest) (*ai.ModelRes
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\n%s\n%s", seed, req.Prompt, req.Context)))
 	digest := hex.EncodeToString(sum[:8])
 	var b strings.Builder
-	b.WriteString("Deterministic vitals summary (stub model, seed ")
-	b.WriteString(fmt.Sprintf("%d). Fingerprint %s.\n", seed, digest))
+	fmt.Fprintf(&b, "Deterministic vitals summary (stub model, seed %d). Fingerprint %s.\n", seed, digest)
 	if strings.TrimSpace(req.Context) != "" {
 		b.WriteString("Grounded on permissioned view rows supplied in tool context.")
 	}
