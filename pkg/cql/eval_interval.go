@@ -333,6 +333,147 @@ func intervalMeets(a, b Interval) bool {
 	return false
 }
 
+func intervalExcept(a, b Interval) []any {
+	if !intervalOverlaps(a, b) {
+		return []any{a}
+	}
+	if intervalIncludes(b, a, false) {
+		return nil
+	}
+	inter, ok := intervalIntersect(a, b)
+	if !ok {
+		return []any{a}
+	}
+	leftGap := false
+	rightGap := false
+	if a.Low == nil && inter.Low != nil {
+		leftGap = true
+	} else if a.Low != nil && inter.Low != nil {
+		cmp, ok := cqlCompare(a.Low, inter.Low)
+		if ok && (cmp < 0 || (cmp == 0 && a.LowClosed && !inter.LowClosed)) {
+			leftGap = true
+		}
+	}
+	if a.High == nil && inter.High != nil {
+		rightGap = true
+	} else if a.High != nil && inter.High != nil {
+		cmp, ok := cqlCompare(a.High, inter.High)
+		if ok && (cmp > 0 || (cmp == 0 && a.HighClosed && !inter.HighClosed)) {
+			rightGap = true
+		}
+	}
+	if leftGap && rightGap {
+		return nil
+	}
+	if leftGap {
+		return []any{Interval{Low: a.Low, High: inter.Low, LowClosed: a.LowClosed, HighClosed: !inter.LowClosed}}
+	}
+	if rightGap {
+		return []any{Interval{Low: inter.High, High: a.High, LowClosed: !inter.HighClosed, HighClosed: a.HighClosed}}
+	}
+	return nil
+}
+
+func expandValues(v []any, per *Quantity) []any {
+	var out []any
+	expanded := false
+	for _, item := range v {
+		iv, ok := asInterval(item)
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		expanded = true
+		out = append(out, expandInterval(iv, per)...)
+	}
+	if !expanded {
+		return v
+	}
+	return out
+}
+
+func expandInterval(iv Interval, per *Quantity) []any {
+	if iv.Low == nil || iv.High == nil {
+		return nil
+	}
+	if lf, ok := asInt(iv.Low); ok {
+		if hf, ok := asInt(iv.High); ok {
+			step := int64(1)
+			if per != nil && per.Value > 0 {
+				step = int64(per.Value)
+			}
+			if step <= 0 {
+				return nil
+			}
+			start := lf
+			if !iv.LowClosed {
+				start += step
+			}
+			end := hf
+			if !iv.HighClosed {
+				end--
+			}
+			var out []any
+			for i := start; i <= end; i += step {
+				out = append(out, Interval{Low: i, High: i, LowClosed: true, HighClosed: true})
+				if len(out) > 10000 {
+					break
+				}
+			}
+			return out
+		}
+	}
+	if _, ok := asTime(iv.Low); ok {
+		if _, ok := asTime(iv.High); ok {
+			return expandTimeInterval(iv, per)
+		}
+	}
+	return []any{iv}
+}
+
+func expandTimeInterval(iv Interval, per *Quantity) []any {
+	start, ok := asTime(iv.Low)
+	if !ok {
+		return nil
+	}
+	end, ok := asTime(iv.High)
+	if !ok {
+		return nil
+	}
+	step := Quantity{Value: 1, Unit: "day"}
+	if per != nil {
+		step = *per
+	}
+	t := start
+	if !iv.LowClosed {
+		next, ok := addDuration(t, step, "+")
+		if !ok {
+			return nil
+		}
+		t = next
+	}
+	var out []any
+	for {
+		cmp, ok := cqlCompare(t, end)
+		if !ok {
+			break
+		}
+		if cmp > 0 || (cmp == 0 && !iv.HighClosed) {
+			break
+		}
+		out = append(out, Interval{Low: t, High: t, LowClosed: true, HighClosed: true})
+		if len(out) > 10000 {
+			break
+		}
+		next, ok := addDuration(t, step, "+")
+		if !ok || !next.After(t) {
+			break
+		}
+		t = next
+	}
+	return out
+}
+
 func intervalIntersect(a, b Interval) (Interval, bool) {
 	if !intervalOverlaps(a, b) {
 		return Interval{}, false

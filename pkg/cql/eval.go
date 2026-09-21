@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,7 +437,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		}
 		return []any{!*b}, nil
 	case "exists":
-		return []any{len(v) > 0}, nil
+		return []any{existsNonNull(v)}, nil
 	case "-":
 		if len(v) == 0 {
 			return nil, nil
@@ -493,7 +494,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "collapse":
 		return collapseIntervals(v), nil
 	case "expand":
-		return v, nil
+		return expandValues(v, nil), nil
 	}
 	return nil, errf("%w: unary operator %q", ErrUnsupported, n.op)
 }
@@ -510,6 +511,20 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		right, err := st.eval(n.right)
 		if err != nil {
 			return nil, err
+		}
+		if len(left) == 1 && len(right) == 1 {
+			if li, ok := asInterval(left[0]); ok {
+				if ri, ok := asInterval(right[0]); ok {
+					if intervalOverlaps(li, ri) || intervalMeets(li, ri) {
+						merged, ok := intervalUnion(li, ri)
+						if !ok {
+							return nil, nil
+						}
+						return []any{merged}, nil
+					}
+					return nil, nil
+				}
+			}
 		}
 		return distinctValues(append(append([]any{}, left...), right...)), nil
 	case "&":
@@ -594,6 +609,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		right, err := st.eval(n.right)
 		if err != nil {
 			return nil, err
+		}
+		if len(left) == 1 && len(right) == 1 {
+			if li, ok := asInterval(left[0]); ok {
+				if ri, ok := asInterval(right[0]); ok {
+					return intervalExcept(li, ri), nil
+				}
+			}
 		}
 		return listExcept(left, right), nil
 	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "starts", "ends", "meets", "before", "after":
@@ -808,9 +830,9 @@ func (st *evalState) evalMethod(name string, recv []any, rawArgs []Node, args []
 		}
 		return []any{recv[len(recv)-1]}, nil
 	case "count":
-		return []any{int64(len(recv))}, nil
+		return []any{countNonNull(recv)}, nil
 	case "exists":
-		return []any{len(recv) > 0}, nil
+		return []any{existsNonNull(recv)}, nil
 	case "empty":
 		return []any{len(recv) == 0}, nil
 	case "single":
@@ -939,12 +961,12 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) == 0 {
 			return []any{int64(0)}, nil
 		}
-		return []any{int64(len(args[0]))}, nil
+		return []any{countNonNull(args[0])}, nil
 	case "exists":
 		if len(args) == 0 {
 			return []any{false}, nil
 		}
-		return []any{len(args[0]) > 0}, nil
+		return []any{existsNonNull(args[0])}, nil
 	case "empty":
 		if len(args) == 0 {
 			return []any{true}, nil
@@ -1101,7 +1123,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) == 0 {
 			return nil, nil
 		}
-		return args[0], nil
+		var per *Quantity
+		if len(args) > 1 && len(args[1]) > 0 {
+			if q, ok := asQuantity(args[1][0]); ok {
+				per = &q
+			}
+		}
+		return expandValues(args[0], per), nil
 	}
 	return nil, errf("%w: function %s", ErrUnsupported, name)
 }
@@ -1118,9 +1146,14 @@ func (st *evalState) ageInYears(at *time.Time) ([]any, error) {
 	if at != nil && !at.IsZero() {
 		when = *at
 	}
-	years := when.UTC().Year() - birth.UTC().Year()
+	when = when.UTC()
+	birth = birth.UTC()
+	years := when.Year() - birth.Year()
 	anniversary := time.Date(when.Year(), birth.Month(), birth.Day(), 0, 0, 0, 0, time.UTC)
-	if when.UTC().Before(anniversary) {
+	if anniversary.Month() != birth.Month() {
+		anniversary = time.Date(when.Year(), birth.Month()+1, 0, 0, 0, 0, 0, time.UTC)
+	}
+	if when.Before(anniversary) {
 		years--
 	}
 	if years < 0 {
@@ -1158,7 +1191,7 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 }
 
 func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
-	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology, Comparator: n.comparator}
+	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology, Comparator: n.comparator, CodePath: n.codePath}
 	if n.terminology == "" {
 		return req
 	}
@@ -1590,6 +1623,17 @@ func isIntLike(v any) bool {
 
 func cqlEqual(a, b any) bool {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if ra, ok := resourceIdentity(a); ok {
+		if rb, ok := resourceIdentity(b); ok {
+			return ra == rb
+		}
+	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
 			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
@@ -1610,7 +1654,75 @@ func cqlEqual(a, b any) bool {
 			return fa == fb
 		}
 	}
+	if la, ok := a.([]any); ok {
+		lb, ok := b.([]any)
+		if !ok || len(la) != len(lb) {
+			return false
+		}
+		for i := range la {
+			if !cqlEqual(la[i], lb[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	if ma, ok := asObject(a); ok {
+		if mb, ok := asObject(b); ok {
+			if len(ma) != len(mb) {
+				return false
+			}
+			for k, va := range ma {
+				vb, ok := mb[k]
+				if !ok || !cqlEqual(va, vb) {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	return fmt.Sprint(a) == fmt.Sprint(b)
+}
+
+func resourceIdentity(v any) (string, bool) {
+	if env, ok := v.(*types.ResourceEnvelope); ok && env != nil {
+		if env.ResourceType != "" && env.ID != "" {
+			return env.ResourceType + "/" + env.ID, true
+		}
+	}
+	if env, ok := v.(types.ResourceEnvelope); ok {
+		if env.ResourceType != "" && env.ID != "" {
+			return env.ResourceType + "/" + env.ID, true
+		}
+	}
+	obj, ok := asObject(v)
+	if !ok {
+		return "", false
+	}
+	rt, _ := obj["resourceType"].(string)
+	id, _ := obj["id"].(string)
+	if rt != "" && id != "" {
+		return rt + "/" + id, true
+	}
+	return "", false
+}
+
+func countNonNull(v []any) int64 {
+	var n int64
+	for _, item := range v {
+		if unwrapPrimitive(item) != nil {
+			n++
+		}
+	}
+	return n
+}
+
+func existsNonNull(v []any) bool {
+	for _, item := range v {
+		if unwrapPrimitive(item) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func cqlEquivalent(a, b any) bool {
@@ -1716,29 +1828,32 @@ func fieldValues(v any, name string) ([]any, bool) {
 		return nil, false
 	}
 	if obj, ok := asObject(v); ok {
-		raw, exists := obj[name]
-		if !exists {
-			// Choice types: valueQuantity, deceasedBoolean, effectiveDateTime, …
-			for k, val := range obj {
-				if k == name || strings.EqualFold(k, name) {
-					raw = val
-					exists = true
-					break
-				}
-				if len(k) > len(name) && strings.HasPrefix(k, name) {
-					rest := k[len(name):]
-					if rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
-						raw = val
-						exists = true
-						break
-					}
+		if raw, exists := obj[name]; exists {
+			return flattenJSON(raw), true
+		}
+		var fold []string
+		var choice []string
+		for k := range obj {
+			if strings.EqualFold(k, name) {
+				fold = append(fold, k)
+				continue
+			}
+			if len(k) > len(name) && strings.HasPrefix(k, name) {
+				rest := k[len(name):]
+				if rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
+					choice = append(choice, k)
 				}
 			}
 		}
-		if !exists {
-			return nil, false
+		sort.Strings(fold)
+		sort.Strings(choice)
+		if len(fold) > 0 {
+			return flattenJSON(obj[fold[0]]), true
 		}
-		return flattenJSON(raw), true
+		if len(choice) > 0 {
+			return flattenJSON(obj[choice[0]]), true
+		}
+		return nil, false
 	}
 	return nil, false
 }

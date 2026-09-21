@@ -120,6 +120,17 @@ func closedPeriodEnd(end time.Time) time.Time {
 	return end
 }
 
+func periodDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	loc := t.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02")
+}
+
 func normalizeReportType(reportType, subject string, patient any) string {
 	switch strings.ToLower(strings.TrimSpace(reportType)) {
 	case "individual", "subject":
@@ -213,8 +224,8 @@ func buildMeasureReport(ctx context.Context, e *Engine, m fhirMeasure, reportTyp
 		"type":         reportType,
 		"date":         e.clock().UTC().Format(time.RFC3339),
 		"period": map[string]any{
-			"start": start.UTC().Format("2006-01-02"),
-			"end":   end.UTC().Format("2006-01-02"),
+			"start": periodDate(start),
+			"end":   periodDate(end),
 		},
 	}
 	if m.URL != "" {
@@ -285,7 +296,7 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 			break
 		}
 	}
-	stratumPops := map[stratumKey]map[string]int{}
+	stratumPops := map[stratumKey][]int{}
 	for _, subject := range subjects {
 		env.Patient = subject
 		oks := make([]bool, len(pops))
@@ -303,13 +314,13 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 		if hasIP && !inIP {
 			continue
 		}
-		matched := map[string]bool{}
+		matched := make([]bool, len(pops))
 		for i := range pops {
 			if !oks[i] {
 				continue
 			}
 			pops[i].count++
-			matched[pops[i].code] = true
+			matched[i] = true
 			if reportType == "subject-list" {
 				if ref := patientReference(subject); ref != "" {
 					pops[i].subjects = append(pops[i].subjects, ref)
@@ -329,15 +340,15 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 			if err != nil {
 				return nil, nil, errf("%w: stratifier: %v", ErrMeasure, err)
 			}
-			key := stratumKey{strat: si, value: fmt.Sprint(singletonOrList(vals))}
+			key := stratumKey{strat: si, value: stratifierKey(vals)}
 			counts := stratumPops[key]
 			if counts == nil {
-				counts = map[string]int{}
+				counts = make([]int, len(pops))
 				stratumPops[key] = counts
 			}
-			for _, p := range pops {
-				if matched[p.code] {
-					counts[p.code]++
+			for i := range pops {
+				if matched[i] {
+					counts[i]++
 				}
 			}
 		}
@@ -401,10 +412,14 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 					continue
 				}
 				var spops []any
-				for _, p := range pops {
+				for i, p := range pops {
+					count := 0
+					if i < len(popCounts) {
+						count = popCounts[i]
+					}
 					spops = append(spops, map[string]any{
 						"code":  conceptJSON(p.def.Code),
-						"count": popCounts[p.code],
+						"count": count,
 					})
 				}
 				stratum := map[string]any{
@@ -657,29 +672,39 @@ func evalSupplementalData(ctx context.Context, e *Engine, m fhirMeasure, subject
 }
 
 func subjectInInitialPopulation(ctx context.Context, e *Engine, m fhirMeasure, subject any, env EvalContext) (bool, error) {
+	hasIP := false
 	env.Patient = subject
 	for _, g := range m.Group {
-		groupHasIP := false
-		inGroupIP := false
 		for _, p := range g.Population {
 			if strings.ToLower(p.Code.code()) != "initial-population" {
 				continue
 			}
-			groupHasIP = true
+			hasIP = true
 			ok, _, err := evalPopulation(ctx, e, p, env)
 			if err != nil {
 				return false, err
 			}
 			if ok {
-				inGroupIP = true
-				break
+				return true, nil
 			}
 		}
-		if groupHasIP && !inGroupIP {
-			return false, nil
-		}
 	}
-	return true, nil
+	return !hasIP, nil
+}
+
+func stratifierKey(vals []any) string {
+	v := singletonOrList(vals)
+	if id, ok := resourceIdentity(v); ok {
+		return id
+	}
+	if obj, ok := asObject(v); ok {
+		v = obj
+	}
+	raw, err := json.Marshal(jsonifyCQL(v))
+	if err != nil {
+		return fmt.Sprint(unwrapPrimitive(v))
+	}
+	return string(raw)
 }
 
 func applyObservationValue(obs map[string]any, vals []any) {

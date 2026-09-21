@@ -1068,25 +1068,26 @@ func (p *parser) parseRetrieve() (Node, error) {
 	}
 	term := ""
 	comp := ""
+	codePath := ""
 	if p.acceptKind(tColon) {
 		t := p.lex.lookahead()
-		if (t.kind == tIdent || t.kind == tQuotedIdent) && (keywordEq(t.text, "code") || keywordEq(t.text, "type")) {
+		if t.kind == tIdent || t.kind == tQuotedIdent {
 			rest := p.src[t.pos:]
 			lx := newLexer(rest)
 			_ = lx.next()
 			next := lx.next()
 			switch {
 			case next.kind == tIdent && keywordEq(next.text, "in"):
-				p.lex.next() // code
+				codePath = p.lex.next().text
 				p.acceptKeyword("in")
 				comp = "in"
 			case next.kind == tEq:
-				p.lex.next() // code
-				p.lex.next() // =
+				codePath = p.lex.next().text
+				p.lex.next()
 				comp = "="
 			case next.kind == tTilde:
-				p.lex.next() // code
-				p.lex.next() // ~
+				codePath = p.lex.next().text
+				p.lex.next()
 				comp = "~"
 			}
 		}
@@ -1102,7 +1103,7 @@ func (p *parser) parseRetrieve() (Node, error) {
 	if !p.acceptKind(tRBrack) {
 		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after retrieve")
 	}
-	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term, comparator: comp}, nil
+	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term, comparator: comp, codePath: codePath}, nil
 }
 
 func (p *parser) parseQuantitySuffix(n Node) Node {

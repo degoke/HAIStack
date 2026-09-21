@@ -251,7 +251,7 @@ func parseMeasureDate(raw, name string) (time.Time, error) {
 	}
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z07:00", "2006-01-02T15:04:05", "2006-01-02"} {
 		if tm, err := time.Parse(layout, raw); err == nil {
-			return tm.UTC(), nil
+			return tm, nil
 		}
 	}
 	return time.Time{}, invalidRequest("invalid "+name, nil)

@@ -209,7 +209,7 @@ func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest
 	if req.Terminology == "" && req.ValueSetURL == "" && req.Code == "" {
 		return true, nil
 	}
-	codes := extractCodings(item)
+	codes := extractCodings(item, req.CodePath)
 	if len(codes) == 0 {
 		if c := codingFromValue(item); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
 			codes = []fhirCoding{c}
@@ -252,7 +252,7 @@ type fhirCoding struct {
 	Text    string
 }
 
-func extractCodings(v any) []fhirCoding {
+func extractCodings(v any, codePath string) []fhirCoding {
 	obj, ok := asObject(v)
 	if !ok {
 		return nil
@@ -263,7 +263,11 @@ func extractCodings(v any) []fhirCoding {
 		collectCodeable(obj, &out)
 		return out
 	}
-	for _, field := range primaryCodeFields {
+	fields := primaryCodeFields
+	if codePath != "" {
+		fields = []string{codePath}
+	}
+	for _, field := range fields {
 		if raw, exists := obj[field]; exists {
 			collectCodeable(raw, &out)
 		}
@@ -271,16 +275,13 @@ func extractCodings(v any) []fhirCoding {
 	return out
 }
 
-// primaryCodeFields are the FHIR elements CQL retrieve typically filters on.
-// Nested Quantity, Annotation, component, and meta.tag are ignored.
+// primaryCodeFields are the implicit FHIR elements CQL retrieve filters on
+// when no property path is named. Nested Quantity, Annotation, component,
+// category, reasonCode, bodySite, value, and meta.tag are ignored.
 var primaryCodeFields = []string{
 	"code",
 	"type",
 	"class",
-	"category",
-	"reasonCode",
-	"bodySite",
-	"valueCodeableConcept",
 	"medicationCodeableConcept",
 	"medication",
 	"vaccineCode",

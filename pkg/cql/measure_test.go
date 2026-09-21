@@ -596,7 +596,7 @@ define "True List":
 	}
 }
 
-func TestEvaluateMeasureSDERequiresEveryGroupIP(t *testing.T) {
+func TestEvaluateMeasureSDEIncludesAnyGroupIP(t *testing.T) {
 	eng, err := NewEngine(Config{
 		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
 	})
@@ -652,8 +652,54 @@ define "SDE Sex":
 		t.Fatal(err)
 	}
 	contained, _ := decodeReport(t, report)["contained"].([]any)
-	if len(contained) != 0 {
-		t.Fatalf("SDE must require initial-population in every group, got %#v", contained)
+	if len(contained) != 1 {
+		t.Fatalf("SDE must include subjects in any group initial-population, got %#v", contained)
+	}
+}
+
+func TestMeasureReportPeriodUsesLocalDate(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Adult version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Measurement Period" Interval<DateTime>
+context Patient
+define "Initial Population": true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	measure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+		"resourceType": "Measure",
+		"id": "adult",
+		"scoring": {"coding": [{"code": "cohort"}]},
+		"group": [{"population": [
+			{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Initial Population"}}
+		]}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := time.FixedZone("EST", -5*3600)
+	report, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     measure,
+		PeriodStart: time.Date(2020, 1, 1, 0, 0, 0, 0, loc),
+		PeriodEnd:   time.Date(2021, 1, 1, 0, 0, 0, 0, loc),
+		ReportType:  "individual",
+		Patient:     adaPatient(t),
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	period, _ := decodeReport(t, report)["period"].(map[string]any)
+	if period["start"] != "2020-01-01" || period["end"] != "2021-01-01" {
+		t.Fatalf("MeasureReport.period must use local calendar dates: %#v", period)
 	}
 }
 

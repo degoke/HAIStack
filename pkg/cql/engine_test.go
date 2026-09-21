@@ -1175,7 +1175,7 @@ func TestRetrieveMatchesCategoryAndRelatedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := EvalContext{Patient: adaPatient(t)}
-	got, err := eng.Eval(context.Background(), "[Observation: 'vital-signs'].count()", env)
+	got, err := eng.Eval(context.Background(), "[Observation: category in 'vital-signs'].count()", env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1216,5 +1216,123 @@ func TestEvalMemberKeepsNullForMissingFields(t *testing.T) {
 	}
 	if len(got) != 2 || fmt.Sprint(got[0]) != "10" || got[1] != nil {
 		t.Fatalf("missing member must stay null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ {id: 1, v: 10}, {id: 2} }.v.count()", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("Count must ignore null members: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "exists { {id: 2} }.v", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("exists must ignore null members: %#v", got)
+	}
+}
+
+func TestIntervalUnionExceptAndExpand(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval[1, 5] union Interval[3, 10]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, ok := asInterval(got[0])
+	if !ok || fmt.Sprint(iv.Low) != "1" || fmt.Sprint(iv.High) != "10" {
+		t.Fatalf("interval union: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] union Interval[10, 12]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("non-overlapping interval union should be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 10] except Interval[8, 15]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, ok = asInterval(got[0])
+	if !ok || fmt.Sprint(iv.Low) != "1" || fmt.Sprint(iv.High) != "8" || iv.HighClosed {
+		t.Fatalf("interval except: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 1, 2} except {2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "1" {
+		t.Fatalf("list except must be distinct: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "expand Interval[1, 3]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expand: %#v", got)
+	}
+}
+
+func TestSumAvgSkipNullsAndChoiceValue(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Sum(from {1, 2, 3} X return if X = 2 then null else X)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "4" {
+		t.Fatalf("Sum should skip nulls: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Avg(from {2, 4, 6} X return if X = 4 then null else X)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "4" {
+		t.Fatalf("Avg should skip nulls: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ valueQuantity: 1 'mg', valueCodeableConcept: 'x' }.value", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "x" {
+		t.Fatalf("choice .value must be deterministic: %#v", got)
+	}
+}
+
+func TestUnionIdentifiesFHIRResources(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"text": "Heart rate"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dup, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "amended",
+		"code": {"text": "Heart rate"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cqlEqual(obs, dup) {
+		t.Fatal("same resourceType/id must be equal")
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs, dup},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "[Observation] union [Observation]", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("resource union must distinct by type/id: %#v", got)
 	}
 }

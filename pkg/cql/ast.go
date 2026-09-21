@@ -71,6 +71,7 @@ type retrieveNode struct {
 	resourceType string
 	terminology  string
 	comparator   string
+	codePath     string
 }
 
 type isNode struct {

@@ -299,7 +299,7 @@ func listIntersect(left, right []any) []any {
 func listExcept(left, right []any) []any {
 	var out []any
 	for _, el := range left {
-		if !containsValue(right, el) {
+		if !containsValue(right, el) && !containsValue(out, el) {
 			out = append(out, el)
 		}
 	}
@@ -328,11 +328,15 @@ func listExtremum(args [][]any, min bool) ([]any, error) {
 
 func listSum(args [][]any) ([]any, error) {
 	if len(args) == 0 {
-		return []any{int64(0)}, nil
+		return nil, nil
 	}
 	sum := 0.0
 	intLike := true
+	n := 0
 	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
 		f, ok := asFloat(item)
 		if !ok {
 			return nil, nil
@@ -341,6 +345,10 @@ func listSum(args [][]any) ([]any, error) {
 			intLike = false
 		}
 		sum += f
+		n++
+	}
+	if n == 0 {
+		return nil, nil
 	}
 	if intLike {
 		return []any{int64(sum)}, nil
@@ -349,18 +357,26 @@ func listSum(args [][]any) ([]any, error) {
 }
 
 func listAvg(args [][]any) ([]any, error) {
-	if len(args) == 0 || len(args[0]) == 0 {
+	if len(args) == 0 {
 		return nil, nil
 	}
 	sum := 0.0
+	n := 0
 	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
 		f, ok := asFloat(item)
 		if !ok {
 			return nil, nil
 		}
 		sum += f
+		n++
 	}
-	return []any{sum / float64(len(args[0]))}, nil
+	if n == 0 {
+		return nil, nil
+	}
+	return []any{sum / float64(n)}, nil
 }
 
 func listAllAny(args [][]any, all bool) ([]any, error) {

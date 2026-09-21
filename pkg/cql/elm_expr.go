@@ -432,6 +432,7 @@ func parseELMRetrieve(obj map[string]any) (Node, error) {
 	if cmp := elmString(obj["codeComparator"]); cmp != "" {
 		n.comparator = cmp
 	}
+	n.codePath = firstNonEmpty(elmString(obj["codeProperty"]), elmString(obj["codePath"]))
 	if codes, ok := asObject(obj["codes"]); ok {
 		switch elmType(codes) {
 		case "ValueSetRef":

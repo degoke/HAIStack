@@ -158,6 +158,8 @@ type RetrieveRequest struct {
 	Terminology string
 	// Comparator is in, =, or ~ when the retrieve used `code in` / `code =` / `code ~`.
 	Comparator string
+	// CodePath is the retrieve property when present (`category in`, `code =`, …).
+	CodePath string
 	// ValueSetURL is set when Terminology names a declared valueset.
 	ValueSetURL string
 	// System and Code are set when Terminology names a declared code or system|code literal.
