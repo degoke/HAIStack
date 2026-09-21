@@ -3,6 +3,7 @@ package subscriptions
 import (
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -17,10 +18,12 @@ const (
 
 // Trigger defines when a subscription should fire.
 type Trigger struct {
-	ResourceType   string       `json:"resourceType"`
-	Event          TriggerEvent `json:"event"`
-	ChangedFields  []string     `json:"changedFields,omitempty"`
-	FilterFHIRPath string       `json:"filterFhirPath,omitempty"`
+	ResourceType   string               `json:"resourceType"`
+	Event          TriggerEvent         `json:"event"`
+	ChangedFields  []string             `json:"changedFields,omitempty"`
+	FilterFHIRPath string               `json:"filterFhirPath,omitempty"`
+	Criteria       string               `json:"criteria,omitempty"`
+	FilterParams   []search.ParamClause `json:"filterParams,omitempty"`
 }
 
 // ChannelType names a delivery transport.

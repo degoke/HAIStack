@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/subscriptions"
@@ -160,6 +163,31 @@ func TestMatcherCreateUpdateDeleteAndFHIRPath(t *testing.T) {
 	})
 	if err != nil || ok {
 		t.Fatalf("non-match = %v err=%v", ok, err)
+	}
+
+	parsed, err := search.ParseQuery("Observation", url.Values{"code": {"8867-4"}})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	criteriaTrigger := subscriptions.Trigger{
+		ResourceType: "Observation",
+		Event:        subscriptions.TriggerEventCreate,
+		FilterParams: parsed.Params,
+	}
+	matcher = &subscriptions.Matcher{Engine: mustEngine(t), Registry: staticObservationRegistry()}
+	ok, err = matcher.Matches(ctx, criteriaTrigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Observation", Action: store.EventActionCreate},
+		Current: obsMatch,
+	})
+	if err != nil || !ok {
+		t.Fatalf("code=8867-4 match = %v err=%v", ok, err)
+	}
+	ok, err = matcher.Matches(ctx, criteriaTrigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Observation", Action: store.EventActionCreate},
+		Current: obsOther,
+	})
+	if err != nil || ok {
+		t.Fatalf("other code should not match, got %v err=%v", ok, err)
 	}
 
 	prevAppt := envelope(t, "Appointment", "a1", map[string]any{"status": "booked"})
@@ -576,8 +604,11 @@ func TestRegisterFromFHIRSubscriptionSupportedAndUnsupported(t *testing.T) {
 	if rec.Trigger.ResourceType != "Patient" || rec.Channel.Type != subscriptions.ChannelTypeWebhook {
 		t.Fatalf("record = %#v", rec)
 	}
+	if rec.Trigger.Criteria != "Patient" {
+		t.Fatalf("criteria = %q", rec.Trigger.Criteria)
+	}
 
-	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+	rec, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
 		Status:   "active",
 		Criteria: "Patient?active=true",
 		Channel: subscriptions.FHIRSubscriptionChannel{
@@ -585,8 +616,23 @@ func TestRegisterFromFHIRSubscriptionSupportedAndUnsupported(t *testing.T) {
 			Endpoint: "https://example.test/hook",
 		},
 	}, nil)
+	if err != nil {
+		t.Fatalf("register search criteria: %v", err)
+	}
+	if rec.Trigger.Criteria != "Patient?active=true" || len(rec.Trigger.FilterParams) != 1 || rec.Trigger.FilterParams[0].Code != "active" {
+		t.Fatalf("search criteria trigger = %#v", rec.Trigger)
+	}
+
+	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
+		Criteria: "Patient?_include=Patient:general-practitioner",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
 	if err == nil {
-		t.Fatal("expected unsupported criteria error")
+		t.Fatal("expected unsupported include criteria error")
 	}
 
 	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
@@ -648,4 +694,53 @@ func TestInactiveSubscriptionIgnoredByProcessor(t *testing.T) {
 	if claimed != nil {
 		t.Fatalf("expected no delivery job, got %#v", claimed)
 	}
+}
+
+type staticRegistry map[string]search.ParameterInfo
+
+func staticObservationRegistry() search.Registry {
+	return staticRegistry{
+		"Observation|code": {
+			Code:       "code",
+			Type:       "token",
+			Expression: "Observation.code",
+		},
+	}
+}
+
+func (r staticRegistry) IsResourceEnabled(resourceType string) bool {
+	prefix := resourceType + "|"
+	for key := range r {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r staticRegistry) SearchParametersFor(resourceType string) []search.ParameterInfo {
+	prefix := resourceType + "|"
+	var out []search.ParameterInfo
+	for key, info := range r {
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
+func (r staticRegistry) SearchParameter(resourceType, code string) (search.ParameterInfo, bool) {
+	info, ok := r[resourceType+"|"+code]
+	return info, ok
+}
+
+func (r staticRegistry) HasSearchParameter(resourceType, code string) bool {
+	_, ok := r.SearchParameter(resourceType, code)
+	return ok
+}
+
+func (r staticRegistry) EnabledResourceTypes() []string { return []string{"Patient"} }
+
+func (r staticRegistry) ResolveComponentCode(string) (search.ParameterInfo, bool) {
+	return search.ParameterInfo{}, false
 }

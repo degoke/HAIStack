@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -78,9 +80,24 @@ func triggerFromFHIR(criteria string, extensions []map[string]any) (Trigger, err
 	trigger := Trigger{
 		ResourceType: resourceType,
 		Event:        TriggerEventCreate,
+		Criteria:     criteria,
 	}
 	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-		return Trigger{}, fmt.Errorf("%w: advanced search criteria are not supported yet", ErrUnsupportedFHIR)
+		values, err := url.ParseQuery(parts[1])
+		if err != nil {
+			return Trigger{}, fmt.Errorf("%w: invalid criteria query: %v", ErrUnsupportedFHIR, err)
+		}
+		parsed, err := search.ParseQuery(resourceType, values)
+		if err != nil {
+			return Trigger{}, fmt.Errorf("%w: parse criteria: %v", ErrUnsupportedFHIR, err)
+		}
+		if len(parsed.Includes) > 0 || len(parsed.RevIncludes) > 0 || len(parsed.Chains) > 0 {
+			return Trigger{}, fmt.Errorf("%w: criteria includes, revincludes, and chained parameters are not supported", ErrUnsupportedFHIR)
+		}
+		if parsed.FullText != "" {
+			return Trigger{}, fmt.Errorf("%w: full-text criteria are not supported", ErrUnsupportedFHIR)
+		}
+		trigger.FilterParams = parsed.Params
 	}
 	if filter := fhirPathFromExtensions(extensions); filter != "" {
 		trigger.FilterFHIRPath = filter

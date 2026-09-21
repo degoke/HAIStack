@@ -13,17 +13,17 @@
 //   - Internal trigger registration (resource type + create/update/delete event,
 //     optional changed-field filters, optional FHIRPath predicates)
 //   - A narrow adapter from a supported subset of FHIR Subscription resources
+//     (rest-hook channel only; Subscription.criteria is parsed with pkg/search)
 //   - Webhook (HTTP) and local (in-process handler) delivery channels
 //   - Durable delivery logging and retries backed by pkg/jobs
 //   - Postgres-first and SQLite edge persistence without Kafka/NATS
 //
 // v1 does not support:
 //
-//   - WebSocket, email, SMS, or message channel types
+//   - WebSocket, email, SMS, or message channel types (FHIR adapter is rest-hook only)
 //   - Dead-letter queues or full delivery audit expansion
 //   - Tenant semantics in the core API (Postgres scoping is via TenantDB wiring)
-//   - Advanced FHIR Search criteria in Subscription.criteria (simple
-//     ResourceType only, e.g. "Patient" not "Patient?active=true")
+//   - Chained, _include, _revinclude, or full-text Subscription.criteria
 //
 // # Public API
 //
@@ -55,9 +55,15 @@
 //	    Trigger{ResourceType: "Observation", Event: TriggerEventCreate,
 //	            FilterFHIRPath: "code.coding.code = '8867-4'"}
 //
+//	Observation.created matching search criteria:
+//	    Trigger{ResourceType: "Observation", Event: TriggerEventCreate,
+//	            Criteria: "Observation?code=8867-4", FilterParams: parsed.Params}
+//
 // FilterFHIRPath is evaluated with pkg/fhirpath against the current resource on
-// create/update. Changed-field matching compares top-level JSON fields between
-// the previous history snapshot and the current resource.
+// create/update. FilterParams are parsed from Subscription.criteria with
+// search.ParseQuery and matched with search.MatchResourceParameter. Changed-field
+// matching compares top-level JSON fields between the previous history snapshot
+// and the current resource.
 //
 // # Store contracts
 //
@@ -95,7 +101,7 @@
 //	    Jobs:          db.JobStore(),
 //	    Resources:     db.ResourceStore(),
 //	    History:       db.HistoryStore(),
-//	    Matcher:       &subscriptions.Matcher{Engine: engine},
+//	    Matcher:       &subscriptions.Matcher{Engine: engine, Registry: searchRegistry},
 //	}
 //	_, _ = processor.RunOnce(ctx)
 //

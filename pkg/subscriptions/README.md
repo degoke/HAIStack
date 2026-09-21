@@ -9,8 +9,10 @@ the existing event log — they do not hook into `pkg/core` writes.
 - **Internal trigger model** — register subscriptions on resource type + event
   (`create`, `update`, `delete`), optional changed-field filters, and optional
   FHIRPath predicates
-- **FHIR adapter** — narrow mapping from a supported subset of FHIR
-  `Subscription` resources into the internal model (`RegisterFromFHIRSubscription`)
+- **FHIR adapter** — mapping from a supported subset of FHIR
+  `Subscription` resources into the internal model (`RegisterFromFHIRSubscription`).
+  Channel type is **rest-hook only**. `Subscription.criteria` is parsed with
+  `search.ParseQuery` (for example `Patient?active=true`).
 - **Event processor** — reads `EventStore` since a `CursorStore` checkpoint,
   matches active subscriptions, and enqueues delivery jobs
 - **Durable delivery** — webhook (HTTP) and local (in-process handler) channels
@@ -19,12 +21,11 @@ the existing event log — they do not hook into `pkg/core` writes.
 
 It does **not** (v1):
 
-- WebSocket, email, SMS, or message channel types
+- WebSocket, email, SMS, or message channel types (FHIR adapter is rest-hook only)
 - Dead-letter queues or full delivery audit expansion
 - Kafka/NATS or a separate queue service
 - Tenant semantics in the core API (Postgres scoping is via `TenantDB` wiring)
-- Advanced FHIR Search criteria in `Subscription.criteria` (simple
-  `ResourceType` only)
+- Chained, `_include`, `_revinclude`, or full-text `Subscription.criteria`
 
 ```
 pkg/core (write)  →  EventStore  →  subscriptions.Processor  →  JobStore
@@ -48,7 +49,7 @@ pkg/core (write)  →  EventStore  →  subscriptions.Processor  →  JobStore
 | Record | Fields |
 |--------|--------|
 | `SubscriptionRecord` | ID, name, status, trigger, channel, retry policy, timestamps |
-| `Trigger` | `ResourceType`, `Event`, optional `ChangedFields`, optional `FilterFHIRPath` |
+| `Trigger` | `ResourceType`, `Event`, optional `ChangedFields`, optional `FilterFHIRPath`, optional search `Criteria` / `FilterParams` |
 | `Channel` | `webhook` or `local` with `WebhookConfig` / `LocalConfig` |
 | `DeliveryRecord` | Subscription ID, event sequence, attempt, status, response/error metadata |
 

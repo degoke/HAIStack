@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -21,7 +22,8 @@ type MatchContext struct {
 
 // Matcher evaluates subscription triggers against resource events.
 type Matcher struct {
-	Engine fhirpath.Engine
+	Engine   fhirpath.Engine
+	Registry search.Registry
 }
 
 // Matches reports whether trigger conditions are satisfied for one event.
@@ -44,11 +46,11 @@ func (m *Matcher) Matches(ctx context.Context, trigger Trigger, mc MatchContext)
 			return false, nil
 		}
 	}
+	resource := mc.Current
+	if resource == nil && mc.Previous != nil {
+		resource = mc.Previous
+	}
 	if trigger.FilterFHIRPath != "" {
-		resource := mc.Current
-		if resource == nil && mc.Previous != nil {
-			resource = mc.Previous
-		}
 		if resource == nil {
 			return false, nil
 		}
@@ -60,7 +62,36 @@ func (m *Matcher) Matches(ctx context.Context, trigger Trigger, mc MatchContext)
 			return false, nil
 		}
 	}
+	if len(trigger.FilterParams) > 0 {
+		if resource == nil {
+			return false, nil
+		}
+		ok := m.matchesSearchCriteria(ctx, trigger.ResourceType, trigger.FilterParams, resource)
+		if !ok {
+			return false, nil
+		}
+	}
 	return true, nil
+}
+
+func (m *Matcher) matchesSearchCriteria(ctx context.Context, resourceType string, clauses []search.ParamClause, resource *types.ResourceEnvelope) bool {
+	if m.Registry == nil || m.Engine == nil {
+		return false
+	}
+	for _, clause := range clauses {
+		want := make([]string, 0, len(clause.Values))
+		for _, value := range clause.Values {
+			if strings.TrimSpace(value.Raw) == "" {
+				continue
+			}
+			want = append(want, value.Raw)
+		}
+		matched, known := search.MatchResourceParameter(ctx, m.Registry, m.Engine, resourceType, resource, clause.Code, want)
+		if !known || !matched {
+			return false
+		}
+	}
+	return true
 }
 
 func changedTopLevelFields(previous, current *types.ResourceEnvelope) ([]string, error) {
