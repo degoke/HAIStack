@@ -13,6 +13,7 @@ type Engine struct {
 	fhirpath         fhirpath.Engine
 	retriever        Retriever
 	terminology      fhirpath.TerminologyValidator
+	ucumConverter    UCUMConverter
 	libraries        LibraryResolver
 	now              func() time.Time
 	maxExpressionLen int
@@ -27,8 +28,11 @@ type Config struct {
 	// Retriever loads clinical resources for CQL retrieve expressions.
 	Retriever Retriever
 	// Terminology is optional. When set, retrieve and `in` valueset filters use
-	// MemberOf; otherwise matching is structured Coding/CodeableConcept equality.
+	// MemberOf; when it also implements fhirpath.SubsumptionValidator, CQL
+	// subsumes uses code-system hierarchy instead of string heuristics.
 	Terminology fhirpath.TerminologyValidator
+	// UCUM converts quantity units (defaults to a UCUM-essence-backed converter).
+	UCUM UCUMConverter
 	// Libraries resolves included CQL libraries (except builtin FHIRHelpers).
 	Libraries LibraryResolver
 	// Now overrides the evaluation clock (defaults to time.Now UTC).

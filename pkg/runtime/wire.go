@@ -320,7 +320,15 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	var term fhirpath.TerminologyValidator
 	if state.services.TerminologyService != nil {
 		termSvc := state.services.TerminologyService
-		term = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+		var subsumesFn func(context.Context, string, string, string) (bool, error)
+		if subSvc, ok := termSvc.(terminology.SubsumptionService); ok {
+			subsumesFn = func(ctx context.Context, system, broad, narrow string) (bool, error) {
+				return subSvc.Subsumes(ctx, terminology.SubsumesRequest{
+					ScopeID: termScope, System: system, BroadCode: broad, NarrowCode: narrow,
+				})
+			}
+		}
+		term = fhirpath.TerminologyValidatorsAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
 			result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
 				ScopeID: termScope,
 				URL:     valueSetURL,
@@ -330,7 +338,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				return false, err
 			}
 			return result != nil && result.Status == terminology.Valid, nil
-		})
+		}, subsumesFn)
 	}
 	if engine == nil {
 		fpCfg := fhirpath.Config{}

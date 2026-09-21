@@ -16,10 +16,15 @@ func NewEngine(cfg Config) (*Engine, error) {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
+	ucumConv := cfg.UCUM
+	if ucumConv == nil {
+		ucumConv = DefaultUCUMConverter()
+	}
 	return &Engine{
 		fhirpath:         cfg.FHIRPath,
 		retriever:        cfg.Retriever,
 		terminology:      cfg.Terminology,
+		ucumConverter:    ucumConv,
 		libraries:        cfg.Libraries,
 		now:              now,
 		maxExpressionLen: cfg.MaxExpressionLen,

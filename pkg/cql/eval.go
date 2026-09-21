@@ -735,7 +735,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return cqlSubsumesResult(left, right, strings.HasPrefix(n.op, "properly"))
+		return st.cqlSubsumesResult(left, right, strings.HasPrefix(n.op, "properly"))
 	case "subsumed by", "properly subsumed by":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -745,7 +745,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return cqlSubsumesResult(right, left, strings.HasPrefix(n.op, "properly"))
+		return st.cqlSubsumesResult(right, left, strings.HasPrefix(n.op, "properly"))
 	}
 	if intervalRelOp(n.op) {
 		return st.evalIntervalRel(n)
@@ -1308,7 +1308,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 	case "round", "abs", "floor", "ceiling", "truncate", "ln", "log", "exp", "power":
 		return evalMath(n, args)
 	case "convertquantity":
-		return convertQuantityArgs(args)
+		return convertQuantityArgs(args, st.engine.ucum())
 	case "splitonmatches":
 		return stringSplitOnMatches(args)
 	case "replacematches":
@@ -1421,7 +1421,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if !ok {
 			return []any{false}, nil
 		}
-		_, ok = convertQuantityValue(q, unit)
+		_, ok = convertQuantityValue(q, unit, st.engine.ucum())
 		return []any{ok}, nil
 	case "median":
 		return listMedian(args)
@@ -1765,6 +1765,15 @@ func (st *evalState) terminology() fhirpath.TerminologyValidator {
 		return nil
 	}
 	return st.engine.terminology
+}
+
+func (st *evalState) subsumption() fhirpath.SubsumptionValidator {
+	term := st.terminology()
+	if term == nil {
+		return nil
+	}
+	sub, _ := term.(fhirpath.SubsumptionValidator)
+	return sub
 }
 
 func (st *evalState) lookupValueSet(name string) *ValueSet {
@@ -2780,7 +2789,7 @@ func cqlEquivalent(a, b any) bool {
 	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
-			va, vb, ok := quantityValuesComparable(qa, qb)
+			va, vb, ok := quantityValuesComparable(qa, qb, defaultUCUM)
 			if ok && va == vb {
 				return true
 			}
@@ -2850,12 +2859,12 @@ func cqlCompare(a, b any) (int, bool) {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
 	if ra, ok := asRatio(a); ok {
 		if rb, ok := asRatio(b); ok {
-			return ratioCompare(ra, rb)
+			return ratioCompare(ra, rb, defaultUCUM)
 		}
 	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
-			va, vb, ok := quantityValuesComparable(qa, qb)
+			va, vb, ok := quantityValuesComparable(qa, qb, defaultUCUM)
 			if ok {
 				if va < vb {
 					return -1, true

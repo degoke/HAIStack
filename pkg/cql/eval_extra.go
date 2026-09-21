@@ -875,7 +875,7 @@ func roundTo(f float64, prec int) float64 {
 	return math.Round(f*pow) / pow
 }
 
-func convertQuantityArgs(args [][]any) ([]any, error) {
+func convertQuantityArgs(args [][]any, conv UCUMConverter) ([]any, error) {
 	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
 		return nil, nil
 	}
@@ -887,7 +887,7 @@ func convertQuantityArgs(args [][]any) ([]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	out, ok := convertQuantityValue(q, unit)
+	out, ok := convertQuantityValue(q, unit, conv)
 	if !ok {
 		return nil, nil
 	}
@@ -904,14 +904,17 @@ func quantityUnitArg(v any) (string, bool) {
 	return "", false
 }
 
-func quantityValuesComparable(qa, qb Quantity) (float64, float64, bool) {
+func quantityValuesComparable(qa, qb Quantity, conv UCUMConverter) (float64, float64, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
 	if sameUnit(qa.Unit, qb.Unit) {
 		return qa.Value, qb.Value, true
 	}
-	if conv, ok := convertQuantityValue(qb, qa.Unit); ok {
+	if conv, ok := convertQuantityValue(qb, qa.Unit, conv); ok {
 		return qa.Value, conv.Value, true
 	}
-	if conv, ok := convertQuantityValue(qa, qb.Unit); ok {
+	if conv, ok := convertQuantityValue(qa, qb.Unit, conv); ok {
 		return conv.Value, qb.Value, true
 	}
 	if isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit) {
@@ -955,7 +958,7 @@ func toListResult(v []any) []any {
 	return []any{[]any{v[0]}}
 }
 
-func cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
+func (st *evalState) cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
 	if len(left) != 1 || len(right) != 1 {
 		return nil, nil
 	}
@@ -965,11 +968,36 @@ func cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
 		return nil, nil
 	}
 	ca, cb = alignCodings(ca, cb)
-	ok := codingSubsumes(ca, cb)
+	ok, err := st.codingSubsumes(ca, cb)
+	if err != nil {
+		return nil, err
+	}
 	if ok && proper {
 		ok = !codesEquivalent(ca, cb)
 	}
 	return []any{ok}, nil
+}
+
+func (st *evalState) codingSubsumes(broad, narrow fhirCoding) (bool, error) {
+	if codesEquivalent(broad, narrow) {
+		return true, nil
+	}
+	if sub := st.subsumption(); sub != nil && broad.Code != "" && narrow.Code != "" {
+		sys := broad.System
+		if sys == "" {
+			sys = narrow.System
+		}
+		if sys != "" {
+			ok, err := sub.Subsumes(st.ctx, sys, broad.Code, narrow.Code)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				return true, nil
+			}
+		}
+	}
+	return codingSubsumesHeuristic(broad, narrow), nil
 }
 
 func alignCodings(a, b fhirCoding) (fhirCoding, fhirCoding) {
@@ -982,7 +1010,7 @@ func alignCodings(a, b fhirCoding) (fhirCoding, fhirCoding) {
 	return a, b
 }
 
-func codingSubsumes(broad, narrow fhirCoding) bool {
+func codingSubsumesHeuristic(broad, narrow fhirCoding) bool {
 	if codesEquivalent(broad, narrow) {
 		return true
 	}
@@ -1017,7 +1045,10 @@ func codePrefixSubsumes(bc, nc string) bool {
 	return true
 }
 
-func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
+func convertQuantityValue(q Quantity, unit string, conv UCUMConverter) (Quantity, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
 	if sameUnit(q.Unit, unit) {
 		return Quantity{Value: q.Value, Unit: unit}, true
 	}
@@ -1029,61 +1060,14 @@ func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
 		}
 		return Quantity{Value: sec / den, Unit: unit}, true
 	}
-	from, fromDim, fok := quantitySIFactor(q.Unit)
-	to, toDim, tok := quantitySIFactor(unit)
-	if !fok || !tok || to == 0 || fromDim != toDim {
+	if !quantitySameDimension(q.Unit, unit, conv) {
 		return Quantity{}, false
 	}
-	return Quantity{Value: q.Value * from / to, Unit: unit}, true
-}
-
-func quantitySIFactor(unit string) (float64, string, bool) {
-	unit = normalizeQuantityUnit(unit)
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "[in_i]", "[in_us]", "in", "inch", "inches":
-		return 0.0254, "length", true
-	case "[lb_av]", "lb", "lbs", "pound", "pounds":
-		return 453.59237, "mass", true
-	case "[oz_av]", "oz", "ounce", "ounces":
-		return 28.349523125, "mass", true
-	case "[st_av]", "st", "stone", "stones":
-		return 6350.29318, "mass", true
-	case "[mi_us]", "[mi_i]", "mi", "mile", "miles":
-		return 1609.344, "length", true
-	case "[ft_i]", "[ft_us]", "ft", "foot", "feet":
-		return 0.3048, "length", true
-	case "g", "gm", "gram", "grams":
-		return 1, "mass", true
-	case "mg":
-		return 0.001, "mass", true
-	case "kg":
-		return 1000, "mass", true
-	case "mcg", "ug":
-		return 1e-6, "mass", true
-	case "m", "meter", "meters":
-		return 1, "length", true
-	case "cm":
-		return 0.01, "length", true
-	case "mm":
-		return 0.001, "length", true
-	case "km":
-		return 1000, "length", true
-	case "l", "liter", "liters":
-		return 1, "volume", true
-	case "ml":
-		return 0.001, "volume", true
-	case "dl":
-		return 0.1, "volume", true
+	v, ok := conv.Convert(q.Value, q.Unit, unit)
+	if !ok {
+		return Quantity{}, false
 	}
-	return 0, "", false
-}
-
-func normalizeQuantityUnit(unit string) string {
-	u := strings.TrimSpace(unit)
-	if strings.HasPrefix(u, "[") && strings.HasSuffix(u, "]") {
-		return u
-	}
-	return u
+	return Quantity{Value: v, Unit: unit}, true
 }
 
 func asRatio(v any) (Ratio, bool) {
@@ -1109,26 +1093,33 @@ func asRatio(v any) (Ratio, bool) {
 }
 
 func ratioEqual(a, b Ratio) bool {
+	return ratioEqualWithUCUM(a, b, defaultUCUM)
+}
+
+func ratioEqualWithUCUM(a, b Ratio, conv UCUMConverter) bool {
 	if cqlEqual(a.Numerator, b.Numerator) && cqlEqual(a.Denominator, b.Denominator) {
 		return true
 	}
-	return ratioCrossEqual(a, b)
+	return ratioCrossEqual(a, b, conv)
 }
 
 func ratioEquivalent(a, b Ratio) bool {
 	return cqlEquivalent(a.Numerator, b.Numerator) && cqlEquivalent(a.Denominator, b.Denominator)
 }
 
-func ratioCrossEqual(a, b Ratio) bool {
-	left, right, ok := ratioCrossSI(a, b)
+func ratioCrossEqual(a, b Ratio, conv UCUMConverter) bool {
+	left, right, ok := ratioCrossSI(a, b, conv)
 	if !ok {
 		return false
 	}
 	return ratioFloatEqual(left, right)
 }
 
-func ratioCompare(a, b Ratio) (int, bool) {
-	left, right, ok := ratioCrossSI(a, b)
+func ratioCompare(a, b Ratio, conv UCUMConverter) (int, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
+	left, right, ok := ratioCrossSI(a, b, conv)
 	if !ok {
 		return 0, false
 	}
@@ -1152,39 +1143,42 @@ func ratioFloatEqual(a, b float64) bool {
 	return math.Abs(a-b) <= scale*1e-9
 }
 
-func ratioCrossSI(a, b Ratio) (float64, float64, bool) {
+func ratioCrossSI(a, b Ratio, conv UCUMConverter) (float64, float64, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
 	if a.Denominator.Value == 0 || b.Denominator.Value == 0 {
 		return 0, 0, false
 	}
-	left, okL := quantityProductSI(a.Numerator, b.Denominator)
-	right, okR := quantityProductSI(b.Numerator, a.Denominator)
+	left, okL := quantityProductSI(a.Numerator, b.Denominator, conv)
+	right, okR := quantityProductSI(b.Numerator, a.Denominator, conv)
 	return left, right, okL && okR
 }
 
-func quantityProductSI(q1, q2 Quantity) (float64, bool) {
+func quantityProductSI(q1, q2 Quantity, conv UCUMConverter) (float64, bool) {
 	if isDimensionlessUnit(q1.Unit) {
-		return q1.Value * scalarQuantitySI(q2), true
+		return q1.Value * scalarQuantitySI(q2, conv), true
 	}
 	if isDimensionlessUnit(q2.Unit) {
-		return scalarQuantitySI(q1) * q2.Value, true
+		return scalarQuantitySI(q1, conv) * q2.Value, true
 	}
-	f1, _, ok1 := quantitySIFactor(q1.Unit)
-	f2, _, ok2 := quantitySIFactor(q2.Unit)
+	v1, ok1 := quantitySIValue(q1, conv)
+	v2, ok2 := quantitySIValue(q2, conv)
 	if !ok1 || !ok2 {
 		return 0, false
 	}
-	return q1.Value * f1 * q2.Value * f2, true
+	return v1 * v2, true
 }
 
-func scalarQuantitySI(q Quantity) float64 {
+func scalarQuantitySI(q Quantity, conv UCUMConverter) float64 {
 	if isDimensionlessUnit(q.Unit) {
 		return q.Value
 	}
-	f, _, ok := quantitySIFactor(q.Unit)
+	v, ok := quantitySIValue(q, conv)
 	if !ok {
 		return q.Value
 	}
-	return q.Value * f
+	return v
 }
 
 func isDimensionlessUnit(unit string) bool {
@@ -1406,7 +1400,7 @@ func listTimes(args [][]any) ([]any, error) {
 			}
 			if lq, lok := asQuantity(lv); lok {
 				if rq, rok := asQuantity(rv); rok {
-					if conv, ok := convertQuantityValue(rq, lq.Unit); ok {
+					if conv, ok := convertQuantityValue(rq, lq.Unit, defaultUCUM); ok {
 						lq.Value *= conv.Value
 						out = append(out, lq)
 						continue
