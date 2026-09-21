@@ -12,12 +12,12 @@
 // are loaded with ParseYAML / LoadYAMLFile and executed through
 // ScenariosFromYAML. YAML cases evaluate SMART scope grants ∩ pkg/auth policy
 // allows, matching the policy-semantics research artefact. Principals, roles,
-// and policy documents are declared in the YAML and drive the SMART adapter
-// (tenant is required; omitting it is an error, not a TenantA fallback).
+// and policy documents are declared in the YAML and drive the SMART adapter.
+// Tenant and kind are required (no TenantA or KindUser fallback).
 // policyRoleGrants / roleGrants overlay extra role permissions per named
 // policy or scenario. YAML catalogues run with RunYAML and do not construct
-// Go BaseConfig kits. Scenario principal, scopes, and policy are required
-// (no clinician / user/*.read / base fallbacks).
+// Go BaseConfig kits. Scenario principal, scopes, action, and policy are
+// required (no clinician / user/*.read / read / base fallbacks).
 //
 // This package is for tests and the Track C research CLI
 // (research/policy-semantics), which issue #11 places in authztest. Other

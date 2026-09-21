@@ -22,7 +22,7 @@ type YAMLFile struct {
 }
 
 // YAMLPrincipal is a SMART identity declared in the catalogue (not a Go fixture).
-// Tenant is required; there is no fallback to authztest.TenantA.
+// Tenant and kind are required; there is no fallback to authztest.TenantA or KindUser.
 type YAMLPrincipal struct {
 	ID       string   `yaml:"id"`
 	Kind     string   `yaml:"kind"`
@@ -40,7 +40,7 @@ type YAMLPrincipal struct {
 // portable pkg/auth policy inline. Named Go policy enums are not used.
 // Principal names YAMLFile.Principals. RoleGrants overlay extra permissions
 // for this scenario only (in addition to PolicyRoleGrants). Principal, scopes,
-// and policy (or PolicyDocument) are required.
+// action, and policy (or PolicyDocument) are required.
 type YAMLScenario struct {
 	Name           string                       `yaml:"name"`
 	Doc            string                       `yaml:"doc"`
@@ -85,6 +85,9 @@ func ParseYAML(data []byte) (YAMLFile, error) {
 		if strings.TrimSpace(p.Tenant) == "" {
 			return YAMLFile{}, fmt.Errorf("authztest: principal %q missing tenant", name)
 		}
+		if strings.TrimSpace(p.Kind) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: principal %q missing kind", name)
+		}
 	}
 	for i, spec := range file.Scenarios {
 		if strings.TrimSpace(spec.Principal) == "" {
@@ -95,6 +98,9 @@ func ParseYAML(data []byte) (YAMLFile, error) {
 		}
 		if spec.PolicyDocument == nil && strings.TrimSpace(spec.Policy) == "" {
 			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing policy", i, spec.Name)
+		}
+		if strings.TrimSpace(spec.Action) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing action", i, spec.Name)
 		}
 	}
 	return file, nil
@@ -160,9 +166,9 @@ func runYAMLScenario(ctx context.Context, spec YAMLScenario, policy auth.PolicyD
 }
 
 func evaluateYAMLIntersection(ctx context.Context, eng *auth.Engine, adapter *smart.AuthAdapter, bundle smart.AuthBundle, spec YAMLScenario) (scopeOK bool, decision auth.Decision, err error) {
-	action := spec.Action
+	action := strings.TrimSpace(spec.Action)
 	if action == "" {
-		action = auth.ActionRead
+		return false, auth.Decision{}, fmt.Errorf("missing action")
 	}
 	switch action {
 	case auth.ActionRead, "search":
@@ -333,7 +339,9 @@ func requireYAMLPrincipalTenant(label string, p YAMLPrincipal) (string, error) {
 
 func parseYAMLPrincipalKind(kind string) (auth.PrincipalKind, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "", "user":
+	case "":
+		return "", fmt.Errorf("missing kind")
+	case "user":
 		return auth.KindUser, nil
 	case "service":
 		return auth.KindService, nil

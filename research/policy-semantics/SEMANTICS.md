@@ -32,7 +32,8 @@ For resource read/write, view execution, and AI tools:
    (`CheckEnvelopePatientScope`). Mismatch is deny.
 4. **Required permissions** — SMART adapters set `RequiredPermissions` from
    granted scopes (`resourceType.verb`, or `*.verb`) on read, write, view,
-   and AI-tool requests. The principal must hold those permissions via
+   and AI-tool requests (`ToReadRequest`, `ToWriteRequest`, `ToViewRequest`,
+   `ToAIToolRequest`). The principal must hold those permissions via
    catalog roles. Missing permissions are deny.
 5. **Policy DSL** — `CompiledPolicy.Evaluate`:
    - Rules are evaluated **in document order**.
@@ -42,8 +43,11 @@ For resource read/write, view execution, and AI tools:
    - If no rule matches, `defaultEffect` applies (**deny** when omitted).
 6. Result: `Decision{Allowed, Reason, RequiredPermissions, ...}`.
 
-Views additionally require the principal to hold **at least one** of the
-ViewDefinition's declared permissions (`checkAnyRequiredPermission`).
+The Track C YAML runner does **not** load a ViewDefinition. View and AI
+cases evaluate SMART-derived `RequiredPermissions` on the request (view
+uses `checkAnyRequiredPermission` on those values). A production view
+executor may also require a ViewDefinition's declared permissions; that
+gate is outside this catalogue.
 
 Device push is a separate path: registered, trusted, active device for the
 tenant, then policy `push-device-event`.
@@ -84,18 +88,22 @@ allowed = ScopeImplies(resource, verb) && engine.Can*(...).Allowed
 ## Worked examples
 
 The machine-readable catalogue is [`scenarios.yaml`](scenarios.yaml).
-Narrative copies of all fourteen cases:
+Narrative copies of all fourteen cases. Where `user/*.read` would require
+clinician `*.read` for SMART `RequiredPermissions`, the YAML overlays that
+permission (`policyRoleGrants` on `observation-only`, or per-scenario
+`roleGrants`) so the interesting gate is still scope ∩ policy:
 
-1. **Broad scope ∩ matching policy (allow).** `user/*.read` and a policy
-   that allows Observation read → Observation/obs-1 is allowed.
-2. **Broad scope ∩ narrowing policy (deny).** `user/*.read` but
+1. **Broad scope ∩ matching policy (allow).** `user/*.read` and
+   observation-only (with clinician `*.read` overlay) → Observation/obs-1
+   is allowed.
+2. **Broad scope ∩ narrowing policy (deny).** Same token and overlay but
    observation-only policy → Appointment/a1 is denied. Scopes granted more
    than policy permits; policy wins (narrowing).
 3. **Narrow scope ∩ broad policy (deny).** `user/Patient.read` and
    allow-all-read policy → Observation/obs-1 is denied. Policy cannot
    expand missing Observation scope.
 4. **Matching granular scope ∩ matching policy (allow).**
-   `user/Observation.read` ∩ observation-only policy → Observation allowed.
+   `user/Observation.rs` ∩ observation-only policy → Observation allowed.
 5. **Write scope missing (deny).** `user/Observation.read` ∩ allow-all
    policy → Observation write denied (no write verb).
 6. **Patient overlay allow.** `launch/patient user/Patient.read` with
@@ -103,15 +111,19 @@ Narrative copies of all fourteen cases:
 7. **Patient overlay deny.** Same token reading Patient/pat-2 → deny
    (compartment mismatch) even though scopes grant Patient read.
 8. **Deny-by-default.** `user/*.read` ∩ base policy reading
-   MedicationRequest → deny (no matching rule).
+   MedicationRequest → deny (no matching rule). Clinician `*.read` is
+   granted for this case only so deny is unmatched policy, not missing
+   RequiredPermissions.
 9. **First-match deny wins.** Deny-first policy lists a deny Appointment
-   rule before an allow rule → Appointment read denied.
+   rule before an allow rule → Appointment read denied (same `*.read`
+   overlay as example 8).
 10. **Cross-tenant deny.** Clinician bound to `tenant-a` requesting
     `tenant-b` → deny (tenant binding), regardless of scopes.
 11. **View execution.** `user/*.read` ∩ base policy executing
-    `patient_summary_view` → allow.
+    `patient_summary_view` → allow after clinician `*.read` overlay so
+    `ToViewRequest` RequiredPermissions are satisfied.
 12. **AI tool.** `user/*.read` ∩ base policy `execute-ai-tool` `run_view`
-    → allow.
+    → allow (same overlay; `ToAIToolRequest` RequiredPermissions).
 13. **Backend system scope allow.** `system/*.read` on a service principal ∩
     observation-only → Observation allow.
 14. **Backend system scope deny.** Same token ∩ observation-only →

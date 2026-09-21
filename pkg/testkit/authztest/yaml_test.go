@@ -96,6 +96,42 @@ scenarios:
 	}
 }
 
+func TestParseYAMLRequiresPrincipalKind(t *testing.T) {
+	_, err := ParseYAML([]byte(`
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read]
+principals:
+  clinician:
+    id: user-clinician
+    tenant: tenant-a
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: allow
+        effect: allow
+        match:
+          actions: [read]
+scenarios:
+  - name: missing_kind
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: read
+    resourceType: Patient
+    expectAllow: true
+`))
+	if err == nil {
+		t.Fatal("expected error for principal without kind")
+	}
+	if !strings.Contains(err.Error(), `principal "clinician" missing kind`) {
+		t.Fatalf("err = %v, want missing kind", err)
+	}
+}
+
 func TestParseYAMLRequiresPrincipalTenant(t *testing.T) {
 	_, err := ParseYAML([]byte(`
 version: "1"
@@ -165,6 +201,20 @@ scenarios:
 	}
 }
 
+func TestAdapterForYAMLPrincipalRequiresKind(t *testing.T) {
+	_, err := adapterForYAMLPrincipal(YAMLPrincipal{
+		ID:     "user-clinician",
+		Tenant: "tenant-a",
+		Roles:  []string{"clinician"},
+	})
+	if err == nil {
+		t.Fatal("expected error for principal without kind")
+	}
+	if !strings.Contains(err.Error(), "missing kind") {
+		t.Fatalf("err = %v, want missing kind", err)
+	}
+}
+
 func TestAdapterForYAMLPrincipalRequiresTenant(t *testing.T) {
 	_, err := adapterForYAMLPrincipal(YAMLPrincipal{
 		ID:    "user-clinician",
@@ -208,6 +258,7 @@ policies:
 		{"principal", "  - name: x\n    scopes: user/*.read\n    policy: base\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing principal"},
 		{"scopes", "  - name: x\n    principal: clinician\n    policy: base\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing scopes"},
 		{"policy", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing policy"},
+		{"action", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    policy: base\n    resourceType: Patient\n    expectAllow: true\n", "missing action"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

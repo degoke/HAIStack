@@ -5,8 +5,11 @@ To compare another FHIR implementation (HAPI FHIR, Firely, IBM, etc.):
 
 1. Implement the same three operations against the server:
    - `read` — `GET {base}/{resourceType}/{id}`
-   - `scan-read` — list ids (search `_elements=id` or a bulk dump) then read
-   - `view` — if the server supports SQL-on-FHIR ViewDefinitions; otherwise skip and report `unsupported`
+   - `scan-read` — list ids then read. The HAIStack runner uses in-memory
+     `ListIDs` + `Read` (not FHIR `_search`). External servers may list via
+     search `_elements=id` or a bulk dump; report which.
+   - `view` — execute `observation_view` if the server supports SQL-on-FHIR
+     ViewDefinitions; otherwise skip and report `unsupported`
 2. Use the **same** generated dataset (run `go run ./research/benchmarks -dump DIR` or copy the in-memory generator with `seed=11`).
 3. Record per-workload p50/p95 latency and operations/second. Do not publish a single blended score.
 4. Keep PHI out of dumps. Only synthetic resources from this repository are licensed Apache-2.0.

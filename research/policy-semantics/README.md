@@ -32,14 +32,14 @@ test suite). YAML cases fail unless **both** SMART `ScopeImplies` and the
 policy engine allow the action. Policy documents, the role catalog, and
 principals are declared in `scenarios.yaml` (portable `pkg/auth` DSL), not as
 Go-named enums or hardcoded fixture IDs. YAML principal `id` / `kind` /
-`tenant` / `roles` drive the SMART adapter. Tenant is required on every
-principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
+`tenant` / `roles` drive the SMART adapter. Tenant and kind are required on
+every principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
 `policyRoleGrants` overlays extra role permissions per named policy
 (clinician `*.read` only for `observation-only`). Per-scenario `roleGrants`
 do the same for deny-by-default, first-match, view, and AI-tool examples so
 those cases pass SMART `RequiredPermissions` after `user/*.read` and then
 fail or allow at the policy gate. Every scenario must declare `principal`,
-`scopes`, and `policy` (or `policyDocument`). Track C is the exception to
+`scopes`, `action`, and `policy` (or `policyDocument`). Track C is the exception to
 “testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
 do **not** import `pkg/testkit`.
 

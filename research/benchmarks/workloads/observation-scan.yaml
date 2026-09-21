@@ -1,5 +1,5 @@
 name: observation-scan
-description: Scan Observation ids then read each resource (search-like walk).
+description: List Observation ids from the in-memory store then read each resource (scan-read, not FHIR _search).
 operations:
   - type: scan-read
     resourceType: Observation

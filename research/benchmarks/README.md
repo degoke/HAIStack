@@ -21,7 +21,7 @@ Write the same synthetic JSON for an external adapter with
 
 | Path | Role |
 |------|------|
-| `workloads/*.yaml` | Portable workload definitions (read, search-scan, view) |
+| `workloads/*.yaml` | Portable workload definitions (`read`, `scan-read`, `view`) |
 | `generate.go` | Seeded synthetic dataset (`seed=11`) |
 | `runner.go` | HAIStack in-memory runner (`researchutil.MemoryResourceStore` + `pkg/view`) |
 | `adapters/README.md` | Template for wiring HAPI or another server |
@@ -42,6 +42,11 @@ are not sampled from real EHR extracts.
 Report **per-workload** measurements (p50/p95 latency, operations/sec).
 Do not collapse heterogeneous operations into one leaderboard number.
 Compare implementations only on the same workload YAML and size.
+
+The HAIStack reference runner implements `scan-read` as
+`MemoryResourceStore.ListIDs` followed by `Read`. That is not FHIR
+`_search`. External adapters may list ids with search (`_elements=id`)
+or a bulk dump; say which path you used when comparing.
 
 ## Citation
 

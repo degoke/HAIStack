@@ -1,5 +1,5 @@
 name: view-execute
-description: Execute the research vitals ViewDefinition over seeded observations.
+description: Execute pkg/view builtin observation_view over seeded observations (not Track E research_vitals_view).
 operations:
   - type: view
     viewName: observation_view
