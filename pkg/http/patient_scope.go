@@ -43,7 +43,7 @@ func (h *handler) filterSearchBundlePatientScope(ctx context.Context, bundle *se
 		if entry.Resource == nil {
 			continue
 		}
-		if !searchEntryIsInclude(entry.Mode) {
+		if entry.Mode == "match" {
 			kept = append(kept, entry)
 			matchCount++
 			continue
@@ -59,8 +59,4 @@ func (h *handler) filterSearchBundlePatientScope(ctx context.Context, bundle *se
 	bundle.Entries = kept
 	bundle.Count = matchCount
 	return nil
-}
-
-func searchEntryIsInclude(mode string) bool {
-	return mode == "include"
 }

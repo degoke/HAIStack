@@ -56,11 +56,10 @@ func CheckEnvelopeScopeFilters(ctx context.Context, scopes ScopeSet, actor Actor
 	return ErrScopeFilterDenied
 }
 
-// FilterSearchBundleScopeFilters keeps query-time match entries and removes
-// included or revincluded entries outside granted scope filters. Primary matches
-// are narrowed by rewriting search parameters (ApplyScopeFiltersToParams); this
-// function does not fetch-then-hide match rows. Included entries accept either
-// read (r) or search (s) scope letters. Total is left as the query-time count.
+// FilterSearchBundleScopeFilters keeps search `match` entries produced by a
+// rewritten query and removes included or revincluded entries outside granted
+// scope filters. Empty-mode entries (for example $everything) are still
+// filtered. Total is left as the query-time count.
 func FilterSearchBundleScopeFilters(ctx context.Context, scopes ScopeSet, actor ActorClass, resourceType string, bundle *search.SearchBundle) error {
 	if bundle == nil || scopes.Empty() {
 		return nil
@@ -75,7 +74,7 @@ func FilterSearchBundleScopeFilters(ctx context.Context, scopes ScopeSet, actor 
 		if resType == "" {
 			resType = resourceType
 		}
-		if entry.Mode != "include" {
+		if entry.Mode == "match" {
 			kept = append(kept, entry)
 			matchCount++
 			continue

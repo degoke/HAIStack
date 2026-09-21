@@ -676,7 +676,7 @@ func TestReferentialIntegrityTransactionSeesEarlierEntries(t *testing.T) {
 		"resourceType":"Bundle",
 		"type":"transaction",
 		"entry":[
-			{"request":{"method":"PUT","url":"Patient/pat-txn"},"resource":{"resourceType":"Patient","id":"pat-txn","name":[{"family":"Txn"}]}},
+			{"request":{"method":"POST","url":"Patient"},"resource":{"resourceType":"Patient","id":"pat-txn","name":[{"family":"Txn"}]}},
 			{"request":{"method":"POST","url":"Observation"},"resource":{"resourceType":"Observation","status":"final","code":{"text":"hr"},"subject":{"reference":"Patient/pat-txn"}}}
 		]
 	}`)
