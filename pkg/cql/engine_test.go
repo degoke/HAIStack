@@ -615,8 +615,15 @@ func TestRetrieveMatchesStructuredCodesNotJSONSubstring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("implicit retrieve must not match display: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: code ~ 'Heart rate'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 || got[0] != int64(1) {
-		t.Fatalf("display match: %#v", got)
+		t.Fatalf("code ~ display: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "[Observation: 'final'].count()", env)
 	if err != nil {
@@ -1515,5 +1522,284 @@ func TestAgeInYearsAndTodayUseClockZone(t *testing.T) {
 	tm, ok := got[0].(time.Time)
 	if !ok || tm.Day() != 1 || tm.Month() != time.January || tm.Year() != 2021 {
 		t.Fatalf("Today() must use clock zone date: %#v", got)
+	}
+}
+
+func TestFlattenJSONKeepsDateShapedStrings(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "vs",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart Rate"}]},
+		"valueString": "2024",
+		"effectiveDateTime": "2021-01-01",
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[Observation].value = '2024'", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("valueString 2024 must stay a string: %#v", got)
+	}
+	loc := time.FixedZone("EST", -5*3600)
+	got, err = eng.Eval(context.Background(), `[Observation].effective during "Measurement Period"`, EvalContext{
+		Patient: adaPatient(t),
+		Parameters: map[string]any{
+			"Measurement Period": Interval{
+				Low:        time.Date(2021, 1, 1, 0, 0, 0, 0, loc),
+				High:       time.Date(2021, 1, 1, 23, 59, 59, 999999999, loc),
+				LowClosed:  true,
+				HighClosed: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("date-only effectiveDateTime must be during EST period: %#v", got)
+	}
+}
+
+func TestPeriodMapIsNotEqualToInterval(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), `{ start: @2020-01-01, end: @2020-12-31 } = Interval[@2020-01-01, @2020-12-31]`, EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("Period map must not equal Interval: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `{ {id: 'a', start: @2020-01-01, end: @2020-12-31}, {id: 'b', start: @2020-01-01, end: @2020-12-31} }.distinct().count()`, EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(2) {
+		t.Fatalf("distinct Period maps must keep different ids: %#v", got)
+	}
+}
+
+func TestUnresolvedRetrieveDoesNotMatchDisplay(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart Rate"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), `[Observation: "Heart Rate"].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("unresolved valueset name must not match display: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: '8867-4'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("unresolved code string must still match code: %#v", got)
+	}
+}
+
+func TestListLiteralsKeepNull(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != nil {
+		t.Fatalf("{null} must keep a null element: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, null, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != int64(1) || got[1] != nil || got[2] != int64(3) {
+		t.Fatalf("{1, null, 3} must keep null: %#v", got)
+	}
+}
+
+func TestConcatRequiresStrings(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 + 'x'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("1 + 'x' must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 & 'x'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("1 & 'x' must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null & 'x'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("null & 'x' must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'a' & 'b'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "ab" {
+		t.Fatalf("string &: %#v", got)
+	}
+}
+
+func TestTimeUsesClockZone(t *testing.T) {
+	loc := time.FixedZone("EST", -5*3600)
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2021, 1, 1, 23, 59, 59, 0, loc) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "Time(1, 2, 3)", EvalContext{Now: time.Date(2021, 1, 1, 23, 59, 59, 0, loc)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok := got[0].(time.Time)
+	if !ok || tm.Year() != 2021 || tm.Month() != time.January || tm.Day() != 1 || tm.Hour() != 1 {
+		t.Fatalf("Time() must stay on local clock date: %v", got)
+	}
+}
+
+func TestRetrieveMedicationReference(t *testing.T) {
+	med, err := types.NewJSONCodec().ParseJSON("Medication", []byte(`{
+		"resourceType": "Medication",
+		"id": "asa",
+		"code": {"coding": [{"system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": "1191"}]}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := types.NewJSONCodec().ParseJSON("MedicationRequest", []byte(`{
+		"resourceType": "MedicationRequest",
+		"id": "mr1",
+		"status": "active",
+		"intent": "order",
+		"medicationReference": {"reference": "Medication/asa"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{med, req},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[MedicationRequest: '1191'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("medicationReference retrieve: %#v", got)
+	}
+}
+
+func TestNumericCodeDoesNotInventMatch(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "n",
+		"status": "final",
+		"code": {"coding": [{"code": 88674}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "[Observation: '88674'].count()", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("numeric JSON code must not Sprint-match: %#v", got)
+	}
+}
+
+func TestRetrieveCodeCaseIsExact(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), `[Observation: '8867-4'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("exact code: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: '8867-4'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: code = '8867-4'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("code = : %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: '8867-X'].count()`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("implicit miss: %#v", got)
 	}
 }

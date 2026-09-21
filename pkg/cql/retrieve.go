@@ -3,7 +3,6 @@ package cql
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -205,11 +204,11 @@ func uniqueIDs(ids []string) []string {
 	return out
 }
 
-func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest, term fhirpath.TerminologyValidator) (bool, error) {
+func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest, term fhirpath.TerminologyValidator, resolve func(string) []fhirCoding) (bool, error) {
 	if req.Terminology == "" && req.ValueSetURL == "" && req.Code == "" {
 		return true, nil
 	}
-	codes := extractCodings(item, req.CodePath)
+	codes := extractCodings(item, req.CodePath, resolve)
 	if len(codes) == 0 && req.CodePath == "" {
 		if c := codingFromValue(item); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
 			codes = []fhirCoding{c}
@@ -252,7 +251,7 @@ type fhirCoding struct {
 	Text    string
 }
 
-func extractCodings(v any, codePath string) []fhirCoding {
+func extractCodings(v any, codePath string, resolve func(string) []fhirCoding) []fhirCoding {
 	obj, ok := asObject(v)
 	if !ok {
 		return nil
@@ -277,6 +276,9 @@ func extractCodings(v any, codePath string) []fhirCoding {
 		}
 		n := len(out)
 		collectCodeable(raw, &out)
+		if ref := referenceString(raw); ref != "" && resolve != nil {
+			out = append(out, resolve(ref)...)
+		}
 		if len(out) == n {
 			if c := codingFromValue(raw); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
 				out = append(out, c)
@@ -284,6 +286,15 @@ func extractCodings(v any, codePath string) []fhirCoding {
 		}
 	}
 	return out
+}
+
+func referenceString(v any) string {
+	obj, ok := asObject(v)
+	if !ok {
+		return ""
+	}
+	ref, _ := obj["reference"].(string)
+	return strings.TrimSpace(ref)
 }
 
 func matchResourceFields(obj map[string]any, name string) []string {
@@ -317,7 +328,7 @@ func isCodeableChoiceField(key, name string) bool {
 	if rest == "" || rest[0] < 'A' || rest[0] > 'Z' {
 		return false
 	}
-	return strings.EqualFold(rest, "CodeableConcept") || strings.EqualFold(rest, "Coding")
+	return strings.EqualFold(rest, "CodeableConcept") || strings.EqualFold(rest, "Coding") || strings.EqualFold(rest, "Reference")
 }
 
 // primaryCodeFields are the implicit FHIR elements CQL retrieve filters on
@@ -328,6 +339,7 @@ var primaryCodeFields = []string{
 	"type",
 	"medicationCodeableConcept",
 	"medication",
+	"medicationReference",
 	"vaccineCode",
 }
 
@@ -444,11 +456,7 @@ func codingFromValue(v any) fhirCoding {
 		}
 		return fhirCoding{Text: strField(obj, "text"), Code: strField(obj, "code")}
 	}
-	s := strings.TrimSpace(fmt.Sprint(unwrapPrimitive(v)))
-	if s == "" || s == "<nil>" {
-		return fhirCoding{}
-	}
-	return fhirCoding{Code: s, Text: s, Display: s}
+	return fhirCoding{}
 }
 
 func codingMatchesExact(codes []fhirCoding, system, code, term string) bool {
@@ -505,10 +513,10 @@ func codingMatchesEquivalent(codes []fhirCoding, system, code, term string) bool
 func codingMatches(codes []fhirCoding, system, code, term string) bool {
 	for _, c := range codes {
 		if code != "" {
-			if !strings.EqualFold(c.Code, code) {
+			if c.Code != code {
 				continue
 			}
-			if system != "" && !strings.EqualFold(c.System, system) {
+			if system != "" && c.System != system {
 				continue
 			}
 			return true
@@ -516,11 +524,11 @@ func codingMatches(codes []fhirCoding, system, code, term string) bool {
 		if term == "" {
 			continue
 		}
-		if strings.EqualFold(c.Code, term) || strings.EqualFold(c.Display, term) || strings.EqualFold(c.Text, term) || strings.EqualFold(c.System, term) {
+		if c.Code == term {
 			return true
 		}
 		if sys, cd, ok := splitSystemCode(term); ok {
-			if (sys == "" || strings.EqualFold(c.System, sys)) && strings.EqualFold(c.Code, cd) {
+			if (sys == "" || c.System == sys) && c.Code == cd {
 				return true
 			}
 		}
@@ -549,7 +557,7 @@ func strField(m map[string]any, key string) string {
 	if ok {
 		return s
 	}
-	return fmt.Sprint(unwrapPrimitive(v))
+	return ""
 }
 
 func resourceTypeOf(v any) string {

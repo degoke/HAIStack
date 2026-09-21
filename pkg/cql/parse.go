@@ -1619,19 +1619,43 @@ func parseNumber(text string) any {
 	return n
 }
 
+var dateOnlyLoc = time.FixedZone("CQL-DATE", 0)
+
+func isDateOnlyString(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.ContainsAny(text, "Tt") {
+		return false
+	}
+	switch len(text) {
+	case 4, 7, 10:
+		return true
+	}
+	return false
+}
+
+func isDateOnlyTime(t time.Time) bool {
+	if t.Location() == nil {
+		return false
+	}
+	return t.Location() == dateOnlyLoc || t.Location().String() == "CQL-DATE"
+}
+
 func parseCQLDate(text string) (time.Time, error) {
 	text = strings.TrimSpace(text)
 	formats := []string{
 		time.RFC3339,
-		"2006-01-02T15:04:05",
 		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
 		"2006-01-02",
 		"2006-01",
 		"2006",
 	}
 	for _, layout := range formats {
 		if tm, err := time.Parse(layout, text); err == nil {
-			return tm.UTC(), nil
+			if isDateOnlyString(text) {
+				return time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, dateOnlyLoc), nil
+			}
+			return tm, nil
 		}
 	}
 	return time.Time{}, errf("invalid CQL date @%s", text)

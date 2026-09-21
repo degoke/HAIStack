@@ -101,6 +101,10 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
+			if len(v) == 0 {
+				out = append(out, nil)
+				continue
+			}
 			out = append(out, v...)
 		}
 		return out, nil
@@ -536,7 +540,15 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []any{fmt.Sprint(singletonOrEmpty(left)) + fmt.Sprint(singletonOrEmpty(right))}, nil
+		if len(left) == 0 || len(right) == 0 {
+			return nil, nil
+		}
+		ls, lok := unwrapPrimitive(left[0]).(string)
+		rs, rok := unwrapPrimitive(right[0]).(string)
+		if !lok || !rok {
+			return nil, nil
+		}
+		return []any{ls + rs}, nil
 	case "in":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -1214,7 +1226,7 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 	}
 	var out []any
 	for _, item := range items {
-		ok, err := matchResourceTerminology(st.ctx, item, req, st.terminology())
+		ok, err := matchResourceTerminology(st.ctx, item, req, st.terminology(), st.resolveReferenceCodings)
 		if err != nil {
 			return nil, err
 		}
@@ -1267,6 +1279,37 @@ func looksLikeCanonical(s string) bool {
 		return false
 	}
 	return strings.Contains(s, "://") || strings.HasPrefix(strings.ToLower(s), "urn:")
+}
+
+func (st *evalState) resolveReferenceCodings(ref string) []fhirCoding {
+	if st == nil || st.retriever == nil {
+		return nil
+	}
+	rt, id := splitReference(ref)
+	if rt == "" || id == "" {
+		return nil
+	}
+	items, err := st.retriever.Retrieve(st.ctx, RetrieveRequest{ResourceType: rt}, nil)
+	if err != nil {
+		return nil
+	}
+	var out []fhirCoding
+	for _, item := range items {
+		got := ""
+		if env, ok := item.(*types.ResourceEnvelope); ok && env != nil {
+			got = env.ID
+		}
+		if got == "" {
+			if obj, ok := asObject(item); ok {
+				got, _ = obj["id"].(string)
+			}
+		}
+		if got != id {
+			continue
+		}
+		out = append(out, extractCodings(item, "", nil)...)
+	}
+	return out
 }
 
 func (st *evalState) terminology() fhirpath.TerminologyValidator {
@@ -1333,7 +1376,7 @@ func (st *evalState) lookupCodeMatch(name string, exact bool) *Code {
 func (st *evalState) inValueSet(values []any, vs ValueSet) (bool, error) {
 	req := RetrieveRequest{ValueSetURL: vs.URL, Terminology: vs.Name}
 	for _, v := range values {
-		ok, err := matchResourceTerminology(st.ctx, v, req, st.terminology())
+		ok, err := matchResourceTerminology(st.ctx, v, req, st.terminology(), st.resolveReferenceCodings)
 		if err != nil {
 			return false, err
 		}
@@ -1577,6 +1620,41 @@ func asTime(v any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func temporalLocation(v any) *time.Location {
+	if t, ok := asTime(unwrapPrimitive(v)); ok && t.Location() != nil && !isDateOnlyTime(t) {
+		return t.Location()
+	}
+	return nil
+}
+
+func asTemporal(v any, loc *time.Location) (time.Time, bool) {
+	v = unwrapPrimitive(v)
+	if t, ok := v.(time.Time); ok {
+		if isDateOnlyTime(t) {
+			if loc == nil {
+				loc = time.UTC
+			}
+			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc), true
+		}
+		return t, true
+	}
+	s, ok := v.(string)
+	if !ok {
+		return time.Time{}, false
+	}
+	tm, err := parseCQLDate(s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if isDateOnlyString(s) {
+		if loc == nil {
+			loc = time.UTC
+		}
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc), true
+	}
+	return tm, true
+}
+
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
 	if q1, ok := asQuantity(lv); ok {
 		if q2, ok := asQuantity(rv); ok {
@@ -1596,7 +1674,11 @@ func evalArithmetic(op string, lv, rv any) ([]any, error) {
 	rf, rok := asFloat(rv)
 	if !lok || !rok {
 		if op == "+" {
-			return []any{fmt.Sprint(unwrapPrimitive(lv)) + fmt.Sprint(unwrapPrimitive(rv))}, nil
+			ls, aok := unwrapPrimitive(lv).(string)
+			rs, bok := unwrapPrimitive(rv).(string)
+			if aok && bok {
+				return []any{ls + rs}, nil
+			}
 		}
 		return nil, nil
 	}
@@ -1656,8 +1738,8 @@ func cqlEqual(a, b any) bool {
 			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
 		}
 	}
-	if ia, ok := asInterval(a); ok {
-		if ib, ok := asInterval(b); ok {
+	if ia, ok := isCQLInterval(a); ok {
+		if ib, ok := isCQLInterval(b); ok {
 			return cqlEqual(ia.Low, ib.Low) && cqlEqual(ia.High, ib.High) && ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
 		}
 	}
@@ -1697,10 +1779,21 @@ func cqlEqual(a, b any) bool {
 			return true
 		}
 	}
-	if fmt.Sprintf("%T", a) != fmt.Sprintf("%T", b) {
+	if ca, ok := a.(Code); ok {
+		if cb, ok := b.(Code); ok {
+			return ca.System == cb.System && ca.Code == cb.Code
+		}
 		return false
 	}
-	return fmt.Sprint(a) == fmt.Sprint(b)
+	if sa, ok := a.(string); ok {
+		sb, ok := b.(string)
+		return ok && sa == sb
+	}
+	if ba, ok := a.(bool); ok {
+		bb, ok := b.(bool)
+		return ok && ba == bb
+	}
+	return false
 }
 
 func resourceIdentity(v any) (string, bool) {
@@ -1827,8 +1920,8 @@ func cqlCompare(a, b any) (int, bool) {
 			return 0, true
 		}
 	}
-	if ta, ok := asTime(a); ok {
-		if tb, ok := asTime(b); ok {
+	if ta, aok := asTemporal(a, temporalLocation(b)); aok {
+		if tb, bok := asTemporal(b, temporalLocation(a)); bok {
 			if ta.Before(tb) {
 				return -1, true
 			}
@@ -1955,9 +2048,6 @@ func flattenJSON(v any) []any {
 		}
 		return out
 	case string:
-		if tm, err := parseCQLDate(x); err == nil {
-			return []any{tm}
-		}
 		return []any{x}
 	default:
 		return []any{unwrapPrimitive(x)}

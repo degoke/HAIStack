@@ -261,7 +261,11 @@ func constructDate(args [][]any, dateTime bool) ([]any, error) {
 	if dateTime && len(parts) > 5 {
 		s = parts[5]
 	}
-	return []any{time.Date(y, time.Month(m), d, h, min, s, 0, time.UTC)}, nil
+	loc := time.UTC
+	if !dateTime {
+		loc = dateOnlyLoc
+	}
+	return []any{time.Date(y, time.Month(m), d, h, min, s, 0, loc)}, nil
 }
 
 func (st *evalState) constructTime(args [][]any) ([]any, error) {
@@ -281,11 +285,15 @@ func (st *evalState) constructTime(args [][]any) ([]any, error) {
 			s = int(n)
 		}
 	}
-	now := time.Now().UTC()
+	now := time.Now()
 	if st != nil && !st.now.IsZero() {
-		now = st.now.UTC()
+		now = clockInZone(st.now)
 	}
-	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, time.UTC)}, nil
+	loc := now.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, loc)}, nil
 }
 
 func stringPred(args [][]any, fn func(string, string) bool) ([]any, error) {
