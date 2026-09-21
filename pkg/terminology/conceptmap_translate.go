@@ -96,6 +96,8 @@ func (s *LocalService) emitTranslateAudit(ctx context.Context, req ConceptMapTra
 	if s.translateNow != nil {
 		ts = s.translateNow().UTC()
 	}
+	// Map identity is the ConceptMap TranslateResolved returned, not the
+	// caller's request URL/version (those are lookup keys only).
 	return audit.LogTerminologyTranslate(ctx, s.translateAudit, audit.TerminologyTranslateEvent{
 		Actor:        s.translateActor,
 		Tenant:       s.translateTenant,

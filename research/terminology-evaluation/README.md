@@ -41,19 +41,26 @@ field.
 A case passes when `gotClass` matches gold and the target code matches when
 gold specifies one.
 
-**Accuracy** is the pass rate (`passed / (passed + failed)`).
+**Accuracy** is the pass rate (`passed / (passed + failed)`). It is 1.0
+on the published gold set when `$translate` matches every case — that is
+the translator implementing the map, not a separate quality headline.
 
-**Precision** and **recall** are **macro-averages** of `byClass`
-one-vs-rest scores (precision over classes with at least one prediction,
-recall over classes with gold support). They are not the pass rate: a
-wrong label is a false positive for the predicted class and a miss for the
-gold class.
+**Precision** and **recall** are published **only in `byClass`**
+(one-vs-rest: precision over predictions of that class, recall over gold
+support). There is no top-level precision/recall: under micro-average
+every error is both FP and FN, so those figures collapse to accuracy, and
+on a complete gold set they stay 1.0 for the same reason the pass rate
+does.
 
 **Provenance completeness** is the share of translations whose
 `terminology.translate` audit event was **emitted by
 `pkg/terminology.Translate`** from the ConceptMap it resolved (`url`,
-`version`, `sourceUri` version, timestamp). The evaluation harness does not
-copy those fields into the event. A failed audit emit aborts the run.
+`version`, `sourceUri` version, timestamp). The harness loads the map
+into the terminology store and calls `$translate`; it does not call
+`LogTerminologyTranslate` or copy gold-file identity into the event.
+`cases.json` does not publish map URL, version, or source-system version.
+A map missing `url` is rejected; a map missing `version`/`sourceUri`
+scores provenance 0. A failed audit emit aborts the run.
 
 ## Finite ValueSet expansion
 

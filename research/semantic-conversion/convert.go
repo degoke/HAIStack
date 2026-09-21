@@ -13,9 +13,20 @@ const ParticipantInformantSystem = "http://terminology.hl7.org/CodeSystem/proven
 // ParticipantInformantDisplay is the authored gold display for that coding.
 const ParticipantInformantDisplay = "Informant"
 
+// ObservationInterpretationSystem is the authored CodeSystem on promoted
+// Observation.interpretation codings (R4 singleton → R5 list).
+const ObservationInterpretationSystem = "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation"
+
+// ObservationInterpretationNDisplay is the authored display for interpretation code N.
+const ObservationInterpretationNDisplay = "Normal"
+
+// MedicationRxNormSystem is the authored RxNorm system stamped onto wrapped
+// MedicationRequest.medicationCodeableConcept codings.
+const MedicationRxNormSystem = "http://www.nlm.nih.gov/research/umls/rxnorm"
+
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
-// It is scored against authored gold R5 in testdata/corpus.json (the oracle),
-// not used to produce that gold.
+// It is scored against authored gold R5 in testdata/corpus.json (the in-repo
+// oracle, not a third-party mapping such as hl7.fhir.uv.xver).
 func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []string, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(r4, &obj); err != nil {
@@ -31,7 +42,7 @@ func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []
 	case "Observation":
 		if interp, ok := obj["interpretation"]; ok {
 			if _, isList := interp.([]any); !isList {
-				obj["interpretation"] = []any{interp}
+				obj["interpretation"] = []any{stampInterpretation(interp)}
 			}
 		}
 	case "Condition":
@@ -49,7 +60,7 @@ func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []
 	case "MedicationRequest":
 		if med, ok := obj["medicationCodeableConcept"]; ok {
 			delete(obj, "medicationCodeableConcept")
-			obj["medication"] = []any{map[string]any{"concept": med}}
+			obj["medication"] = []any{map[string]any{"concept": stampMedicationConcept(med)}}
 		}
 		var reasons []any
 		if rc, ok := obj["reasonCode"].([]any); ok {
@@ -78,4 +89,53 @@ func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []
 	}
 	out, err := json.Marshal(obj)
 	return out, loss, err
+}
+
+func stampInterpretation(interp any) any {
+	m, ok := interp.(map[string]any)
+	if !ok {
+		return interp
+	}
+	coding, _ := m["coding"].([]any)
+	for i, item := range coding {
+		cm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := cm["system"]; !ok {
+			cm["system"] = ObservationInterpretationSystem
+		}
+		if code, _ := cm["code"].(string); code == "N" {
+			if _, ok := cm["display"]; !ok {
+				cm["display"] = ObservationInterpretationNDisplay
+			}
+		}
+		coding[i] = cm
+	}
+	if coding != nil {
+		m["coding"] = coding
+	}
+	return m
+}
+
+func stampMedicationConcept(med any) any {
+	m, ok := med.(map[string]any)
+	if !ok {
+		return med
+	}
+	coding, _ := m["coding"].([]any)
+	for i, item := range coding {
+		cm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := cm["system"]; !ok {
+			cm["system"] = MedicationRxNormSystem
+		}
+		coding[i] = cm
+	}
+	if coding != nil {
+		m["coding"] = coding
+	}
+	return m
 }

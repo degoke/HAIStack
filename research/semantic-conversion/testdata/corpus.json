@@ -642,7 +642,8 @@
     ],
     "informationLoss": [
       "Patient.animal removed in R5"
-    ]
+    ],
+    "spec": "http://hl7.org/fhir/R5/patient.html#diff"
   },
   {
     "id": "patient-loss-pat-animal-02",
@@ -675,7 +676,8 @@
     ],
     "informationLoss": [
       "Patient.animal removed in R5"
-    ]
+    ],
+    "spec": "http://hl7.org/fhir/R5/patient.html#diff"
   },
   {
     "id": "patient-loss-pat-animal-03",
@@ -708,7 +710,8 @@
     ],
     "informationLoss": [
       "Patient.animal removed in R5"
-    ]
+    ],
+    "spec": "http://hl7.org/fhir/R5/patient.html#diff"
   },
   {
     "id": "observation-unchanged-obs-01",
@@ -1504,7 +1507,9 @@
         {
           "coding": [
             {
-              "code": "N"
+              "code": "N",
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+              "display": "Normal"
             }
           ]
         }
@@ -1560,7 +1565,9 @@
         {
           "coding": [
             {
-              "code": "N"
+              "code": "N",
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+              "display": "Normal"
             }
           ]
         }
@@ -1616,7 +1623,9 @@
         {
           "coding": [
             {
-              "code": "N"
+              "code": "N",
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+              "display": "Normal"
             }
           ]
         }
@@ -1672,7 +1681,9 @@
         {
           "coding": [
             {
-              "code": "N"
+              "code": "N",
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+              "display": "Normal"
             }
           ]
         }
@@ -2754,7 +2765,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -2836,7 +2848,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -2918,7 +2931,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -3000,7 +3014,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -3082,7 +3097,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -3164,7 +3180,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -3246,7 +3263,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }
@@ -3328,7 +3346,8 @@
           "concept": {
             "coding": [
               {
-                "code": "313820"
+                "code": "313820",
+                "system": "http://www.nlm.nih.gov/research/umls/rxnorm"
               }
             ]
           }

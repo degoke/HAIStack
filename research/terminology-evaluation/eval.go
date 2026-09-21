@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
@@ -22,8 +21,9 @@ type Case struct {
 	Target string `json:"target,omitempty"`
 }
 
-// GoldFile is the published case list. ConceptMap URL/version come from the
-// ConceptMap resource the translator resolves, not from this envelope.
+// GoldFile is the published case list. It does not carry ConceptMap URL,
+// version, or source-system version; those come from the ConceptMap resource
+// pkg/terminology.Translate resolves.
 type GoldFile struct {
 	SourceSystem string `json:"sourceSystem"`
 	Cases        []Case `json:"cases"`
@@ -50,9 +50,10 @@ type ClassScore struct {
 // Metrics grade the translator against gold.
 // Exact/Narrow/Broad/Unmatched count observed classes from $translate
 // equivalence on the returned coding.
-// Accuracy is the pass rate. Precision and recall are macro-averages of
-// byClass (classes with predicted>0 for precision, support>0 for recall),
-// which are not identical to accuracy.
+// Accuracy is the pass rate. Multi-class precision and recall live only in
+// byClass: a published overall precision/recall would equal accuracy on this
+// closed gold set (every miss is both FP and FN under micro-average, and
+// macro-average is 1.0 when every class is perfect).
 // ProvenanceCompleteness is the share of translations whose audit event was
 // emitted by pkg/terminology.Translate from the resolved ConceptMap.
 type Metrics struct {
@@ -63,11 +64,14 @@ type Metrics struct {
 	Passed     int                   `json:"passed"`
 	Failed     int                   `json:"failed"`
 	Accuracy   float64               `json:"accuracy"`
-	Precision  float64               `json:"precision"`
-	Recall     float64               `json:"recall"`
 	ByClass    map[string]ClassScore `json:"byClass,omitempty"`
 	Provenance float64               `json:"provenanceCompleteness"`
 	Results    []CaseResult          `json:"results"`
+}
+
+type conceptMapHeader struct {
+	URL     string `json:"url"`
+	Version string `json:"version"`
 }
 
 // Evaluate loads the gold ConceptMap into pkg/terminology, translates each
@@ -90,11 +94,11 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		return Metrics{}, fmt.Errorf("terminology-evaluation: no gold cases")
 	}
 
-	cmap, err := conceptmap.ParseMap(mapJSON)
-	if err != nil {
+	var header conceptMapHeader
+	if err := json.Unmarshal(mapJSON, &header); err != nil {
 		return Metrics{}, err
 	}
-	if cmap.URL == "" {
+	if header.URL == "" {
 		return Metrics{}, fmt.Errorf("terminology-evaluation: ConceptMap missing url")
 	}
 
@@ -103,8 +107,8 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		ScopeID:      "research",
 		ResourceType: "ConceptMap",
 		ResourceID:   "lab-to-panel",
-		CanonicalURL: cmap.URL,
-		Version:      cmap.Version,
+		CanonicalURL: header.URL,
+		Version:      header.Version,
 		Status:       "active",
 		ResourceJSON: mapJSON,
 	}); err != nil {
@@ -123,7 +127,7 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	classFP := map[string]int{}
 	classSupport := map[string]int{}
 	for _, c := range gold.Cases {
-		gotClass, target, _ := translateClass(ctx, svc, cmap.URL, cmap.Version, gold.SourceSystem, c.Code)
+		gotClass, target, _ := translateClass(ctx, svc, header.URL, header.Version, gold.SourceSystem, c.Code)
 		pass := gotClass == c.Class && (c.Target == "" || c.Target == target)
 		if pass {
 			metrics.Passed++
@@ -163,7 +167,6 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		metrics.Accuracy = float64(metrics.Passed) / float64(total)
 	}
 	metrics.ByClass = classScores(classTP, classFP, classSupport)
-	metrics.Precision, metrics.Recall = macroAverage(metrics.ByClass)
 	if len(gold.Cases) > 0 {
 		metrics.Provenance = float64(complete) / float64(len(gold.Cases))
 	}
@@ -188,32 +191,6 @@ func classScores(tp, fp, support map[string]int) map[string]ClassScore {
 		}
 	}
 	return out
-}
-
-func macroAverage(byClass map[string]ClassScore) (precision, recall float64) {
-	var pSum, rSum float64
-	var pN, rN int
-	for _, class := range []string{"exact", "narrow", "broad", "unmatched"} {
-		s, ok := byClass[class]
-		if !ok {
-			continue
-		}
-		if s.Predicted > 0 {
-			pSum += s.Precision
-			pN++
-		}
-		if s.Support > 0 {
-			rSum += s.Recall
-			rN++
-		}
-	}
-	if pN > 0 {
-		precision = pSum / float64(pN)
-	}
-	if rN > 0 {
-		recall = rSum / float64(rN)
-	}
-	return precision, recall
 }
 
 func incrementObservedClass(metrics *Metrics, gotClass string) {

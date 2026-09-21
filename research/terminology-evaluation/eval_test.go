@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	terminologyeval "github.com/degoke/health-ai-stack/research/terminology-evaluation"
@@ -26,8 +27,13 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	if metrics.Provenance != 1 {
 		t.Fatalf("provenance completeness = %v, want 1", metrics.Provenance)
 	}
-	if metrics.Accuracy != 1 || metrics.Precision != 1 || metrics.Recall != 1 {
-		t.Fatalf("accuracy=%v precision=%v recall=%v, want 1", metrics.Accuracy, metrics.Precision, metrics.Recall)
+	if metrics.Accuracy != 1 {
+		t.Fatalf("accuracy=%v, want 1", metrics.Accuracy)
+	}
+	for class, s := range metrics.ByClass {
+		if s.Precision != 1 || s.Recall != 1 {
+			t.Fatalf("%s byClass = %+v, want precision=1 recall=1", class, s)
+		}
 	}
 }
 
@@ -64,7 +70,7 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	assertObservedBuckets(t, metrics)
 }
 
-func TestMacroPrecisionDiffersFromAccuracy(t *testing.T) {
+func TestByClassPrecisionDiffersFromAccuracy(t *testing.T) {
 	mapPath, _ := terminologyeval.TestdataPaths()
 	dir := t.TempDir()
 	casesPath := filepath.Join(dir, "cases.json")
@@ -88,14 +94,16 @@ func TestMacroPrecisionDiffersFromAccuracy(t *testing.T) {
 	if metrics.Accuracy != 0.75 {
 		t.Fatalf("accuracy = %v, want 0.75", metrics.Accuracy)
 	}
-	if metrics.Precision == metrics.Accuracy {
-		t.Fatalf("macro precision %v must not equal accuracy %v", metrics.Precision, metrics.Accuracy)
+	exact := metrics.ByClass["exact"]
+	if exact.Precision != 1 || exact.Recall != 0.75 || exact.Support != 4 || exact.Predicted != 3 {
+		t.Fatalf("exact byClass = %+v, want P=1 R=0.75 support=4 predicted=3", exact)
 	}
-	if metrics.Precision != 0.5 {
-		t.Fatalf("macro precision = %v, want 0.5 (exact P=1, broad P=0)", metrics.Precision)
+	broad := metrics.ByClass["broad"]
+	if broad.Precision != 0 || broad.Predicted != 1 {
+		t.Fatalf("broad byClass = %+v, want P=0 predicted=1", broad)
 	}
-	if metrics.Recall != 0.75 {
-		t.Fatalf("macro recall = %v, want 0.75 (exact R=0.75)", metrics.Recall)
+	if exact.Precision == metrics.Accuracy {
+		t.Fatalf("exact precision %v must not be used as overall accuracy %v", exact.Precision, metrics.Accuracy)
 	}
 }
 
@@ -174,6 +182,48 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 	}
 	if metrics.Provenance != 0 {
 		t.Fatalf("provenance = %v, want 0 when resolved ConceptMap lacks version and sourceUri", metrics.Provenance)
+	}
+}
+
+func TestEvaluateRequiresConceptMapURL(t *testing.T) {
+	dir := t.TempDir()
+	mapPath := filepath.Join(dir, "conceptmap.json")
+	casesPath := filepath.Join(dir, "cases.json")
+	if err := os.WriteFile(mapPath, []byte(`{"resourceType":"ConceptMap","group":[{"element":[{"code":"GLU","noMap":true}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(casesPath, []byte(`{
+  "sourceSystem": "http://haistack.dev/research/CodeSystem/toy-lab",
+  "cases": [{"code": "GLU", "class": "unmatched"}]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err == nil || !strings.Contains(err.Error(), "missing url") {
+		t.Fatalf("err = %v, want ConceptMap missing url", err)
+	}
+}
+
+func TestEvaluateSourceDoesNotWriteAudit(t *testing.T) {
+	raw, err := os.ReadFile("eval.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "audit.LogTerminologyTranslate") {
+		t.Fatal("Evaluate must not write terminology.translate events; provenance is emitted inside pkg/terminology.Translate")
+	}
+}
+
+func TestGoldFileOmitsMapIdentity(t *testing.T) {
+	_, casesPath := terminologyeval.TestdataPaths()
+	raw, err := os.ReadFile(casesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"conceptMapUrl", "conceptMapVersion", "sourceSystemVersion"} {
+		if strings.Contains(string(raw), key) {
+			t.Fatalf("cases.json must not publish %s", key)
+		}
 	}
 }
 

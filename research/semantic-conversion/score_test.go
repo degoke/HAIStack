@@ -65,43 +65,83 @@ func TestCorpusScore(t *testing.T) {
 
 func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 	raw := mustReadCorpus(t)
-	if !bytes.Contains(raw, []byte(semanticconversion.ParticipantInformantSystem)) {
-		t.Fatal("gold testdata must author the R5 informant function system")
-	}
-	if !bytes.Contains(raw, []byte(semanticconversion.ParticipantInformantDisplay)) {
-		t.Fatal("gold testdata must author the Informant display from the R5 mapping notes")
-	}
-	if !bytes.Contains(raw, []byte("http://hl7.org/fhir/R5/condition.html#diff")) {
-		t.Fatal("transformed gold pairs must cite the R5 diff spec")
-	}
 	pairs, err := semanticconversion.ParseCorpus(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pair semanticconversion.Pair
+	var unchanged, transformed int
 	for _, p := range pairs {
-		if p.Category == semanticconversion.CategoryRenamed && p.ResourceType == "Condition" {
-			pair = p
-			break
+		r4, r5 := string(p.R4), string(p.R5)
+		switch p.Category {
+		case semanticconversion.CategoryUnchanged:
+			if len(p.InformationLoss) == 0 {
+				if !bytesEqualCanonical(p.R4, p.R5) {
+					t.Errorf("%s: unchanged gold R4 must equal gold R5 in testdata", p.ID)
+				}
+				unchanged++
+				continue
+			}
+			if bytes.Contains(p.R4, []byte(`"animal"`)) && bytes.Contains(p.R5, []byte(`"animal"`)) {
+				t.Errorf("%s: authored gold R5 must omit Patient.animal", p.ID)
+			}
+			if p.Spec == "" {
+				t.Errorf("%s: animal-loss gold must cite the Patient R5 diff", p.ID)
+			}
+			transformed++
+		case semanticconversion.CategoryRenamed:
+			if p.Spec == "" {
+				t.Errorf("%s: renamed gold must cite a spec URL", p.ID)
+			}
+			if bytes.Contains(p.R4, []byte("participant")) || !bytes.Contains(p.R4, []byte("asserter")) {
+				t.Errorf("%s: R4 gold should keep asserter", p.ID)
+			}
+			if bytes.Contains(p.R5, []byte("asserter")) || !bytes.Contains(p.R5, []byte("participant")) {
+				t.Errorf("%s: R5 gold should keep participant", p.ID)
+			}
+			if strings.Contains(r4, semanticconversion.ParticipantInformantDisplay) {
+				t.Errorf("%s: R4 must not contain the authored Informant display", p.ID)
+			}
+			if !strings.Contains(r5, semanticconversion.ParticipantInformantSystem) ||
+				!strings.Contains(r5, semanticconversion.ParticipantInformantDisplay) {
+				t.Errorf("%s: authored gold R5 must include informant system and display", p.ID)
+			}
+			transformed++
+		case semanticconversion.CategoryCardinality:
+			if p.Spec == "" {
+				t.Errorf("%s: cardinality gold must cite a spec URL", p.ID)
+			}
+			if strings.Contains(r4, semanticconversion.ObservationInterpretationSystem) {
+				t.Errorf("%s: R4 must not already contain the authored interpretation system", p.ID)
+			}
+			if !strings.Contains(r5, semanticconversion.ObservationInterpretationSystem) ||
+				!strings.Contains(r5, semanticconversion.ObservationInterpretationNDisplay) {
+				t.Errorf("%s: authored gold R5 must stamp interpretation system and Normal display", p.ID)
+			}
+			transformed++
+		case semanticconversion.CategoryCodeableConcept, semanticconversion.CategoryTypeChange:
+			if p.Spec == "" {
+				t.Errorf("%s: medication gold must cite a spec URL", p.ID)
+			}
+			if bytes.Contains(p.R5, []byte("medicationCodeableConcept")) || !bytes.Contains(p.R5, []byte(`"medication"`)) {
+				t.Errorf("%s: R5 gold should use medication CodeableReference", p.ID)
+			}
+			if bytes.Contains(p.R4, []byte("medicationCodeableConcept")) && strings.Contains(r4, `"code"`) &&
+				!strings.Contains(r4, semanticconversion.MedicationRxNormSystem) &&
+				!strings.Contains(r5, semanticconversion.MedicationRxNormSystem) {
+				t.Errorf("%s: authored gold R5 must stamp RxNorm system on coded medication", p.ID)
+			}
+			if p.Category == semanticconversion.CategoryTypeChange {
+				if bytes.Contains(p.R4, []byte(`"reported"`)) || !bytes.Contains(p.R5, []byte(`"reported"`)) {
+					t.Errorf("%s: type-change gold must author reported on R5 only", p.ID)
+				}
+			}
+			transformed++
+		default:
+			t.Errorf("%s: unknown category %s", p.ID, p.Category)
 		}
 	}
-	if pair.ID == "" {
-		t.Fatal("missing renamed Condition pair")
-	}
-	if pair.Spec == "" {
-		t.Fatal("renamed gold pair must carry a spec URL (authorship), not a converter dump")
-	}
-	if bytes.Contains(pair.R4, []byte("participant")) || !bytes.Contains(pair.R4, []byte("asserter")) {
-		t.Fatalf("R4 gold should keep asserter, got %s", pair.R4)
-	}
-	if bytes.Contains(pair.R5, []byte("asserter")) || !bytes.Contains(pair.R5, []byte("participant")) {
-		t.Fatalf("R5 gold should keep participant, got %s", pair.R5)
-	}
-	if bytes.Contains(pair.R4, []byte(semanticconversion.ParticipantInformantDisplay)) {
-		t.Fatal("R4 must not contain the authored R5 Informant display")
-	}
-	if !bytes.Contains(pair.R5, []byte(semanticconversion.ParticipantInformantDisplay)) {
-		t.Fatal("authored gold R5 must include Informant display")
+	if unchanged == 0 || transformed < 20 {
+		t.Fatalf("authorship coverage unchanged=%d transformed=%d", unchanged, transformed)
 	}
 }
 
@@ -110,22 +150,15 @@ func TestConverterImplementsAuthoredGold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pair semanticconversion.Pair
-	for _, p := range pairs {
-		if p.Category == semanticconversion.CategoryRenamed && p.ResourceType == "Condition" {
-			pair = p
-			break
+	for _, pair := range pairs {
+		got, _, err := semanticconversion.ConvertR4ToR5(pair.ResourceType, pair.R4)
+		if err != nil {
+			t.Errorf("%s: convert: %v", pair.ID, err)
+			continue
 		}
-	}
-	if pair.ID == "" {
-		t.Fatal("missing renamed Condition pair")
-	}
-	got, _, err := semanticconversion.ConvertR4ToR5(pair.ResourceType, pair.R4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytesEqualCanonical(got, pair.R5) {
-		t.Fatalf("converter must implement authored gold\ngot  %s\ngold %s", got, pair.R5)
+		if !bytesEqualCanonical(got, pair.R5) {
+			t.Errorf("%s: converter must implement authored gold\ngot  %s\ngold %s", pair.ID, got, pair.R5)
+		}
 	}
 }
 

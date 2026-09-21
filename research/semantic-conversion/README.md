@@ -25,14 +25,24 @@ The scorer always emits at least 50 pair results. Categories:
 ## Scoring
 
 Gold pairs live in [`testdata/corpus.json`](./testdata/corpus.json). That file
-is the **authored R5 oracle**: transformed pairs cite the R5 resource diff
-(`spec`) and include mapping fields that are not present on R4 (HL7 informant
-function system **and** display on `Condition.participant`). Unchanged pairs
-are identical in R4 and R5 because those elements did not change. `ConvertR4ToR5`
-is an implementation scored against gold; gold is not generated from the
-converter. Authorship is asserted by inspecting testdata (spec URL, Informant
-display on R5 only). Structural equality is the separate check that the
-converter implements that oracle.
+is an **in-repo authored R5 oracle**, not a third-party mapping
+(`hl7.fhir.uv.xver` / core conversion maps). Unchanged pairs are identical
+in R4 and R5 in testdata because those elements did not change; that
+identity is an authorship invariant checked without running the converter.
+Transformed pairs cite the R5 resource diff (`spec`) and include mapping
+fields that are not on the R4 instance:
+
+| Category | Authored R5 constraint (absent from R4) |
+|----------|-----------------------------------------|
+| `renamed` | `Condition.participant.function` informant system **and** display |
+| `cardinality` | `Observation.interpretation` list plus v3 interpretation system/display |
+| `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; RxNorm system on coded medication |
+| `Patient.animal` | R5 omits `animal`; pair cites the Patient R5 diff |
+
+`ConvertR4ToR5` is an implementation scored against that oracle. Structural
+equality (`Convert(r4) == gold R5`) proves the converter follows gold; it
+does not prove gold was produced by an external mapper. Authorship tests
+inspect testdata only and do not call `ConvertR4ToR5`.
 
 For each pair:
 
