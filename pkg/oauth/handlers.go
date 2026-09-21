@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
@@ -48,12 +49,16 @@ func (s *Server) handleJWKS(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) verificationKeySets() []*KeySet {
+	now := time.Now()
+	if s != nil && s.cfg.Now != nil {
+		now = s.cfg.Now()
+	}
 	out := []*KeySet{}
-	if s.cfg.SigningKey != nil {
+	if s.cfg.SigningKey != nil && s.cfg.SigningKey.Published(now) {
 		out = append(out, s.cfg.SigningKey)
 	}
 	for _, keySet := range s.cfg.VerificationKeys {
-		if keySet != nil {
+		if keySet != nil && keySet.Published(now) {
 			out = append(out, keySet)
 		}
 	}
@@ -112,7 +117,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	} else if s.cfg.UserAuthenticator != nil {
 		if loginPath := strings.TrimSpace(s.cfg.LoginPath); loginPath != "" {
 			returnURL := s.cfg.Issuer + r.URL.RequestURI()
-			http.Redirect(w, r, loginPath+"?return="+url.QueryEscape(returnURL), http.StatusFound)
+			http.Redirect(w, r, loginRedirectLocation(s.cfg.Issuer, loginPath, returnURL), http.StatusFound)
 			return
 		}
 		http.Error(w, "user authentication required", http.StatusUnauthorized)
@@ -473,7 +478,7 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 		return nil, err
 	}
 	refresh := randomToken()
-	_ = s.authStore.SaveRefreshToken(refresh, RefreshTokenEntry{
+	if err := s.authStore.SaveRefreshToken(refresh, RefreshTokenEntry{
 		Issuer:    s.cfg.Issuer,
 		ClientID:  clientID,
 		Scope:     scope,
@@ -482,7 +487,9 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 		Subject:   subject,
 		FHIRUser:  fhirUser,
 		ExpiresAt: now.Add(s.cfg.RefreshTokenTTL),
-	})
+	}); err != nil {
+		return nil, err
+	}
 	resp := map[string]any{
 		"access_token":  accessToken,
 		"token_type":    "Bearer",
@@ -594,6 +601,26 @@ func defaultIfEmpty(values, fallback []string) []string {
 		return fallback
 	}
 	return values
+}
+
+// loginRedirectLocation is the browser Location for unauthenticated authorize.
+// LoginPath stays /oauth/login on the mux after tenant path rewrite; Go's
+// http.Redirect would join a relative oauth/login against that rewritten path
+// and send the browser to host-absolute /oauth/login. Prefix with the issuer
+// path so /t/{id}/oauth/authorize lands on /t/{id}/oauth/login.
+func loginRedirectLocation(issuer, loginPath, returnURL string) string {
+	loginPath = strings.TrimSpace(loginPath)
+	if loginPath == "" {
+		return ""
+	}
+	if !strings.HasPrefix(loginPath, "/") {
+		loginPath = "/" + loginPath
+	}
+	prefix := ""
+	if parsed, err := url.Parse(NormalizeIssuerURL(issuer)); err == nil {
+		prefix = strings.TrimSuffix(parsed.EscapedPath(), "/")
+	}
+	return prefix + loginPath + "?return=" + url.QueryEscape(returnURL)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

@@ -185,4 +185,3 @@ func TestOAuthServer_ConfidentialClientSecretBasic(t *testing.T) {
 		t.Fatal("missing access token")
 	}
 }
-

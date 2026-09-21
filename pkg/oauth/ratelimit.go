@@ -12,6 +12,8 @@ import (
 const (
 	defaultOAuthTokenRateLimit    = 120
 	defaultOAuthRegisterRateLimit = 30
+	defaultOAuthLoginRateLimit    = 10
+	defaultOAuthLoginIPRateLimit  = 30
 	defaultOAuthRateLimitWindow   = time.Minute
 )
 
@@ -119,10 +121,18 @@ func oauthClientIP(r *http.Request) string {
 }
 
 func (s *Server) rateLimitOAuth(w http.ResponseWriter, r *http.Request, endpoint string, limiter RateLimitStore, limit int, window time.Duration) bool {
+	return s.rateLimitOAuthBucket(w, r, endpoint, oauthClientIP(r), limiter, limit, window)
+}
+
+func (s *Server) rateLimitOAuthBucket(w http.ResponseWriter, r *http.Request, endpoint, bucketKey string, limiter RateLimitStore, limit int, window time.Duration) bool {
 	if limiter == nil {
 		return true
 	}
-	allowed, err := limiter.Allow(r.Context(), endpoint, oauthClientIP(r), limit, window, s.cfg.Now())
+	now := time.Now()
+	if s != nil && s.cfg.Now != nil {
+		now = s.cfg.Now()
+	}
+	allowed, err := limiter.Allow(r.Context(), endpoint, bucketKey, limit, window, now)
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "rate limit unavailable")
 		return false
@@ -154,9 +164,41 @@ func (s *Server) registerRateLimiter(limit int, window time.Duration) RateLimitS
 	return newMemoryRateLimiter(limit, window)
 }
 
-func rateLimitConfigFrom(cfg RateLimitConfig) (tokenLimit, registerLimit int, window time.Duration) {
+func (s *Server) loginRateLimiter(limit int, window time.Duration) RateLimitStore {
+	if s == nil {
+		return nil
+	}
+	if s.loginLimiter != nil {
+		return s.loginLimiter
+	}
+	return newMemoryRateLimiter(limit, window)
+}
+
+func (s *Server) loginIPRateLimiter(limit int, window time.Duration) RateLimitStore {
+	if s == nil {
+		return nil
+	}
+	if s.loginIPLimiter != nil {
+		return s.loginIPLimiter
+	}
+	return newMemoryRateLimiter(limit, window)
+}
+
+func (s *Server) rateLimitLogin(w http.ResponseWriter, r *http.Request, username string) bool {
+	_, _, loginLimit, loginIPLimit, window := rateLimitConfigFrom(s.cfg.RateLimit)
+	ip := oauthClientIP(r)
+	if !s.rateLimitOAuthBucket(w, r, "login-ip", ip, s.loginIPRateLimiter(loginIPLimit, window), loginIPLimit, window) {
+		return false
+	}
+	userKey := ip + "\n" + strings.ToLower(strings.TrimSpace(username))
+	return s.rateLimitOAuthBucket(w, r, "login", userKey, s.loginRateLimiter(loginLimit, window), loginLimit, window)
+}
+
+func rateLimitConfigFrom(cfg RateLimitConfig) (tokenLimit, registerLimit, loginLimit, loginIPLimit int, window time.Duration) {
 	tokenLimit = cfg.TokenRequests
 	registerLimit = cfg.RegisterRequests
+	loginLimit = cfg.LoginRequests
+	loginIPLimit = cfg.LoginIPRequests
 	window = cfg.Window
 	if tokenLimit <= 0 {
 		tokenLimit = defaultOAuthTokenRateLimit
@@ -164,16 +206,24 @@ func rateLimitConfigFrom(cfg RateLimitConfig) (tokenLimit, registerLimit int, wi
 	if registerLimit <= 0 {
 		registerLimit = defaultOAuthRegisterRateLimit
 	}
+	if loginLimit <= 0 {
+		loginLimit = defaultOAuthLoginRateLimit
+	}
+	if loginIPLimit <= 0 {
+		loginIPLimit = defaultOAuthLoginIPRateLimit
+	}
 	if window <= 0 {
 		window = defaultOAuthRateLimitWindow
 	}
-	return tokenLimit, registerLimit, window
+	return tokenLimit, registerLimit, loginLimit, loginIPLimit, window
 }
 
 // RateLimitConfig configures OAuth endpoint rate limits.
 type RateLimitConfig struct {
 	TokenRequests    int
 	RegisterRequests int
+	LoginRequests    int
+	LoginIPRequests  int
 	Window           time.Duration
 }
 
@@ -181,9 +231,15 @@ func applyRateLimitConfig(s *Server, cfg RateLimitConfig, tokenStore, registerSt
 	if s == nil {
 		return
 	}
-	tokenLimit, registerLimit, window := rateLimitConfigFrom(cfg)
+	tokenLimit, registerLimit, loginLimit, loginIPLimit, window := rateLimitConfigFrom(cfg)
 	if tokenStore != nil {
 		s.tokenLimiter = tokenStore
+		if s.loginLimiter == nil {
+			s.loginLimiter = tokenStore
+		}
+		if s.loginIPLimiter == nil {
+			s.loginIPLimiter = tokenStore
+		}
 	} else if s.tokenLimiter == nil {
 		s.tokenLimiter = newMemoryRateLimiter(tokenLimit, window)
 	}
@@ -191,5 +247,11 @@ func applyRateLimitConfig(s *Server, cfg RateLimitConfig, tokenStore, registerSt
 		s.registerLimiter = registerStore
 	} else if s.registerLimiter == nil {
 		s.registerLimiter = newMemoryRateLimiter(registerLimit, window)
+	}
+	if s.loginLimiter == nil {
+		s.loginLimiter = newMemoryRateLimiter(loginLimit, window)
+	}
+	if s.loginIPLimiter == nil {
+		s.loginIPLimiter = newMemoryRateLimiter(loginIPLimit, window)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/oauth"
@@ -15,12 +16,12 @@ import (
 // AuthorizationStore persists OAuth authorization state in SQLite.
 type SQLiteAuthorizationStore struct {
 	db  *sql.DB
-	now func() time.Time
+	Now func() time.Time
 }
 
 // NewSQLiteAuthorizationStore constructs a SQLite-backed AuthorizationStore.
 func NewSQLiteAuthorizationStore(db *sql.DB) *SQLiteAuthorizationStore {
-	return &SQLiteAuthorizationStore{db: db, now: time.Now}
+	return &SQLiteAuthorizationStore{db: db, Now: time.Now}
 }
 
 func (s *SQLiteAuthorizationStore) SaveAuthorizationCode(code string, entry oauth.AuthorizationCode) error {
@@ -49,14 +50,12 @@ func (s *SQLiteAuthorizationStore) ConsumeAuthorizationCode(issuer, code string)
 	if issuer == "" {
 		return oauth.AuthorizationCode{}, false
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	var payload string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_auth_code
-		WHERE code = ? AND expires_at > ? AND issuer = ?
-		RETURNING payload`, code, now, issuer,
-	).Scan(&payload)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_auth_code WHERE code = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_auth_code WHERE code = ? AND issuer = ?`,
+		code, issuer,
+	)
+	if !ok {
 		return oauth.AuthorizationCode{}, false
 	}
 	var entry oauth.AuthorizationCode
@@ -92,36 +91,35 @@ func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(issuer, token string) (oa
 	if issuer == "" {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	entry, ok := s.LookupRefreshToken(issuer, token)
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_refresh_token WHERE token = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_refresh_token WHERE token = ? AND issuer = ?`,
+		token, issuer,
+	)
 	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ? AND issuer = ?`, token, now, issuer)
-	if err != nil {
-		return oauth.RefreshTokenEntry{}, false
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	var entry oauth.RefreshTokenEntry
+	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
 }
 
 func (s *SQLiteAuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
-	now := s.now().UTC().Format(time.RFC3339Nano)
 	issuer = oauth.NormalizeIssuerURL(issuer)
 	if issuer == "" {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	var payload string
+	var payload, expiresAt string
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT payload FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ? AND issuer = ?`, token, now, issuer,
-	).Scan(&payload)
+		SELECT payload, expires_at FROM hai_oauth_refresh_token
+		WHERE token = ? AND issuer = ?`, token, issuer,
+	).Scan(&payload, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	if !oauthExpiryValid(expiresAt, s.clock()) {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
@@ -157,13 +155,15 @@ func (s *SQLiteAuthorizationStore) GetPendingAuthorization(issuer, id string) (o
 	if issuer == "" {
 		return oauth.PendingAuthorization{}, false
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	var payload string
+	var payload, expiresAt string
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT payload FROM hai_oauth_pending_auth
-		WHERE id = ? AND expires_at > ? AND issuer = ?`, id, now, issuer,
-	).Scan(&payload)
+		SELECT payload, expires_at FROM hai_oauth_pending_auth
+		WHERE id = ? AND issuer = ?`, id, issuer,
+	).Scan(&payload, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return oauth.PendingAuthorization{}, false
+	}
+	if !oauthExpiryValid(expiresAt, s.clock()) {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
@@ -174,14 +174,31 @@ func (s *SQLiteAuthorizationStore) GetPendingAuthorization(issuer, id string) (o
 }
 
 func (s *SQLiteAuthorizationStore) PurgeExpiredPendingAuthorizations() int {
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(context.Background(), `
-		DELETE FROM hai_oauth_pending_auth WHERE expires_at <= ?`, now)
+	now := s.clock()
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT issuer, id, expires_at FROM hai_oauth_pending_auth`)
 	if err != nil {
 		return 0
 	}
-	n, _ := res.RowsAffected()
-	return int(n)
+	defer func() { _ = rows.Close() }()
+	deleted := 0
+	for rows.Next() {
+		var issuer, id, expiresAt string
+		if err := rows.Scan(&issuer, &id, &expiresAt); err != nil {
+			return deleted
+		}
+		if oauthExpiryValid(expiresAt, now) {
+			continue
+		}
+		res, err := s.db.ExecContext(context.Background(), `
+			DELETE FROM hai_oauth_pending_auth WHERE issuer = ? AND id = ?`, issuer, id)
+		if err != nil {
+			continue
+		}
+		n, _ := res.RowsAffected()
+		deleted += int(n)
+	}
+	return deleted
 }
 
 func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
@@ -189,14 +206,12 @@ func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(issuer, id string
 	if issuer == "" {
 		return oauth.PendingAuthorization{}, false
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	var payload string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_pending_auth
-		WHERE id = ? AND expires_at > ? AND issuer = ?
-		RETURNING payload`, id, now, issuer,
-	).Scan(&payload)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_pending_auth WHERE id = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_pending_auth WHERE id = ? AND issuer = ?`,
+		id, issuer,
+	)
+	if !ok {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
@@ -207,26 +222,77 @@ func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(issuer, id string
 }
 
 func (s *SQLiteAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
-	now := s.now().UTC().Format(time.RFC3339Nano)
 	issuer = oauth.NormalizeIssuerURL(issuer)
 	if issuer == "" {
 		return false
 	}
-	res, err := s.db.ExecContext(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND expires_at > ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?`,
-		token, now, issuer, clientID,
-	)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false
 	}
-	n, _ := res.RowsAffected()
-	return n > 0
+	defer func() { _ = tx.Rollback() }()
+	var expiresAt string
+	err = tx.QueryRowContext(ctx, `
+		SELECT expires_at FROM hai_oauth_refresh_token
+		WHERE token = ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?`,
+		token, issuer, clientID,
+	).Scan(&expiresAt)
+	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return false
+	}
+	if !oauthExpiryValid(expiresAt, s.clock()) {
+		return false
+	}
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?`,
+		token, issuer, clientID)
+	if err != nil {
+		return false
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return false
+	}
+	return tx.Commit() == nil
+}
+
+// consumeUnexpiredRow deletes a row only after its parsed expiry is still valid,
+// matching Postgres DELETE … WHERE expires_at > now (expired tokens are not burned).
+func (s *SQLiteAuthorizationStore) consumeUnexpiredRow(selectQ, deleteQ, id, issuer string) (string, bool) {
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = tx.Rollback() }()
+	var payload, expiresAt string
+	err = tx.QueryRowContext(ctx, selectQ, id, issuer).Scan(&payload, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return "", false
+	}
+	if !oauthExpiryValid(expiresAt, s.clock()) {
+		return "", false
+	}
+	res, err := tx.ExecContext(ctx, deleteQ, id, issuer)
+	if err != nil {
+		return "", false
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return "", false
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false
+	}
+	return payload, true
 }
 
 // SQLiteClientRegistry persists OAuth clients in SQLite.
 type SQLiteClientRegistry struct {
-	db *sql.DB
+	db     *sql.DB
+	issuer string
 }
 
 // NewSQLiteClientRegistry constructs a SQLite-backed ClientRegistry.
@@ -234,10 +300,20 @@ func NewSQLiteClientRegistry(db *sql.DB) *SQLiteClientRegistry {
 	return &SQLiteClientRegistry{db: db}
 }
 
+// ForIssuer returns a registry view scoped to issuer.
+func (s *SQLiteClientRegistry) ForIssuer(issuer string) oauth.ClientRegistry {
+	if s == nil {
+		return NewSQLiteClientRegistry(nil)
+	}
+	cp := *s
+	cp.issuer = oauth.NormalizeIssuerURL(issuer)
+	return &cp
+}
+
 func (s *SQLiteClientRegistry) Get(clientID string) (oauth.Client, bool) {
 	var payload string
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT payload FROM hai_oauth_client WHERE client_id = ?`, clientID,
+		SELECT payload FROM hai_oauth_client WHERE client_id = ? AND issuer = ?`, clientID, s.issuer,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return oauth.Client{}, false
@@ -258,13 +334,46 @@ func (s *SQLiteClientRegistry) Register(client oauth.Client) error {
 		return fmt.Errorf("encode oauth client: %w", err)
 	}
 	_, err = s.db.ExecContext(context.Background(), `
-		INSERT INTO hai_oauth_client (client_id, payload, updated_at)
-		VALUES (?, ?, ?)
-		ON CONFLICT (client_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at`,
-		client.ClientID, payload, time.Now().UTC().Format(time.RFC3339Nano),
+		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (issuer, client_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at`,
+		s.issuer, client.ClientID, payload, time.Now().UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("register oauth client: %w", err)
+	}
+	return nil
+}
+
+// bindUnscopedSQLiteClients attaches pre-issuer-column rows (issuer=”) to issuer
+// so ForIssuer(https://…) still finds migrated DCR clients.
+func bindUnscopedSQLiteClients(db *sql.DB, issuers ...string) error {
+	if db == nil {
+		return nil
+	}
+	dest := uniqueNormalizedIssuers(issuers...)
+	if len(dest) == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, issuer := range dest {
+		if _, err := tx.ExecContext(context.Background(), `
+			INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+			SELECT ?, client_id, payload, updated_at FROM hai_oauth_client WHERE issuer = ''
+			ON CONFLICT (issuer, client_id) DO NOTHING`, issuer); err != nil {
+			return fmt.Errorf("bind unscoped oauth clients: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(context.Background(), `
+		DELETE FROM hai_oauth_client WHERE issuer = ''`); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
 	}
 	return nil
 }
@@ -284,11 +393,33 @@ func (s *SQLiteReplayStore) CheckAndStore(jti string, expiresAt time.Time) error
 	if jti == "" {
 		return fmt.Errorf("%w: jti required", smart.ErrReplay)
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(context.Background(), `
-		DELETE FROM hai_oauth_replay_jti WHERE expires_at <= ?`, now)
+	now := s.clock()
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT jti, expires_at FROM hai_oauth_replay_jti`)
 	if err != nil {
 		return fmt.Errorf("purge replay jti: %w", err)
+	}
+	var expired []string
+	for rows.Next() {
+		var id, exp string
+		if err := rows.Scan(&id, &exp); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("purge replay jti: %w", err)
+		}
+		if !oauthExpiryValid(exp, now) {
+			expired = append(expired, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("purge replay jti: %w", err)
+	}
+	_ = rows.Close()
+	for _, id := range expired {
+		if _, err := s.db.ExecContext(context.Background(), `
+			DELETE FROM hai_oauth_replay_jti WHERE jti = ?`, id); err != nil {
+			return fmt.Errorf("purge replay jti: %w", err)
+		}
 	}
 	res, err := s.db.ExecContext(context.Background(), `
 		INSERT OR IGNORE INTO hai_oauth_replay_jti (jti, expires_at)
@@ -331,14 +462,56 @@ func (s *SQLiteRevocationStore) Revoke(jti string, expiresAt time.Time) error {
 }
 
 func (s *SQLiteRevocationStore) IsRevoked(jti string) bool {
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	var exists int
+	var expiresAt string
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT 1 FROM hai_oauth_revoked_jti
-		WHERE jti = ? AND expires_at > ?
-		LIMIT 1`, jti, now,
-	).Scan(&exists)
-	return err == nil
+		SELECT expires_at FROM hai_oauth_revoked_jti
+		WHERE jti = ?
+		LIMIT 1`, jti,
+	).Scan(&expiresAt)
+	if err != nil {
+		return false
+	}
+	return oauthExpiryValid(expiresAt, s.clock())
+}
+
+func (s *SQLiteAuthorizationStore) clock() time.Time {
+	if s != nil && s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+func (s *SQLiteReplayStore) clock() time.Time {
+	if s != nil && s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func (s *SQLiteRevocationStore) clock() time.Time {
+	if s != nil && s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func oauthExpiryValid(raw string, now time.Time) bool {
+	exp, err := parseOAuthExpiry(raw)
+	return err == nil && exp.After(now.UTC())
+}
+
+func parseOAuthExpiry(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("empty expiry")
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("parse expiry %q", raw)
 }
 
 // SQLiteStores returns production OAuth stores backed by SQLite.

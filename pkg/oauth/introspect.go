@@ -76,14 +76,6 @@ func (s *Server) IntrospectToken(token, tokenTypeHint string) IntrospectionRespo
 }
 
 func (s *Server) introspectAccessToken(token string) (IntrospectionResponse, bool) {
-	pem, err := s.cfg.SigningKey.PublicKeyPEM()
-	if err != nil {
-		return IntrospectionResponse{}, false
-	}
-	verifier := smart.PEMVerifier{
-		PublicKeyPEM: pem,
-		Algorithm:    s.cfg.SigningKey.Algorithm,
-	}
 	opts := smart.TokenValidateOptions{
 		ExpectedIssuer:   s.cfg.Issuer,
 		ExpectedAudience: s.cfg.FHIRAudience,
@@ -96,7 +88,7 @@ func (s *Server) introspectAccessToken(token string) (IntrospectionResponse, boo
 	if s.revocationStore != nil {
 		opts.IsJWTRevoked = s.revocationStore.IsRevoked
 	}
-	claims, err := smart.ValidateToken(token, verifier, opts)
+	claims, err := smart.ValidateToken(token, s.tokenVerifier(), opts)
 	if err != nil {
 		return IntrospectionResponse{}, false
 	}

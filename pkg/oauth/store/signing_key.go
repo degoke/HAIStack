@@ -24,6 +24,9 @@ type SigningKeyOptions struct {
 	ActiveKeyID      string
 	EncryptionSecret string
 	RotateOnStartup  bool
+	// VerificationTTL is how long a rotated key stays in JWKS (default: 1 hour,
+	// matching AccessTokenTTL). After that, retired_at is in the past and the kid is dropped.
+	VerificationTTL time.Duration
 }
 
 // SigningKeySet holds the active signer and verification keys for JWKS.
@@ -41,10 +44,14 @@ func LoadOrCreateSQLiteSigningKeySet(db *sql.DB, issuer string, opts SigningKeyO
 	issuer = trimOAuthIssuer(issuer)
 	secret := signingSecret(opts)
 	keyID := activeKeyID(opts)
+	ttl := verificationTTL(opts)
 	if opts.RotateOnStartup {
-		if err := rotateSQLiteSigningKey(db, issuer, keyID, secret); err != nil {
+		if err := rotateSQLiteSigningKey(db, issuer, keyID, secret, ttl); err != nil {
 			return SigningKeySet{}, err
 		}
+	}
+	if err := stampInactiveSQLiteSigningKeys(db, issuer, ttl); err != nil {
+		return SigningKeySet{}, err
 	}
 	set, err := loadSQLiteSigningKeySet(db, issuer, secret)
 	if err == nil && set.Active != nil {
@@ -67,10 +74,14 @@ func LoadOrCreatePostgresSigningKeySet(pool *pgxpool.Pool, issuer string, opts S
 	issuer = trimOAuthIssuer(issuer)
 	secret := signingSecret(opts)
 	keyID := activeKeyID(opts)
+	ttl := verificationTTL(opts)
 	if opts.RotateOnStartup {
-		if err := rotatePostgresSigningKey(pool, issuer, keyID, secret); err != nil {
+		if err := rotatePostgresSigningKey(pool, issuer, keyID, secret, ttl); err != nil {
 			return SigningKeySet{}, err
 		}
+	}
+	if err := stampInactivePostgresSigningKeys(pool, issuer, ttl); err != nil {
+		return SigningKeySet{}, err
 	}
 	set, err := loadPostgresSigningKeySet(pool, issuer, secret)
 	if err == nil && set.Active != nil {
@@ -91,6 +102,13 @@ func signingSecret(opts SigningKeyOptions) string {
 		secret = oauth.SigningKeyEncryptionSecret()
 	}
 	return secret
+}
+
+func verificationTTL(opts SigningKeyOptions) time.Duration {
+	if opts.VerificationTTL > 0 {
+		return opts.VerificationTTL
+	}
+	return time.Hour
 }
 
 func activeKeyID(opts SigningKeyOptions) string {
@@ -134,6 +152,7 @@ type signingKeyRowScanner interface {
 }
 
 func scanSigningKeyRows(rows signingKeyRowScanner, secret string) (SigningKeySet, error) {
+	now := time.Now()
 	var set SigningKeySet
 	for rows.Next() {
 		var keyID, pemRaw, nonce, retiredAt string
@@ -148,10 +167,17 @@ func scanSigningKeyRows(rows signingKeyRowScanner, secret string) (SigningKeySet
 		if strings.TrimSpace(nonce) != "" {
 			set.EncryptionUsed = true
 		}
-		if active != 0 && retiredAt == "" {
+		if retiredAt = strings.TrimSpace(retiredAt); retiredAt != "" {
+			t, err := parseOAuthExpiry(retiredAt)
+			if err != nil {
+				continue
+			}
+			keySet.RetireAt = t
+		}
+		if active != 0 && keySet.Published(now) {
 			set.Active = keySet
 		}
-		if retiredAt == "" {
+		if keySet.Published(now) {
 			set.Verification = append(set.Verification, keySet)
 		}
 	}
@@ -164,18 +190,19 @@ func scanSigningKeyRows(rows signingKeyRowScanner, secret string) (SigningKeySet
 	return set, nil
 }
 
-func rotateSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string) error {
+func rotateSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string, ttl time.Duration) error {
 	newID := keyID + "-" + randomSigningKeySuffix()
 	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	now := formatOAuthTime(time.Now())
+	now := time.Now()
+	retiredAt := formatOAuthTime(now.Add(ttl))
 	if _, err := tx.ExecContext(context.Background(), `
 		UPDATE hai_oauth_signing_key
 		SET active = 0, retired_at = ?
-		WHERE issuer = ? AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		WHERE issuer = ? AND active = 1 AND retired_at = ''`, retiredAt, issuer); err != nil {
 		return err
 	}
 	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)
@@ -186,24 +213,25 @@ func rotateSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string) error {
 		INSERT INTO hai_oauth_signing_key (
 			issuer, key_id, private_key_pem, encryption_nonce, active, created_at, retired_at
 		) VALUES (?, ?, ?, ?, 1, ?, '')`,
-		issuer, keySet.KeyID, pemRaw, nonce, now); err != nil {
+		issuer, keySet.KeyID, pemRaw, nonce, formatOAuthTime(now)); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func rotatePostgresSigningKey(pool *pgxpool.Pool, issuer, keyID, secret string) error {
+func rotatePostgresSigningKey(pool *pgxpool.Pool, issuer, keyID, secret string, ttl time.Duration) error {
 	newID := keyID + "-" + randomSigningKeySuffix()
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	now := formatOAuthTime(time.Now())
+	now := time.Now()
+	retiredAt := formatOAuthTime(now.Add(ttl))
 	if _, err := tx.Exec(context.Background(), `
 		UPDATE hai_oauth_signing_key
 		SET active = 0, retired_at = $1
-		WHERE issuer = $2 AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		WHERE issuer = $2 AND active = 1 AND retired_at = ''`, retiredAt, issuer); err != nil {
 		return err
 	}
 	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)
@@ -214,10 +242,28 @@ func rotatePostgresSigningKey(pool *pgxpool.Pool, issuer, keyID, secret string) 
 		INSERT INTO hai_oauth_signing_key (
 			issuer, key_id, private_key_pem, encryption_nonce, active, created_at, retired_at
 		) VALUES ($1, $2, $3, $4, 1, $5, '')`,
-		issuer, keySet.KeyID, pemRaw, nonce, now); err != nil {
+		issuer, keySet.KeyID, pemRaw, nonce, formatOAuthTime(now)); err != nil {
 		return err
 	}
 	return tx.Commit(context.Background())
+}
+
+func stampInactiveSQLiteSigningKeys(db *sql.DB, issuer string, ttl time.Duration) error {
+	retiredAt := formatOAuthTime(time.Now().Add(ttl))
+	_, err := db.ExecContext(context.Background(), `
+		UPDATE hai_oauth_signing_key
+		SET retired_at = ?
+		WHERE issuer = ? AND active = 0 AND retired_at = ''`, retiredAt, issuer)
+	return err
+}
+
+func stampInactivePostgresSigningKeys(pool *pgxpool.Pool, issuer string, ttl time.Duration) error {
+	retiredAt := formatOAuthTime(time.Now().Add(ttl))
+	_, err := pool.Exec(context.Background(), `
+		UPDATE hai_oauth_signing_key
+		SET retired_at = $1
+		WHERE issuer = $2 AND active = 0 AND retired_at = ''`, retiredAt, issuer)
+	return err
 }
 
 func randomSigningKeySuffix() string {

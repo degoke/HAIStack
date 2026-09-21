@@ -9,7 +9,7 @@ import (
 )
 
 // ApplyPostgresStores wires Postgres-backed OAuth stores into cfg.
-func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
+func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool, extraIssuers ...string) error {
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
 	}
@@ -17,8 +17,12 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 		return fmt.Errorf("oauth/store: postgres pool is required")
 	}
 	authStore, clientStore, replayStore, revocationStore := PostgresStores(pool)
+	issuers := append([]string{cfg.Issuer}, extraIssuers...)
+	if err := bindUnscopedPostgresClients(pool, issuers...); err != nil {
+		return err
+	}
 	cfg.AuthorizationStore = authStore
-	cfg.Clients = clientStore
+	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
 	cfg.TokenRateLimiter = &PostgresRateLimitStore{Pool: pool}
@@ -27,7 +31,7 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 }
 
 // ApplySQLiteStores wires SQLite-backed OAuth stores into cfg.
-func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
+func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB, extraIssuers ...string) error {
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
 	}
@@ -35,8 +39,12 @@ func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
 		return fmt.Errorf("oauth/store: sqlite db is required")
 	}
 	authStore, clientStore, replayStore, revocationStore := SQLiteStores(db)
+	issuers := append([]string{cfg.Issuer}, extraIssuers...)
+	if err := bindUnscopedSQLiteClients(db, issuers...); err != nil {
+		return err
+	}
 	cfg.AuthorizationStore = authStore
-	cfg.Clients = clientStore
+	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
 	cfg.TokenRateLimiter = &SQLiteRateLimitStore{DB: db}
@@ -48,6 +56,9 @@ func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
 func ApplyPostgresSigningKey(cfg *oauth.Config, pool *pgxpool.Pool, issuer string, opts SigningKeyOptions) error {
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
+	}
+	if opts.VerificationTTL <= 0 && cfg.AccessTokenTTL > 0 {
+		opts.VerificationTTL = cfg.AccessTokenTTL
 	}
 	set, err := LoadOrCreatePostgresSigningKeySet(pool, issuer, opts)
 	if err != nil {
@@ -62,6 +73,9 @@ func ApplyPostgresSigningKey(cfg *oauth.Config, pool *pgxpool.Pool, issuer strin
 func ApplySQLiteSigningKey(cfg *oauth.Config, db *sql.DB, issuer string, opts SigningKeyOptions) error {
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
+	}
+	if opts.VerificationTTL <= 0 && cfg.AccessTokenTTL > 0 {
+		opts.VerificationTTL = cfg.AccessTokenTTL
 	}
 	set, err := LoadOrCreateSQLiteSigningKeySet(db, issuer, opts)
 	if err != nil {
@@ -105,4 +119,28 @@ func NewSQLiteServer(cfg oauth.Config, db *sql.DB) (*oauth.Server, error) {
 		return nil, err
 	}
 	return NewServer(cfg)
+}
+
+func uniqueNormalizedIssuers(issuers ...string) []string {
+	seen := make(map[string]struct{}, len(issuers))
+	out := make([]string, 0, len(issuers))
+	for _, issuer := range issuers {
+		issuer = oauth.NormalizeIssuerURL(issuer)
+		if issuer == "" {
+			continue
+		}
+		if _, ok := seen[issuer]; ok {
+			continue
+		}
+		seen[issuer] = struct{}{}
+		out = append(out, issuer)
+	}
+	return out
+}
+
+func clientRegistryForIssuer(reg oauth.ClientRegistry, issuer string) oauth.ClientRegistry {
+	if scoped, ok := reg.(oauth.IssuerScopedClientRegistry); ok {
+		return scoped.ForIssuer(issuer)
+	}
+	return reg
 }
