@@ -235,6 +235,56 @@ func TestPreStorageIdentityMutationRejected(t *testing.T) {
 	}
 }
 
+func TestDeletePreStorageReplacementIsUsed(t *testing.T) {
+	ctx := context.Background()
+	var postJSON, previousJSON string
+	reg := hooks.NewRegistry()
+	if err := reg.On(hooks.PreStorage, func(_ context.Context, event *hooks.Event) error {
+		if event.Action != hooks.ActionDelete {
+			return nil
+		}
+		event.Resource = &types.ResourceEnvelope{
+			ResourceType: "Patient",
+			ID:           event.ID,
+			JSON:         []byte(`{"resourceType":"Patient","id":"` + event.ID + `","name":[{"family":"REDACTED"}]}`),
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.On(hooks.PostCommit, func(_ context.Context, event *hooks.Event) error {
+		if event.Action != hooks.ActionDelete {
+			return nil
+		}
+		if event.Resource != nil {
+			postJSON = string(event.Resource.JSON)
+		}
+		if event.Previous != nil {
+			previousJSON = string(event.Previous.JSON)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newHookedService(t, reg)
+	if _, err := svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Delete(ctx, "Patient", "pat-1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if !strings.Contains(postJSON, "REDACTED") {
+		t.Fatalf("post-commit resource JSON = %s, want pre-storage replacement", postJSON)
+	}
+	if strings.Contains(postJSON, "Doe") {
+		t.Fatalf("post-commit still has original family: %s", postJSON)
+	}
+	if !strings.Contains(previousJSON, "Doe") {
+		t.Fatalf("post-commit Previous JSON = %s, want original family Doe", previousJSON)
+	}
+}
+
 func TestTransactionPostCommitSeesBundleJSON(t *testing.T) {
 	ctx := context.Background()
 	var postJSON string

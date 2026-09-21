@@ -473,10 +473,11 @@ func (s *ResourceService) executeBundleDelete(
 			return bundleExecutionResult{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
 		}
 	}
-	if err := s.applyDeleteExpectedVersion(ctx, session, current, expected); err != nil {
+	deleted, err := s.applyDeleteExpectedVersion(ctx, session, current, expected)
+	if err != nil {
 		return bundleExecutionResult{}, err
 	}
-	return bundleDeleteResult(current), nil
+	return bundleDeleteResult(deleted), nil
 }
 
 func versionFromETag(raw string) (string, bool) {
