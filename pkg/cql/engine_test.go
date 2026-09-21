@@ -2169,3 +2169,293 @@ func TestDateTimeConstructorUsesTimezoneOffset(t *testing.T) {
 		t.Fatalf("DateTime offset must match zoned literal: %#v", got)
 	}
 }
+
+func TestIntervalExceptReturnsBothRemnants(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval[1, 10] except Interval[4, 6]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("two-sided except: %#v", got)
+	}
+	left, ok := asInterval(got[0])
+	if !ok || fmt.Sprint(left.Low) != "1" || fmt.Sprint(left.High) != "4" || left.HighClosed {
+		t.Fatalf("left remnant: %#v", got[0])
+	}
+	right, ok := asInterval(got[1])
+	if !ok || fmt.Sprint(right.Low) != "6" || fmt.Sprint(right.High) != "10" || right.LowClosed {
+		t.Fatalf("right remnant: %#v", got[1])
+	}
+}
+
+func TestCaseComparandUsesThreeValuedEquality(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "case null when null then 'a' else 'b' end", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "b" {
+		t.Fatalf("case null when null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "case 1 when 1 then 'a' else 'b' end", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "a" {
+		t.Fatalf("case 1 when 1: %#v", got)
+	}
+}
+
+func TestEmptyListIsNotNull(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{} is null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{} is null must be false: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{} is not null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{} is not null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null is null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("null is null: %#v", got)
+	}
+}
+
+func TestMinMaxSkipNulls(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Min({null, 2, 1})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "1" {
+		t.Fatalf("Min skip nulls: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Max({null, 2, 5})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "5" {
+		t.Fatalf("Max skip nulls: %#v", got)
+	}
+}
+
+func TestLengthListAndString(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Length({1, 2, 3})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(3) {
+		t.Fatalf("Length({1, 2, 3}): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Length({null})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("Length({null}): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Length(5)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Length(5) must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Length({})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("Length({}): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Length('hi')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(2) {
+		t.Fatalf("Length('hi'): %#v", got)
+	}
+}
+
+func TestMatchesIsRegex(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Matches('abc', 'a.c')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Matches regex: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Matches('hello', '^h')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Matches ^h: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "MatchesFull('abc', 'b')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("MatchesFull('abc', 'b'): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "MatchesFull('abc', 'a.*')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("MatchesFull('abc', 'a.*'): %#v", got)
+	}
+}
+
+func TestStringFunctionsRequireStringsAndCombineSkipsNulls(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Upper(5)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Upper(5) must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Lower(true)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Lower(true) must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Substring(12, 0, 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Substring mixed types must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Upper('ab')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "AB" {
+		t.Fatalf("Upper('ab'): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Combine({1, 2}, ',')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Combine numbers must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Combine({'a', null, 'b'}, ',')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "a,b" {
+		t.Fatalf("Combine skips nulls: %#v", got)
+	}
+}
+
+func TestBetweenTestsEveryElement(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{5, 12} between 1 and 10", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{5, 12} between 1 and 10: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{5, 8} between 1 and 10", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{5, 8} between 1 and 10: %#v", got)
+	}
+}
+
+func TestMembershipNullSiblingIsUnknown(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{1, null} contains 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{1, null} contains 2 must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "2 in {1, null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("2 in {1, null} must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 2} contains 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{1, 2} contains 2: %#v", got)
+	}
+}
+
+func TestIndexOfNullItemAndSkipEmpty(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "IndexOf({1, 2}, null)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("IndexOf null item must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "IndexOf({1, 2}, 2)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("IndexOf 2: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Skip({1, 2, 3}, 3)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("Skip whole list must be empty list: %#v", got)
+	}
+}
+
+func TestEquivalentNullsAreTrue(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "null ~ null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("null ~ null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null !~ null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("null !~ null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null ~ 1", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("null ~ 1: %#v", got)
+	}
+}

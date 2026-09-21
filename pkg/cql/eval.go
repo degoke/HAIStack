@@ -134,10 +134,10 @@ func (st *evalState) eval(n Node) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		isNull := len(v) == 0 || (len(v) == 1 && v[0] == nil)
+		isNull := v == nil || (len(v) == 1 && v[0] == nil)
 		result := isNull
 		if !strings.EqualFold(x.target, "null") {
-			if isNull {
+			if isNull || len(v) == 0 {
 				result = false
 			} else {
 				result = typeName(v[0]) == x.target || strings.EqualFold(typeName(v[0]), x.target)
@@ -575,7 +575,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				return intervalContainsResult(iv, item, false)
 			}
 		}
-		return []any{containsValue(right, item)}, nil
+		return containsResult(right, item), nil
 	case "contains":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -594,7 +594,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				return intervalContainsResult(iv, item, false)
 			}
 		}
-		return []any{containsValue(left, item)}, nil
+		return containsResult(left, item), nil
 	case "intersect":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -657,15 +657,19 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{eq[0] != true}, nil
+	case "~":
+		return cqlEquivalentResult(left, right), nil
+	case "!~":
+		eq := cqlEquivalentResult(left, right)
+		if len(eq) == 0 {
+			return nil, nil
+		}
+		return []any{eq[0] != true}, nil
 	}
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
 	}
 	switch n.op {
-	case "~":
-		return []any{cqlEquivalentValues(left, right)}, nil
-	case "!~":
-		return []any{!cqlEquivalentValues(left, right)}, nil
 	case "<", ">", "<=", ">=":
 		if len(left) != 1 || len(right) != 1 {
 			return nil, nil
@@ -1065,10 +1069,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return []any{*b}, nil
 	case "length":
-		if len(args) == 0 || len(args[0]) == 0 {
-			return nil, nil
-		}
-		return []any{int64(len(fmt.Sprint(unwrapPrimitive(args[0][0]))))}, nil
+		return listOrStringLength(args)
 	case "today", "now":
 		t := clockInZone(st.now)
 		if n == "today" {
@@ -1165,8 +1166,10 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return stringPred(args, strings.HasPrefix)
 	case "endswith":
 		return stringPred(args, strings.HasSuffix)
-	case "matches", "matchesfull":
-		return stringContains(args)
+	case "matches":
+		return stringMatches(args, false)
+	case "matchesfull":
+		return stringMatches(args, true)
 	case "replace":
 		return stringReplace(args)
 	case "split":
@@ -1838,6 +1841,16 @@ func cqlEqual3Value(a, b any) []any {
 	return []any{cqlEqual(a, b)}
 }
 
+func cqlEquivalentResult(left, right []any) []any {
+	if left == nil && right == nil {
+		return []any{true}
+	}
+	if left == nil || right == nil {
+		return []any{false}
+	}
+	return []any{cqlEquivalentValues(left, right)}
+}
+
 func cqlEquivalentValues(left, right []any) bool {
 	if len(left) != 1 || len(right) != 1 {
 		if len(left) != len(right) {
@@ -2161,6 +2174,46 @@ func containsValue(list []any, item any) bool {
 		}
 	}
 	return false
+}
+
+func containsResult(list []any, item any) []any {
+	if item == nil {
+		return nil
+	}
+	unknown := false
+	for _, el := range list {
+		eq := cqlEqual3Value(el, item)
+		if eq == nil {
+			unknown = true
+			continue
+		}
+		if eq[0] == true {
+			return []any{true}
+		}
+	}
+	if unknown {
+		return nil
+	}
+	return []any{false}
+}
+
+func listOrStringLength(args [][]any) ([]any, error) {
+	if len(args) == 0 || args[0] == nil {
+		return nil, nil
+	}
+	v := args[0]
+	if len(v) == 1 {
+		item := unwrapPrimitive(v[0])
+		if s, ok := item.(string); ok {
+			return []any{int64(len(s))}, nil
+		}
+		if item != nil {
+			if _, isList := v[0].([]any); !isList {
+				return nil, nil
+			}
+		}
+	}
+	return []any{int64(len(v))}, nil
 }
 
 func distinctValues(in []any) []any {

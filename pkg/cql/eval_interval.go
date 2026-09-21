@@ -43,11 +43,25 @@ func (st *evalState) evalBetween(n *betweenNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(x) == 0 {
+	if x == nil {
 		return nil, nil
 	}
 	iv := Interval{Low: singletonOrList(low), High: singletonOrList(high), LowClosed: true, HighClosed: true}
-	return intervalContainsResult(iv, x[0], false)
+	unknown := false
+	for _, item := range x {
+		ok, comparable := intervalContains(iv, item, false)
+		if !comparable {
+			unknown = true
+			continue
+		}
+		if !ok {
+			return []any{false}, nil
+		}
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
 }
 
 func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
@@ -539,16 +553,17 @@ func intervalExcept(a, b Interval) []any {
 			rightGap = true
 		}
 	}
-	if leftGap && rightGap {
-		return nil
-	}
+	var out []any
 	if leftGap {
-		return []any{Interval{Low: a.Low, High: inter.Low, LowClosed: a.LowClosed, HighClosed: !inter.LowClosed}}
+		out = append(out, Interval{Low: a.Low, High: inter.Low, LowClosed: a.LowClosed, HighClosed: !inter.LowClosed})
 	}
 	if rightGap {
-		return []any{Interval{Low: inter.High, High: a.High, LowClosed: !inter.HighClosed, HighClosed: a.HighClosed}}
+		out = append(out, Interval{Low: inter.High, High: a.High, LowClosed: !inter.HighClosed, HighClosed: a.HighClosed})
 	}
-	return nil
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func expandValues(v []any, per *Quantity) []any {

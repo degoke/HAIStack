@@ -307,11 +307,20 @@ func listExcept(left, right []any) []any {
 }
 
 func listExtremum(args [][]any, min bool) ([]any, error) {
-	if len(args) == 0 || len(args[0]) == 0 {
+	if len(args) == 0 || args[0] == nil {
 		return nil, nil
 	}
-	best := args[0][0]
-	for _, item := range args[0][1:] {
+	var best any
+	found := false
+	for _, item := range args[0] {
+		if unwrapPrimitive(item) == nil {
+			continue
+		}
+		if !found {
+			best = item
+			found = true
+			continue
+		}
 		cmp, ok := cqlCompare(item, best)
 		if !ok {
 			continue
@@ -322,6 +331,9 @@ func listExtremum(args [][]any, min bool) ([]any, error) {
 		if !min && cmp > 0 {
 			best = item
 		}
+	}
+	if !found {
+		return nil, nil
 	}
 	return []any{best}, nil
 }
@@ -400,7 +412,7 @@ func listAllAny(args [][]any, all bool) ([]any, error) {
 }
 
 func listTakeSkip(args [][]any, take bool) ([]any, error) {
-	if len(args) == 0 {
+	if len(args) == 0 || args[0] == nil {
 		return nil, nil
 	}
 	list := args[0]
@@ -420,16 +432,19 @@ func listTakeSkip(args [][]any, take bool) ([]any, error) {
 		return append([]any{}, list[:n]...), nil
 	}
 	if n >= len(list) {
-		return nil, nil
+		return []any{}, nil
 	}
 	return append([]any{}, list[n:]...), nil
 }
 
 func listIndexOf(args [][]any) ([]any, error) {
-	if len(args) < 2 || len(args[1]) == 0 {
-		return []any{int64(-1)}, nil
+	if len(args) < 2 || args[1] == nil || len(args[1]) == 0 {
+		return nil, nil
 	}
 	item := args[1][0]
+	if unwrapPrimitive(item) == nil {
+		return nil, nil
+	}
 	for i, el := range args[0] {
 		if cqlEqual(el, item) {
 			return []any{int64(i)}, nil
@@ -450,7 +465,8 @@ func (st *evalState) evalCase(n *caseNode) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			if cqlEqual(tv, singletonOrList(when)) {
+			eq := cqlEqual3Value(tv, singletonOrList(when))
+			if len(eq) == 1 && eq[0] == true {
 				return st.eval(w.then)
 			}
 		}

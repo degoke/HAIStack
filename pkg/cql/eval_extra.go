@@ -2,6 +2,7 @@ package cql
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -452,16 +453,31 @@ func stringSplit(args [][]any) ([]any, error) {
 }
 
 func stringCombine(args [][]any) ([]any, error) {
-	if len(args) == 0 {
-		return []any{""}, nil
+	if len(args) == 0 || args[0] == nil {
+		return nil, nil
 	}
 	sep := ""
-	if len(args) > 1 && len(args[1]) > 0 {
-		sep = fmt.Sprint(unwrapPrimitive(args[1][0]))
+	if len(args) > 1 {
+		if len(args[1]) == 0 {
+			return nil, nil
+		}
+		s, ok := unwrapPrimitive(args[1][0]).(string)
+		if !ok {
+			return nil, nil
+		}
+		sep = s
 	}
 	var parts []string
 	for _, el := range args[0] {
-		parts = append(parts, fmt.Sprint(unwrapPrimitive(el)))
+		item := unwrapPrimitive(el)
+		if item == nil {
+			continue
+		}
+		s, ok := item.(string)
+		if !ok {
+			return nil, nil
+		}
+		parts = append(parts, s)
 	}
 	return []any{strings.Join(parts, sep)}, nil
 }
@@ -470,7 +486,10 @@ func stringCase(args [][]any, upper bool) ([]any, error) {
 	if len(args) == 0 || len(args[0]) == 0 {
 		return nil, nil
 	}
-	s := fmt.Sprint(unwrapPrimitive(args[0][0]))
+	s, ok := unwrapPrimitive(args[0][0]).(string)
+	if !ok {
+		return nil, nil
+	}
 	if upper {
 		return []any{strings.ToUpper(s)}, nil
 	}
@@ -481,7 +500,10 @@ func stringSubstring(args [][]any) ([]any, error) {
 	if len(args) == 0 || len(args[0]) == 0 {
 		return nil, nil
 	}
-	s := fmt.Sprint(unwrapPrimitive(args[0][0]))
+	s, ok := unwrapPrimitive(args[0][0]).(string)
+	if !ok {
+		return nil, nil
+	}
 	start := 0
 	if len(args) > 1 && len(args[1]) > 0 {
 		if n, ok := asInt(args[1][0]); ok {
@@ -504,4 +526,28 @@ func stringSubstring(args [][]any) ([]any, error) {
 		}
 	}
 	return []any{s[start:end]}, nil
+}
+
+func stringMatches(args [][]any, full bool) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	s, sok := unwrapPrimitive(args[0][0]).(string)
+	pat, pok := unwrapPrimitive(args[1][0]).(string)
+	if !sok || !pok {
+		return nil, nil
+	}
+	if full {
+		if !strings.HasPrefix(pat, "^") {
+			pat = "^" + pat
+		}
+		if !strings.HasSuffix(pat, "$") {
+			pat = pat + "$"
+		}
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return nil, nil
+	}
+	return []any{re.MatchString(s)}, nil
 }
