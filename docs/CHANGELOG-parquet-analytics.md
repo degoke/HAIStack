@@ -5,6 +5,7 @@
 ### Added
 
 - Parquet-on-FHIR nested export via `_parquetLayout=fhir` on `$viewdefinition-run`, `$viewdefinition-export`, and analytics sinks.
+- Optional Parquet-on-FHIR INT96 date annotations via `_parquetTimestampEncoding=int96` (typed row writer). INT64 TIMESTAMP(MILLIS) remains the default.
 - `ExportPayload.since` and `ExportPayload.parameters` for analytics background export jobs.
 - `ResultMetadata.maxLastUpdated` for data-clock watermark advancement.
 - HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
@@ -22,7 +23,6 @@
 
 ### Known limitations
 
-- INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42).
 - Blob lakehouse and async export artifacts buffer the full parquet file at upload time (`BlobStore` API).
 - HTTP `$viewdefinition-run` / `$viewdefinition-export` Parameters parsing accepts `valueString` only (see `pkg/view/README.md`).
 

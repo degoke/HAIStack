@@ -30,13 +30,14 @@ const (
 
 // ViewExportRequest captures one ViewDefinition export operation.
 type ViewExportRequest struct {
-	Views         []ViewExportTarget `json:"views"`
-	Since         time.Time          `json:"since"`
-	Format        OutputFormat       `json:"format"`
-	ParquetLayout ParquetLayout      `json:"parquetLayout,omitempty"`
-	Actor         string             `json:"actor,omitempty"`
-	Subject       string             `json:"subject,omitempty"`
-	Parameters    map[string]any     `json:"parameters,omitempty"`
+	Views             []ViewExportTarget `json:"views"`
+	Since             time.Time          `json:"since"`
+	Format            OutputFormat       `json:"format"`
+	ParquetLayout     ParquetLayout      `json:"parquetLayout,omitempty"`
+	TimestampEncoding TimestampEncoding  `json:"timestampEncoding,omitempty"`
+	Actor             string             `json:"actor,omitempty"`
+	Subject           string             `json:"subject,omitempty"`
+	Parameters        map[string]any     `json:"parameters,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
@@ -61,13 +62,14 @@ type ViewExportJob struct {
 
 // ExportFile describes one exported artifact.
 type ExportFile struct {
-	ViewName      string        `json:"viewName"`
-	Version       string        `json:"version"`
-	OutputName    string        `json:"outputName"`
-	Filename      string        `json:"filename"`
-	RowCount      int           `json:"rowCount"`
-	Format        string        `json:"format"`
-	ParquetLayout ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName          string            `json:"viewName"`
+	Version           string            `json:"version"`
+	OutputName        string            `json:"outputName"`
+	Filename          string            `json:"filename"`
+	RowCount          int               `json:"rowCount"`
+	Format            string            `json:"format"`
+	ParquetLayout     ParquetLayout     `json:"parquetLayout,omitempty"`
+	TimestampEncoding TimestampEncoding `json:"timestampEncoding,omitempty"`
 }
 
 // ViewExportJobStore persists export jobs.
@@ -338,6 +340,9 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 				layout = ParquetLayoutFlat
 			}
 			file.ParquetLayout = layout
+			if layout == ParquetLayoutFHIR {
+				file.TimestampEncoding = NormalizeTimestampEncoding(job.Request.TimestampEncoding)
+			}
 		}
 		files = append(files, file)
 		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
@@ -392,12 +397,13 @@ func (s *ExportService) writeParquetExportFile(
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	execReq := ExecuteRequest{
-		ViewName:   target.ViewName,
-		Version:    target.Version,
-		Actor:      req.Actor,
-		Subject:    req.Subject,
-		Parameters: req.Parameters,
-		Since:      since,
+		ViewName:          target.ViewName,
+		Version:           target.Version,
+		Actor:             req.Actor,
+		Subject:           req.Subject,
+		Parameters:        req.Parameters,
+		Since:             since,
+		TimestampEncoding: req.TimestampEncoding,
 	}
 	var exportResult ParquetExportResult
 	if layout == ParquetLayoutFHIR {

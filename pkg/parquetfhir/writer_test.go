@@ -54,6 +54,112 @@ func TestInteropSpecPatientExampleSchema(t *testing.T) {
 	assertColumnTimestampMillis(t, schema, "__birthDate_end")
 }
 
+func TestInteropSpecPatientINT96TimestampAnnotations(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	resources := []map[string]any{
+		{
+			"resourceType": "Patient",
+			"id":           "example",
+			"birthDate":    "1970-01-01",
+		},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	assertMetadataPhysicalType(t, data, format.Int96, "__birthDate_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "__birthDate_end")
+	assertMetadataTimestampMillis(t, data, "__birthDate_start")
+	assertMetadataTimestampMillis(t, data, "__birthDate_end")
+}
+
+func TestInteropSpecObservationINT96TimestampAnnotations(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType":      "Observation",
+			"id":                "obs-spec",
+			"status":            "final",
+			"effectiveDateTime": "2022-02-10",
+		},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	assertMetadataPhysicalType(t, data, format.Int96, "__effectiveDateTime_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "__effectiveDateTime_end")
+	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_start")
+	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_end")
+}
+
+func TestWriteResourcesStreamingINT96TimestampAnnotations(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	data := writeParquetStreaming(t, sd, nil, func(yield func(map[string]any) error) error {
+		return yield(map[string]any{
+			"resourceType": "Patient",
+			"id":           "p1",
+			"birthDate":    "1970-01-01",
+		})
+	}, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	assertMetadataPhysicalType(t, data, format.Int96, "__birthDate_start")
+	assertMetadataTimestampMillis(t, data, "__birthDate_start")
+}
+
+func TestBuildSchemaWithINT96Kind(t *testing.T) {
+	sd := bundledSD(t, "Patient")
+	builder, err := parquetfhir.NewSchemaBuilder(sd, nil)
+	if err != nil {
+		t.Fatalf("NewSchemaBuilder: %v", err)
+	}
+	builder.ObserveResource(map[string]any{
+		"resourceType": "Patient",
+		"birthDate":    "1970-01-01",
+	})
+	schema := builder.BuildSchemaWith(parquetfhir.TimestampEncodingInt96)
+	leaf, ok := schema.Lookup("__birthDate_start")
+	if !ok {
+		t.Fatal("missing __birthDate_start")
+	}
+	if got := leaf.Node.Type().Kind(); got != parquet.Int96 {
+		t.Fatalf("in-memory kind=%s, want INT96", got)
+	}
+	lt := leaf.Node.Type().LogicalType()
+	if lt == nil {
+		t.Fatal("missing logical type")
+	}
+	ts, ok := lt.Value.(*format.TimestampType)
+	if !ok {
+		t.Fatalf("logical type=%T, want TIMESTAMP", lt.Value)
+	}
+	if _, ok := ts.Unit.Value.(*format.MilliSeconds); !ok {
+		t.Fatalf("TIMESTAMP unit=%v, want MILLIS", ts.Unit.Value)
+	}
+}
+
+func TestParseTimestampEncoding(t *testing.T) {
+	tests := []struct {
+		raw     string
+		want    parquetfhir.TimestampEncoding
+		wantErr bool
+	}{
+		{raw: "", want: parquetfhir.TimestampEncodingInt64},
+		{raw: "int64", want: parquetfhir.TimestampEncodingInt64},
+		{raw: "INT96", want: parquetfhir.TimestampEncodingInt96},
+		{raw: " int96 ", want: parquetfhir.TimestampEncodingInt96},
+		{raw: "nanos", wantErr: true},
+	}
+	for _, tc := range tests {
+		got, err := parquetfhir.ParseTimestampEncoding(tc.raw)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("ParseTimestampEncoding(%q) err=nil, want error", tc.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("ParseTimestampEncoding(%q): %v", tc.raw, err)
+		}
+		if got != tc.want {
+			t.Fatalf("ParseTimestampEncoding(%q)=%q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
 func TestInteropSpecObservationExampleSchema(t *testing.T) {
 	sd := bundledSD(t, "Observation")
 	resources := []map[string]any{
@@ -348,10 +454,10 @@ func TestWriteResourcesStreamingSinglePassCollection(t *testing.T) {
 	}
 }
 
-func writeParquetStreaming(t *testing.T, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error) []byte {
+func writeParquetStreaming(t *testing.T, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error, opts ...parquetfhir.WriteOption) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	if _, err := parquetfhir.WriteResourcesStreaming(context.Background(), &buf, sd, catalog, fn); err != nil {
+	if _, err := parquetfhir.WriteResourcesStreaming(context.Background(), &buf, sd, catalog, fn, opts...); err != nil {
 		t.Fatalf("WriteResourcesStreaming: %v", err)
 	}
 	data := buf.Bytes()
@@ -361,10 +467,10 @@ func writeParquetStreaming(t *testing.T, sd *validate.StructureDefinition, catal
 	return data
 }
 
-func writeParquet(t *testing.T, sd *validate.StructureDefinition, resources []map[string]any) []byte {
+func writeParquet(t *testing.T, sd *validate.StructureDefinition, resources []map[string]any, opts ...parquetfhir.WriteOption) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := parquetfhir.WriteResources(&buf, sd, nil, resources); err != nil {
+	if err := parquetfhir.WriteResources(&buf, sd, nil, resources, opts...); err != nil {
 		t.Fatalf("WriteResources: %v", err)
 	}
 	data := buf.Bytes()
@@ -455,6 +561,47 @@ func assertColumnDecimal(t *testing.T, schema *parquet.Schema, precision, scale 
 	}
 	if leaf.Node.Type().Length() != 16 {
 		t.Fatalf("column %v decimal length=%d, want 16", parts, leaf.Node.Type().Length())
+	}
+}
+
+func schemaElementByName(t *testing.T, data []byte, name string) format.SchemaElement {
+	t.Helper()
+	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	for _, elem := range file.Metadata().Schema {
+		if elem.Name == name {
+			return elem
+		}
+	}
+	t.Fatalf("schema element %q not found in %#v", name, file.Metadata().Schema)
+	return format.SchemaElement{}
+}
+
+func assertMetadataPhysicalType(t *testing.T, data []byte, want format.Type, name string) {
+	t.Helper()
+	elem := schemaElementByName(t, data, name)
+	if !elem.Type.Valid {
+		t.Fatalf("column %s missing physical type", name)
+	}
+	if elem.Type.V != want {
+		t.Fatalf("column %s physical type=%s, want %s", name, elem.Type.V, want)
+	}
+}
+
+func assertMetadataTimestampMillis(t *testing.T, data []byte, name string) {
+	t.Helper()
+	elem := schemaElementByName(t, data, name)
+	ts, ok := elem.LogicalType.Value.(*format.TimestampType)
+	if !ok {
+		t.Fatalf("column %s logical type=%T, want TIMESTAMP", name, elem.LogicalType.Value)
+	}
+	if !ts.IsAdjustedToUTC {
+		t.Fatalf("column %s TIMESTAMP not UTC-adjusted", name)
+	}
+	if _, ok := ts.Unit.Value.(*format.MilliSeconds); !ok {
+		t.Fatalf("column %s TIMESTAMP unit=%v, want MILLIS", name, ts.Unit.Value)
 	}
 }
 

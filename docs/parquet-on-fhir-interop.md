@@ -9,7 +9,7 @@ HAIStack implements [Parquet-on-FHIR](https://github.com/aehrc/parquet-on-fhir) 
 | Nested LIST/GROUP layout | `field.list.element.*` | Same | DuckDB, Spark, Trino read LIST columns |
 | Choice types | `valueInteger`, `valueQuantity`, … | Same | Derived from StructureDefinition + observed data |
 | Primitive wrappers | `_field` groups | Same | Includes nested extension annotations when typed |
-| Date range annotations | `int96` + `TIMESTAMP(MILLIS)` | `int64` + `TIMESTAMP(MILLIS)` | **Deviation:** tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42); parquet-go map writers cannot encode deprecated INT96 arrays; millisecond UTC ranges are equivalent for filtering |
+| Date range annotations | `int96` + `TIMESTAMP(MILLIS)` | Default `int64` + `TIMESTAMP(MILLIS)`; optional `int96` + `TIMESTAMP(MILLIS)` via `_parquetTimestampEncoding=int96` | INT64 remains default for parquet-go map writer compatibility and modern engines (DuckDB, Spark, Trino). INT96 uses a typed `parquet.Row` writer. Millisecond UTC ranges are equivalent for filtering. |
 | Decimal annotations | `fixed_len_byte_array(16)` DECIMAL(38,6) | Same | Compatible with Spark/DuckDB decimal reads |
 | Quantity canonical | UCUM canonical group | Temperature, length, mass UCUM codes | Other UCUM codes omit canonical group |
 | String primitives | Spec table lists `binary` + STRING | `parquet.String()` (BYTE_ARRAY + STRING) | Equivalent in modern parquet readers |
@@ -29,7 +29,8 @@ Manual verification recommended for your target stack:
 
 - `$viewdefinition-run?_format=parquet&_parquetLayout=fhir`
 - `$viewdefinition-export` with the same parameters
-- Analytics sinks: `ParquetLayout: view.ParquetLayoutFHIR` + `Executor` with `ProfileCatalog`
+- Optional `_parquetTimestampEncoding=int96` on those operations (default `int64`)
+- Analytics sinks: `ParquetLayout: view.ParquetLayoutFHIR` + `Executor` with `ProfileCatalog`; `TimestampEncoding: view.TimestampEncodingInt96` for spec INT96 columns
 
 ## Incremental export
 

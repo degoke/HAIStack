@@ -6,21 +6,28 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-// BuildSchema returns a parquet schema for the observed fields.
+// BuildSchema returns a parquet schema for the observed fields using INT64
+// TIMESTAMP(MILLIS) date annotations (the default parquet-go map writer path).
 func (b *SchemaBuilder) BuildSchema() *parquet.Schema {
+	return b.BuildSchemaWith(TimestampEncodingInt64)
+}
+
+// BuildSchemaWith returns a parquet schema using the selected timestamp encoding.
+func (b *SchemaBuilder) BuildSchemaWith(enc TimestampEncoding) *parquet.Schema {
+	enc = NormalizeTimestampEncoding(enc)
 	group := parquet.Group{
 		"resourceType": parquet.Required(parquet.String()),
 	}
 	for _, name := range sortedKeys(b.root.children) {
 		child := b.root.children[name]
-		if node := b.buildNode(name, b.index.resourceType+"."+name, child); node != nil {
+		if node := b.buildNode(name, b.index.resourceType+"."+name, child, enc); node != nil {
 			group[name] = node
 		}
 	}
 	return parquet.NewSchema(b.index.resourceType, group)
 }
 
-func (b *SchemaBuilder) buildNode(fieldName, sdPath string, observed *observedField) parquet.Node {
+func (b *SchemaBuilder) buildNode(fieldName, sdPath string, observed *observedField, enc TimestampEncoding) parquet.Node {
 	if observed == nil {
 		return nil
 	}
@@ -32,7 +39,7 @@ func (b *SchemaBuilder) buildNode(fieldName, sdPath string, observed *observedFi
 			return parquet.Optional(decimalAnnotationNode())
 		}
 		if strings.HasSuffix(fieldName, "_start") || strings.HasSuffix(fieldName, "_end") || observed.fhirType == "timestampAnnotation" {
-			return parquet.Optional(timestampAnnotationNode())
+			return parquet.Optional(timestampAnnotationNode(enc))
 		}
 	}
 	if observed.fhirType == "QuantityCanonical" {
@@ -58,7 +65,7 @@ func (b *SchemaBuilder) buildNode(fieldName, sdPath string, observed *observedFi
 	for _, name := range sortedKeys(observed.children) {
 		childObs := observed.children[name]
 		childPath := sdPath + "." + name
-		if node := b.buildNode(name, childPath, childObs); node != nil {
+		if node := b.buildNode(name, childPath, childObs, enc); node != nil {
 			childGroup[name] = node
 		}
 	}

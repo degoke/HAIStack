@@ -10,18 +10,19 @@ import (
 
 // ViewRunRequest captures parameters for ViewDefinition/$viewdefinition-run.
 type ViewRunRequest struct {
-	ViewName      string
-	Version       string
-	InlineDef     []byte
-	Since         time.Time
-	Limit         int
-	Offset        int
-	Actor         string
-	Subject       string
-	Parameters    map[string]any
-	Format        OutputFormat
-	ParquetLayout ParquetLayout
-	Header        bool
+	ViewName          string
+	Version           string
+	InlineDef         []byte
+	Since             time.Time
+	Limit             int
+	Offset            int
+	Actor             string
+	Subject           string
+	Parameters        map[string]any
+	Format            OutputFormat
+	ParquetLayout     ParquetLayout
+	TimestampEncoding TimestampEncoding
+	Header            bool
 }
 
 // RunService executes synchronous ViewDefinition runs.
@@ -45,14 +46,15 @@ func (s *RunService) Execute(ctx context.Context, req ViewRunRequest) ([]byte, s
 	}
 
 	execReq := ExecuteRequest{
-		ViewName:   req.ViewName,
-		Version:    req.Version,
-		Actor:      req.Actor,
-		Subject:    req.Subject,
-		Limit:      req.Limit,
-		Offset:     req.Offset,
-		Parameters: req.Parameters,
-		Since:      req.Since,
+		ViewName:          req.ViewName,
+		Version:           req.Version,
+		Actor:             req.Actor,
+		Subject:           req.Subject,
+		Limit:             req.Limit,
+		Offset:            req.Offset,
+		Parameters:        req.Parameters,
+		Since:             req.Since,
+		TimestampEncoding: req.TimestampEncoding,
 	}
 
 	if format == FormatParquet && req.ParquetLayout == ParquetLayoutFHIR {

@@ -6,10 +6,11 @@
 // annotations for date/dateTime ranges, decimal numerics, and Quantity canonical
 // groups (UCUM temperature, length, and mass). Contained resources are merged into
 // the contained LIST schema. Profile URLs in meta.profile merge additional
-// StructureDefinition elements into the schema index. Timestamp annotations use
-// Parquet TIMESTAMP(MILLIS) on INT64 (logical equivalent to spec INT96 +
-// TIMESTAMP MILLIS; INT96 is avoided because parquet-go map writers cannot encode
-// deprecated Int96 arrays). WriteResourcesStreaming uses a two-pass replay model
+// StructureDefinition elements into the schema index. Timestamp annotations default
+// to Parquet TIMESTAMP(MILLIS) on INT64 for parquet-go map writer compatibility.
+// Pass WithTimestampEncoding(TimestampEncodingInt96) or set
+// _parquetTimestampEncoding=int96 to emit spec INT96 + TIMESTAMP(MILLIS) via a
+// typed parquet.Row writer. WriteResourcesStreaming uses a two-pass replay model
 // for bounded memory. Use _parquetLayout=fhir on view export/run operations and
 // analytics lakehouse sinks.
 package parquetfhir

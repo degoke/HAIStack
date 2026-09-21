@@ -471,3 +471,42 @@ func TestViewDefinitionExportEmptyBodySubjectPreservesQuery(t *testing.T) {
 		t.Fatalf("Actor=%q, want query preserved when body actor is empty", exportSvc.last.Actor)
 	}
 }
+
+func TestViewDefinitionRunParsesTimestampEncoding(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?viewName=patient_summary_view&_parquetTimestampEncoding=int96",
+		nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96", runSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunRejectsInvalidTimestampEncoding(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?viewName=patient_summary_view&_parquetTimestampEncoding=nanos",
+		nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestViewDefinitionExportParsesTimestampEncoding(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view&_parquetTimestampEncoding=int96",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96", exportSvc.last.TimestampEncoding)
+	}
+}

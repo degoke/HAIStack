@@ -234,6 +234,14 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
 		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
+	encoding, err := view.ParseTimestampEncoding(firstNonEmpty(
+		r.URL.Query().Get("_parquetTimestampEncoding"),
+		r.URL.Query().Get("parquetTimestampEncoding"),
+	))
+	if err != nil {
+		return req, invalidRequest("invalid _parquetTimestampEncoding parameter", err)
+	}
+	req.TimestampEncoding = encoding
 	if since := r.URL.Query().Get("_since"); since != "" {
 		parsed, err := time.Parse(time.RFC3339, since)
 		if err != nil {
@@ -348,6 +356,14 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 		Actor:   strings.TrimSpace(r.URL.Query().Get("_actor")),
 		Subject: strings.TrimSpace(r.URL.Query().Get("_subject")),
 	}
+	encoding, err := view.ParseTimestampEncoding(firstNonEmpty(
+		r.URL.Query().Get("_parquetTimestampEncoding"),
+		r.URL.Query().Get("parquetTimestampEncoding"),
+	))
+	if err != nil {
+		return req, invalidRequest("invalid _parquetTimestampEncoding parameter", err)
+	}
+	req.TimestampEncoding = encoding
 	if formatParam := strings.TrimSpace(r.URL.Query().Get("_format")); formatParam != "" {
 		req.Format = view.ParseOutputFormat(formatParam)
 	}
