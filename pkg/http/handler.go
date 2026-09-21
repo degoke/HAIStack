@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -40,6 +41,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 		return
+	}
+	w = withHookContext(w, r.Context(), h.cfg.Hooks, route, r.Method)
+	if route.kind != routeTransaction {
+		if err := h.runIncoming(r.Context(), route, r.Method); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 
 	switch route.kind {
@@ -353,7 +361,10 @@ func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalidRequest("build CapabilityStatement", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeEnvelope(w, http.StatusOK, &types.ResourceEnvelope{
+		ResourceType: "CapabilityStatement",
+		JSON:         data,
+	}, nil)
 }
 
 func (h *handler) handleRead(w http.ResponseWriter, r *http.Request, resourceType, id string) {
@@ -511,7 +522,7 @@ func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request, resourceT
 }
 
 func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceType, id string) {
-	if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+	if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -626,7 +637,7 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, invalidRequest("build history bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func (h *handler) handleVRead(w http.ResponseWriter, r *http.Request, resourceType, id, versionID string) {
@@ -800,7 +811,7 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		writeError(w, invalidRequest("build searchset bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func searchQueryParams(params url.Values) url.Values {
@@ -862,39 +873,31 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalidRequest("parse bundle", err))
 		return
 	}
-	if isTxn {
-		if err := h.authorizeWrite(r.Context(), "transaction", "Bundle", ""); err != nil {
-			writeError(w, err)
-			return
-		}
-		envelope, err := parseBundleBody(h.cfg.Codec, "application/fhir+json", body)
+	isBatch := false
+	if !isTxn {
+		isBatch, err = isBatchBundle(body)
 		if err != nil {
-			writeError(w, err)
+			writeError(w, invalidRequest("parse bundle", err))
 			return
 		}
-		if err := h.authorizeBundleEntries(r, body); err != nil {
-			writeError(w, err)
+		if !isBatch {
+			writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
 			return
 		}
-		response, err := h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeEnvelope(w, http.StatusOK, response, nil)
+	}
+	action := hooks.ActionTransaction
+	authOp := "transaction"
+	if isBatch {
+		action = hooks.ActionBatch
+		authOp = "batch"
+	}
+	event := &hooks.Event{Action: action, ResourceType: "Bundle"}
+	h.bindHookEvent(w, event)
+	if err := h.runIncomingEvent(r.Context(), event); err != nil {
+		writeError(w, err)
 		return
 	}
-
-	isBatch, err := isBatchBundle(body)
-	if err != nil {
-		writeError(w, invalidRequest("parse bundle", err))
-		return
-	}
-	if !isBatch {
-		writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
-		return
-	}
-	if err := h.authorizeWrite(r.Context(), "batch", "Bundle", ""); err != nil {
+	if err := h.authorizeWrite(r.Context(), authOp, "Bundle", ""); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -907,7 +910,12 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	response, err := h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	var response *types.ResourceEnvelope
+	if isTxn {
+		response, err = h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
+	} else {
+		response, err = h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -969,7 +977,7 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 				return err
 			}
 		case http.MethodPatch:
-			if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+			if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 				return err
 			}
 		case http.MethodDelete:

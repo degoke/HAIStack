@@ -89,7 +89,7 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 		writeError(w, invalidRequest("build $everything bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func everythingPageURL(basePath, patientID string, params url.Values, offset, count int) string {

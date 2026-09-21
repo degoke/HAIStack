@@ -896,6 +896,31 @@ func TestDeleteUsesDeleteAuthorizationOperation(t *testing.T) {
 	}
 }
 
+func TestPatchUsesPatchAuthorizationOperation(t *testing.T) {
+	checker := &recordingAuthChecker{allow: true}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			patchFn: func(_ context.Context, _, id string, _ []byte) (*types.ResourceEnvelope, error) {
+				return patientEnvelope(id, "Patched"), nil
+			},
+		},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "user-1"}, auth.TenantContext{TenantID: "t1"}, nil
+		},
+		AuthChecker: checker,
+	})
+
+	rec := doRequestWithHeaders(t, handler, http.MethodPatch, "/fhir/Patient/pat-1", []byte(`[{"op":"replace","path":"/name/0/family","value":"Patched"}]`), map[string]string{
+		"Content-Type": "application/json-patch+json",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if len(checker.writeCalls) != 1 || checker.writeCalls[0] != "patch:Patient/pat-1" {
+		t.Fatalf("write calls = %v", checker.writeCalls)
+	}
+}
+
 func TestIfMatchRequiresAtomicResourceService(t *testing.T) {
 	svc := &fakeResourceService{
 		readFn: func(_ context.Context, _, id string) (*types.ResourceEnvelope, error) {
