@@ -41,16 +41,19 @@ fields that are not on the R4 instance:
 | `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; toy-med system on coded medication |
 
 `ConvertR4ToR5` is an implementation scored against that oracle. Structural
-scoring checks **authored constraints** on converter output (informant
-coding, interpretation list, medication CodeableReference, animal removed),
-not `Convert(r4) == gold R5`. Transformed gold R5 includes `meta.source`
-(the spec URL); the scorer requires that field on gold and Convert does
-not emit it. Authorship tests inspect testdata only.
+scoring is **document equality** of `Convert(r4)` against gold R5 after
+removing gold-only `meta.source` (the spec URL Convert does not emit).
+Presence of a remap stamp is not enough: dropping copy-through fields
+(`id`, `subject`, `reason`, …) fails. Constraint URLs live on Convert
+(emission) and in authorship tests (testdata); they are not a third scorer
+table. `TestCorpusGoldIsAuthoredOracle` inspects testdata only.
+`TestConverterImplementsAuthoredGold` **does** call Convert: it requires
+`Convert ≠ gold` because of `meta.source`, and ScoreCorpus to pass.
 
 For each pair:
 
 1. **Structural** — canonical JSON of `ConvertR4ToR5(r4)` equals the gold R5
-   document for that pair id.
+   document for that pair id except gold-only `meta.source`.
 2. **Semantic (R4)** — assertions run with `pkg/fhirpath` against the R4
    protobuf codec. Instances the codec cannot load (R4-removed
    `Patient.animal`, singleton JSON for 0..* `interpretation`) fall back to

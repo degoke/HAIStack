@@ -50,8 +50,9 @@ type ClassScore struct {
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
 // Accuracy is the pass rate (class and target). ByClass is one-vs-rest on class
 // labels only. Gold conceptmap.json vs cases.json checks that $translate
-// implements that map. Divergent conceptmap vs the same cases is map agreement
-// with authored labels, not a quality headline for the translator.
+// implements that map. Divergent conceptmap vs the same cases is an in-repo
+// map-vs-cases class metric (authored disagreement), not translator quality
+// and not an external mapping.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`

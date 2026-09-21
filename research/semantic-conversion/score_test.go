@@ -13,7 +13,7 @@ import (
 )
 
 // Authored gold URLs/displays are literals here so testdata is not tied to
-// convert.go's constant table. Drift fails TestConverterImplementsAuthoredGold.
+// convert.go's emission constants. Drift fails TestCorpusGoldIsAuthoredOracle.
 const (
 	goldInformantSystem  = "http://terminology.hl7.org/CodeSystem/provenance-participant-type"
 	goldInformantDisplay = "Informant"

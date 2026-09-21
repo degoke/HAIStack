@@ -67,7 +67,7 @@ func main() {
 			Passed:   divergent.Passed,
 			Failed:   divergent.Failed,
 			ByClass:  divergent.ByClass,
-			Note:     "divergent ConceptMap vs authored cases.json (map agreement, not $translate quality)",
+			Note:     "in-repo divergent ConceptMap vs authored cases.json (map-vs-cases class metric; authored 0.5 disagreement; not translator quality and not an external mapping)",
 		},
 	}
 	enc := json.NewEncoder(os.Stdout)
