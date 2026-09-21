@@ -165,7 +165,7 @@ func (s *ResourceService) Create(ctx context.Context, resource *types.ResourceEn
 		return nil, conflictErr(fmt.Sprintf("resource already exists: %s/%s", envelope.ResourceType, id), nil)
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionCreate, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func (s *ResourceService) Update(ctx context.Context, resource *types.ResourceEn
 		return nil, exceptionErr("read previous resource", err)
 	}
 
-	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate)
+	written, err := s.applyWrite(ctx, session, envelope, store.VersionActionUpdate, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -368,25 +368,41 @@ func (s *ResourceService) applyWrite(
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	action store.VersionAction,
+	previous *types.ResourceEnvelope,
 ) (*types.ResourceEnvelope, error) {
-	return s.applyWriteExpectedVersion(ctx, session, envelope, action, "")
+	return s.applyWriteExpectedVersion(ctx, session, envelope, action, "", hooksAction(action), previous)
 }
 
 // applyWriteExpectedVersion performs the version comparison in the same write
 // session as the mutation. An empty expected version selects ordinary writes;
 // a non-empty value requires a ConditionalResourceStore implementation.
+// persist action is the store VersionAction (create/update); hookAction is the
+// FHIR interaction seen by pre-storage (for example ActionPatch while persist
+// remains VersionActionUpdate).
 func (s *ResourceService) applyWriteExpectedVersion(
 	ctx context.Context,
 	session store.WriteSession,
 	envelope *types.ResourceEnvelope,
 	action store.VersionAction,
 	expectedVersion string,
+	hookAction hooks.Action,
+	previous *types.ResourceEnvelope,
 ) (*types.ResourceEnvelope, error) {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
-	envelope, err := s.runPreStorage(ctx, hooksAction(action), envelope, nil)
+	if hookAction == "" {
+		hookAction = hooksAction(action)
+	}
+	originalType, originalID := "", ""
+	if envelope != nil {
+		originalType, originalID = envelope.ResourceType, envelope.ID
+	}
+	envelope, err := s.runPreStorage(ctx, hookAction, envelope, previous)
 	if err != nil {
+		return nil, err
+	}
+	if err := rejectIdentityMutation(originalType, originalID, envelope); err != nil {
 		return nil, err
 	}
 	prepared, err := s.withVersionMeta(envelope, versionID, now)
@@ -460,7 +476,15 @@ func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, sessio
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
-	if _, err := s.runPreStorage(ctx, hooks.ActionDelete, current, current); err != nil {
+	originalType, originalID := "", ""
+	if current != nil {
+		originalType, originalID = current.ResourceType, current.ID
+	}
+	mutated, err := s.runPreStorage(ctx, hooks.ActionDelete, current, current)
+	if err != nil {
+		return err
+	}
+	if err := rejectIdentityMutation(originalType, originalID, mutated); err != nil {
 		return err
 	}
 
@@ -741,6 +765,55 @@ func (s *ResourceService) runPreStorage(ctx context.Context, action hooks.Action
 		return event.Resource, nil
 	}
 	return resource, nil
+}
+
+func rejectIdentityMutation(originalType, originalID string, env *types.ResourceEnvelope) error {
+	if env == nil {
+		return invalidErr("pre-storage hook removed the resource", nil)
+	}
+	if env.ResourceType != originalType {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change resourceType from %q to %q", originalType, env.ResourceType),
+			nil,
+			"Resource.resourceType",
+		)
+	}
+	if env.ID != originalID {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change id from %q to %q", originalID, env.ID),
+			nil,
+			"Resource.id",
+		)
+	}
+	if len(env.JSON) == 0 {
+		return nil
+	}
+	actualType, err := types.GetResourceType(env.JSON)
+	if err != nil {
+		return invalidErr("pre-storage hook produced invalid resourceType", err, "Resource.resourceType")
+	}
+	if actualType != originalType {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change resourceType from %q to %q", originalType, actualType),
+			nil,
+			"Resource.resourceType",
+		)
+	}
+	if originalID == "" {
+		return nil
+	}
+	actualID, err := types.GetID(env.JSON)
+	if err != nil {
+		return invalidErr("pre-storage hook produced invalid id", err, "Resource.id")
+	}
+	if actualID != originalID {
+		return invalidErr(
+			fmt.Sprintf("pre-storage hook cannot change id from %q to %q", originalID, actualID),
+			nil,
+			"Resource.id",
+		)
+	}
+	return nil
 }
 
 func (s *ResourceService) runPostCommit(ctx context.Context, action hooks.Action, resource, previous *types.ResourceEnvelope) {

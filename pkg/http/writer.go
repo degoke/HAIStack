@@ -70,6 +70,13 @@ func writeResource(w http.ResponseWriter, status int, data []byte, headers map[s
 	_, _ = w.Write(data)
 }
 
+func writeBundleJSON(w http.ResponseWriter, status int, data []byte) {
+	writeEnvelope(w, status, &types.ResourceEnvelope{
+		ResourceType: "Bundle",
+		JSON:         data,
+	}, nil)
+}
+
 func writeEnvelope(w http.ResponseWriter, status int, envelope *types.ResourceEnvelope, headers map[string]string) {
 	if envelope == nil {
 		writeError(w, invalidRequest("service returned no resource", nil))

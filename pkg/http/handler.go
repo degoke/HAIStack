@@ -609,7 +609,7 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, invalidRequest("build history bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func (h *handler) handleSearch(w http.ResponseWriter, r *http.Request, resourceType string) {
@@ -675,7 +675,7 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		writeError(w, invalidRequest("build searchset bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func searchQueryParams(params url.Values) url.Values {

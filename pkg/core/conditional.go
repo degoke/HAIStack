@@ -51,7 +51,7 @@ func (s *ResourceService) UpdateIfMatch(ctx context.Context, resource *types.Res
 		}
 		return nil, exceptionErr("read previous resource", err)
 	}
-	written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expectedVersion)
+	written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expectedVersion, hooks.ActionUpdate, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -109,54 +109,5 @@ func (s *ResourceService) PatchIfMatch(ctx context.Context, resourceType, id str
 	if resourceType == "" || id == "" || expectedVersion == "" {
 		return nil, invalidErr("resourceType, id, and expected version are required", nil)
 	}
-	if len(patchJSON) == 0 {
-		return nil, invalidErr("patch body is required", nil)
-	}
-	session, err := s.sessions.BeginWrite(ctx)
-	if err != nil {
-		return nil, exceptionErr("begin write session", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = session.Rollback(ctx)
-		}
-	}()
-	current, err := session.ResourceStore().Read(ctx, resourceType, id)
-	if err != nil {
-		if isStoreNotFound(err) {
-			return nil, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), err)
-		}
-		return nil, exceptionErr("read resource for patch", err)
-	}
-	patchedJSON, err := applyJSONPatch(current.JSON, patchJSON)
-	if err != nil {
-		return nil, invalidErr("apply JSON Patch", err)
-	}
-	if err := validatePatchedIdentity(patchedJSON, resourceType, id); err != nil {
-		return nil, err
-	}
-	envelope := &types.ResourceEnvelope{ResourceType: resourceType, ID: id, JSON: patchedJSON}
-	envelope, err = s.normalizeEnvelope(envelope)
-	if err != nil {
-		return nil, err
-	}
-	if s.validator != nil {
-		if err := s.validator.ValidateResource(ctx, envelope); err != nil {
-			return nil, invalidErr("resource validation failed", err)
-		}
-	}
-	written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expectedVersion)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.removePreviousTerminology(ctx, session, current, written); err != nil {
-		return nil, exceptionErr("replace previous terminology projection", err)
-	}
-	if err := session.Commit(ctx); err != nil {
-		return nil, exceptionErr("commit write session", err)
-	}
-	committed = true
-	s.runPostCommit(ctx, hooks.ActionPatch, written, current)
-	return written, nil
+	return s.patchAndCommit(ctx, resourceType, id, patchJSON, expectedVersion)
 }
