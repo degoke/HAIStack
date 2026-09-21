@@ -3,6 +3,7 @@ package cql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -116,6 +117,7 @@ type fhirMeasure struct {
 	Library             []string `json:"library"`
 	Scoring             fhirConcept
 	ImprovementNotation fhirConcept
+	SupplementalData    []fhirMeasurePopulation `json:"supplementalData"`
 	Group               []fhirMeasureGroup
 }
 
@@ -193,20 +195,38 @@ func buildMeasureReport(ctx context.Context, e *Engine, m fhirMeasure, reportTyp
 			report["measure"] = m.URL + "|" + m.Version
 		}
 	}
+	if code := m.ImprovementNotation.code(); code != "" {
+		report["improvementNotation"] = conceptJSON(m.ImprovementNotation)
+	}
 	if reportType == "individual" && len(subjects) == 1 {
 		if ref := patientReference(subjects[0]); ref != "" {
 			report["subject"] = map[string]any{"reference": ref}
+			report["evaluatedResource"] = []any{map[string]any{"reference": ref}}
 		}
 	}
 	var groups []any
+	var contained []any
 	for gi, g := range m.Group {
-		groupOut, err := evalMeasureGroup(ctx, e, g, gi, scoring, reportType, subjects, env)
+		groupOut, lists, err := evalMeasureGroup(ctx, e, g, gi, scoring, reportType, subjects, env)
 		if err != nil {
 			return nil, err
 		}
 		groups = append(groups, groupOut)
+		contained = append(contained, lists...)
+	}
+	if len(m.SupplementalData) > 0 && reportType == "individual" && len(subjects) == 1 {
+		env.Patient = subjects[0]
+		for _, sd := range m.SupplementalData {
+			_, _, err := evalPopulation(ctx, e, sd, env)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	report["group"] = groups
+	if len(contained) > 0 {
+		report["contained"] = contained
+	}
 	raw, err := json.Marshal(report)
 	if err != nil {
 		return nil, errf("%w: encode MeasureReport: %v", ErrMeasure, err)
@@ -221,17 +241,22 @@ type popEval struct {
 	subjects []string
 }
 
-func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index int, scoring, reportType string, subjects []any, env EvalContext) (map[string]any, error) {
+func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index int, scoring, reportType string, subjects []any, env EvalContext) (map[string]any, []any, error) {
 	pops := make([]popEval, len(g.Population))
 	for i, p := range g.Population {
 		pops[i] = popEval{def: p, code: strings.ToLower(p.Code.code())}
 	}
+	type stratumKey struct {
+		strat int
+		value string
+	}
+	stratumCounts := map[stratumKey]int{}
 	for _, subject := range subjects {
 		env.Patient = subject
 		for i := range pops {
 			ok, n, err := evalPopulation(ctx, e, pops[i].def, env)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if !ok {
 				continue
@@ -247,6 +272,22 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 				}
 			}
 		}
+		for si, strat := range g.Stratifier {
+			expr := strings.TrimSpace(strat.Criteria.Expression)
+			if expr == "" {
+				continue
+			}
+			env.Language = strat.Criteria.Language
+			if env.Language == "" {
+				env.Language = "text/cql.identifier"
+			}
+			vals, err := e.Eval(ctx, expr, env)
+			if err != nil {
+				return nil, nil, errf("%w: stratifier: %v", ErrMeasure, err)
+			}
+			key := stratumKey{strat: si, value: fmt.Sprint(singletonOrList(vals))}
+			stratumCounts[key]++
+		}
 	}
 	applyPopulationExclusions(pops, scoring)
 	out := map[string]any{}
@@ -259,8 +300,9 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 		out["code"] = conceptJSON(g.Code)
 	}
 	var popOut []any
+	var contained []any
 	counts := map[string]int{}
-	for _, p := range pops {
+	for pi, p := range pops {
 		item := map[string]any{
 			"code":  conceptJSON(p.def.Code),
 			"count": p.count,
@@ -269,9 +311,20 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 			item["id"] = p.def.ID
 		}
 		if reportType == "subject-list" && len(p.subjects) > 0 {
-			item["subjectResults"] = map[string]any{
-				"display": strings.Join(p.subjects, ", "),
+			listID := "list-" + itoa(index) + "-" + itoa(pi)
+			list := map[string]any{
+				"resourceType": "List",
+				"id":           listID,
+				"status":       "current",
+				"mode":         "snapshot",
 			}
+			var entries []any
+			for _, ref := range p.subjects {
+				entries = append(entries, map[string]any{"item": map[string]any{"reference": ref}})
+			}
+			list["entry"] = entries
+			contained = append(contained, list)
+			item["subjectResults"] = map[string]any{"reference": "#" + listID}
 		}
 		popOut = append(popOut, item)
 		counts[p.code] = p.count
@@ -280,7 +333,38 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 	if score, ok := measureScore(scoring, counts); ok {
 		out["measureScore"] = map[string]any{"value": score}
 	}
-	return out, nil
+	if len(g.Stratifier) > 0 && len(stratumCounts) > 0 {
+		var stratOut []any
+		for si, strat := range g.Stratifier {
+			sitem := map[string]any{}
+			if strat.ID != "" {
+				sitem["id"] = strat.ID
+			}
+			if code := strat.Code.code(); code != "" {
+				sitem["code"] = conceptJSON(strat.Code)
+			}
+			var strata []any
+			for key, n := range stratumCounts {
+				if key.strat != si {
+					continue
+				}
+				stratum := map[string]any{
+					"value": map[string]any{"text": key.value},
+					"population": []any{map[string]any{
+						"code":  map[string]any{"coding": []any{map[string]any{"code": "initial-population"}}},
+						"count": n,
+					}},
+				}
+				strata = append(strata, stratum)
+			}
+			if len(strata) > 0 {
+				sitem["stratum"] = strata
+			}
+			stratOut = append(stratOut, sitem)
+		}
+		out["stratifier"] = stratOut
+	}
+	return out, contained, nil
 }
 
 func evalPopulation(ctx context.Context, e *Engine, pop fhirMeasurePopulation, env EvalContext) (bool, int, error) {

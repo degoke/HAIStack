@@ -354,21 +354,23 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	if adv, ok := pc.searchStore.(store.SearchAdvancedExecutor); ok {
 		retriever.References = adv
 	}
+	libResolver := &cql.StoreLibraryResolver{
+		Resources: pc.resources,
+		Registry:  pc.definitions,
+	}
 	cqlEngine, err := cql.NewEngine(cql.Config{
 		FHIRPath:    engine,
 		Retriever:   retriever,
 		Terminology: term,
+		Libraries:   libResolver,
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: cql engine: %w", err)
 	}
+	libResolver.Engine = cqlEngine
 	cqlProvider := cql.Provider{
-		Engine: cqlEngine,
-		Libraries: &cql.StoreLibraryResolver{
-			Resources: pc.resources,
-			Registry:  pc.definitions,
-			Engine:    cqlEngine,
-		},
+		Engine:    cqlEngine,
+		Libraries: libResolver,
 		Retriever: retriever,
 	}
 	viewRegistry := view.NewRegistry()

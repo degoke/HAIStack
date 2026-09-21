@@ -13,6 +13,7 @@ type Engine struct {
 	fhirpath         fhirpath.Engine
 	retriever        Retriever
 	terminology      fhirpath.TerminologyValidator
+	libraries        LibraryResolver
 	now              func() time.Time
 	maxExpressionLen int
 }
@@ -28,6 +29,8 @@ type Config struct {
 	// Terminology is optional. When set, retrieve and `in` valueset filters use
 	// MemberOf; otherwise matching is structured Coding/CodeableConcept equality.
 	Terminology fhirpath.TerminologyValidator
+	// Libraries resolves included CQL libraries (except builtin FHIRHelpers).
+	Libraries LibraryResolver
 	// Now overrides the evaluation clock (defaults to time.Now UTC).
 	Now func() time.Time
 	// MaxExpressionLen caps CQL source length (default 65536).
@@ -49,6 +52,7 @@ type Library struct {
 	CodeSystems []CodeSystem
 	ValueSets   []ValueSet
 	Codes       []Code
+	Concepts    []Concept
 	Source      string
 	URL         string
 }
@@ -105,6 +109,13 @@ type Code struct {
 	Name    string
 	Code    string
 	System  string
+	Display string
+}
+
+// Concept is a CQL concept declaration.
+type Concept struct {
+	Name    string
+	Codes   []string
 	Display string
 }
 

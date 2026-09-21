@@ -20,6 +20,7 @@ func NewEngine(cfg Config) (*Engine, error) {
 		fhirpath:         cfg.FHIRPath,
 		retriever:        cfg.Retriever,
 		terminology:      cfg.Terminology,
+		libraries:        cfg.Libraries,
 		now:              now,
 		maxExpressionLen: cfg.MaxExpressionLen,
 	}, nil
@@ -123,6 +124,67 @@ func (e *Engine) EvalDefine(ctx context.Context, lib *Library, name string, env 
 		return nil, errf("%w: %s", ErrExpressionNotFound, name)
 	}
 	return e.evalNode(ctx, def.Expression, env, env.Libraries)
+}
+
+func (e *Engine) resolveIncludes(ctx context.Context, libs []*Library) ([]*Library, error) {
+	out := append([]*Library(nil), libs...)
+	seen := map[string]bool{}
+	for _, lib := range out {
+		if lib != nil && lib.Name != "" {
+			seen[strings.ToLower(lib.Name)] = true
+		}
+	}
+	for i := 0; i < len(out); i++ {
+		lib := out[i]
+		if lib == nil {
+			continue
+		}
+		for _, inc := range lib.Includes {
+			key := strings.ToLower(inc.Name)
+			if key == "" || seen[key] {
+				continue
+			}
+			if strings.EqualFold(inc.Name, "FHIRHelpers") || strings.EqualFold(inc.Called, "FHIRHelpers") {
+				helpers := fhirHelpersLibrary()
+				if inc.Called != "" {
+					helpers.Name = inc.Called
+				}
+				out = append(out, helpers)
+				seen[key] = true
+				seen[strings.ToLower(helpers.Name)] = true
+				continue
+			}
+			if e == nil || e.libraries == nil {
+				continue
+			}
+			canonical := inc.Name
+			if inc.Version != "" {
+				canonical = inc.Name + "|" + inc.Version
+			}
+			resolved, err := e.libraries.Resolve(ctx, canonical)
+			if err != nil {
+				return nil, err
+			}
+			if resolved == nil {
+				continue
+			}
+			if inc.Called != "" && resolved.Name != inc.Called {
+				cp := *resolved
+				cp.Name = inc.Called
+				resolved = &cp
+			}
+			out = append(out, resolved)
+			seen[key] = true
+			if resolved.Name != "" {
+				seen[strings.ToLower(resolved.Name)] = true
+			}
+		}
+	}
+	return out, nil
+}
+
+func fhirHelpersLibrary() *Library {
+	return &Library{Name: "FHIRHelpers", Version: "4.0.1", Context: "Unfiltered"}
 }
 
 func (e *Engine) checkLen(src string) error {

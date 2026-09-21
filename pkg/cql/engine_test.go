@@ -333,6 +333,59 @@ func TestQueryIntervalQuantity(t *testing.T) {
 	}
 }
 
+func TestFHIRHelpersIncludeIndexerConvert(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library HelpersCheck version '1.0.0'
+using FHIR version '4.0.1'
+include FHIRHelpers version '4.0.1' called FHIRHelpers
+context Patient
+define "Given":
+  Patient.name.given[0]
+define "Converted":
+  convert 5 to String
+define "MadeDate":
+  Date(2020, 6, 1)
+define "Period":
+  FHIRHelpers.ToInterval({ start: @2020-01-01, end: @2021-01-01 })
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "Given", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "Ada" {
+		t.Fatalf("indexer: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "Converted", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "5" {
+		t.Fatalf("convert: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "MadeDate", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("date: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "Period", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ToInterval: %#v", got)
+	}
+	if _, ok := asInterval(got[0]); !ok {
+		t.Fatalf("ToInterval type: %#v", got[0])
+	}
+}
+
 func TestELMOnlyLibraryIsUnsupported(t *testing.T) {
 	env, err := types.NewJSONCodec().ParseJSON("Library", []byte(`{
 		"resourceType": "Library",

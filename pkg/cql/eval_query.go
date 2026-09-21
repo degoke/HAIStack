@@ -101,6 +101,9 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 	if q.distinct {
 		out = distinctValues(out)
 	}
+	if q.agg != nil {
+		return st.evalAggregate(out, q)
+	}
 	if len(q.sort) > 0 {
 		if err := st.sortQuery(out, q.sort, q.sources); err != nil {
 			return nil, err

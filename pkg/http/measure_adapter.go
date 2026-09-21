@@ -55,8 +55,17 @@ func (s CoreMeasureService) EvaluateMeasure(ctx context.Context, req MeasureEval
 		Retriever:   s.Retriever,
 	}
 	reportType := strings.ToLower(strings.TrimSpace(params.reportType))
-	individual := reportType == "individual" || reportType == "subject" || (reportType == "" && params.subject != "")
-	if individual {
+	individual := reportType == "individual" || reportType == "subject" || (reportType == "" && params.subject != "" && !strings.Contains(strings.ToLower(params.subject), "group/"))
+	if strings.Contains(strings.ToLower(params.subject), "group/") {
+		patients, err := s.loadGroupMembers(ctx, params.subject)
+		if err != nil {
+			return nil, err
+		}
+		mreq.Patients = patients
+		if mreq.ReportType == "" {
+			mreq.ReportType = "summary"
+		}
+	} else if individual {
 		patient, err := s.loadPatient(ctx, params.subject)
 		if err != nil {
 			return nil, err
@@ -263,6 +272,50 @@ func (s CoreMeasureService) loadPatient(ctx context.Context, subject string) (*t
 		return nil, err
 	}
 	return env, nil
+}
+
+func (s CoreMeasureService) loadGroupMembers(ctx context.Context, subject string) ([]any, error) {
+	id := subject
+	if i := strings.LastIndex(subject, "/"); i >= 0 {
+		id = subject[i+1:]
+	}
+	if s.Resources == nil {
+		return nil, &core.ServiceError{Kind: core.ErrorKindNotSupported, Message: "resource store is unavailable"}
+	}
+	env, err := s.Resources.Read(ctx, "Group", id)
+	if err != nil {
+		return nil, err
+	}
+	if env == nil {
+		return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "Group " + id + " was not found"}
+	}
+	var g struct {
+		Member []struct {
+			Entity struct {
+				Reference string `json:"reference"`
+			} `json:"entity"`
+		} `json:"member"`
+	}
+	if err := json.Unmarshal(env.JSON, &g); err != nil {
+		return nil, invalidRequest("decode Group", err)
+	}
+	var out []any
+	for _, m := range g.Member {
+		ref := strings.TrimSpace(m.Entity.Reference)
+		if ref == "" {
+			continue
+		}
+		pid := ref
+		if i := strings.LastIndex(ref, "/"); i >= 0 {
+			pid = ref[i+1:]
+		}
+		pat, err := s.Resources.Read(ctx, "Patient", pid)
+		if err != nil || pat == nil {
+			continue
+		}
+		out = append(out, pat)
+	}
+	return out, nil
 }
 
 func mapMeasureError(err error) error {

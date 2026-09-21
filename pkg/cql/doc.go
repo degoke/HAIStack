@@ -36,7 +36,8 @@
 //   - retrieve and `in` filters against Coding/CodeableConcept (MemberOf when Config.Terminology is set)
 //   - First, Last, Count, Exists, AgeInYears, ToString, ToInterval, Min/Max/Sum and related helpers
 //
-// ELM-only libraries still return ErrUnsupported.
+// ELM-only libraries still return ErrUnsupported. This is a text/cql 1.5
+// interpreter plus CQF Measure/$evaluate-measure, not an ELM runtime.
 //
 // # Integration
 //

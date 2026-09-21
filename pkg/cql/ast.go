@@ -125,6 +125,7 @@ type queryNode struct {
 	ret      Node
 	distinct bool
 	sort     []sortItem
+	agg      *aggregateNode
 }
 
 type querySource struct {
@@ -146,6 +147,33 @@ type relatedClause struct {
 type sortItem struct {
 	expr Node
 	desc bool
+}
+
+type indexNode struct {
+	nodeBase
+	x     Node
+	index Node
+}
+
+type convertNode struct {
+	nodeBase
+	x      Node
+	target string
+}
+
+type codeLitNode struct {
+	nodeBase
+	code    string
+	system  string
+	display string
+}
+
+type aggregateNode struct {
+	nodeBase
+	name     string
+	starting Node
+	body     Node
+	distinct bool
 }
 
 func identName(n Node) (string, bool) {

@@ -36,6 +36,11 @@ func (e *Engine) evalNode(ctx context.Context, n Node, env EvalContext, libs []*
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	resolved, err := e.resolveIncludes(ctx, libs)
+	if err != nil {
+		return nil, err
+	}
+	libs = resolved
 	st := &evalState{
 		ctx:        ctx,
 		engine:     e,
@@ -153,6 +158,21 @@ func (st *evalState) eval(n Node) ([]any, error) {
 		return st.evalCase(x)
 	case *queryNode:
 		return st.evalQuery(x)
+	case *indexNode:
+		return st.evalIndex(x)
+	case *convertNode:
+		return st.evalConvert(x)
+	case *codeLitNode:
+		c := Code{Code: x.code, System: x.system, Display: x.display}
+		if st.current != nil {
+			for _, cs := range st.current.CodeSystems {
+				if cs.Name == c.System || strings.EqualFold(cs.Name, c.System) {
+					c.System = cs.URL
+					break
+				}
+			}
+		}
+		return []any{c}, nil
 	default:
 		return nil, errf("%w: unknown expression node", ErrUnsupported)
 	}
@@ -380,11 +400,6 @@ func (st *evalState) lookupLibrary(name string) *Library {
 		if lib.Name == name || strings.EqualFold(lib.Name, name) {
 			return lib
 		}
-		for _, inc := range lib.Includes {
-			if inc.Called == name || inc.Name == name {
-				return lib
-			}
-		}
 	}
 	return nil
 }
@@ -472,6 +487,10 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 			return intervalWidth(iv)
 		}
 		return nil, nil
+	case "collapse":
+		return collapseIntervals(v), nil
+	case "expand":
+		return v, nil
 	}
 	return nil, errf("%w: unary operator %q", ErrUnsupported, n.op)
 }
@@ -576,6 +595,9 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		return listExcept(left, right), nil
 	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "starts", "ends", "meets", "before", "after":
 		return st.evalIntervalRel(n)
+	}
+	if strings.HasPrefix(n.op, "same") {
+		return st.evalSameAs(n)
 	}
 	left, err := st.eval(n.left)
 	if err != nil {
@@ -690,6 +712,9 @@ func (st *evalState) evalMember(n *memberNode) ([]any, error) {
 		if def, found := defineByName(lib, n.name); found {
 			return st.evalDefine(lib, def)
 		}
+		if fn, found := functionByName(lib, n.name); found && len(fn.Params) == 0 {
+			return st.evalUserFunction(lib, &fn, nil)
+		}
 		return nil, errf("%w: %s.%s", ErrExpressionNotFound, lib.Name, n.name)
 	}
 	if ns, ok := singletonNS(base); ok {
@@ -708,7 +733,6 @@ func (st *evalState) evalMember(n *memberNode) ([]any, error) {
 
 func (st *evalState) evalCall(n *callNode) ([]any, error) {
 	name := callName(n.callee)
-	// Method-style: X.where(...) / X.first() — delay where/select args so $this is bound.
 	if mem, ok := n.callee.(*memberNode); ok {
 		recv, err := st.eval(mem.x)
 		if err != nil {
@@ -725,6 +749,18 @@ func (st *evalState) evalCall(n *callNode) ([]any, error) {
 				return nil, err
 			}
 			args[i] = v
+		}
+		if lib, ok := singletonLibrary(recv); ok {
+			if fn, found := functionByName(lib, mem.name); found {
+				return st.evalUserFunction(lib, &fn, args)
+			}
+			if def, found := defineByName(lib, mem.name); found {
+				return st.evalDefine(lib, def)
+			}
+			return st.evalFunction(lib.Name+"."+mem.name, args)
+		}
+		if ns, ok := singletonNS(recv); ok {
+			return st.evalFunction(ns.name+"."+mem.name, args)
 		}
 		return st.evalMethod(mem.name, recv, n.args, args)
 	}
@@ -982,6 +1018,42 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 			return nil, errf("CQL SingletonFrom expected one item, got %d", len(v))
 		}
 		return []any{v[0]}, nil
+	case "date":
+		return constructDate(args, false)
+	case "datetime":
+		return constructDate(args, true)
+	case "time":
+		return constructTime(args)
+	case "startswith":
+		return stringPred(args, strings.HasPrefix)
+	case "endswith":
+		return stringPred(args, strings.HasSuffix)
+	case "matches", "matchesfull":
+		return stringContains(args)
+	case "replace":
+		return stringReplace(args)
+	case "split":
+		return stringSplit(args)
+	case "combine":
+		return stringCombine(args)
+	case "upper":
+		return stringCase(args, true)
+	case "lower":
+		return stringCase(args, false)
+	case "substring":
+		return stringSubstring(args)
+	case "indexer":
+		return st.evalIndexer(args)
+	case "collapse":
+		if len(args) == 0 {
+			return nil, nil
+		}
+		return collapseIntervals(args[0]), nil
+	case "expand":
+		if len(args) == 0 {
+			return nil, nil
+		}
+		return args[0], nil
 	}
 	return nil, errf("%w: function %s", ErrUnsupported, name)
 }
@@ -1273,6 +1345,18 @@ func defineByName(lib *Library, name string) (Define, bool) {
 		}
 	}
 	return Define{}, false
+}
+
+func functionByName(lib *Library, name string) (Function, bool) {
+	if lib == nil {
+		return Function{}, false
+	}
+	for _, f := range lib.Functions {
+		if f.Name == name || strings.EqualFold(f.Name, name) {
+			return f, true
+		}
+	}
+	return Function{}, false
 }
 
 func wrapValue(v any) []any {

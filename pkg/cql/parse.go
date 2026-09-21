@@ -71,9 +71,11 @@ func parseLibrary(src string) (*Library, error) {
 			}
 			lib.Codes = append(lib.Codes, code)
 		case p.acceptKeyword("concept"):
-			if err := p.skipNamedDeclaration(); err != nil {
+			concept, err := p.parseConcept()
+			if err != nil {
 				return nil, err
 			}
+			lib.Concepts = append(lib.Concepts, concept)
 		case p.acceptKeyword("parameter"):
 			param, err := p.parseParameter()
 			if err != nil {
@@ -303,6 +305,43 @@ func (p *parser) parseCode() (Code, error) {
 		display, err := p.requireString("code display")
 		if err != nil {
 			return Code{}, err
+		}
+		out.Display = display
+	}
+	return out, nil
+}
+
+func (p *parser) parseConcept() (Concept, error) {
+	name, err := p.requireName("concept name")
+	if err != nil {
+		return Concept{}, err
+	}
+	if !p.acceptKind(tColon) {
+		return Concept{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' in concept declaration")
+	}
+	out := Concept{Name: name}
+	if p.acceptKind(tLBrace) {
+		if !p.acceptKind(tRBrace) {
+			for {
+				cname, err := p.requireName("concept code")
+				if err != nil {
+					return Concept{}, err
+				}
+				out.Codes = append(out.Codes, cname)
+				if p.acceptKind(tComma) {
+					continue
+				}
+				break
+			}
+			if !p.acceptKind(tRBrace) {
+				return Concept{}, parseError(p.src, p.lex.lookahead().pos, "expected '}' after concept codes")
+			}
+		}
+	}
+	if p.acceptKeyword("display") {
+		display, err := p.requireString("concept display")
+		if err != nil {
+			return Concept{}, err
 		}
 		out.Display = display
 	}
@@ -574,6 +613,29 @@ func (p *parser) parseMembershipOp() string {
 		_ = p.acceptKeyword("in")
 		return "included in"
 	}
+	if p.acceptKeyword("occurs") {
+		if p.acceptKeyword("during") {
+			return "during"
+		}
+		if p.acceptKeyword("before") {
+			return "before"
+		}
+		if p.acceptKeyword("after") {
+			return "after"
+		}
+	}
+	if p.acceptKeyword("same") {
+		unit := ""
+		if u := timeUnitName(p.lex.lookahead().text); u != "" {
+			p.lex.next()
+			unit = u
+		}
+		_ = p.acceptKeyword("as")
+		if unit != "" {
+			return "same " + unit + " as"
+		}
+		return "same as"
+	}
 	switch {
 	case p.acceptKeyword("in"):
 		return "in"
@@ -748,6 +810,28 @@ func (p *parser) parseUnary() (Node, error) {
 		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: op, x: x}, nil
 	}
+	if p.acceptKeyword("convert") {
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKeyword("to") {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'to' after convert")
+		}
+		target, err := p.requireName("convert type")
+		if err != nil {
+			return nil, err
+		}
+		return &convertNode{nodeBase: nodeBase{src: p.src}, x: x, target: target}, nil
+	}
+	if p.acceptKeyword("collapse") || p.acceptKeyword("expand") {
+		op := strings.ToLower(p.lex.last.text)
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: op, x: x}, nil
+	}
 	return p.parsePostfix()
 }
 
@@ -799,6 +883,16 @@ func (p *parser) parsePostfix() (Node, error) {
 				return nil, err
 			}
 			n = &callNode{nodeBase: nodeBase{src: p.src}, callee: n, args: args}
+		case tLBrack:
+			p.lex.next()
+			idx, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+			if !p.acceptKind(tRBrack) {
+				return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after indexer")
+			}
+			n = &indexNode{nodeBase: nodeBase{src: p.src}, x: n, index: idx}
 		default:
 			if p.acceptKeyword("is") {
 				not := p.acceptKeyword("not")
@@ -819,8 +913,17 @@ func (p *parser) parsePostfix() (Node, error) {
 				if _, err := p.requireName("type name"); err != nil {
 					return nil, err
 				}
-				// as Type is treated as identity in this subset.
 				continue
+			}
+			if lit, ok := n.(*litNode); ok {
+				if s, ok := lit.value.(string); ok && p.acceptKeyword("from") {
+					sys, err := p.requireName("codesystem")
+					if err != nil {
+						return nil, err
+					}
+					n = &codeLitNode{nodeBase: nodeBase{src: p.src}, code: s, system: sys}
+					continue
+				}
 			}
 			return n, nil
 		}
@@ -962,6 +1065,17 @@ func (p *parser) parseRetrieve() (Node, error) {
 	}
 	term := ""
 	if p.acceptKind(tColon) {
+		t := p.lex.lookahead()
+		if (t.kind == tIdent || t.kind == tQuotedIdent) && (keywordEq(t.text, "code") || keywordEq(t.text, "type")) {
+			rest := p.src[t.pos:]
+			lx := newLexer(rest)
+			_ = lx.next()
+			next := lx.next()
+			if next.kind == tIdent && keywordEq(next.text, "in") {
+				p.lex.next() // code
+				p.acceptKeyword("in")
+			}
+		}
 		switch p.lex.lookahead().kind {
 		case tString:
 			term = p.lex.next().text
@@ -1281,6 +1395,35 @@ func (p *parser) parseQuery(first querySource) (Node, error) {
 			return nil, err
 		}
 		q.ret = ret
+	}
+	if p.acceptKeyword("aggregate") {
+		agg := &aggregateNode{nodeBase: nodeBase{src: p.src}}
+		if p.acceptKeyword("distinct") {
+			agg.distinct = true
+		} else {
+			_ = p.acceptKeyword("all")
+		}
+		name, err := p.requireName("aggregate name")
+		if err != nil {
+			return nil, err
+		}
+		agg.name = name
+		if p.acceptKeyword("starting") {
+			start, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+			agg.starting = start
+		}
+		if !p.acceptKind(tColon) {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected ':' after aggregate")
+		}
+		body, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		agg.body = body
+		q.agg = agg
 	}
 	if p.acceptKeyword("sort") {
 		_ = p.acceptKeyword("by")

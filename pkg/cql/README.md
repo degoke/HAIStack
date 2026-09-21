@@ -40,7 +40,8 @@ expressions should share named clinical logic, or when evaluating a Measure.
 - retrieve and `in` filters against FHIR `Coding` / `CodeableConcept` (value-set `MemberOf` when `Config.Terminology` is set)
 - `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString`, `ToInterval`, `Min` / `Max` / `Sum` and related helpers
 
-Unsupported (clear error): ELM-only libraries (no `text/cql` content).
+Unsupported (clear error): ELM-only libraries (no `text/cql` content). This is a
+text/cql 1.5 interpreter plus CQF Measure evaluation, not an ELM engine.
 
 ## Usage
 
