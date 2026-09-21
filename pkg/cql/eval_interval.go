@@ -22,11 +22,19 @@ func (st *evalState) evalInterval(n *intervalNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	lowClosed, err := st.evalClosed(n.lowClosed, n.lowClosedExpr)
+	if err != nil {
+		return nil, err
+	}
+	highClosed, err := st.evalClosed(n.highClosed, n.highClosedExpr)
+	if err != nil {
+		return nil, err
+	}
 	return []any{Interval{
 		Low:        singletonOrList(low),
 		High:       singletonOrList(high),
-		LowClosed:  n.lowClosed,
-		HighClosed: n.highClosed,
+		LowClosed:  lowClosed,
+		HighClosed: highClosed,
 	}}, nil
 }
 

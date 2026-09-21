@@ -44,14 +44,15 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		lowClosed, highClosed := true, true
-		if v, ok := obj["lowClosed"]; ok {
-			lowClosed = elmBool(v)
+		lowClosed, lowClosedExpr, err := parseELMClosed(obj, "lowClosed", "lowClosedExpression", true)
+		if err != nil {
+			return nil, err
 		}
-		if v, ok := obj["highClosed"]; ok {
-			highClosed = elmBool(v)
+		highClosed, highClosedExpr, err := parseELMClosed(obj, "highClosed", "highClosedExpression", true)
+		if err != nil {
+			return nil, err
 		}
-		return &intervalNode{low: low, high: high, lowClosed: lowClosed, highClosed: highClosed}, nil
+		return &intervalNode{low: low, high: high, lowClosed: lowClosed, highClosed: highClosed, lowClosedExpr: lowClosedExpr, highClosedExpr: highClosedExpr}, nil
 	case "List":
 		var elems []Node
 		for _, el := range elmList(obj["element"]) {
@@ -376,7 +377,33 @@ func parseELMTemporal(obj map[string]any, typ string) (Node, error) {
 			}
 		}
 	}
+	if typ == "DateTime" {
+		if _, ok := obj["timezoneOffset"]; ok {
+			// DateTime(year, month, day, hour, minute, second, millisecond, timezoneOffset)
+			// Missing month/day default to 1; clock fields default to 0 so the offset
+			// stays in the 8th argument slot.
+			defaults := []int64{0, 1, 1, 0, 0, 0, 0}
+			for len(args) < 7 {
+				args = append(args, &litNode{value: defaults[len(args)]})
+			}
+			off, err := parseELMTemporalField(obj["timezoneOffset"])
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, off)
+		}
+	}
 	return &callNode{callee: &identNode{name: name}, args: args}, nil
+}
+
+func parseELMTemporalField(v any) (Node, error) {
+	if m, ok := asObject(v); ok {
+		return parseELMExpr(m)
+	}
+	if n, ok := elmInt(v); ok {
+		return &litNode{value: n}, nil
+	}
+	return &litNode{value: elmNumber(v)}, nil
 }
 
 func parseELMRef(obj map[string]any) (Node, error) {
@@ -437,6 +464,16 @@ func parseELMRetrieve(obj map[string]any) (Node, error) {
 		return nil, err
 	}
 	n.dateLow, n.dateHigh = low, high
+	lowClosed, lowClosedExpr, err := parseELMClosed(obj, "dateLowClosed", "dateLowClosedExpression", true)
+	if err != nil {
+		return nil, err
+	}
+	highClosed, highClosedExpr, err := parseELMClosed(obj, "dateHighClosed", "dateHighClosedExpression", true)
+	if err != nil {
+		return nil, err
+	}
+	n.dateLowClosed, n.dateHighClosed = lowClosed, highClosed
+	n.dateLowClosedExpr, n.dateHighClosedExpr = lowClosedExpr, highClosedExpr
 	if codes, ok := asObject(obj["codes"]); ok {
 		term, cmp := elmRetrieveCodes(codes, n.comparator)
 		n.terminology = term
@@ -784,6 +821,18 @@ func parseELMOptional(obj map[string]any, key string) (Node, error) {
 	return parseELMExpr(child)
 }
 
+func parseELMClosed(obj map[string]any, boolKey, exprKey string, def bool) (bool, Node, error) {
+	closed := def
+	if v, ok := obj[boolKey]; ok {
+		closed = elmBool(v)
+	}
+	expr, err := parseELMOptional(obj, exprKey)
+	if err != nil {
+		return closed, nil, err
+	}
+	return closed, expr, nil
+}
+
 func parseELMNamedOrOperand(obj map[string]any, key string) (Node, error) {
 	if child, ok := asObject(obj[key]); ok {
 		return parseELMExpr(child)
@@ -911,7 +960,7 @@ func elmIsBuiltinCall(typ string) bool {
 		"tostring", "tointeger", "todecimal", "toboolean",
 		"todate", "todatetime", "totime", "toquantity", "tointerval",
 		"min", "max", "sum", "avg", "average", "alltrue", "anytrue",
-		"take", "skip", "indexof", "flatten", "singletonfrom",
+		"take", "skip", "indexof", "flatten", "singletonfrom", "coalesce",
 		"date", "datetime", "time",
 		"startswith", "endswith", "matches", "replace", "split", "combine",
 		"upper", "lower", "substring", "collapse", "expand":

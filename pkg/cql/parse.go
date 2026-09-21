@@ -1138,7 +1138,7 @@ func (p *parser) parseRetrieve() (Node, error) {
 	if !p.acceptKind(tRBrack) {
 		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after retrieve")
 	}
-	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term, comparator: comp, codePath: codePath}, nil
+	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term, comparator: comp, codePath: codePath, dateLowClosed: true, dateHighClosed: true}, nil
 }
 
 func (p *parser) parseQuantitySuffix(n Node) Node {

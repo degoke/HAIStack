@@ -68,13 +68,17 @@ type ifNode struct {
 
 type retrieveNode struct {
 	nodeBase
-	resourceType string
-	terminology  string
-	comparator   string
-	codePath     string
-	datePath     string
-	dateLow      Node
-	dateHigh     Node
+	resourceType       string
+	terminology        string
+	comparator         string
+	codePath           string
+	datePath           string
+	dateLow            Node
+	dateHigh           Node
+	dateLowClosed      bool
+	dateHighClosed     bool
+	dateLowClosedExpr  Node
+	dateHighClosedExpr Node
 }
 
 type isNode struct {
@@ -92,8 +96,11 @@ type quantityNode struct {
 
 type intervalNode struct {
 	nodeBase
-	low, high             Node
-	lowClosed, highClosed bool
+	low, high      Node
+	lowClosed      bool
+	highClosed     bool
+	lowClosedExpr  Node
+	highClosedExpr Node
 }
 
 type betweenNode struct {

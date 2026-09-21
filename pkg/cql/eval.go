@@ -1092,30 +1092,55 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 			return []any{q}, nil
 		}
 		return nil, nil
-	case "todatetime", "todate":
+	case "todatetime", "todate", "totime":
 		if len(args) == 0 || len(args[0]) == 0 {
 			return nil, nil
 		}
 		tm, ok := asTime(args[0][0])
 		if !ok {
 			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
-				parsed, err := parseCQLDate(s)
-				if err != nil {
-					return nil, nil
+				if n == "totime" {
+					if parsed, pok := parseELMTimeString(s); pok {
+						tm = parsed
+						ok = true
+					}
 				}
-				tm = parsed
-			} else {
+				if !ok {
+					parsed, err := parseCQLDate(s)
+					if err != nil {
+						return nil, nil
+					}
+					tm = parsed
+					ok = true
+				}
+			}
+			if !ok {
 				return nil, nil
 			}
 		}
+		loc := tm.Location()
+		if loc == nil {
+			loc = time.UTC
+		}
 		if n == "todate" {
-			loc := tm.Location()
-			if loc == nil {
-				loc = time.UTC
-			}
 			tm = time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc)
 		}
+		if n == "totime" {
+			now := clockInZone(st.now)
+			tm = time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), loc)
+		}
 		return []any{tm}, nil
+	case "coalesce":
+		for _, a := range args {
+			if len(a) == 0 {
+				continue
+			}
+			if len(a) == 1 && a[0] == nil {
+				continue
+			}
+			return a, nil
+		}
+		return nil, nil
 	case "flatten":
 		if len(args) == 0 {
 			return nil, nil
@@ -1235,7 +1260,7 @@ func (st *evalState) ageInYears(at *time.Time) ([]any, error) {
 
 func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 	if strings.EqualFold(n.resourceType, "Patient") && st.patient != nil && n.terminology == "" {
-		return []any{st.patient}, nil
+		return st.filterRetrieveDates([]any{st.patient}, n)
 	}
 	if st.retriever == nil {
 		return nil, errf("%w: retrieve [%s] requires a data retriever", ErrUnsupported, n.resourceType)
@@ -1350,7 +1375,15 @@ func (st *evalState) retrieveDateWindow(n *retrieveNode) (*Interval, error) {
 			return &iv, nil
 		}
 	}
-	iv := Interval{LowClosed: true, HighClosed: true}
+	lowClosed, err := st.evalClosed(n.dateLowClosed, n.dateLowClosedExpr)
+	if err != nil {
+		return nil, err
+	}
+	highClosed, err := st.evalClosed(n.dateHighClosed, n.dateHighClosedExpr)
+	if err != nil {
+		return nil, err
+	}
+	iv := Interval{LowClosed: lowClosed, HighClosed: highClosed}
 	if len(low) > 0 {
 		iv.Low = singletonOrList(low)
 	}
@@ -1369,6 +1402,20 @@ func valueInDateWindow(v any, window Interval) bool {
 	}
 	ok, comparable := intervalContains(window, v, false)
 	return comparable && ok
+}
+
+func (st *evalState) evalClosed(flag bool, expr Node) (bool, error) {
+	if expr == nil {
+		return flag, nil
+	}
+	v, err := st.eval(expr)
+	if err != nil {
+		return flag, err
+	}
+	if b := asBool(v); b != nil {
+		return *b, nil
+	}
+	return flag, nil
 }
 
 func looksLikeCanonical(s string) bool {

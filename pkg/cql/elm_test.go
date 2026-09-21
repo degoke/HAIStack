@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/sdc"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -1190,5 +1191,269 @@ func TestParseELMRespectsMaxExpressionLen(t *testing.T) {
 	_, err = eng.ParseELM([]byte(`{"library":{"identifier":{"id":"X"}}}`))
 	if err == nil || !strings.Contains(err.Error(), "maximum length") {
 		t.Fatalf("ParseELM should enforce maxExpressionLen, got %v", err)
+	}
+}
+
+func elmIntLit(v string) map[string]any {
+	return map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": v}
+}
+
+func elmBoolLit(v string) map[string]any {
+	return map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": v}
+}
+
+func TestELMToTimeAndCoalesce(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{
+		"type": "ToTime",
+		"operand": map[string]any{
+			"type": "DateTime", "year": 2021, "month": 6, "day": 15,
+			"hour": 14, "minute": 30, "second": 45, "millisecond": 0,
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("ToTime: %#v", got)
+	}
+	tm, ok := asTime(got[0])
+	if !ok || tm.Year() != 2026 || tm.Month() != time.September || tm.Day() != 21 ||
+		tm.Hour() != 14 || tm.Minute() != 30 || tm.Second() != 45 {
+		t.Fatalf("ToTime should overlay clock date, got %v", tm)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":    "ToTime",
+		"operand": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "@T08:15:00"},
+	})
+	tm, ok = asTime(got[0])
+	if !ok || tm.Hour() != 8 || tm.Minute() != 15 {
+		t.Fatalf("ToTime string: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "Coalesce",
+		"operand": []any{
+			map[string]any{"type": "Null"},
+			elmIntLit("7"),
+			elmIntLit("9"),
+		},
+	})
+	if len(got) != 1 || got[0] != int64(7) {
+		t.Fatalf("Coalesce: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "Coalesce", "operand": []any{map[string]any{"type": "Null"}}})
+	if got != nil && len(got) != 0 {
+		t.Fatalf("Coalesce all null: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Coalesce(null, 4, 5)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(4) {
+		t.Fatalf("CQL Coalesce: %#v", got)
+	}
+}
+
+func TestELMDateTimeTimezoneOffset(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type": "DateTime", "year": 2021, "month": 1, "day": 1,
+		"hour": 8, "minute": 0, "second": 0, "millisecond": 0,
+		"timezoneOffset": -5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok := n.(*callNode)
+	if !ok || len(call.args) != 8 {
+		t.Fatalf("DateTime should pass timezoneOffset as 8th arg, got %#v", n)
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type": "DateTime", "year": 2021, "month": 1, "day": 1,
+		"hour": 8, "minute": 0, "second": 0, "millisecond": 0,
+		"timezoneOffset": -5,
+	})
+	if len(got) != 1 {
+		t.Fatalf("DateTime offset: %#v", got)
+	}
+	tm, ok := asTime(got[0])
+	if !ok {
+		t.Fatalf("DateTime offset not a time: %#v", got[0])
+	}
+	_, off := tm.Zone()
+	if off != -5*3600 || tm.Hour() != 8 {
+		t.Fatalf("timezoneOffset ignored: %v offset=%d", tm, off)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "DateTime", "year": 2021, "month": 1, "day": 1,
+		"hour": 8, "minute": 0, "second": 0, "millisecond": 0,
+		"timezoneOffset": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Decimal", "value": "-5"},
+	})
+	tm, ok = asTime(got[0])
+	if !ok {
+		t.Fatalf("DateTime offset expression: %#v", got)
+	}
+	_, off = tm.Zone()
+	if off != -5*3600 {
+		t.Fatalf("timezoneOffset expression ignored: %v offset=%d", tm, off)
+	}
+}
+
+func TestELMRetrieveDateClosedBounds(t *testing.T) {
+	onBound, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation", "id": "on", "status": "final",
+		"code": {"text": "HR"}, "effectiveDateTime": "2020-01-01", "subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation", "id": "in", "status": "final",
+		"code": {"text": "HR"}, "effectiveDateTime": "2020-06-01", "subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := parseELMExpr(map[string]any{
+		"type":           "Retrieve",
+		"dataType":       "{http://hl7.org/fhir}Observation",
+		"dateProperty":   "effective",
+		"dateLow":        map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+		"dateHigh":       map[string]any{"type": "Date", "year": 2020, "month": 12, "day": 31},
+		"dateLowClosed":  false,
+		"dateHighClosed": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*retrieveNode)
+	if !ok || r.dateLowClosed || !r.dateHighClosed {
+		t.Fatalf("retrieve date closed flags: %#v", n)
+	}
+	eng, err := NewEngine(Config{Retriever: StaticRetriever{onBound, inside}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t), Retriever: StaticRetriever{onBound, inside}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("open low bound should drop the low instant: %#v", got)
+	}
+	obj, _ := asObject(got[0])
+	if obj["id"] != "in" {
+		t.Fatalf("open low bound kept wrong resource: %#v", got[0])
+	}
+
+	n, err = parseELMExpr(map[string]any{
+		"type":                     "Retrieve",
+		"dataType":                 "{http://hl7.org/fhir}Observation",
+		"dateProperty":             "effective",
+		"dateLow":                  map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+		"dateHigh":                 map[string]any{"type": "Date", "year": 2020, "month": 12, "day": 31},
+		"dateLowClosedExpression":  elmBoolLit("false"),
+		"dateHighClosedExpression": elmBoolLit("true"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = n.(*retrieveNode)
+	if !ok || r.dateLowClosedExpr == nil || r.dateHighClosedExpr == nil {
+		t.Fatalf("retrieve date closed expressions: %#v", n)
+	}
+	got, err = eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t), Retriever: StaticRetriever{onBound, inside}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("open lowClosedExpression should drop the low instant: %#v", got)
+	}
+	obj, _ = asObject(got[0])
+	if obj["id"] != "in" {
+		t.Fatalf("lowClosedExpression kept wrong resource: %#v", got[0])
+	}
+}
+
+func TestELMPatientRetrieveAppliesDateWindow(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type":         "Retrieve",
+		"dataType":     "{http://hl7.org/fhir}Patient",
+		"dateProperty": "birthDate",
+		"dateLow":      map[string]any{"type": "Date", "year": 1990, "month": 1, "day": 1},
+		"dateHigh":     map[string]any{"type": "Date", "year": 1999, "month": 12, "day": 31},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := testEngine(t)
+	got, err := eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Patient retrieve date window should filter the context Patient, got %#v", got)
+	}
+	n, err = parseELMExpr(map[string]any{
+		"type":         "Retrieve",
+		"dataType":     "{http://hl7.org/fhir}Patient",
+		"dateProperty": "birthDate",
+		"dateLow":      map[string]any{"type": "Date", "year": 2000, "month": 1, "day": 1},
+		"dateHigh":     map[string]any{"type": "Date", "year": 2000, "month": 12, "day": 31},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Patient retrieve in window: %#v", got)
+	}
+}
+
+func TestELMIntervalClosedExpression(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type":                 "Interval",
+		"low":                  elmIntLit("1"),
+		"high":                 elmIntLit("5"),
+		"lowClosedExpression":  elmBoolLit("false"),
+		"highClosedExpression": elmBoolLit("true"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ivn, ok := n.(*intervalNode)
+	if !ok || ivn.lowClosedExpr == nil || ivn.highClosedExpr == nil {
+		t.Fatalf("Interval closed expressions: %#v", n)
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type": "Contains",
+		"operand": []any{
+			map[string]any{
+				"type":                 "Interval",
+				"low":                  elmIntLit("1"),
+				"high":                 elmIntLit("5"),
+				"lowClosedExpression":  elmBoolLit("false"),
+				"highClosedExpression": elmBoolLit("true"),
+			},
+			elmIntLit("1"),
+		},
+	})
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("open lowClosedExpression should exclude 1: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "Contains",
+		"operand": []any{
+			map[string]any{
+				"type":                 "Interval",
+				"low":                  elmIntLit("1"),
+				"high":                 elmIntLit("5"),
+				"lowClosedExpression":  elmBoolLit("false"),
+				"highClosedExpression": elmBoolLit("true"),
+			},
+			elmIntLit("2"),
+		},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("open lowClosedExpression should include 2: %#v", got)
 	}
 }
