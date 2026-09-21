@@ -174,8 +174,8 @@ func rotateSQLiteSigningKey(db *sql.DB, issuer, keyID, secret string) error {
 	now := formatOAuthTime(time.Now())
 	if _, err := tx.ExecContext(context.Background(), `
 		UPDATE hai_oauth_signing_key
-		SET active = 0, retired_at = ?
-		WHERE issuer = ? AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		SET active = 0
+		WHERE issuer = ? AND active = 1 AND retired_at = ''`, issuer); err != nil {
 		return err
 	}
 	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)
@@ -202,8 +202,8 @@ func rotatePostgresSigningKey(pool *pgxpool.Pool, issuer, keyID, secret string) 
 	now := formatOAuthTime(time.Now())
 	if _, err := tx.Exec(context.Background(), `
 		UPDATE hai_oauth_signing_key
-		SET active = 0, retired_at = $1
-		WHERE issuer = $2 AND active = 1 AND retired_at = ''`, now, issuer); err != nil {
+		SET active = 0
+		WHERE issuer = $1 AND active = 1 AND retired_at = ''`, issuer); err != nil {
 		return err
 	}
 	keySet, pemRaw, nonce, err := generateStoredKeySet(newID, secret)

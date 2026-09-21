@@ -18,7 +18,7 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 	}
 	authStore, clientStore, replayStore, revocationStore := PostgresStores(pool)
 	cfg.AuthorizationStore = authStore
-	cfg.Clients = clientStore
+	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
 	cfg.TokenRateLimiter = &PostgresRateLimitStore{Pool: pool}
@@ -36,7 +36,7 @@ func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
 	}
 	authStore, clientStore, replayStore, revocationStore := SQLiteStores(db)
 	cfg.AuthorizationStore = authStore
-	cfg.Clients = clientStore
+	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
 	cfg.RevocationStore = revocationStore
 	cfg.TokenRateLimiter = &SQLiteRateLimitStore{DB: db}
@@ -105,4 +105,11 @@ func NewSQLiteServer(cfg oauth.Config, db *sql.DB) (*oauth.Server, error) {
 		return nil, err
 	}
 	return NewServer(cfg)
+}
+
+func clientRegistryForIssuer(reg oauth.ClientRegistry, issuer string) oauth.ClientRegistry {
+	if scoped, ok := reg.(oauth.IssuerScopedClientRegistry); ok {
+		return scoped.ForIssuer(issuer)
+	}
+	return reg
 }

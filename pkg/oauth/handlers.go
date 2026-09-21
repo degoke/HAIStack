@@ -473,7 +473,7 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 		return nil, err
 	}
 	refresh := randomToken()
-	_ = s.authStore.SaveRefreshToken(refresh, RefreshTokenEntry{
+	if err := s.authStore.SaveRefreshToken(refresh, RefreshTokenEntry{
 		Issuer:    s.cfg.Issuer,
 		ClientID:  clientID,
 		Scope:     scope,
@@ -482,7 +482,9 @@ func (s *Server) issueTokens(clientID, scope, patient, encounter, subject, fhirU
 		Subject:   subject,
 		FHIRUser:  fhirUser,
 		ExpiresAt: now.Add(s.cfg.RefreshTokenTTL),
-	})
+	}); err != nil {
+		return nil, err
+	}
 	resp := map[string]any{
 		"access_token":  accessToken,
 		"token_type":    "Bearer",

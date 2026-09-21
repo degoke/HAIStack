@@ -22,9 +22,9 @@ type requestIdentity struct {
 	Tenant    auth.TenantContext
 }
 
-func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker, bundleResolver AuthBundleResolver) http.Handler {
+func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker, bundleResolver AuthBundleResolver, basePath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isPublicFHIRPath(r.URL.Path) {
+		if isPublicFHIRPath(basePath, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -54,9 +54,13 @@ func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker
 	})
 }
 
-func isPublicFHIRPath(path string) bool {
+func isPublicFHIRPath(basePath, path string) bool {
 	trimmed := strings.TrimSuffix(strings.TrimSpace(path), "/")
-	return strings.HasSuffix(trimmed, "/metadata")
+	base := strings.TrimSuffix(strings.TrimSpace(basePath), "/")
+	if base == "" {
+		base = defaultBasePath
+	}
+	return trimmed == base+"/metadata"
 }
 
 func identityFromContext(ctx context.Context) (auth.Principal, auth.TenantContext, bool) {

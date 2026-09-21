@@ -86,3 +86,68 @@ func TestSQLiteStores_RoundTrip(t *testing.T) {
 		t.Fatal("expected revoked jti")
 	}
 }
+
+func TestSQLiteStores_FractionalExpiryIsNotLexicographic(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "oauth-expiry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	authStore, _, _, _ := oauthstore.SQLiteStores(db.SQL())
+	sqlStore := authStore.(*oauthstore.SQLiteAuthorizationStore)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 500000000, time.UTC)
+	sqlStore.Now = func() time.Time { return now }
+
+	const issuer = "https://auth.example.test"
+	if _, err := db.SQL().ExecContext(ctx, `
+		INSERT INTO hai_oauth_auth_code (code, issuer, payload, expires_at)
+		VALUES (?, ?, ?, ?)`,
+		"expired-code", issuer, `{"issuer":"https://auth.example.test","clientId":"c"}`, "2026-01-01T12:00:00Z",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeAuthorizationCode(issuer, "expired-code"); ok {
+		t.Fatal("lexicographic RFC3339Nano compare would treat 12:00:00Z as still valid at 12:00:00.5Z")
+	}
+
+	if err := authStore.SaveRefreshToken("refresh-1", oauth.RefreshTokenEntry{
+		Issuer: issuer, ClientID: "c", Scope: "patient/*.read", ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeRefreshToken("https://other.example", "refresh-1"); ok {
+		t.Fatal("expected cross-issuer refresh consume to fail")
+	}
+	entry, ok := authStore.ConsumeRefreshToken(issuer, "refresh-1")
+	if !ok || entry.ClientID != "c" {
+		t.Fatalf("refresh = %+v ok=%v", entry, ok)
+	}
+	if _, ok := authStore.ConsumeRefreshToken(issuer, "refresh-1"); ok {
+		t.Fatal("expected refresh consume-once")
+	}
+}
+
+func TestSQLiteClientRegistry_IsolatesIssuers(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "oauth-clients.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	_, clients, _, _ := oauthstore.SQLiteStores(db.SQL())
+	scoped := clients.(oauth.IssuerScopedClientRegistry)
+	a := scoped.ForIssuer("https://auth.example/t/a")
+	b := scoped.ForIssuer("https://auth.example/t/b")
+	if err := a.Register(oauth.Client{ClientID: "shared-id", ClientSecret: "a-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Get("shared-id"); ok {
+		t.Fatal("expected tenant B not to see tenant A client")
+	}
+	if _, ok := a.Get("shared-id"); !ok {
+		t.Fatal("expected tenant A client")
+	}
+}

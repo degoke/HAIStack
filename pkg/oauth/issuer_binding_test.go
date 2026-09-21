@@ -186,15 +186,19 @@ func TestIssuerBinding_MultiTenantAuthorizeTokenExchange(t *testing.T) {
 	}
 	clientID := "app"
 	clientSecret := "secret"
-	if err := srvA.RegisterClient(oauth.Client{
-		ClientID:                clientID,
-		ClientSecret:            clientSecret,
-		TokenEndpointAuthMethod: oauth.AuthMethodClientSecretPost,
-		RedirectURIs:            []string{"https://app/cb"},
-		Scopes:                  []string{"openid", "patient/Patient.rs"},
-	}); err != nil {
-		t.Fatal(err)
+	registerApp := func(srv *oauth.Server) {
+		t.Helper()
+		if err := srv.RegisterClient(oauth.Client{
+			ClientID:                clientID,
+			ClientSecret:            clientSecret,
+			TokenEndpointAuthMethod: oauth.AuthMethodClientSecretPost,
+			RedirectURIs:            []string{"https://app/cb"},
+			Scopes:                  []string{"openid", "patient/Patient.rs"},
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	registerApp(srvA)
 
 	httpClient, _ := client.New(client.Config{BaseURL: ts.URL})
 	pkce, _ := client.NewPKCEChallenge()
@@ -220,6 +224,7 @@ func TestIssuerBinding_MultiTenantAuthorizeTokenExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registerApp(srvB)
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},

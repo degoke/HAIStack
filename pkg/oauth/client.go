@@ -64,6 +64,16 @@ func (s *ClientStore) Get(clientID string) (Client, bool) {
 	return client, ok
 }
 
+// IssuerScopedClientRegistry can return an issuer-isolated client registry view.
+type IssuerScopedClientRegistry interface {
+	ForIssuer(issuer string) ClientRegistry
+}
+
+// ForIssuer returns an empty in-memory registry so tenants do not share clients.
+func (s *ClientStore) ForIssuer(string) ClientRegistry {
+	return NewClientStore()
+}
+
 // ToBackendClient converts client key metadata for backend assertion validation.
 func (c Client) ToBackendClient() smart.BackendClient {
 	return smart.BackendClient{

@@ -159,16 +159,52 @@ func (s *Server) authenticatedUser(r *http.Request) (UserIdentity, bool) {
 	return s.cfg.UserAuthenticator.AuthenticateUser(r)
 }
 
-// BearerAuthConfig returns SMART bearer validation wired to this server's signing key.
+func (s *Server) tokenVerifier() smart.SignatureVerifier {
+	var verifiers []smart.SignatureVerifier
+	for _, keySet := range s.verificationKeySets() {
+		if keySet == nil {
+			continue
+		}
+		pem, err := keySet.PublicKeyPEM()
+		if err != nil {
+			continue
+		}
+		verifiers = append(verifiers, smart.PEMVerifier{
+			PublicKeyPEM: pem,
+			Algorithm:    keySet.Algorithm,
+		})
+	}
+	if len(verifiers) == 0 {
+		panic("oauth: no verification keys")
+	}
+	if len(verifiers) == 1 {
+		return verifiers[0]
+	}
+	return multiSignatureVerifier(verifiers)
+}
+
+type multiSignatureVerifier []smart.SignatureVerifier
+
+func (m multiSignatureVerifier) Verify(headerSegment, payloadSegment string, signature []byte, alg string) error {
+	var last error
+	for _, verifier := range m {
+		if verifier == nil {
+			continue
+		}
+		if err := verifier.Verify(headerSegment, payloadSegment, signature, alg); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+	}
+	if last != nil {
+		return last
+	}
+	return fmt.Errorf("oauth: signature verification failed")
+}
+
+// BearerAuthConfig returns SMART bearer validation wired to this server's signing and verification keys.
 func (s *Server) BearerAuthConfig(adapter *smart.AuthAdapter) smart.BearerAuthConfig {
-	pem, err := s.cfg.SigningKey.PublicKeyPEM()
-	if err != nil {
-		panic(err)
-	}
-	verifier := smart.PEMVerifier{
-		PublicKeyPEM: pem,
-		Algorithm:    s.cfg.SigningKey.Algorithm,
-	}
 	opts := smart.TokenValidateOptions{
 		ExpectedIssuer:   s.cfg.Issuer,
 		ExpectedAudience: s.cfg.FHIRAudience,
@@ -182,7 +218,7 @@ func (s *Server) BearerAuthConfig(adapter *smart.AuthAdapter) smart.BearerAuthCo
 		opts.IsJWTRevoked = s.revocationStore.IsRevoked
 	}
 	return smart.BearerAuthConfig{
-		Validator: &smart.TokenValidator{Verifier: verifier},
+		Validator: &smart.TokenValidator{Verifier: s.tokenVerifier()},
 		Adapter:   adapter,
 		Options:   opts,
 	}

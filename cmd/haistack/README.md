@@ -124,7 +124,7 @@ sync:
 
 1. Set `oauth.issuerURL` to your public https issuer (pin before first start).
 2. Set `oauth.production: true` and `OAUTH_REGISTRATION_TOKEN`.
-3. Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` and `OAUTH_SESSION_SECRET`.
+3. Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`, `OAUTH_SESSION_SECRET`, and `OAUTH_LOGIN_USERS`.
 4. Set `oauth.autoApprove: false` (enforced when production is on).
 5. Back up DB signing keys or `oauth-signing.pem` beside your database.
 
@@ -163,6 +163,7 @@ If the default `haistack.yaml` is missing, built-in defaults are used so command
 | `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | DB signing key encryption (production) |
 | `OAUTH_SIGNING_KEY_ROTATE` | Set to `1` to rotate the active DB signing key on startup |
 | `OAUTH_SESSION_SECRET` | `/oauth/login` session cookie signing (production) |
+| `OAUTH_LOGIN_USERS` | Production login directory (`username:password` or bcrypt hashes) |
 | `HAISTACK_PRODUCTION=1` | enables `oauth.production` |
 
 ### Persistent flags

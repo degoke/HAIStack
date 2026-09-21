@@ -52,6 +52,9 @@ func validateBuiltinOAuthConfig(cfg BuiltinOAuthConfig) error {
 	if strings.TrimSpace(os.Getenv("OAUTH_SESSION_SECRET")) == "" {
 		return fmt.Errorf("runtime: production builtin oauth requires OAUTH_SESSION_SECRET")
 	}
+	if _, err := oauth.RequirePasswordUsersFromEnv(); err != nil {
+		return fmt.Errorf("runtime: %w", err)
+	}
 	return nil
 }
 
@@ -115,7 +118,15 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 			return fmt.Errorf("runtime: production builtin oauth requires OAUTH_REGISTRATION_TOKEN")
 		}
 		oauthCfg.RegistrationAccessToken = regToken
-		sessionAuth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{})
+		users, err := oauth.RequirePasswordUsersFromEnv()
+		if err != nil {
+			return fmt.Errorf("runtime: oauth login users: %w", err)
+		}
+		sessionAuth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{
+			Issuer:     issuer,
+			CookiePath: "/",
+			Users:      users,
+		})
 		if err != nil {
 			return fmt.Errorf("runtime: oauth session auth: %w", err)
 		}
@@ -129,12 +140,14 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 
 	tenantID := firstNonEmptyString(cfg.TenantID, "local")
-	if err := oauthCfg.Clients.Register(oauth.Client{
-		ClientID:     "haistack-app",
-		RedirectURIs: []string{"http://127.0.0.1/callback", "http://localhost/callback"},
-		Scopes:       []string{"openid", "offline_access", "patient/*.read", "user/*.read", "launch/patient"},
-	}); err != nil {
-		return fmt.Errorf("runtime: oauth client: %w", err)
+	if !cfg.Production {
+		if err := oauthCfg.Clients.Register(oauth.Client{
+			ClientID:     "haistack-app",
+			RedirectURIs: []string{"http://127.0.0.1/callback", "http://localhost/callback"},
+			Scopes:       []string{"openid", "offline_access", "patient/*.read", "user/*.read", "launch/patient"},
+		}); err != nil {
+			return fmt.Errorf("runtime: oauth client: %w", err)
+		}
 	}
 
 	srv, err := oauth.NewServer(oauthCfg)
@@ -145,13 +158,16 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	tenantRegistry := oauth.NewTenantRegistry()
 	tenantIssuer := strings.TrimRight(issuer, "/") + "/t/" + tenantID
 	autoApprovePtr := oauthCfg.AutoApprove
+	tenantAuth := oauthCfg.UserAuthenticator
+	if sessionAuth, ok := oauthCfg.UserAuthenticator.(*oauth.SessionUserAuthenticator); ok && sessionAuth != nil {
+		tenantAuth = sessionAuth.ForIssuer(tenantIssuer, "/t/"+tenantID+"/")
+	}
 	if err := tenantRegistry.Register(oauth.TenantIssuerConfig{
 		TenantID:          tenantID,
 		Issuer:            tenantIssuer,
 		FHIRAudience:      issuer,
 		SigningKey:        oauthCfg.SigningKey,
-		Clients:           oauthCfg.Clients,
-		UserAuthenticator: oauthCfg.UserAuthenticator,
+		UserAuthenticator: tenantAuth,
 		LoginPath:         oauthCfg.LoginPath,
 		AutoApprove:       &autoApprovePtr,
 	}); err != nil {

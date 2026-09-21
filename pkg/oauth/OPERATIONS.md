@@ -13,7 +13,7 @@ This document describes how to run the built-in `pkg/oauth` authorization server
 | `RegistrationAccessToken` | Unset (open DCR) | Required when `oauth.production` is true |
 | `AutoApprove` | `true` | `false` in production |
 | Signing key | Ephemeral per process | DB keys with `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`, or PEM fallback |
-| User login | N/A | `/oauth/login` session cookies via `OAUTH_SESSION_SECRET` |
+| User login | N/A | `/oauth/login` with `OAUTH_SESSION_SECRET` + `OAUTH_LOGIN_USERS` (username/password) |
 | Rate limits | In-memory | DB-backed (`hai_oauth_rate_limit`) |
 | Introspection | Available | `POST /oauth/introspect` (confidential clients) |
 | Tenant routes | N/A | `/t/{tenantId}/oauth/*` |
@@ -36,10 +36,10 @@ Enable with `oauth.enabled: true` (default). Production checklist:
 1. Set `oauth.issuerURL` to your public https issuer.
 2. Set `OAUTH_REGISTRATION_TOKEN` (or `oauth.registrationAccessToken`).
 3. Set `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` for DB-backed signing keys (recommended).
-4. Set `OAUTH_SESSION_SECRET` for production consent login sessions.
+4. Set `OAUTH_SESSION_SECRET` and `OAUTH_LOGIN_USERS` (`username:password` or bcrypt hashes) for production consent login.
 5. Set `oauth.production: true` and `oauth.autoApprove: false`.
 6. Back up signing keys (DB table `hai_oauth_signing_key` or PEM at `{sqlite-dir}/oauth/oauth-signing.pem`).
-7. Optionally set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active signing key (retired keys remain in JWKS until `retired_at` is set).
+7. Optionally set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active signing key (previous keys stay in JWKS until `retired_at` is set).
 8. Consent sessions are purged in the background every five minutes when using `haistack serve` with SQL stores.
 
 SMART discovery is served at `/.well-known/smart-configuration` and mirrored under `/fhir/.well-known/smart-configuration`. Tenant-scoped discovery is also available at `/t/{tenantId}/.well-known/smart-configuration`.

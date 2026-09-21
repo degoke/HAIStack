@@ -99,15 +99,18 @@ func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.Re
 	if issuer == "" {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	entry, ok := s.LookupRefreshToken(issuer, token)
-	if !ok {
+	now := s.now()
+	var payload []byte
+	err := s.pool.QueryRow(context.Background(), `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = $1 AND expires_at > $2 AND issuer = $3
+		RETURNING payload`, token, now, issuer,
+	).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	now := s.now()
-	tag, err := s.pool.Exec(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = $1 AND expires_at > $2 AND issuer = $3`, token, now, issuer)
-	if err != nil || tag.RowsAffected() == 0 {
+	var entry oauth.RefreshTokenEntry
+	if err := json.Unmarshal(payload, &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	return entry, true
@@ -227,7 +230,8 @@ func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID
 
 // ClientRegistry persists OAuth clients in Postgres.
 type ClientRegistry struct {
-	pool execer
+	pool   execer
+	issuer string
 }
 
 // NewClientRegistry constructs a Postgres-backed ClientRegistry.
@@ -235,10 +239,20 @@ func NewClientRegistry(pool *pgxpool.Pool) *ClientRegistry {
 	return &ClientRegistry{pool: pool}
 }
 
+// ForIssuer returns a registry view scoped to issuer.
+func (s *ClientRegistry) ForIssuer(issuer string) oauth.ClientRegistry {
+	if s == nil {
+		return NewClientRegistry(nil)
+	}
+	cp := *s
+	cp.issuer = oauth.NormalizeIssuerURL(issuer)
+	return &cp
+}
+
 func (s *ClientRegistry) Get(clientID string) (oauth.Client, bool) {
 	var payload []byte
 	err := s.pool.QueryRow(context.Background(), `
-		SELECT payload FROM hai_oauth_client WHERE client_id = $1`, clientID,
+		SELECT payload FROM hai_oauth_client WHERE client_id = $1 AND issuer = $2`, clientID, s.issuer,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) || err != nil {
 		return oauth.Client{}, false
@@ -259,10 +273,10 @@ func (s *ClientRegistry) Register(client oauth.Client) error {
 		return fmt.Errorf("encode oauth client: %w", err)
 	}
 	_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO hai_oauth_client (client_id, payload, updated_at)
-		VALUES ($1, $2::jsonb, now())
-		ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
-		client.ClientID, payload,
+		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+		VALUES ($1, $2, $3::jsonb, now())
+		ON CONFLICT (issuer, client_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()`,
+		s.issuer, client.ClientID, payload,
 	)
 	if err != nil {
 		return fmt.Errorf("register oauth client: %w", err)

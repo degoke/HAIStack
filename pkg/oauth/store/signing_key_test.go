@@ -39,4 +39,25 @@ func TestLoadOrCreateSQLiteSigningKeySet(t *testing.T) {
 	if reloaded.Active.KeyID != set.Active.KeyID {
 		t.Fatalf("key id changed: %q vs %q", reloaded.Active.KeyID, set.Active.KeyID)
 	}
+
+	rotated, err := store.LoadOrCreateSQLiteSigningKeySet(db.SQL(), issuer, store.SigningKeyOptions{
+		ActiveKeyID:     "haistack",
+		RotateOnStartup: true,
+	})
+	if err != nil {
+		t.Fatalf("rotate signing key: %v", err)
+	}
+	if rotated.Active.KeyID == set.Active.KeyID {
+		t.Fatal("expected rotated key id")
+	}
+	foundPrev := false
+	for _, key := range rotated.Verification {
+		if key != nil && key.KeyID == set.Active.KeyID {
+			foundPrev = true
+			break
+		}
+	}
+	if !foundPrev {
+		t.Fatal("expected previous signing key to remain in JWKS verification set")
+	}
 }

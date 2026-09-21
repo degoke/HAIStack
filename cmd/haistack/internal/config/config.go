@@ -156,6 +156,9 @@ func (c Config) validateOAuthProduction() error {
 	if strings.TrimSpace(os.Getenv("OAUTH_SESSION_SECRET")) == "" {
 		return fmt.Errorf("oauth.production requires OAUTH_SESSION_SECRET")
 	}
+	if _, err := oauth.RequirePasswordUsersFromEnv(); err != nil {
+		return fmt.Errorf("oauth.production requires %s", oauth.LoginUsersEnv)
+	}
 	return nil
 }
 

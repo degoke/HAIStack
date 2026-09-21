@@ -170,6 +170,68 @@ func TestBuiltinOAuthTenantRoute(t *testing.T) {
 	}
 }
 
+func TestBuiltinOAuthProductionRequiresLoginUsers(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-prod-users.db")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "signing-secret")
+	t.Setenv("OAUTH_SESSION_SECRET", "session-secret")
+	_, err := runtime.New().
+		WithSQLite(dbPath).
+		WithHTTP("127.0.0.1:8080").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			Production:              true,
+			IssuerURL:               "https://auth.example.test",
+			RegistrationAccessToken: "register-token",
+			TenantID:                "local",
+		}).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("expected production without login users to fail")
+	}
+	if !strings.Contains(err.Error(), "OAUTH_LOGIN_USERS") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBuiltinOAuthProductionOmitsLoopbackClient(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-prod-client.db")
+	t.Setenv("OAUTH_REGISTRATION_TOKEN", "register-token")
+	t.Setenv("OAUTH_SIGNING_KEY_ENCRYPTION_SECRET", "signing-secret")
+	t.Setenv("OAUTH_SESSION_SECRET", "session-secret")
+	t.Setenv("OAUTH_LOGIN_USERS", "clinician-1:s3cret")
+	rt, err := runtime.New().
+		WithSQLite(dbPath).
+		WithHTTP("127.0.0.1:8080").
+		WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+			Production:              true,
+			IssuerURL:               "https://auth.example.test",
+			RegistrationAccessToken: "register-token",
+			TenantID:                "local",
+		}).
+		Build(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rt.Shutdown(ctx) }()
+
+	ts := httptest.NewServer(rt.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/oauth/authorize?client_id=haistack-app&redirect_uri=http://127.0.0.1/callback&response_type=code&scope=openid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("haistack-app status = %d", resp.StatusCode)
+	}
+}
+
 func TestBuiltinOAuthProductionRejectsHTTPDerivedIssuer(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "oauth-runtime-http-prod.db")

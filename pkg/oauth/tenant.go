@@ -175,12 +175,16 @@ func (m *MultiTenantServer) ServerForTenant(tenantID string) (*Server, error) {
 	}
 	if tenant.Clients != nil {
 		cfg.Clients = tenant.Clients
+	} else {
+		cfg.Clients = clientRegistryForIssuer(m.base.Clients, tenant.Issuer)
 	}
 	if tenant.ConsentHandler != nil {
 		cfg.ConsentHandler = tenant.ConsentHandler
 	}
 	if tenant.UserAuthenticator != nil {
 		cfg.UserAuthenticator = tenant.UserAuthenticator
+	} else {
+		cfg.UserAuthenticator = sessionAuthenticatorForIssuer(m.base.UserAuthenticator, tenant.Issuer, tenant.TenantID)
 	}
 	if tenant.LoginPath != "" {
 		cfg.LoginPath = tenant.LoginPath
@@ -266,4 +270,23 @@ func cloneURL(u *url.URL) *url.URL {
 	}
 	copy := *u
 	return &copy
+}
+
+func clientRegistryForIssuer(reg ClientRegistry, issuer string) ClientRegistry {
+	if scoped, ok := reg.(IssuerScopedClientRegistry); ok {
+		return scoped.ForIssuer(issuer)
+	}
+	return NewClientStore()
+}
+
+func sessionAuthenticatorForIssuer(auth UserAuthenticator, issuer, tenantID string) UserAuthenticator {
+	session, ok := auth.(*SessionUserAuthenticator)
+	if !ok || session == nil {
+		return auth
+	}
+	path := "/"
+	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		path = "/t/" + tenantID + "/"
+	}
+	return session.ForIssuer(issuer, path)
 }
