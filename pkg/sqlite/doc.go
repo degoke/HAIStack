@@ -127,6 +127,7 @@
 //   - date.<name>      → hai_search_date
 //   - number.<name>    → hai_search_number
 //   - reference.<name> or ref.<name> → hai_search_reference
+//   - uri.<name>                       → hai_search_string
 //
 // Keys without a prefix (for example "family") default to hai_search_string. FHIR search
 // parsing and token extraction remain in pkg/search; this package stores prepared entries.

@@ -34,4 +34,5 @@ type ResourceVersion struct {
 type HistoryStore interface {
 	AppendVersion(ctx context.Context, version ResourceVersion) error
 	GetHistory(ctx context.Context, resourceType, id string) ([]ResourceVersion, error)
+	GetVersion(ctx context.Context, resourceType, id, versionID string) (ResourceVersion, error)
 }

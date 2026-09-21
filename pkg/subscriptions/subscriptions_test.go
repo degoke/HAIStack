@@ -3,14 +3,18 @@ package subscriptions_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/subscriptions"
@@ -162,6 +166,31 @@ func TestMatcherCreateUpdateDeleteAndFHIRPath(t *testing.T) {
 		t.Fatalf("non-match = %v err=%v", ok, err)
 	}
 
+	parsed, err := search.ParseQuery("Observation", url.Values{"code": {"8867-4"}})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	criteriaTrigger := subscriptions.Trigger{
+		ResourceType: "Observation",
+		Event:        subscriptions.TriggerEventCreate,
+		FilterParams: parsed.Params,
+	}
+	matcher = &subscriptions.Matcher{Engine: mustEngine(t), Registry: staticObservationRegistry()}
+	ok, err = matcher.Matches(ctx, criteriaTrigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Observation", Action: store.EventActionCreate},
+		Current: obsMatch,
+	})
+	if err != nil || !ok {
+		t.Fatalf("code=8867-4 match = %v err=%v", ok, err)
+	}
+	ok, err = matcher.Matches(ctx, criteriaTrigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Observation", Action: store.EventActionCreate},
+		Current: obsOther,
+	})
+	if err != nil || ok {
+		t.Fatalf("other code should not match, got %v err=%v", ok, err)
+	}
+
 	prevAppt := envelope(t, "Appointment", "a1", map[string]any{"status": "booked"})
 	currAppt := envelope(t, "Appointment", "a1", map[string]any{"status": "arrived"})
 	ok, err = matcher.Matches(ctx, subscriptions.Trigger{
@@ -189,6 +218,75 @@ func TestMatcherCreateUpdateDeleteAndFHIRPath(t *testing.T) {
 	})
 	if err != nil || ok {
 		t.Fatalf("unrelated update should not match: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMatcherPatientActiveTrueNotFalse(t *testing.T) {
+	ctx := context.Background()
+	parsed, err := search.ParseQuery("Patient", url.Values{"active": {"true"}})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	trigger := subscriptions.Trigger{
+		ResourceType: "Patient",
+		Event:        subscriptions.TriggerEventChange,
+		Criteria:     "Patient?active=true",
+		FilterParams: parsed.Params,
+	}
+	matcher := &subscriptions.Matcher{Engine: mustEngine(t), Registry: staticPatientRegistry()}
+
+	active := envelope(t, "Patient", "p1", map[string]any{"active": true})
+	ok, err := matcher.Matches(ctx, trigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Patient", Action: store.EventActionCreate},
+		Current: active,
+	})
+	if err != nil || !ok {
+		t.Fatalf("active=true create match = %v err=%v", ok, err)
+	}
+
+	inactive := envelope(t, "Patient", "p1", map[string]any{"active": false})
+	ok, err = matcher.Matches(ctx, trigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Patient", Action: store.EventActionCreate},
+		Current: inactive,
+	})
+	if err != nil || ok {
+		t.Fatalf("active=false should not match, got %v err=%v", ok, err)
+	}
+
+	ok, err = matcher.Matches(ctx, trigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Patient", Action: store.EventActionUpdate},
+		Current: active,
+	})
+	if err != nil || !ok {
+		t.Fatalf("active=true update match = %v err=%v", ok, err)
+	}
+
+	ok, err = matcher.Matches(ctx, trigger, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Patient", Action: store.EventActionDelete},
+		Current: active,
+	})
+	if err != nil || ok {
+		t.Fatalf("delete should not match change criteria, got %v err=%v", ok, err)
+	}
+}
+
+func TestMatcherNilRegistryErrors(t *testing.T) {
+	ctx := context.Background()
+	parsed, err := search.ParseQuery("Patient", url.Values{"active": {"true"}})
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	matcher := &subscriptions.Matcher{Engine: mustEngine(t)}
+	ok, err := matcher.Matches(ctx, subscriptions.Trigger{
+		ResourceType: "Patient",
+		Event:        subscriptions.TriggerEventChange,
+		FilterParams: parsed.Params,
+	}, subscriptions.MatchContext{
+		Event:   store.ResourceEvent{ResourceType: "Patient", Action: store.EventActionCreate},
+		Current: envelope(t, "Patient", "p1", map[string]any{"active": true}),
+	})
+	if !errors.Is(err, subscriptions.ErrNilRegistry) {
+		t.Fatalf("nil registry err = %v ok=%v, want ErrNilRegistry", err, ok)
 	}
 }
 
@@ -576,8 +674,14 @@ func TestRegisterFromFHIRSubscriptionSupportedAndUnsupported(t *testing.T) {
 	if rec.Trigger.ResourceType != "Patient" || rec.Channel.Type != subscriptions.ChannelTypeWebhook {
 		t.Fatalf("record = %#v", rec)
 	}
+	if rec.Trigger.Criteria != "Patient" {
+		t.Fatalf("criteria = %q", rec.Trigger.Criteria)
+	}
+	if rec.Trigger.Event != subscriptions.TriggerEventChange {
+		t.Fatalf("event = %q, want change", rec.Trigger.Event)
+	}
 
-	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+	rec, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
 		Status:   "active",
 		Criteria: "Patient?active=true",
 		Channel: subscriptions.FHIRSubscriptionChannel{
@@ -585,8 +689,50 @@ func TestRegisterFromFHIRSubscriptionSupportedAndUnsupported(t *testing.T) {
 			Endpoint: "https://example.test/hook",
 		},
 	}, nil)
+	if err != nil {
+		t.Fatalf("register search criteria: %v", err)
+	}
+	if rec.Trigger.Criteria != "Patient?active=true" || len(rec.Trigger.FilterParams) != 1 || rec.Trigger.FilterParams[0].Code != "active" {
+		t.Fatalf("search criteria trigger = %#v", rec.Trigger)
+	}
+	if rec.Trigger.Event != subscriptions.TriggerEventChange {
+		t.Fatalf("search criteria event = %q, want change", rec.Trigger.Event)
+	}
+
+	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
+		Criteria: "Patient?active:not=true",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
+	if !errors.Is(err, subscriptions.ErrUnsupportedFHIR) {
+		t.Fatalf("expected ErrUnsupportedFHIR for :not modifier, got %v", err)
+	}
+
+	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
+		Criteria: "Patient?birthdate=gt2020-01-01",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
+	if !errors.Is(err, subscriptions.ErrUnsupportedFHIR) {
+		t.Fatalf("expected ErrUnsupportedFHIR for gt prefix, got %v", err)
+	}
+
+	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
+		Criteria: "Patient?_include=Patient:general-practitioner",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
 	if err == nil {
-		t.Fatal("expected unsupported criteria error")
+		t.Fatal("expected unsupported include criteria error")
 	}
 
 	_, err = mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
@@ -647,5 +793,152 @@ func TestInactiveSubscriptionIgnoredByProcessor(t *testing.T) {
 	}
 	if claimed != nil {
 		t.Fatalf("expected no delivery job, got %#v", claimed)
+	}
+}
+
+type staticRegistry map[string]search.ParameterInfo
+
+func staticObservationRegistry() search.Registry {
+	return staticRegistry{
+		"Observation|code": {
+			Code:       "code",
+			Type:       "token",
+			Expression: "Observation.code",
+		},
+	}
+}
+
+func (r staticRegistry) IsResourceEnabled(resourceType string) bool {
+	prefix := resourceType + "|"
+	for key := range r {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r staticRegistry) SearchParametersFor(resourceType string) []search.ParameterInfo {
+	prefix := resourceType + "|"
+	var out []search.ParameterInfo
+	for key, info := range r {
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
+func (r staticRegistry) SearchParameter(resourceType, code string) (search.ParameterInfo, bool) {
+	info, ok := r[resourceType+"|"+code]
+	return info, ok
+}
+
+func (r staticRegistry) HasSearchParameter(resourceType, code string) bool {
+	_, ok := r.SearchParameter(resourceType, code)
+	return ok
+}
+
+func (r staticRegistry) EnabledResourceTypes() []string { return []string{"Patient"} }
+
+func (r staticRegistry) ResolveComponentCode(string) (search.ParameterInfo, bool) {
+	return search.ParameterInfo{}, false
+}
+
+func staticPatientRegistry() search.Registry {
+	return staticRegistry{
+		"Patient|active": {
+			Code:       "active",
+			Type:       "token",
+			Expression: "Patient.active",
+		},
+	}
+}
+
+func TestProcessorFHIRCriteriaMatchesUpdateAndErrorsWithoutRegistry(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	fixed := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	mgr := &subscriptions.Manager{Store: db.SubscriptionStore(), Now: func() time.Time { return fixed }}
+	rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
+		Status:   "active",
+		Criteria: "Patient?active=true",
+		Channel: subscriptions.FHIRSubscriptionChannel{
+			Type:     "rest-hook",
+			Endpoint: "https://example.test/hook",
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("register from fhir: %v", err)
+	}
+
+	events := db.OutboxStore()
+	activePatient := envelope(t, "Patient", "p1", map[string]any{"active": true})
+	if err := db.ResourceStore().Create(ctx, activePatient); err != nil {
+		t.Fatalf("create patient: %v", err)
+	}
+	ev, err := events.Append(ctx, store.ResourceEvent{
+		ResourceType: "Patient",
+		ID:           "p1",
+		VersionID:    "2",
+		Action:       store.EventActionUpdate,
+		Timestamp:    fixed,
+	})
+	if err != nil {
+		t.Fatalf("append update: %v", err)
+	}
+
+	missingRegistry := &subscriptions.Processor{
+		Events:        events,
+		Cursors:       db.CursorStore(),
+		Subscriptions: db.SubscriptionStore(),
+		Jobs:          db.JobStore(),
+		Resources:     db.ResourceStore(),
+		Matcher:       &subscriptions.Matcher{Engine: mustEngine(t)},
+		Now:           func() time.Time { return fixed },
+	}
+	if _, err := missingRegistry.RunOnce(ctx); !errors.Is(err, subscriptions.ErrNilRegistry) {
+		t.Fatalf("nil registry processor err = %v, want ErrNilRegistry", err)
+	}
+
+	processor := &subscriptions.Processor{
+		Events:        events,
+		Cursors:       db.CursorStore(),
+		Subscriptions: db.SubscriptionStore(),
+		Jobs:          db.JobStore(),
+		Resources:     db.ResourceStore(),
+		Matcher:       &subscriptions.Matcher{Engine: mustEngine(t), Registry: staticPatientRegistry()},
+		Now:           func() time.Time { return fixed },
+		Scope:         "with-registry",
+	}
+	n, err := processor.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("processed = %d", n)
+	}
+	job, err := db.JobStore().Get(ctx, subscriptions.DeliveryJobID(rec.ID, ev.Sequence))
+	if err != nil || job == nil {
+		t.Fatalf("expected delivery job for update, err=%v job=%v", err, job)
+	}
+
+	deleteEv, err := events.Append(ctx, store.ResourceEvent{
+		ResourceType: "Patient",
+		ID:           "p1",
+		VersionID:    "3",
+		Action:       store.EventActionDelete,
+		Timestamp:    fixed,
+	})
+	if err != nil {
+		t.Fatalf("append delete: %v", err)
+	}
+	if _, err := processor.RunOnce(ctx); err != nil {
+		t.Fatalf("run delete: %v", err)
+	}
+	deleteJob, err := db.JobStore().Get(ctx, subscriptions.DeliveryJobID(rec.ID, deleteEv.Sequence))
+	if err == nil && deleteJob != nil {
+		t.Fatalf("did not expect delivery job on delete: %#v", deleteJob)
 	}
 }

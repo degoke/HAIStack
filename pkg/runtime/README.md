@@ -142,6 +142,7 @@ Concrete provider implementations belong outside `pkg/runtime`. The adapter inte
 | `WithModules(paths...)` | Install local module directories at build time |
 | `WithHTTP(addr)` | Managed HTTP listen address (optional) |
 | `WithHTTPAuth(...)` / `WithHTTPMiddleware(...)` | Configure managed HTTP authentication and policy middleware |
+| `WithHooks(...)` | Four-point intercept SPI (incoming, pre-storage, post-commit, outgoing) |
 | `WithHTTPRateLimit(config)` | Configure process-local managed HTTP rate limiting |
 | `WithModuleAuthorizer(authorizer)` | Authorize module installs and upgrades |
 | `WithModuleVerifier(verifier)` | Verify module signatures/content before install and upgrade |
@@ -187,6 +188,9 @@ Build failures roll back partially opened resources before returning an error.
 | `SearchService` | When `WithSearch()` |
 | `SyncEngine` | When sync hub configured |
 | `FHIRPathEngine` | Always |
+| `SubscriptionManager` | Always |
+| `SubscriptionProcessor` | Always |
+| `SubscriptionMatcher` | Always (`Engine` + search `Registry`) |
 | `TenantDB` | Postgres modes |
 | `BlobStore`, `ExternalSearch`, `Warehouse` | Cloud mode adapters |
 
@@ -197,7 +201,7 @@ Build failures roll back partially opened resources before returning an error.
 | SQLite | Embedded/basic search via local `SearchStore` executor |
 | Postgres | Full search service + background reindex worker |
 
-Advanced FHIR search features (`_include`, chained search, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
+Advanced FHIR search features (`_include` wildcards, `_has`, two-hop chains, uri, composites, FTS) remain **Postgres-first** per `pkg/search`. SQLite persists index rows and supports basic lookups.
 
 ## Sync by mode
 

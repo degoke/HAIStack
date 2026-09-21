@@ -24,6 +24,7 @@ const (
 	routeTypeSearch
 	routeInstance
 	routeHistory
+	routeVRead
 	routeOperation
 	routeSystemOperation
 	routeBulkExportStatus
@@ -39,6 +40,7 @@ type parsedRoute struct {
 	kind         routeKind
 	resourceType string
 	id           string
+	versionID    string
 	operation    string
 	jobID        string
 	filename     string
@@ -188,6 +190,20 @@ func parseRoute(basePath, requestPath string) (parsedRoute, error) {
 			return parsedRoute{}, err
 		}
 		return parsedRoute{kind: routeHistory, resourceType: parts[0], id: parts[1]}, nil
+	case 4:
+		if parts[2] != "_history" {
+			return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
+		}
+		if !validResourceType(parts[0]) {
+			return parsedRoute{}, fmt.Errorf("invalid resource type %q", parts[0])
+		}
+		if err := validateID(parts[1]); err != nil {
+			return parsedRoute{}, err
+		}
+		if err := validateID(parts[3]); err != nil {
+			return parsedRoute{}, err
+		}
+		return parsedRoute{kind: routeVRead, resourceType: parts[0], id: parts[1], versionID: parts[3]}, nil
 	default:
 		return parsedRoute{}, fmt.Errorf("unsupported path %q", rel)
 	}

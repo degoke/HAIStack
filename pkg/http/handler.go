@@ -7,9 +7,13 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -37,6 +41,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, unsupportedEndpoint(r.URL.Path))
 		return
+	}
+	w = withHookContext(w, r.Context(), h.cfg.Hooks, route, r.Method)
+	if route.kind != routeTransaction {
+		if err := h.runIncoming(r.Context(), route, r.Method); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 
 	switch route.kind {
@@ -70,9 +81,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleHistory(w, r, route.resourceType, route.id)
+	case routeVRead:
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, r.Method, http.MethodGet)
+			return
+		}
+		h.handleVRead(w, r, route.resourceType, route.id, route.versionID)
 	case routeOperation:
 		if route.operation == "$export" {
 			h.handleBulkExport(w, r, route)
+			return
+		}
+		if route.operation == "$everything" {
+			h.handleEverything(w, r, route)
 			return
 		}
 		if route.operation == "$materialize" && route.resourceType == "ViewDefinition" {
@@ -343,12 +364,15 @@ func (h *handler) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot := h.cfg.CapabilitySource.CapabilitySnapshot()
-	data, err := marshalCapabilityStatement(snapshot, h.cfg.ServerMetadata, h.cfg.SearchService != nil, h.cfg.BulkImportService != nil)
+	data, err := marshalCapabilityStatement(snapshot, h.cfg.ServerMetadata, capabilityFromConfig(h.cfg))
 	if err != nil {
 		writeError(w, invalidRequest("build CapabilityStatement", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeEnvelope(w, http.StatusOK, &types.ResourceEnvelope{
+		ResourceType: "CapabilityStatement",
+		JSON:         data,
+	}, nil)
 }
 
 func (h *handler) handleRead(w http.ResponseWriter, r *http.Request, resourceType, id string) {
@@ -506,13 +530,16 @@ func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request, resourceT
 }
 
 func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceType, id string) {
-	if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+	if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 		writeError(w, err)
 		return
 	}
-	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
-	if contentType == "" || (contentType != "application/json-patch+json" && !strings.HasPrefix(contentType, "application/json-patch+json;")) {
-		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json", nil))
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	switch contentType {
+	case "application/json-patch+json":
+	case "application/fhir+json", "application/json":
+	default:
+		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json or application/fhir+json", nil))
 		return
 	}
 	if err := h.enforceDeleteScopeFilters(r.Context(), resourceType, id, smart.OpUpdate); err != nil {
@@ -602,6 +629,12 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, err)
 		return
 	}
+	query, err := parseHistoryQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	versions = core.FilterHistory(versions, query)
 	versions, err = h.filterHistoryVersions(r.Context(), resourceType, versions)
 	if err != nil {
 		writeError(w, scopeFilterError(err))
@@ -612,7 +645,115 @@ func (h *handler) handleHistory(w http.ResponseWriter, r *http.Request, resource
 		writeError(w, invalidRequest("build history bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
+}
+
+func (h *handler) handleVRead(w http.ResponseWriter, r *http.Request, resourceType, id, versionID string) {
+	if err := h.authorizeRead(r.Context(), resourceType, id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if h.cfg.PatientReferenceResolver != nil {
+		if _, tenant, ok := identityFromContext(r.Context()); ok && tenant.PatientScope != "" {
+			current, readErr := h.cfg.ResourceService.Read(r.Context(), resourceType, id)
+			if readErr != nil && !core.IsNotFound(readErr) {
+				writeError(w, readErr)
+				return
+			}
+			if current != nil {
+				if scopeErr := h.enforcePatientScopeOnEnvelope(r.Context(), current); scopeErr != nil {
+					writeError(w, scopeErr)
+					return
+				}
+			}
+		}
+	}
+	envelope, err := h.vread(r.Context(), resourceType, id, versionID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.enforcePatientScopeOnEnvelope(r.Context(), envelope); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := h.enforceScopeFiltersOnEnvelope(r.Context(), resourceType, smart.OpRead, envelope); err != nil {
+		writeError(w, scopeFilterError(err))
+		return
+	}
+	writeEnvelope(w, http.StatusOK, envelope, nil)
+}
+
+func (h *handler) vread(ctx context.Context, resourceType, id, versionID string) (*types.ResourceEnvelope, error) {
+	if svc, ok := h.cfg.ResourceService.(interface {
+		VRead(context.Context, string, string, string) (*types.ResourceEnvelope, error)
+	}); ok {
+		return svc.VRead(ctx, resourceType, id, versionID)
+	}
+	if svc, ok := h.cfg.ResourceService.(interface {
+		GetVersion(context.Context, string, string, string) (store.ResourceVersion, error)
+	}); ok {
+		version, err := svc.GetVersion(ctx, resourceType, id, versionID)
+		if err != nil {
+			return nil, err
+		}
+		return envelopeFromHistoryVersion(resourceType, id, versionID, version)
+	}
+	return nil, &core.ServiceError{
+		Kind:    core.ErrorKindNotFound,
+		Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
+	}
+}
+
+func envelopeFromHistoryVersion(resourceType, id, versionID string, version store.ResourceVersion) (*types.ResourceEnvelope, error) {
+	if version.Deleted || version.Action == store.VersionActionDelete {
+		return nil, &core.ServiceError{
+			Kind:    core.ErrorKindGone,
+			Message: "resource version was deleted: " + resourceType + "/" + id + "/_history/" + versionID,
+		}
+	}
+	if version.Resource == nil {
+		return nil, &core.ServiceError{
+			Kind:    core.ErrorKindNotFound,
+			Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
+		}
+	}
+	return version.Resource, nil
+}
+
+func parseHistoryQuery(values url.Values) (core.HistoryQuery, error) {
+	var q core.HistoryQuery
+	if raw := strings.TrimSpace(values.Get("_since")); raw != "" {
+		ts, err := parseFHIRInstant(raw)
+		if err != nil {
+			return q, invalidRequest("invalid _since parameter", err)
+		}
+		q.Since = &ts
+	}
+	if raw := strings.TrimSpace(values.Get("_at")); raw != "" {
+		ts, err := parseFHIRInstant(raw)
+		if err != nil {
+			return q, invalidRequest("invalid _at parameter", err)
+		}
+		q.At = &ts
+	}
+	return q, nil
+}
+
+func parseFHIRInstant(raw string) (time.Time, error) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts.UTC(), nil
+		}
+	}
+	return time.Time{}, invalidRequest("invalid FHIR instant "+raw, nil)
 }
 
 func (h *handler) handleSearch(w http.ResponseWriter, r *http.Request, resourceType string) {
@@ -678,7 +819,7 @@ func (h *handler) handleSearchWithParams(w http.ResponseWriter, r *http.Request,
 		writeError(w, invalidRequest("build searchset bundle", err))
 		return
 	}
-	writeResource(w, http.StatusOK, data, nil)
+	writeBundleJSON(w, http.StatusOK, data)
 }
 
 func searchQueryParams(params url.Values) url.Values {
@@ -740,39 +881,31 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalidRequest("parse bundle", err))
 		return
 	}
-	if isTxn {
-		if err := h.authorizeWrite(r.Context(), "transaction", "Bundle", ""); err != nil {
-			writeError(w, err)
-			return
-		}
-		envelope, err := parseBundleBody(h.cfg.Codec, "application/fhir+json", body)
+	isBatch := false
+	if !isTxn {
+		isBatch, err = isBatchBundle(body)
 		if err != nil {
-			writeError(w, err)
+			writeError(w, invalidRequest("parse bundle", err))
 			return
 		}
-		if err := h.authorizeBundleEntries(r, body); err != nil {
-			writeError(w, err)
+		if !isBatch {
+			writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
 			return
 		}
-		response, err := h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeEnvelope(w, http.StatusOK, response, nil)
+	}
+	action := hooks.ActionTransaction
+	authOp := "transaction"
+	if isBatch {
+		action = hooks.ActionBatch
+		authOp = "batch"
+	}
+	event := &hooks.Event{Action: action, ResourceType: "Bundle"}
+	h.bindHookEvent(w, event)
+	if err := h.runIncomingEvent(r.Context(), event); err != nil {
+		writeError(w, err)
 		return
 	}
-
-	isBatch, err := isBatchBundle(body)
-	if err != nil {
-		writeError(w, invalidRequest("parse bundle", err))
-		return
-	}
-	if !isBatch {
-		writeError(w, invalidRequest("POST /fhir accepts transaction or batch bundles", nil))
-		return
-	}
-	if err := h.authorizeWrite(r.Context(), "batch", "Bundle", ""); err != nil {
+	if err := h.authorizeWrite(r.Context(), authOp, "Bundle", ""); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -785,7 +918,12 @@ func (h *handler) handleBundlePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	response, err := h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	var response *types.ResourceEnvelope
+	if isTxn {
+		response, err = h.cfg.ResourceService.ProcessTransactionBundle(r.Context(), envelope)
+	} else {
+		response, err = h.cfg.ResourceService.ProcessBatchBundle(r.Context(), envelope)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -847,7 +985,7 @@ func (h *handler) authorizeBundleEntries(r *http.Request, body []byte) error {
 				return err
 			}
 		case http.MethodPatch:
-			if err := h.authorizeWrite(r.Context(), "update", resourceType, id); err != nil {
+			if err := h.authorizeWrite(r.Context(), "patch", resourceType, id); err != nil {
 				return err
 			}
 		case http.MethodDelete:

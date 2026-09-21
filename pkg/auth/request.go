@@ -13,7 +13,7 @@ type ReadRequest struct {
 type WriteRequest struct {
 	Principal           Principal
 	Tenant              TenantContext
-	Operation           string // create | update
+	Operation           string // create | update | patch
 	ResourceType        string
 	ID                  string
 	RequiredPermissions []string

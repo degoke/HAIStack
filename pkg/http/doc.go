@@ -57,7 +57,7 @@
 //   - NewHandler(Config) (net/http.Handler, error) — constructs the FHIR REST
 //     handler tree.
 //   - Config — BasePath (default /fhir), ResourceService, optional SearchService,
-//     CapabilitySource, ServerMetadata, Codec, auth hooks, and RateLimit.
+//     CapabilitySource, ServerMetadata, Codec, auth hooks, RateLimit, and Hooks.
 //   - ServerMetadata — software name/version and server description for
 //     CapabilityStatement generation.
 //   - PrincipalResolver — extracts auth.Principal and auth.TenantContext from a
@@ -75,10 +75,13 @@
 //   - DELETE /fhir/{ResourceType}?...          — conditional delete
 //   - GET    /fhir/{ResourceType}/{id}       — read
 //   - PUT    /fhir/{ResourceType}/{id}       — update
-//   - PATCH  /fhir/{ResourceType}/{id}       — JSON Patch update
+//   - PATCH  /fhir/{ResourceType}/{id}       — JSON Patch or FHIR Patch
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
-//   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle
+//   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle (_since, _at)
+//   - GET    /fhir/{ResourceType}/{id}/_history/{vid} — vread (410 if deleted)
+//   - GET    /fhir/Patient/{id}/$everything  — patient compartment searchset
 //   - GET    /fhir/$export                     — system bulk export kickoff (async; requires BulkExportService)
+//   - GET    /fhir/Patient/$export and /fhir/Patient/{id}/$export — patient bulk export
 //   - POST   /fhir/$import                     — system bulk import kickoff (async; requires BulkImportService)
 //   - GET    /fhir/$import/status/{jobId}      — import status polling / manifest
 //   - DELETE /fhir/$import/status/{jobId}      — cancel import
@@ -105,6 +108,7 @@
 //
 //   - invalid      → 400 Bad Request
 //   - not-found    → 404 Not Found
+//   - deleted      → 410 Gone
 //   - conflict     → 409 Conflict
 //   - not-supported → 400 Bad Request
 //   - exception    → 500 Internal Server Error
