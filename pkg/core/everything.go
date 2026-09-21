@@ -190,10 +190,46 @@ var patientCompartmentFields = map[string][]string{
 	"VisionPrescription":          {"patient"},
 }
 
-// PatientCompartmentSearchParam returns the search parameter that scopes
+// PatientCompartmentSearchParam returns the primary search parameter that scopes
 // resourceType to one Patient, or empty if the type is not in the compartment.
 func PatientCompartmentSearchParam(resourceType string) string {
 	return patientCompartmentSearchParam[resourceType]
+}
+
+// PatientCompartmentSearchParams returns every Patient-compartment search
+// parameter for resourceType (for example Observation subject and performer).
+func PatientCompartmentSearchParams(resourceType string) []string {
+	primary := patientCompartmentSearchParam[resourceType]
+	if primary == "" {
+		return nil
+	}
+	out := []string{primary}
+	seen := map[string]bool{primary: true}
+	for _, extra := range patientCompartmentSearchParamExtras[resourceType] {
+		if extra == "" || seen[extra] {
+			continue
+		}
+		seen[extra] = true
+		out = append(out, extra)
+	}
+	return out
+}
+
+// Extra compartment search parameters beyond the primary code. OR'd with the
+// primary when walking Patient/$everything via search.
+var patientCompartmentSearchParamExtras = map[string][]string{
+	"Coverage":                 {"subscriber", "policy-holder"},
+	"DocumentManifest":         {"author", "recipient"},
+	"DocumentReference":        {"author"},
+	"List":                     {"source"},
+	"MedicationAdministration": {"performer"},
+	"MedicationDispense":       {"performer"},
+	"Observation":              {"performer"},
+	"Procedure":                {"performer"},
+	"Provenance":               {"agent"},
+	"QuestionnaireResponse":    {"author"},
+	"ServiceRequest":           {"performer"},
+	"Task":                     {"owner", "requester"},
 }
 
 // Everything returns the Patient and resources in that patient's compartment.

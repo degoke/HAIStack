@@ -92,6 +92,62 @@ func TestFilterHistorySinceAndAt(t *testing.T) {
 	}
 }
 
+func TestPatientCompartmentSearchParamsIncludePerformer(t *testing.T) {
+	got := core.PatientCompartmentSearchParams("Observation")
+	if len(got) < 2 || got[0] != "subject" {
+		t.Fatalf("Observation params = %v, want subject then extras", got)
+	}
+	found := false
+	for _, p := range got {
+		if p == "performer" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Observation params = %v, want performer", got)
+	}
+	if extra := core.PatientCompartmentSearchParams("Condition"); len(extra) != 1 || extra[0] != "patient" {
+		t.Fatalf("Condition params = %v, want [patient]", extra)
+	}
+	if got := core.PatientCompartmentSearchParams("StructureDefinition"); got != nil {
+		t.Fatalf("non-compartment type = %v, want nil", got)
+	}
+}
+
+func TestEverythingIncludesPerformerOnlyObservation(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"id":           "obs-performer",
+		"status":       "final",
+		"code":         map[string]any{"text": "demo"},
+		"performer":    []any{map[string]any{"reference": "Patient/pat-1"}},
+	}
+	data, _ := json.Marshal(payload)
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: data}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := harness.svc.Everything(ctx, "pat-1", core.EverythingQuery{Types: []string{"Patient", "Observation"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, env := range got {
+		if env.ID == "obs-performer" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("performer-only Observation must be in Patient/$everything")
+	}
+}
+
 func TestEverythingIncludesPatientCompartment(t *testing.T) {
 	harness := newTestHarness(t, harnessOptions{})
 	ctx := context.Background()

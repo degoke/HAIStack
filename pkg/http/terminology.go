@@ -524,6 +524,12 @@ func terminologyHasTranslate(svc TerminologyService) bool {
 	if svc == nil {
 		return false
 	}
+	if chain, ok := svc.(terminology.Chain); ok {
+		return chain.HasTranslate()
+	}
+	if chain, ok := svc.(*terminology.Chain); ok {
+		return chain != nil && chain.HasTranslate()
+	}
 	_, ok := svc.(interface {
 		Translate(context.Context, terminology.ConceptMapTranslateRequest) ([]terminology.Coding, error)
 	})

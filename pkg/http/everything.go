@@ -68,7 +68,11 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 			Mode:     mode,
 		})
 	}
-	total := len(entries)
+	total := (*int)(nil)
+	if !hasMore && query.Offset == 0 {
+		n := len(entries)
+		total = &n
+	}
 	links := map[string]string{
 		"self": everythingPageURL(h.cfg.BasePath, route.id, r.URL.Query(), query.Offset, pageSize),
 	}
@@ -77,7 +81,7 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 	}
 	data, err := marshalSearchBundle(&search.SearchBundle{
 		ResourceType: "Bundle",
-		Total:        &total,
+		Total:        total,
 		Entries:      entries,
 		Links:        links,
 	})
@@ -175,29 +179,37 @@ func (h *handler) everythingBySearch(ctx context.Context, patientID string, q co
 		if resourceType == "" || resourceType == "Patient" {
 			continue
 		}
-		param := core.PatientCompartmentSearchParam(resourceType)
-		if param == "" {
+		paramsList := core.PatientCompartmentSearchParams(resourceType)
+		if len(paramsList) == 0 {
 			continue
 		}
-		params := url.Values{}
-		params.Set(param, "Patient/"+patientID)
-		params.Set("_count", "1000")
-		if !q.Since.IsZero() {
-			params.Set("_lastUpdated", "ge"+q.Since.UTC().Format(time.RFC3339Nano))
-		}
-		bundle, err := h.cfg.SearchService.SearchBundle(ctx, resourceType, params)
-		if err != nil {
-			return nil, err
-		}
-		if bundle == nil {
-			continue
-		}
-		for _, entry := range bundle.Entries {
-			if entry.Resource == nil || entry.Mode == "include" {
+		seen := map[string]bool{}
+		for _, param := range paramsList {
+			params := url.Values{}
+			params.Set(param, "Patient/"+patientID)
+			params.Set("_count", "1000")
+			if !q.Since.IsZero() {
+				params.Set("_lastUpdated", "ge"+q.Since.UTC().Format(time.RFC3339Nano))
+			}
+			bundle, err := h.cfg.SearchService.SearchBundle(ctx, resourceType, params)
+			if err != nil {
+				return nil, err
+			}
+			if bundle == nil {
 				continue
 			}
-			if !appendEnv(entry.Resource) {
-				return paginateEverythingHTTP(out, offset, limit), nil
+			for _, entry := range bundle.Entries {
+				if entry.Resource == nil || entry.Mode == "include" {
+					continue
+				}
+				key := entry.Resource.ResourceType + "/" + entry.Resource.ID
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				if !appendEnv(entry.Resource) {
+					return paginateEverythingHTTP(out, offset, limit), nil
+				}
 			}
 		}
 	}

@@ -66,6 +66,18 @@ func (c Chain) ValidateCode(ctx context.Context, r ValidateCodeRequest) (*Valida
 	return &ValidationResult{Status: UnknownTerminology, Message: "terminology is not known"}, nil
 }
 
+// HasTranslate reports whether any chained provider implements ConceptMap/$translate.
+func (c Chain) HasTranslate() bool {
+	for _, p := range c.Providers {
+		if _, ok := p.(interface {
+			Translate(context.Context, ConceptMapTranslateRequest) ([]Coding, error)
+		}); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Translate walks providers that implement ConceptMap/$translate.
 func (c Chain) Translate(ctx context.Context, r ConceptMapTranslateRequest) ([]Coding, error) {
 	var last error

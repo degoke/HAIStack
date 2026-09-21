@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/export"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -170,6 +172,24 @@ func TestMetadataAdvertisesEverythingWhenImplemented(t *testing.T) {
 	}
 }
 
+func TestMetadataEmptyChainOmitsTranslate(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: terminology.Chain{},
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources:   []registry.ResourceCapability{{ResourceType: "ConceptMap"}},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"translate"`) {
+		t.Fatal("empty Chain must not advertise $translate")
+	}
+}
+
 func TestMetadataAdvertisesTranslateForChain(t *testing.T) {
 	ctx := context.Background()
 	mem := terminology.NewMemoryStore()
@@ -210,6 +230,134 @@ func TestFHIRPatchRejectsXMLContentType(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEverythingSearchUnionsPerformer(t *testing.T) {
+	performerObs := &types.ResourceEnvelope{
+		ResourceType: "Observation",
+		ID:           "obs-performer",
+		JSON:         []byte(`{"resourceType":"Observation","id":"obs-performer","performer":[{"reference":"Patient/pat-1"}]}`),
+	}
+	var observationParams []string
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			readFn: func(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+				if resourceType == "Patient" && id == "pat-1" {
+					return patientEnvelope("pat-1", "Doe"), nil
+				}
+				return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "not found"}
+			},
+		},
+		SearchService: &fakeSearchService{
+			searchFn: func(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
+				if resourceType != "Observation" {
+					return &search.SearchBundle{ResourceType: resourceType}, nil
+				}
+				if v := params.Get("subject"); v != "" {
+					observationParams = append(observationParams, "subject="+v)
+				}
+				if v := params.Get("performer"); v != "" {
+					observationParams = append(observationParams, "performer="+v)
+					return &search.SearchBundle{
+						ResourceType: "Observation",
+						Entries: []search.BundleEntry{{
+							FullURL:  "Observation/obs-performer",
+							Resource: performerObs,
+							Mode:     "match",
+						}},
+					}, nil
+				}
+				return &search.SearchBundle{ResourceType: resourceType}, nil
+			},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/$everything?_type=Observation", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	foundSubject, foundPerformer := false, false
+	for _, p := range observationParams {
+		if p == "subject=Patient/pat-1" {
+			foundSubject = true
+		}
+		if p == "performer=Patient/pat-1" {
+			foundPerformer = true
+		}
+	}
+	if !foundSubject || !foundPerformer {
+		t.Fatalf("Observation search params = %v, want subject and performer", observationParams)
+	}
+	if !strings.Contains(rec.Body.String(), `"obs-performer"`) {
+		t.Fatalf("performer-only Observation missing from $everything: %s", rec.Body.String())
+	}
+}
+
+func TestEverythingOmitsTotalWhenPaged(t *testing.T) {
+	svc := mustCoreSQLiteService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"obs-1", "obs-2"} {
+		payload := map[string]any{
+			"resourceType": "Observation",
+			"id":           id,
+			"status":       "final",
+			"code":         map[string]any{"text": "demo"},
+			"subject":      map[string]any{"reference": "Patient/pat-1"},
+		}
+		data, _ := json.Marshal(payload)
+		if _, err := svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: data}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: hahttp.CoreResourceService{Svc: svc},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/$everything?_count=1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var bundle map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bundle["total"]; ok {
+		t.Fatalf("paged $everything must omit total, got %#v", bundle["total"])
+	}
+	links, _ := bundle["link"].([]any)
+	hasNext := false
+	for _, item := range links {
+		link, _ := item.(map[string]any)
+		if link["relation"] == "next" {
+			hasNext = true
+		}
+	}
+	if !hasNext {
+		t.Fatalf("expected next link in paged $everything: %s", rec.Body.String())
+	}
+}
+
+func TestVReadUsesCoreService(t *testing.T) {
+	svc := mustCoreSQLiteService(t)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, patientEnvelope("pat-1", "Doe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Update(ctx, patientEnvelope("pat-1", "Smith")); err != nil {
+		t.Fatal(err)
+	}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: hahttp.CoreResourceService{Svc: svc},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/_history/"+created.VersionID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("vread status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"Doe"`) {
+		t.Fatalf("vread historical body=%s", rec.Body.String())
 	}
 }
 

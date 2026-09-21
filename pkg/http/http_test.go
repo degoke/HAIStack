@@ -72,6 +72,32 @@ func (f *fakeResourceService) History(ctx context.Context, resourceType, id stri
 	return nil, nil
 }
 
+func (f *fakeResourceService) VRead(ctx context.Context, resourceType, id, versionID string) (*types.ResourceEnvelope, error) {
+	versions, err := f.History(ctx, resourceType, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, version := range versions {
+		if version.VersionID != versionID {
+			continue
+		}
+		if version.Deleted || version.Action == store.VersionActionDelete {
+			return nil, &core.ServiceError{
+				Kind:    core.ErrorKindGone,
+				Message: "resource version was deleted: " + resourceType + "/" + id + "/_history/" + versionID,
+			}
+		}
+		if version.Resource == nil {
+			break
+		}
+		return version.Resource, nil
+	}
+	return nil, &core.ServiceError{
+		Kind:    core.ErrorKindNotFound,
+		Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
+	}
+}
+
 func (f *fakeResourceService) ProcessTransactionBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
 	if f.transaction != nil {
 		return f.transaction(ctx, bundle)

@@ -671,29 +671,35 @@ func (h *handler) vread(ctx context.Context, resourceType, id, versionID string)
 	}); ok {
 		return svc.VRead(ctx, resourceType, id, versionID)
 	}
-	versions, err := h.cfg.ResourceService.History(ctx, resourceType, id)
-	if err != nil {
-		return nil, err
-	}
-	for _, version := range versions {
-		if version.VersionID != versionID {
-			continue
+	if svc, ok := h.cfg.ResourceService.(interface {
+		GetVersion(context.Context, string, string, string) (store.ResourceVersion, error)
+	}); ok {
+		version, err := svc.GetVersion(ctx, resourceType, id, versionID)
+		if err != nil {
+			return nil, err
 		}
-		if version.Deleted || version.Action == store.VersionActionDelete {
-			return nil, &core.ServiceError{
-				Kind:    core.ErrorKindGone,
-				Message: "resource version was deleted: " + resourceType + "/" + id + "/_history/" + versionID,
-			}
-		}
-		if version.Resource == nil {
-			break
-		}
-		return version.Resource, nil
+		return envelopeFromHistoryVersion(resourceType, id, versionID, version)
 	}
 	return nil, &core.ServiceError{
 		Kind:    core.ErrorKindNotFound,
 		Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
 	}
+}
+
+func envelopeFromHistoryVersion(resourceType, id, versionID string, version store.ResourceVersion) (*types.ResourceEnvelope, error) {
+	if version.Deleted || version.Action == store.VersionActionDelete {
+		return nil, &core.ServiceError{
+			Kind:    core.ErrorKindGone,
+			Message: "resource version was deleted: " + resourceType + "/" + id + "/_history/" + versionID,
+		}
+	}
+	if version.Resource == nil {
+		return nil, &core.ServiceError{
+			Kind:    core.ErrorKindNotFound,
+			Message: "resource version not found: " + resourceType + "/" + id + "/_history/" + versionID,
+		}
+	}
+	return version.Resource, nil
 }
 
 func parseHistoryQuery(values url.Values) (core.HistoryQuery, error) {
