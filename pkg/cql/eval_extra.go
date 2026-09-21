@@ -312,42 +312,61 @@ func intervalUnion(a, b Interval) (Interval, bool) {
 	return out, true
 }
 
-func constructDate(args [][]any, dateTime bool) ([]any, error) {
-	parts := make([]int, 0, 7)
-	for _, a := range args {
-		if len(a) == 0 {
-			continue
-		}
-		n, ok := asInt(a[0])
-		if !ok {
-			return nil, nil
-		}
-		parts = append(parts, int(n))
+func constructDateArgInt(args [][]any, i int, def int) (int, bool) {
+	if len(args) <= i || len(args[i]) == 0 {
+		return def, true
 	}
-	if len(parts) == 0 {
+	n, ok := asInt(args[i][0])
+	if !ok {
+		return 0, false
+	}
+	return int(n), true
+}
+
+func constructDate(args [][]any, dateTime bool) ([]any, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
 		return nil, nil
 	}
-	y, m, d, h, min, s := parts[0], 1, 1, 0, 0, 0
-	if len(parts) > 1 {
-		m = parts[1]
+	y, ok := constructDateArgInt(args, 0, 0)
+	if !ok {
+		return nil, nil
 	}
-	if len(parts) > 2 {
-		d = parts[2]
+	m, ok := constructDateArgInt(args, 1, 1)
+	if !ok {
+		return nil, nil
 	}
-	if dateTime && len(parts) > 3 {
-		h = parts[3]
+	d, ok := constructDateArgInt(args, 2, 1)
+	if !ok {
+		return nil, nil
 	}
-	if dateTime && len(parts) > 4 {
-		min = parts[4]
-	}
-	if dateTime && len(parts) > 5 {
-		s = parts[5]
+	h, min, s, ns := 0, 0, 0, 0
+	if dateTime {
+		if h, ok = constructDateArgInt(args, 3, 0); !ok {
+			return nil, nil
+		}
+		if min, ok = constructDateArgInt(args, 4, 0); !ok {
+			return nil, nil
+		}
+		if s, ok = constructDateArgInt(args, 5, 0); !ok {
+			return nil, nil
+		}
+		if ms, ok := constructDateArgInt(args, 6, 0); ok {
+			ns = ms * int(time.Millisecond)
+		} else {
+			return nil, nil
+		}
 	}
 	loc := naiveDateTimeLoc
 	if !dateTime {
 		loc = dateOnlyLoc
+	} else if len(args) > 7 && len(args[7]) > 0 {
+		off, ok := asFloat(args[7][0])
+		if !ok {
+			return nil, nil
+		}
+		loc = time.FixedZone("", int(off*3600))
 	}
-	return []any{time.Date(y, time.Month(m), d, h, min, s, 0, loc)}, nil
+	return []any{time.Date(y, time.Month(m), d, h, min, s, ns, loc)}, nil
 }
 
 func (st *evalState) constructTime(args [][]any) ([]any, error) {
@@ -416,13 +435,13 @@ func stringReplace(args [][]any) ([]any, error) {
 }
 
 func stringSplit(args [][]any) ([]any, error) {
-	if len(args) == 0 || len(args[0]) == 0 {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
 		return nil, nil
 	}
-	s := fmt.Sprint(unwrapPrimitive(args[0][0]))
-	sep := ""
-	if len(args) > 1 && len(args[1]) > 0 {
-		sep = fmt.Sprint(unwrapPrimitive(args[1][0]))
+	s, sok := unwrapPrimitive(args[0][0]).(string)
+	sep, sepok := unwrapPrimitive(args[1][0]).(string)
+	if !sok || !sepok {
+		return nil, nil
 	}
 	parts := strings.Split(s, sep)
 	out := make([]any, 0, len(parts))

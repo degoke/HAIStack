@@ -2034,3 +2034,138 @@ func TestReplaceRequiresStrings(t *testing.T) {
 		t.Fatalf("replace strings: %#v", got)
 	}
 }
+
+func TestListMembershipUsesWholeListItem(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{1, 2} in {{1, 2}}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{1, 2} in {{1, 2}} must be true: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{{1, 2}} contains {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{{1, 2}} contains {1, 2} must be true: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{2, 9} in {1, 2, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{2, 9} in {1, 2, 3} must be false: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1} in {{1}}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{1} in {{1}} must be true: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "2 in {1, 2, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("2 in {1, 2, 3}: %#v", got)
+	}
+}
+
+func TestListEqualityIsThreeValued(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{null} = {null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{null} = {null} must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, null} = {1, null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{1, null} = {1, null} must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, null} = {2, null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{1, null} = {2, null} must be false: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{} = {}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{} = {} must be true: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null = null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("null = null must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null = {}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("null = {} must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{null} != {null}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{null} != {null} must be null: %#v", got)
+	}
+}
+
+func TestSplitRequiresStrings(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Split(12, 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Split(12, 1) must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Split('12', '1')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "" || got[1] != "2" {
+		t.Fatalf("Split('12', '1'): %#v", got)
+	}
+}
+
+func TestDateTimeConstructorUsesTimezoneOffset(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "DateTime(2021, 1, 1, 3, 0, 0, 0, -5) during Interval[@2021-01-01T00:00:00-05:00, @2021-01-01T23:59:59-05:00]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("DateTime offset -5 during EST day: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "DateTime(2021, 1, 1, 3, 0, 0, 0, 0) during Interval[@2021-01-01T00:00:00-05:00, @2021-01-01T23:59:59-05:00]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("DateTime UTC+0 03:00 is not during EST day: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "DateTime(2021, 1, 1, 8, 0, 0, 0, -5) same as @2021-01-01T08:00:00-05:00", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("DateTime offset must match zoned literal: %#v", got)
+	}
+}

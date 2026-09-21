@@ -95,7 +95,7 @@ func (st *evalState) eval(n Node) ([]any, error) {
 	case *callNode:
 		return st.evalCall(x)
 	case *listNode:
-		var out []any
+		out := []any{}
 		for _, el := range x.elems {
 			v, err := st.eval(el)
 			if err != nil {
@@ -491,6 +491,11 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 			return intervalWidth(iv)
 		}
 		return nil, nil
+	case "tolist":
+		if len(v) == 0 {
+			return []any{}, nil
+		}
+		return v, nil
 	case "collapse":
 		return collapseIntervals(v), nil
 	case "expand":
@@ -554,7 +559,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 0 {
+		if left == nil || right == nil {
 			return nil, nil
 		}
 		if vs, ok := singletonValueSet(right); ok {
@@ -564,12 +569,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			}
 			return []any{ok}, nil
 		}
+		item := membershipItem(n.left, left)
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
-				return intervalContainsResult(iv, left[0], false)
+				return intervalContainsResult(iv, item, false)
 			}
 		}
-		return []any{containsValue(right, left[0])}, nil
+		return []any{containsValue(right, item)}, nil
 	case "contains":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -579,15 +585,16 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(right) == 0 {
+		if left == nil || right == nil {
 			return nil, nil
 		}
+		item := membershipItem(n.right, right)
 		if len(left) == 1 {
 			if iv, ok := asInterval(left[0]); ok {
-				return intervalContainsResult(iv, right[0], false)
+				return intervalContainsResult(iv, item, false)
 			}
 		}
-		return []any{containsValue(left, right[0])}, nil
+		return []any{containsValue(left, item)}, nil
 	case "intersect":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -626,11 +633,12 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			}
 		}
 		return listExcept(left, right), nil
-	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "overlaps before", "overlaps after", "starts", "ends", "meets", "before", "after":
-		return st.evalIntervalRel(n)
 	}
 	if strings.HasPrefix(n.op, "same") {
 		return st.evalSameAs(n)
+	}
+	if intervalRelOp(n.op) {
+		return st.evalIntervalRel(n)
 	}
 	left, err := st.eval(n.left)
 	if err != nil {
@@ -640,14 +648,20 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	switch n.op {
+	case "=":
+		return cqlEqualResult(left, right), nil
+	case "!=":
+		eq := cqlEqualResult(left, right)
+		if len(eq) == 0 {
+			return nil, nil
+		}
+		return []any{eq[0] != true}, nil
+	}
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
 	}
 	switch n.op {
-	case "=":
-		return []any{cqlEqualValues(left, right)}, nil
-	case "!=":
-		return []any{!cqlEqualValues(left, right)}, nil
 	case "~":
 		return []any{cqlEquivalentValues(left, right)}, nil
 	case "!~":
@@ -1124,6 +1138,11 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listTakeSkip(args, false)
 	case "indexof":
 		return listIndexOf(args)
+	case "distinct":
+		if len(args) == 0 {
+			return nil, nil
+		}
+		return distinctValues(args[0]), nil
 	case "singletonfrom":
 		if len(args) == 0 {
 			return nil, nil
@@ -1223,20 +1242,20 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if req.Terminology == "" && req.ValueSetURL == "" && req.Code == "" {
-		return items, nil
-	}
-	var out []any
-	for _, item := range items {
-		ok, err := matchResourceTerminology(st.ctx, item, req, st.terminology(), st.resolveReferenceCodings)
-		if err != nil {
-			return nil, err
+	if req.Terminology != "" || req.ValueSetURL != "" || req.Code != "" {
+		var out []any
+		for _, item := range items {
+			ok, err := matchResourceTerminology(st.ctx, item, req, st.terminology(), st.resolveReferenceCodings)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, item)
+			}
 		}
-		if ok {
-			out = append(out, item)
-		}
+		items = out
 	}
-	return out, nil
+	return st.filterRetrieveDates(items, n)
 }
 
 func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
@@ -1649,6 +1668,22 @@ func asTemporal(v any, loc *time.Location) (time.Time, bool) {
 	return t, true
 }
 
+func membershipItem(n Node, v []any) any {
+	if isListValued(n) {
+		if v == nil {
+			return []any{}
+		}
+		return append([]any{}, v...)
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	if len(v) == 1 {
+		return v[0]
+	}
+	return append([]any{}, v...)
+}
+
 func wrapListElement(el Node, v []any) any {
 	if isListValued(el) {
 		if v == nil {
@@ -1683,11 +1718,50 @@ func listValueResult(v any) []any {
 	return []any{v}
 }
 
-func cqlEqualValues(left, right []any) bool {
-	if len(left) != 1 || len(right) != 1 {
-		return cqlEqual(left, right)
+func cqlEqualResult(left, right []any) []any {
+	if left == nil || right == nil {
+		return nil
 	}
-	return cqlEqual(left[0], right[0])
+	return cqlEqual3List(left, right)
+}
+
+func cqlEqual3List(left, right []any) []any {
+	if len(left) != len(right) {
+		return []any{false}
+	}
+	unknown := false
+	for i := range left {
+		eq := cqlEqual3Value(left[i], right[i])
+		if eq == nil {
+			unknown = true
+			continue
+		}
+		if eq[0] != true {
+			return []any{false}
+		}
+	}
+	if unknown {
+		return nil
+	}
+	return []any{true}
+}
+
+func cqlEqual3Value(a, b any) []any {
+	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if a == nil || b == nil {
+		return nil
+	}
+	if la, ok := a.([]any); ok {
+		lb, ok := b.([]any)
+		if !ok {
+			return []any{false}
+		}
+		return cqlEqual3List(la, lb)
+	}
+	if _, ok := b.([]any); ok {
+		return []any{false}
+	}
+	return []any{cqlEqual(a, b)}
 }
 
 func cqlEquivalentValues(left, right []any) bool {
