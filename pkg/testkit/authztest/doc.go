@@ -8,5 +8,10 @@
 // boundaries, policy narrowing of SMART scopes, token expiry, and per-path
 // denials across REST, search, views, AI tools, sync, and module install.
 //
+// Machine-readable YAML catalogues (research/policy-semantics and testdata)
+// are loaded with ParseYAML / LoadYAMLFile and executed through
+// ScenariosFromYAML. YAML cases evaluate SMART scope grants ∩ pkg/auth policy
+// allows, matching the policy-semantics research artefact.
+//
 // This package is for tests only. Production code must not import authztest.
 package authztest

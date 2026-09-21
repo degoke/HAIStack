@@ -22,7 +22,7 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **golden** | Canonical `OperationOutcome` JSON comparison (inline goldens) |
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
-| **authztest** | Authorization scenario catalog (≥30 cases) across auth, SMART, view, AI, sync |
+| **authztest** | Authorization scenario catalog (≥30 Go cases) plus YAML catalogues (`ParseYAML` / `ScenariosFromYAML`) that assert SMART scope ∩ policy |
 
 It does **not**:
 
@@ -240,6 +240,10 @@ func TestAuthzScenarios(t *testing.T) {
 
 `AllScenarios()` returns ≥30 named cases with `Doc` strings suitable for
 conformance matrices. OAuth success is not tested — only authorization outcomes.
+
+Machine-readable YAML catalogues (used by `research/policy-semantics`) load
+through `ParseYAML` / `ScenariosFromYAML`. Those cases assert
+`SMART.ScopeImplies ∩ pkg/auth policy`.
 
 ## Migration
 

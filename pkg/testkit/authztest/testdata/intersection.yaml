@@ -1,0 +1,20 @@
+version: "1"
+scenarios:
+  - name: testdata_scope_and_policy_allow_observation
+    doc: user/*.read ∩ observation-only policy allows Observation read.
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: true
+  - name: testdata_scope_allows_policy_denies_appointment
+    doc: user/*.read ∩ observation-only policy denies Appointment read.
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Appointment
+    resourceId: a1
+    expectAllow: false

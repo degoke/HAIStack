@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+title: HAIStack
+message: If you use HAIStack or its research artefacts, please cite this software.
+type: software
+authors:
+  - family-names: Degoke
+    given-names: Health AI Stack contributors
+repository-code: https://github.com/degoke/HAIStack
+url: https://github.com/degoke/HAIStack
+abstract: >-
+  Modular Go libraries for FHIR-native health data infrastructure with
+  policy-governed AI access, ViewDefinition analytics, terminology
+  projections, and reproducible research artefacts (benchmarks, policy
+  semantics, semantic conversion corpora, terminology evaluation, and
+  FHIR-to-AI provenance pipelines).
+keywords:
+  - FHIR
+  - SMART on FHIR
+  - SQL-on-FHIR
+  - clinical AI
+  - provenance
+  - terminology
+  - authorization
+license: Apache-2.0
+version: 0.1.0
+date-released: "2026-09-21"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: Degoke
+      given-names: Health AI Stack contributors
+  title: "HAIStack: reproducible FHIR pipelines, policy semantics, and evaluation corpora"
+  year: 2026
+  url: https://github.com/degoke/HAIStack

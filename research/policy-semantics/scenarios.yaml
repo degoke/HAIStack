@@ -1,0 +1,147 @@
+version: "1"
+# Vendor-neutral SMART scope ∩ policy scenarios for HAIStack research Track C.
+# Executed by pkg/testkit/authztest (shared runner) and go run ./research/policy-semantics.
+scenarios:
+  - name: broad_scope_matching_policy_allows_observation
+    doc: "Example 1 — user/*.read ∩ observation-only policy allows Observation read."
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: true
+
+  - name: broad_scope_narrow_policy_denies_appointment
+    doc: "Example 2 — user/*.read ∩ observation-only policy denies Appointment (policy narrowing)."
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Appointment
+    resourceId: a1
+    expectAllow: false
+
+  - name: narrow_scope_broad_policy_denies_observation
+    doc: "Example 3 — user/Patient.read ∩ allow-all policy cannot expand missing Observation scope."
+    principal: clinician
+    scopes: user/Patient.read
+    policy: allow-all-read
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: false
+
+  - name: granular_scope_matching_policy_allows_observation
+    doc: "Example 4 — user/Observation.rs ∩ observation-only policy allows Observation read."
+    principal: clinician
+    scopes: user/Observation.rs
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: true
+
+  - name: read_scope_denies_write
+    doc: "Example 5 — user/Observation.read ∩ allow-all policy still denies Observation write."
+    principal: clinician
+    scopes: user/Observation.read
+    policy: allow-all-read
+    action: write
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: false
+
+  - name: patient_overlay_allows_own_patient
+    doc: "Example 6 — launch/patient user/Patient.read may read Patient/pat-1."
+    principal: clinician
+    scopes: launch/patient user/Patient.read
+    policy: base
+    action: read
+    resourceType: Patient
+    resourceId: pat-1
+    patientId: pat-1
+    expectAllow: true
+
+  - name: patient_overlay_denies_other_patient
+    doc: "Example 7 — same token cannot read Patient/pat-2 (compartment overlay)."
+    principal: clinician
+    scopes: launch/patient user/Patient.read
+    policy: base
+    action: read
+    resourceType: Patient
+    resourceId: pat-2
+    patientId: pat-1
+    expectAllow: false
+
+  - name: deny_by_default_unmatched_type
+    doc: "Example 8 — user/*.read ∩ base policy has no MedicationRequest rule."
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: read
+    resourceType: MedicationRequest
+    resourceId: rx-1
+    expectAllow: false
+
+  - name: first_match_deny_wins
+    doc: "Example 9 — deny-first policy blocks Appointment before a later allow rule."
+    principal: clinician
+    scopes: user/*.read
+    policy: deny-first
+    action: read
+    resourceType: Appointment
+    resourceId: a1
+    expectAllow: false
+
+  - name: cross_tenant_denied
+    doc: "Example 10 — clinician bound to tenant-a is denied tenant-b."
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: read
+    resourceType: Patient
+    resourceId: pat-1
+    tenant: tenant-b
+    expectAllow: false
+
+  - name: view_execution_allowed
+    doc: "Example 11 — user/*.read ∩ base policy may execute patient_summary_view."
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: execute-view
+    resourceType: Patient
+    viewName: patient_summary_view
+    expectAllow: true
+
+  - name: ai_run_view_allowed
+    doc: "Example 12 — user/*.read ∩ base policy may execute AI tool run_view."
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: execute-ai-tool
+    resourceType: Observation
+    toolName: run_view
+    viewName: patient_summary_view
+    expectAllow: true
+
+  - name: backend_system_scope_observation_allowed
+    doc: "Example 13 — system/*.read service ∩ observation-only allows Observation."
+    principal: backend
+    scopes: system/*.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: true
+
+  - name: backend_system_scope_appointment_denied
+    doc: "Example 14 — system/*.read service ∩ observation-only denies Appointment."
+    principal: backend
+    scopes: system/*.read
+    policy: observation-only
+    action: read
+    resourceType: Appointment
+    resourceId: a1
+    expectAllow: false

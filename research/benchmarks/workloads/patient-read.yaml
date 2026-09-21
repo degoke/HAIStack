@@ -1,0 +1,6 @@
+name: patient-read
+description: Sequential Patient reads by id (random access).
+operations:
+  - type: read
+    resourceType: Patient
+    count: 40

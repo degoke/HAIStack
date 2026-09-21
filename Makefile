@@ -1,4 +1,4 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock
+.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
@@ -57,6 +57,28 @@ validate-ig: ig ## Build the IG and validate examples with the Go validator
 
 conformance-lock: ## Record current git commit and toolchain pins in conformance-lock.json
 	bash conformance/scripts/write-lock.sh
+
+research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Run all research artefact checks
+
+research-ai-pipeline: ## Track E — FHIR → view → AI tool provenance pipeline
+	$(GO) test ./research/ai-pipeline
+	$(GO) run ./research/ai-pipeline >/dev/null
+
+research-policy: ## Track C — policy semantics catalogue (≥10 scope ∩ policy examples)
+	$(GO) test ./research/policy-semantics
+	$(GO) run ./research/policy-semantics >/dev/null
+
+research-conversion: ## Track B — R4→R5 semantic conversion corpus scorer
+	$(GO) test ./research/semantic-conversion
+	$(GO) run ./research/semantic-conversion >/dev/null
+
+research-terminology: ## Track D — ConceptMap gold set quality metrics
+	$(GO) test ./research/terminology-evaluation
+	$(GO) run ./research/terminology-evaluation >/dev/null
+
+research-benchmarks: ## Track A — vendor-neutral FHIR benchmark runner (small size)
+	$(GO) test ./research/benchmarks
+	HAISTACK_BENCH_SIZE=small $(GO) run ./research/benchmarks >/dev/null
 
 clean: ## Remove build artifacts and test binaries
 	$(GO) clean -testcache

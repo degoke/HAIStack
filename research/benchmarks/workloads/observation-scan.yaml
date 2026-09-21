@@ -1,0 +1,6 @@
+name: observation-scan
+description: Scan Observation ids then read each resource (search-like walk).
+operations:
+  - type: scan-read
+    resourceType: Observation
+    count: 40

@@ -1,0 +1,21 @@
+{
+  "conceptMap": "https://example.org/ConceptMap/haistack-vitals-to-loinc",
+  "conceptMapVersion": "1.0.0",
+  "sourceSystem": "https://example.org/CodeSystem/haistack-vitals",
+  "sourceSystemVersion": "1.0.0",
+  "targetSystem": "http://loinc.org",
+  "translations": [
+    {"source": "hr", "target": "8867-4", "equivalence": "exact"},
+    {"source": "sbp", "target": "8480-6", "equivalence": "exact"},
+    {"source": "dbp", "target": "8462-4", "equivalence": "exact"},
+    {"source": "temp", "target": "8310-5", "equivalence": "exact"},
+    {"source": "spo2", "target": "2708-6", "equivalence": "exact"},
+    {"source": "wt", "target": "29463-7", "equivalence": "exact"},
+    {"source": "ht", "target": "8302-2", "equivalence": "exact"},
+    {"source": "bmi", "target": "39156-5", "equivalence": "exact"},
+    {"source": "rr", "target": "9279-1", "equivalence": "exact"},
+    {"source": "pain", "target": "72514-3", "equivalence": "narrow"},
+    {"source": "fever", "target": "8310-5", "equivalence": "broad"},
+    {"source": "unknown", "target": "", "equivalence": "unmatched"}
+  ]
+}

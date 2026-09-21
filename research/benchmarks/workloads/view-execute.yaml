@@ -1,0 +1,6 @@
+name: view-execute
+description: Execute the research vitals ViewDefinition over seeded observations.
+operations:
+  - type: view
+    viewName: observation_view
+    count: 10
