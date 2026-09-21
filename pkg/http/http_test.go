@@ -853,9 +853,8 @@ func TestPatientScopedSearchRewritesQueryAndStripsOutOfCompartmentMatches(t *tes
 		t.Fatalf("expected out-of-compartment match stripped, got %d", len(entries))
 	}
 	entry, _ := entries[0].(map[string]any)
-	resource, _ := entry["resource"].(map[string]any)
-	if resource["id"] != "obs-in" {
-		t.Fatalf("kept id = %v, want obs-in", resource["id"])
+	if entry["fullUrl"] != "Observation/obs-in" {
+		t.Fatalf("kept fullUrl = %v, want Observation/obs-in", entry["fullUrl"])
 	}
 	if got, ok := bundle["total"].(float64); !ok || got != 2 {
 		t.Fatalf("total = %v, want query-time 2", bundle["total"])
