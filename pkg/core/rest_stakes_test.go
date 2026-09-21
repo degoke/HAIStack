@@ -228,8 +228,7 @@ func TestFHIRPatchAddAppendsRepeatingElements(t *testing.T) {
 			{"name":"value","valueIdentifier":{"system":"http://example.org/mrn","value":"1"}}
 		]}]
 	}`)
-	patched, err := harness.svc.Patch(ctx, "Patient", "pat-1", addFirst)
-	if err != nil {
+	if _, err := harness.svc.Patch(ctx, "Patient", "pat-1", addFirst); err != nil {
 		t.Fatal(err)
 	}
 	addSecond := []byte(`{
@@ -241,7 +240,7 @@ func TestFHIRPatchAddAppendsRepeatingElements(t *testing.T) {
 			{"name":"value","valueIdentifier":{"system":"http://example.org/mrn","value":"2"}}
 		]}]
 	}`)
-	patched, err = harness.svc.Patch(ctx, "Patient", "pat-1", addSecond)
+	patched, err := harness.svc.Patch(ctx, "Patient", "pat-1", addSecond)
 	if err != nil {
 		t.Fatal(err)
 	}
