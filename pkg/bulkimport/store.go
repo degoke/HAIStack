@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/degoke/health-ai-stack/pkg/binary"
 )
 
 // JobStore persists bulk import job state.
@@ -67,17 +69,17 @@ func (s *InMemoryJobStore) Update(_ context.Context, job Job) error {
 	}
 	// Cancellation wins over complete/in-progress writes that raced after a
 	// stale Get. completeJob re-reads, but this store-level guard closes TOCTOU.
-	if existing.Status == StatusCancelled || existing.CancelRequested {
-		if job.Status != StatusCancelled {
-			existing.Status = StatusCancelled
-			existing.CancelRequested = true
-			s.jobs[job.ID] = existing
-			return nil
-		}
-		job.Status = StatusCancelled
-		job.CancelRequested = true
+	s.jobs[job.ID] = applyCancelGuard(existing, job)
+	return nil
+}
+
+func (s *InMemoryJobStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[id]; !ok {
+		return fmt.Errorf("import: job %q not found", id)
 	}
-	s.jobs[job.ID] = job
+	delete(s.jobs, id)
 	return nil
 }
 
@@ -112,7 +114,7 @@ func (s *InMemoryFileStore) Get(_ context.Context, path string) ([]byte, string,
 	defer s.mu.RUnlock()
 	file, ok := s.files[path]
 	if !ok {
-		return nil, "", fmt.Errorf("import: file %q not found", path)
+		return nil, "", fmt.Errorf("import: file %q not found: %w", path, binary.ErrNotFound)
 	}
 	return append([]byte(nil), file.data...), file.contentType, nil
 }

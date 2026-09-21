@@ -3,11 +3,13 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 )
@@ -141,7 +143,7 @@ func (h *handler) handleBulkExportFile(w http.ResponseWriter, r *http.Request, j
 	}
 	data, contentType, err := h.cfg.BulkExportService.GetFile(r.Context(), jobID, filename)
 	if err != nil {
-		writeError(w, notFound("export file not found"))
+		writeFileError(w, err, "export file not found")
 		return
 	}
 	if contentType == "" {
@@ -188,4 +190,16 @@ func notFound(message string, args ...any) error {
 		Kind:    core.ErrorKindNotFound,
 		Message: fmt.Sprintf(message, args...),
 	}
+}
+
+func writeFileError(w http.ResponseWriter, err error, missing string) {
+	if errors.Is(err, binary.ErrNotFound) {
+		writeError(w, notFound("%s", missing))
+		return
+	}
+	if errors.Is(err, binary.ErrInvalidArgument) {
+		writeError(w, invalidRequest(err.Error(), err))
+		return
+	}
+	writeError(w, err)
 }
