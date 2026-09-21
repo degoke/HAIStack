@@ -386,7 +386,7 @@ define "Period":
 	}
 }
 
-func TestELMOnlyLibraryIsUnsupported(t *testing.T) {
+func TestEmptyELMLibraryIsUnsupported(t *testing.T) {
 	env, err := types.NewJSONCodec().ParseJSON("Library", []byte(`{
 		"resourceType": "Library",
 		"url": "http://example.org/Library/ELM",
@@ -397,7 +397,12 @@ func TestELMOnlyLibraryIsUnsupported(t *testing.T) {
 	}
 	_, _, _, _, err = EnvelopeLibrary(env)
 	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("expected unsupported ELM-only library, got %v", err)
+		t.Fatalf("expected unsupported empty ELM library, got %v", err)
+	}
+	eng := testEngine(t)
+	_, err = eng.CompileLibrary(env)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected unsupported empty ELM compile, got %v", err)
 	}
 }
 

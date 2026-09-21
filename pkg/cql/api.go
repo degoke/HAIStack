@@ -215,6 +215,9 @@ func (s StaticLibraries) Resolve(_ context.Context, canonical string) (*Library,
 }
 
 // EnvelopeLibrary parses a FHIR Library resource envelope into CQL source.
+// When the Library only has ELM, CQL is recovered from an embedded library
+// string or annotation when present; otherwise ErrUnsupported is returned.
+// Use Engine.CompileLibrary to evaluate ELM-only Libraries.
 func EnvelopeLibrary(env *types.ResourceEnvelope) (source string, url, name, version string, err error) {
 	return parseLibraryEnvelope(env)
 }

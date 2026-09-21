@@ -91,13 +91,16 @@ func (p Provider) loadLibraries(ctx context.Context, env EvalContext) ([]*Librar
 		add(lib)
 	}
 	for _, raw := range env.Contained {
-		src, url, name, version, err := parseLibraryJSON(mustMarshal(raw))
-		if err != nil {
+		rt, _ := raw["resourceType"].(string)
+		if rt != "" && rt != "Library" {
 			continue
 		}
-		lib, err := compileLibrarySource(p.Engine, src, url, name, version)
+		lib, err := compileLibraryJSON(p.Engine, mustMarshal(raw))
 		if err != nil {
-			return nil, err
+			if rt == "Library" {
+				return nil, err
+			}
+			continue
 		}
 		add(lib)
 	}

@@ -6,8 +6,9 @@ questionnaires, in-memory clinical reasoning, and CQF Measure reports.
 This package **runs CQL libraries and inline expressions** against a Patient
 (and, optionally, retrieved clinical resources). It also evaluates FHIR
 Measure resources into MeasureReport (`individual`, `summary`, `subject-list`).
-FHIR Library resources must include `text/cql` (or `application/cql`) source;
-ELM-only libraries return `ErrUnsupported`.
+FHIR Library resources may include `text/cql` (or `application/cql`) source
+or `application/elm+json`. ELM JSON is compiled into the same evaluator used
+for CQL. Empty ELM payloads and `application/elm+xml` return `ErrUnsupported`.
 
 ## CQL vs FHIRPath
 
@@ -40,8 +41,10 @@ expressions should share named clinical logic, or when evaluating a Measure.
 - retrieve and `in` filters against FHIR `Coding` / `CodeableConcept` (value-set `MemberOf` when `Config.Terminology` is set)
 - `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString`, `ToInterval`, `Min` / `Max` / `Sum` and related helpers
 
-Unsupported (clear error): ELM-only libraries (no `text/cql` content). This is a
-text/cql 1.5 interpreter plus CQF Measure evaluation, not an ELM engine.
+Unsupported (clear error): empty ELM payloads, `application/elm+xml`, or an
+unimplemented operator. `application/elm+json` Libraries compile into this
+package's AST. Prefer attaching `text/cql` with `AttachLibraryCQL` when the
+original source is available.
 
 ## Usage
 
@@ -75,8 +78,9 @@ report, err := eng.EvaluateMeasure(ctx, cql.MeasureRequest{
 Load a FHIR Library resource:
 
 ```go
-src, url, name, version, err := cql.EnvelopeLibrary(libraryEnvelope)
-lib, err := compile // eng.ParseLibrary(src)
+lib, err := eng.CompileLibrary(libraryEnvelope) // text/cql or application/elm+json
+src, url, name, version, err := cql.EnvelopeLibrary(libraryEnvelope) // CQL source only
+env, err = cql.AttachLibraryCQL(libraryEnvelope, cqlSource)
 ```
 
 ## SDC adapter
@@ -122,7 +126,7 @@ Query or Parameters inputs: `periodStart`, `periodEnd` (required), `reportType`
 - `ErrMissingContext` — Patient context required but not supplied
 - `ErrLibraryNotFound` — canonical Library could not be loaded
 - `ErrExpressionNotFound` — named define is missing
-- `ErrUnsupported` — ELM-only content or an unimplemented operator
+- `ErrUnsupported` — empty/non-JSON ELM, ELM XML, or an unimplemented operator
 - `ErrMeasure` — Measure evaluation input or criteria failed
 - `ErrEmptyExpression` / `ErrEngineUnavailable`
 

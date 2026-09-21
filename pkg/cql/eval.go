@@ -1129,11 +1129,11 @@ func (st *evalState) ageInYears(at *time.Time) ([]any, error) {
 }
 
 func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
-	if st.retriever == nil {
-		return nil, errf("%w: retrieve [%s] requires a data retriever", ErrUnsupported, n.resourceType)
-	}
 	if strings.EqualFold(n.resourceType, "Patient") && st.patient != nil && n.terminology == "" {
 		return []any{st.patient}, nil
+	}
+	if st.retriever == nil {
+		return nil, errf("%w: retrieve [%s] requires a data retriever", ErrUnsupported, n.resourceType)
 	}
 	req := st.retrieveRequest(n)
 	items, err := st.retriever.Retrieve(st.ctx, req, st.patient)

@@ -13,7 +13,7 @@ import (
 )
 
 // StoreLibraryResolver loads FHIR Library resources from a ResourceStore and
-// optionally a DefinitionStore, then compiles their CQL content.
+// optionally a DefinitionStore, then compiles their CQL or ELM content.
 //
 // Resolve peeks url/name/version on listed Library resources so in-place URL
 // retargets are visible, compiles only matching candidates, and caches compiled
@@ -60,11 +60,7 @@ func (r *StoreLibraryResolver) Resolve(ctx context.Context, canonical string) (*
 		url, version := splitCanonical(canonical)
 		record, err := r.Registry.Get(ctx, url, version)
 		if err == nil && record != nil && len(record.JSONData) > 0 {
-			src, libURL, name, ver, err := parseLibraryJSON(record.JSONData)
-			if err != nil {
-				return nil, err
-			}
-			lib, err := compileLibrarySource(r.Engine, src, libURL, name, ver)
+			lib, err := compileLibraryJSON(r.Engine, record.JSONData)
 			if err != nil {
 				return nil, err
 			}
@@ -171,11 +167,10 @@ func (r *StoreLibraryResolver) compileCached(env *types.ResourceEnvelope) (*Libr
 }
 
 func compileEnvelope(engine *Engine, env *types.ResourceEnvelope) (*Library, error) {
-	src, url, name, version, err := parseLibraryEnvelope(env)
-	if err != nil {
-		return nil, err
+	if env == nil || len(env.JSON) == 0 {
+		return nil, errf("CQL Library envelope is empty")
 	}
-	return compileLibrarySource(engine, src, url, name, version)
+	return compileLibraryJSON(engine, env.JSON)
 }
 
 func resolveCompiledLibraries(libs []*Library, canonical string) (*Library, bool, error) {

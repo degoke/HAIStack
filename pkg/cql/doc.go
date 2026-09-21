@@ -1,9 +1,9 @@
 // Package cql implements a Clinical Quality Language (CQL) 1.5 engine for
 // HAIStack SDC questionnaires and CQF Measure evaluation.
 //
-// The engine compiles text/cql libraries and evaluates them against Patient
-// or Unfiltered context. FHIR Library resources that contain only ELM remain
-// unsupported; CQL source is required.
+// The engine compiles text/cql libraries and application/elm+json Libraries
+// into the same evaluator AST, then runs them against Patient or Unfiltered
+// context. Empty or non-JSON ELM payloads remain unsupported.
 //
 // # Role in the stack
 //
@@ -36,8 +36,8 @@
 //   - retrieve and `in` filters against Coding/CodeableConcept (MemberOf when Config.Terminology is set)
 //   - First, Last, Count, Exists, AgeInYears, ToString, ToInterval, Min/Max/Sum and related helpers
 //
-// ELM-only libraries still return ErrUnsupported. This is a text/cql 1.5
-// interpreter plus CQF Measure/$evaluate-measure, not an ELM runtime.
+// ELM JSON is compiled into this package's AST (not a separate ELM engine).
+// Empty ELM payloads and application/elm+xml still return ErrUnsupported.
 //
 // # Integration
 //

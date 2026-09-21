@@ -44,6 +44,14 @@ func (e *Engine) ParseLibrary(src string) (*Library, error) {
 	return parseLibrary(src)
 }
 
+// ParseELM compiles an application/elm+json library into the CQL evaluator AST.
+func (e *Engine) ParseELM(src []byte) (*Library, error) {
+	if e == nil {
+		return nil, ErrEngineUnavailable
+	}
+	return parseELMLibrary(src)
+}
+
 // ParseExpression compiles a CQL expression (not a full library).
 func (e *Engine) ParseExpression(src string) (Node, error) {
 	if e == nil {

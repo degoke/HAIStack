@@ -24,7 +24,7 @@ var (
 	ErrEngineUnavailable = errors.New("CQL engine is unavailable")
 
 	// ErrUnsupported is returned for CQL features that are not implemented,
-	// including ELM-only libraries.
+	// including empty or non-JSON ELM payloads.
 	ErrUnsupported = errors.New("CQL feature is not supported")
 
 	// ErrEmptyExpression is returned when the expression text is empty.
