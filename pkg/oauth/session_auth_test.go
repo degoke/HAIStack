@@ -117,6 +117,93 @@ func TestSessionLoginRequiresPasswordAndAllowlistsReturn(t *testing.T) {
 	}
 }
 
+func TestSessionLoginRateLimit(t *testing.T) {
+	users, err := oauth.ParsePasswordUsers("clinician-1:s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{
+		Secret: "session-secret",
+		Issuer: "https://auth.example.test",
+		Users:  users,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:            "https://auth.example.test",
+		UserAuthenticator: auth,
+		LoginPath:         "/oauth/login",
+		AutoApprove:       true,
+		RateLimit:         oauth.RateLimitConfig{LoginRequests: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := srv.Handler()
+
+	post := func() *httptest.ResponseRecorder {
+		t.Helper()
+		form := url.Values{
+			"username": {"missing"},
+			"password": {"nope"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth/login", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "203.0.113.10:1234"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := post(); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("first login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := post(); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate limited status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthorizeLoginRedirectUsesIssuerPath(t *testing.T) {
+	users, err := oauth.ParsePasswordUsers("clinician-1:s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{
+		Secret: "session-secret",
+		Issuer: "https://auth.example.test",
+		Users:  users,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:            "https://auth.example.test",
+		UserAuthenticator: auth,
+		LoginPath:         "/oauth/login",
+		AutoApprove:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.RegisterClient(oauth.Client{
+		ClientID:     "app",
+		ClientSecret: "secret",
+		RedirectURIs: []string{"https://app.example/cb"},
+		Scopes:       []string{"openid"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?client_id=app&redirect_uri=https://app.example/cb&response_type=code&scope=openid", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/oauth/login?") {
+		t.Fatalf("base login Location = %q", loc)
+	}
+}
+
 func TestParsePasswordUsers(t *testing.T) {
 	users, err := oauth.ParsePasswordUsers("alice:pw1;bob:pw2")
 	if err != nil {

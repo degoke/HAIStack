@@ -151,3 +151,72 @@ func TestSQLiteClientRegistry_IsolatesIssuers(t *testing.T) {
 		t.Fatal("expected tenant A client")
 	}
 }
+
+func TestSQLiteStores_ExpiredRefreshConsumeDoesNotBurnRow(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "oauth-expired-refresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	authStore, _, _, _ := oauthstore.SQLiteStores(db.SQL())
+	sqlStore := authStore.(*oauthstore.SQLiteAuthorizationStore)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	sqlStore.Now = func() time.Time { return now }
+
+	const issuer = "https://auth.example.test"
+	if err := authStore.SaveRefreshToken("expired-refresh", oauth.RefreshTokenEntry{
+		Issuer: issuer, ClientID: "c", Scope: "patient/*.read", ExpiresAt: now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := authStore.ConsumeRefreshToken(issuer, "expired-refresh"); ok {
+		t.Fatal("expected expired consume to fail")
+	}
+	var n int
+	if err := db.SQL().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM hai_oauth_refresh_token WHERE token = ? AND issuer = ?`,
+		"expired-refresh", issuer,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expired refresh row count = %d, want 1 (must not burn)", n)
+	}
+}
+
+func TestApplySQLiteStores_BindsUnscopedClients(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.OpenAndMigrate(ctx, filepath.Join(t.TempDir(), "oauth-bind-clients.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.SQL().ExecContext(ctx, `
+		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+		VALUES ('', 'legacy-app', ?, ?)`,
+		`{"ClientID":"legacy-app"}`, time.Now().UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := oauth.Config{Issuer: "https://auth.example.test"}
+	if err := oauthstore.ApplySQLiteStores(&cfg, db.SQL()); err != nil {
+		t.Fatal(err)
+	}
+	client, ok := cfg.Clients.Get("legacy-app")
+	if !ok || client.ClientID != "legacy-app" {
+		t.Fatalf("migrated client = %+v ok=%v", client, ok)
+	}
+
+	_, clients, _, _ := oauthstore.SQLiteStores(db.SQL())
+	scoped := clients.(oauth.IssuerScopedClientRegistry)
+	if _, ok := scoped.ForIssuer("https://other.example").Get("legacy-app"); ok {
+		t.Fatal("expected rebound client not visible to another issuer")
+	}
+	if _, ok := scoped.ForIssuer("").Get("legacy-app"); ok {
+		t.Fatal("expected issuer='' rows to be rebound")
+	}
+}

@@ -60,4 +60,21 @@ func TestLoadOrCreateSQLiteSigningKeySet(t *testing.T) {
 	if !foundPrev {
 		t.Fatal("expected previous signing key to remain in JWKS verification set")
 	}
+
+	if _, err := db.SQL().ExecContext(ctx, `
+		UPDATE hai_oauth_signing_key SET retired_at = ? WHERE issuer = ? AND key_id = ?`,
+		"2020-01-01T00:00:00Z", issuer, set.Active.KeyID); err != nil {
+		t.Fatalf("expire previous key: %v", err)
+	}
+	dropped, err := store.LoadOrCreateSQLiteSigningKeySet(db.SQL(), issuer, store.SigningKeyOptions{
+		ActiveKeyID: "haistack",
+	})
+	if err != nil {
+		t.Fatalf("reload after TTL: %v", err)
+	}
+	for _, key := range dropped.Verification {
+		if key != nil && key.KeyID == set.Active.KeyID {
+			t.Fatalf("expected retired key %q to leave JWKS after TTL", set.Active.KeyID)
+		}
+	}
 }

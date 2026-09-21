@@ -112,7 +112,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	} else if s.cfg.UserAuthenticator != nil {
 		if loginPath := strings.TrimSpace(s.cfg.LoginPath); loginPath != "" {
 			returnURL := s.cfg.Issuer + r.URL.RequestURI()
-			http.Redirect(w, r, loginPath+"?return="+url.QueryEscape(returnURL), http.StatusFound)
+			http.Redirect(w, r, loginRedirectLocation(s.cfg.Issuer, loginPath, returnURL), http.StatusFound)
 			return
 		}
 		http.Error(w, "user authentication required", http.StatusUnauthorized)
@@ -596,6 +596,26 @@ func defaultIfEmpty(values, fallback []string) []string {
 		return fallback
 	}
 	return values
+}
+
+// loginRedirectLocation is the browser Location for unauthenticated authorize.
+// LoginPath stays /oauth/login on the mux after tenant path rewrite; Go's
+// http.Redirect would join a relative oauth/login against that rewritten path
+// and send the browser to host-absolute /oauth/login. Prefix with the issuer
+// path so /t/{id}/oauth/authorize lands on /t/{id}/oauth/login.
+func loginRedirectLocation(issuer, loginPath, returnURL string) string {
+	loginPath = strings.TrimSpace(loginPath)
+	if loginPath == "" {
+		return ""
+	}
+	if !strings.HasPrefix(loginPath, "/") {
+		loginPath = "/" + loginPath
+	}
+	prefix := ""
+	if parsed, err := url.Parse(NormalizeIssuerURL(issuer)); err == nil {
+		prefix = strings.TrimSuffix(parsed.EscapedPath(), "/")
+	}
+	return prefix + loginPath + "?return=" + url.QueryEscape(returnURL)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

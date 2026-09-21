@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -88,13 +89,34 @@ func RequirePasswordUsersFromEnv() (*BcryptLoginUsers, error) {
 	return users, nil
 }
 
+var (
+	dummyLoginHashOnce sync.Once
+	dummyLoginHash     []byte
+)
+
+func loginDummyHash() []byte {
+	dummyLoginHashOnce.Do(func() {
+		hash, err := bcrypt.GenerateFromPassword([]byte("timing-dummy"), bcrypt.DefaultCost)
+		if err == nil {
+			dummyLoginHash = hash
+		}
+	})
+	return dummyLoginHash
+}
+
 // Verify implements LoginUserStore.
 func (u *BcryptLoginUsers) Verify(username, password string) (UserIdentity, bool) {
 	if u == nil {
 		return UserIdentity{}, false
 	}
 	hash, ok := u.hashes[strings.TrimSpace(username)]
-	if !ok || strings.TrimSpace(password) == "" {
+	if !ok {
+		if dummy := loginDummyHash(); len(dummy) > 0 {
+			_ = bcrypt.CompareHashAndPassword(dummy, []byte(password))
+		}
+		return UserIdentity{}, false
+	}
+	if strings.TrimSpace(password) == "" {
 		return UserIdentity{}, false
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
@@ -306,6 +328,9 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		return
+	}
+	if !s.rateLimitLogin(w, r) {
 		return
 	}
 	if auth.users == nil {

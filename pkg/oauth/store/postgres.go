@@ -284,6 +284,32 @@ func (s *ClientRegistry) Register(client oauth.Client) error {
 	return nil
 }
 
+func bindUnscopedPostgresClients(pool *pgxpool.Pool, issuer string) error {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if pool == nil || issuer == "" {
+		return nil
+	}
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+		SELECT $1, client_id, payload, updated_at FROM hai_oauth_client WHERE issuer = ''
+		ON CONFLICT (issuer, client_id) DO NOTHING`, issuer); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM hai_oauth_client WHERE issuer = ''`); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	return nil
+}
+
 // ReplayStore persists backend assertion replay protection in Postgres.
 type ReplayStore struct {
 	pool execer

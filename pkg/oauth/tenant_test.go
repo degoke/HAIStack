@@ -3,6 +3,7 @@ package oauth_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -94,6 +95,128 @@ func TestMultiTenantServerIsolatesClients(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMultiTenantAuthorizeLoginRoundTrip(t *testing.T) {
+	users, err := oauth.ParsePasswordUsers("clinician:s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionAuth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{
+		Secret: "session-secret",
+		Issuer: "https://auth.example.test",
+		Users:  users,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := oauth.NewKeySet(2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseIssuer := "https://auth.example.test"
+	tenantIssuer := baseIssuer + "/t/local"
+	registry := oauth.NewTenantRegistry()
+	if err := registry.Register(oauth.TenantIssuerConfig{
+		TenantID:     "local",
+		Issuer:       tenantIssuer,
+		FHIRAudience: baseIssuer,
+		SigningKey:   key,
+		AutoApprove:  boolPtr(true),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	multi, err := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{
+		Base: oauth.Config{
+			Issuer:            baseIssuer,
+			FHIRAudience:      baseIssuer,
+			SigningKey:        key,
+			UserAuthenticator: sessionAuth,
+			LoginPath:         "/oauth/login",
+			AutoApprove:       true,
+		},
+		Tenants: registry,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := multi.ServerForTenant("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.RegisterClient(oauth.Client{
+		ClientID:     "app",
+		ClientSecret: "secret",
+		RedirectURIs: []string{"https://app.example/cb"},
+		Scopes:       []string{"openid"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := oauth.CombineHandlers(nil, multi.Handler())
+
+	authPath := "/t/local/oauth/authorize?client_id=app&redirect_uri=https://app.example/cb&response_type=code&scope=openid"
+	req := httptest.NewRequest(http.MethodGet, authPath, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("authorize status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	if strings.HasPrefix(loc, "/oauth/login") {
+		t.Fatalf("host-absolute login Location leaves tenant path: %q", loc)
+	}
+	if !strings.HasPrefix(loc, "/t/local/oauth/login?") {
+		t.Fatalf("login Location = %q", loc)
+	}
+	loginURL, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"username": {"clinician"},
+		"password": {"s3cret"},
+		"return":   {loginURL.Query().Get("return")},
+	}
+	loginReq := httptest.NewRequest(http.MethodPost, loginURL.Path+"?"+loginURL.RawQuery, strings.NewReader(form.Encode()))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("login status = %d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+	cookies := loginRec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie")
+	}
+	if cookies[0].Path != "/t/local/" {
+		t.Fatalf("cookie path = %q", cookies[0].Path)
+	}
+
+	next := loginRec.Header().Get("Location")
+	ret, err := url.Parse(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ret.Path != "/t/local/oauth/authorize" {
+		t.Fatalf("return Location = %q", next)
+	}
+	authReq2 := httptest.NewRequest(http.MethodGet, ret.RequestURI(), nil)
+	for _, c := range cookies {
+		authReq2.AddCookie(c)
+	}
+	authRec2 := httptest.NewRecorder()
+	handler.ServeHTTP(authRec2, authReq2)
+	if authRec2.Code != http.StatusFound {
+		t.Fatalf("authorize after login status = %d body=%s", authRec2.Code, authRec2.Body.String())
+	}
+	codeLoc := authRec2.Header().Get("Location")
+	if strings.Contains(codeLoc, "/oauth/login") {
+		t.Fatalf("login loop: %q", codeLoc)
+	}
+	if !strings.Contains(codeLoc, "code=") {
+		t.Fatalf("expected authorization code, Location=%q", codeLoc)
 	}
 }
 

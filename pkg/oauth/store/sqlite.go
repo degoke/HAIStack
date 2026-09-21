@@ -50,16 +50,12 @@ func (s *SQLiteAuthorizationStore) ConsumeAuthorizationCode(issuer, code string)
 	if issuer == "" {
 		return oauth.AuthorizationCode{}, false
 	}
-	var payload, expiresAt string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_auth_code
-		WHERE code = ? AND issuer = ?
-		RETURNING payload, expires_at`, code, issuer,
-	).Scan(&payload, &expiresAt)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
-		return oauth.AuthorizationCode{}, false
-	}
-	if !oauthExpiryValid(expiresAt, s.clock()) {
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_auth_code WHERE code = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_auth_code WHERE code = ? AND issuer = ?`,
+		code, issuer,
+	)
+	if !ok {
 		return oauth.AuthorizationCode{}, false
 	}
 	var entry oauth.AuthorizationCode
@@ -95,16 +91,12 @@ func (s *SQLiteAuthorizationStore) ConsumeRefreshToken(issuer, token string) (oa
 	if issuer == "" {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	var payload, expiresAt string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND issuer = ?
-		RETURNING payload, expires_at`, token, issuer,
-	).Scan(&payload, &expiresAt)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
-		return oauth.RefreshTokenEntry{}, false
-	}
-	if !oauthExpiryValid(expiresAt, s.clock()) {
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_refresh_token WHERE token = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_refresh_token WHERE token = ? AND issuer = ?`,
+		token, issuer,
+	)
+	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
@@ -214,16 +206,12 @@ func (s *SQLiteAuthorizationStore) ConsumePendingAuthorization(issuer, id string
 	if issuer == "" {
 		return oauth.PendingAuthorization{}, false
 	}
-	var payload, expiresAt string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_pending_auth
-		WHERE id = ? AND issuer = ?
-		RETURNING payload, expires_at`, id, issuer,
-	).Scan(&payload, &expiresAt)
-	if errors.Is(err, sql.ErrNoRows) || err != nil {
-		return oauth.PendingAuthorization{}, false
-	}
-	if !oauthExpiryValid(expiresAt, s.clock()) {
+	payload, ok := s.consumeUnexpiredRow(
+		`SELECT payload, expires_at FROM hai_oauth_pending_auth WHERE id = ? AND issuer = ?`,
+		`DELETE FROM hai_oauth_pending_auth WHERE id = ? AND issuer = ?`,
+		id, issuer,
+	)
+	if !ok {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
@@ -238,16 +226,67 @@ func (s *SQLiteAuthorizationStore) DeleteRefreshTokenForClient(issuer, token, cl
 	if issuer == "" {
 		return false
 	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = tx.Rollback() }()
 	var expiresAt string
-	err := s.db.QueryRowContext(context.Background(), `
-		DELETE FROM hai_oauth_refresh_token
-		WHERE token = ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?
-		RETURNING expires_at`, token, issuer, clientID,
+	err = tx.QueryRowContext(ctx, `
+		SELECT expires_at FROM hai_oauth_refresh_token
+		WHERE token = ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?`,
+		token, issuer, clientID,
 	).Scan(&expiresAt)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return false
 	}
-	return oauthExpiryValid(expiresAt, s.clock())
+	if !oauthExpiryValid(expiresAt, s.clock()) {
+		return false
+	}
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM hai_oauth_refresh_token
+		WHERE token = ? AND issuer = ? AND json_extract(payload, '$.clientId') = ?`,
+		token, issuer, clientID)
+	if err != nil {
+		return false
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return false
+	}
+	return tx.Commit() == nil
+}
+
+// consumeUnexpiredRow deletes a row only after its parsed expiry is still valid,
+// matching Postgres DELETE … WHERE expires_at > now (expired tokens are not burned).
+func (s *SQLiteAuthorizationStore) consumeUnexpiredRow(selectQ, deleteQ, id, issuer string) (string, bool) {
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = tx.Rollback() }()
+	var payload, expiresAt string
+	err = tx.QueryRowContext(ctx, selectQ, id, issuer).Scan(&payload, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return "", false
+	}
+	if !oauthExpiryValid(expiresAt, s.clock()) {
+		return "", false
+	}
+	res, err := tx.ExecContext(ctx, deleteQ, id, issuer)
+	if err != nil {
+		return "", false
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return "", false
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false
+	}
+	return payload, true
 }
 
 // SQLiteClientRegistry persists OAuth clients in SQLite.
@@ -302,6 +341,34 @@ func (s *SQLiteClientRegistry) Register(client oauth.Client) error {
 	)
 	if err != nil {
 		return fmt.Errorf("register oauth client: %w", err)
+	}
+	return nil
+}
+
+// bindUnscopedSQLiteClients attaches pre-issuer-column rows (issuer=”) to issuer
+// so ForIssuer(https://…) still finds migrated DCR clients.
+func bindUnscopedSQLiteClients(db *sql.DB, issuer string) error {
+	issuer = oauth.NormalizeIssuerURL(issuer)
+	if db == nil || issuer == "" {
+		return nil
+	}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(context.Background(), `
+		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+		SELECT ?, client_id, payload, updated_at FROM hai_oauth_client WHERE issuer = ''
+		ON CONFLICT (issuer, client_id) DO NOTHING`, issuer); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `
+		DELETE FROM hai_oauth_client WHERE issuer = ''`); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("bind unscoped oauth clients: %w", err)
 	}
 	return nil
 }

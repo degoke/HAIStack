@@ -17,6 +17,9 @@ func ApplyPostgresStores(cfg *oauth.Config, pool *pgxpool.Pool) error {
 		return fmt.Errorf("oauth/store: postgres pool is required")
 	}
 	authStore, clientStore, replayStore, revocationStore := PostgresStores(pool)
+	if err := bindUnscopedPostgresClients(pool, cfg.Issuer); err != nil {
+		return err
+	}
 	cfg.AuthorizationStore = authStore
 	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
@@ -35,6 +38,9 @@ func ApplySQLiteStores(cfg *oauth.Config, db *sql.DB) error {
 		return fmt.Errorf("oauth/store: sqlite db is required")
 	}
 	authStore, clientStore, replayStore, revocationStore := SQLiteStores(db)
+	if err := bindUnscopedSQLiteClients(db, cfg.Issuer); err != nil {
+		return err
+	}
 	cfg.AuthorizationStore = authStore
 	cfg.Clients = clientRegistryForIssuer(clientStore, cfg.Issuer)
 	cfg.ReplayStore = replayStore
@@ -49,6 +55,9 @@ func ApplyPostgresSigningKey(cfg *oauth.Config, pool *pgxpool.Pool, issuer strin
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
 	}
+	if opts.VerificationTTL <= 0 && cfg.AccessTokenTTL > 0 {
+		opts.VerificationTTL = cfg.AccessTokenTTL
+	}
 	set, err := LoadOrCreatePostgresSigningKeySet(pool, issuer, opts)
 	if err != nil {
 		return err
@@ -62,6 +71,9 @@ func ApplyPostgresSigningKey(cfg *oauth.Config, pool *pgxpool.Pool, issuer strin
 func ApplySQLiteSigningKey(cfg *oauth.Config, db *sql.DB, issuer string, opts SigningKeyOptions) error {
 	if cfg == nil {
 		return fmt.Errorf("oauth/store: config is required")
+	}
+	if opts.VerificationTTL <= 0 && cfg.AccessTokenTTL > 0 {
+		opts.VerificationTTL = cfg.AccessTokenTTL
 	}
 	set, err := LoadOrCreateSQLiteSigningKeySet(db, issuer, opts)
 	if err != nil {
