@@ -542,7 +542,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{ls + rs}, nil
-	case "in", "all in":
+	case "in", "all in", "any in":
 		left, err := st.eval(n.left)
 		if err != nil {
 			return nil, err
@@ -569,6 +569,9 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if n.op == "all in" {
 			return allContainsResult(right, left), nil
+		}
+		if n.op == "any in" {
+			return anyContainsResult(right, left), nil
 		}
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
@@ -1629,6 +1632,23 @@ func allContainsResult(haystack, needles []any) []any {
 		}
 	}
 	return []any{true}
+}
+
+func anyContainsResult(haystack, needles []any) []any {
+	if len(needles) == 0 {
+		return []any{false}
+	}
+	for _, n := range needles {
+		if n == nil {
+			continue
+		}
+		for _, h := range haystack {
+			if cqlEqual(h, n) {
+				return []any{true}
+			}
+		}
+	}
+	return []any{false}
 }
 
 func (st *evalState) evalDateComponent(v []any, component string) ([]any, error) {

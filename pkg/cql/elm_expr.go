@@ -303,8 +303,11 @@ func parseELMInValueSet(obj map[string]any) (Node, error) {
 		}
 	}
 	op := "in"
-	if strings.EqualFold(elmType(obj), "AllInValueSet") {
+	switch strings.ToLower(elmType(obj)) {
+	case "allinvalueset":
 		op = "all in"
+	case "anyinvalueset":
+		op = "any in"
 	}
 	if ref, ok := asObject(obj["valueset"]); ok {
 		vs, err := parseELMExpr(ref)

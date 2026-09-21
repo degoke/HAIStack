@@ -193,7 +193,7 @@ func TestELMAnyAllInValueSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, ok := n.(*binaryNode)
-	if !ok || b.op != "in" {
+	if !ok || b.op != "any in" {
 		t.Fatalf("AnyInValueSet: %#v", n)
 	}
 	got := evalELMExpr(t, map[string]any{
