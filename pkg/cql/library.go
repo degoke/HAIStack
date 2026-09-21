@@ -28,6 +28,17 @@ func parseLibraryEnvelope(env *types.ResourceEnvelope) (source, url, name, versi
 	return parseLibraryJSON(env.JSON)
 }
 
+func peekLibraryMeta(env *types.ResourceEnvelope) (url, name, version string) {
+	if env == nil || len(env.JSON) == 0 {
+		return "", "", ""
+	}
+	var lib fhirLibrary
+	if err := json.Unmarshal(env.JSON, &lib); err != nil {
+		return "", "", ""
+	}
+	return lib.URL, lib.Name, lib.Version
+}
+
 func parseLibraryJSON(data []byte) (source, url, name, version string, err error) {
 	var lib fhirLibrary
 	if err := json.Unmarshal(data, &lib); err != nil {

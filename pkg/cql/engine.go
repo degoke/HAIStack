@@ -4,21 +4,13 @@ import (
 	"context"
 	"strings"
 	"time"
-
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 )
 
-// NewEngine constructs a CQL engine. A FHIRPath engine is created when Config.FHIRPath is nil.
+// NewEngine constructs a CQL engine. Config.FHIRPath is stored as-is and is
+// never defaulted; JSON navigation is used when it is nil.
 func NewEngine(cfg Config) (*Engine, error) {
 	if cfg.MaxExpressionLen <= 0 {
 		cfg.MaxExpressionLen = DefaultMaxExpressionLen
-	}
-	if cfg.FHIRPath == nil {
-		fp, err := fhirpath.NewEngine(fhirpath.Config{})
-		if err != nil {
-			return nil, err
-		}
-		cfg.FHIRPath = fp
 	}
 	now := cfg.Now
 	if now == nil {
@@ -27,6 +19,7 @@ func NewEngine(cfg Config) (*Engine, error) {
 	return &Engine{
 		fhirpath:         cfg.FHIRPath,
 		retriever:        cfg.Retriever,
+		terminology:      cfg.Terminology,
 		now:              now,
 		maxExpressionLen: cfg.MaxExpressionLen,
 	}, nil

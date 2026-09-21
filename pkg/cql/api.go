@@ -12,17 +12,22 @@ import (
 type Engine struct {
 	fhirpath         fhirpath.Engine
 	retriever        Retriever
+	terminology      fhirpath.TerminologyValidator
 	now              func() time.Time
 	maxExpressionLen int
 }
 
 // Config configures a CQL engine.
 type Config struct {
-	// FHIRPath is optional. When nil, NewEngine constructs a default engine
-	// for resource-root path evaluation.
+	// FHIRPath is optional. When set, resource-root member access is evaluated
+	// with FHIRPath first; JSON navigation remains the fallback. NewEngine does
+	// not construct a FHIRPath engine when this is nil.
 	FHIRPath fhirpath.Engine
 	// Retriever loads clinical resources for CQL retrieve expressions.
 	Retriever Retriever
+	// Terminology is optional. When set, retrieve and `in` valueset filters use
+	// MemberOf; otherwise matching is structured Coding/CodeableConcept equality.
+	Terminology fhirpath.TerminologyValidator
 	// Now overrides the evaluation clock (defaults to time.Now UTC).
 	Now func() time.Time
 	// MaxExpressionLen caps CQL source length (default 65536).
@@ -33,14 +38,37 @@ const DefaultMaxExpressionLen = 65536
 
 // Library is a compiled CQL library.
 type Library struct {
-	Name     string
-	Version  string
-	Using    string
-	Context  string
-	Includes []Include
-	Defines  []Define
-	Source   string
-	URL      string
+	Name        string
+	Version     string
+	Using       string
+	Context     string
+	Includes    []Include
+	Defines     []Define
+	CodeSystems []CodeSystem
+	ValueSets   []ValueSet
+	Codes       []Code
+	Source      string
+	URL         string
+}
+
+// CodeSystem is a CQL codesystem declaration.
+type CodeSystem struct {
+	Name string
+	URL  string
+}
+
+// ValueSet is a CQL valueset declaration.
+type ValueSet struct {
+	Name string
+	URL  string
+}
+
+// Code is a CQL code declaration.
+type Code struct {
+	Name    string
+	Code    string
+	System  string
+	Display string
 }
 
 // Include records an included CQL library. FHIRHelpers is provided as a builtin.
@@ -78,7 +106,13 @@ type Retriever interface {
 // RetrieveRequest names a FHIR resource type and optional terminology filter.
 type RetrieveRequest struct {
 	ResourceType string
-	Terminology  string
+	// Terminology is the retrieve filter as written (valueset name, code name, or literal).
+	Terminology string
+	// ValueSetURL is set when Terminology names a declared valueset.
+	ValueSetURL string
+	// System and Code are set when Terminology names a declared code or system|code literal.
+	System string
+	Code   string
 }
 
 // LibraryResolver loads a CQL library by canonical URL (url or url|version).

@@ -150,7 +150,7 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 		return []any{st.this}, nil
 	}
 	if st.thisSet {
-		if v, ok := fieldValues(st.this, name); ok {
+		if v, ok := st.memberValues(st.this, name); ok {
 			return v, nil
 		}
 	}
@@ -174,11 +174,17 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 	if strings.EqualFold(name, "FHIRHelpers") || strings.EqualFold(name, "System") {
 		return []any{builtinNS{name: name}}, nil
 	}
+	if vs := st.lookupValueSet(name); vs != nil {
+		return []any{*vs}, nil
+	}
+	if c := st.lookupCode(name); c != nil {
+		return []any{*c}, nil
+	}
 	if lib := st.lookupLibrary(name); lib != nil {
 		return []any{lib}, nil
 	}
 	if st.patient != nil {
-		if v, ok := fieldValues(st.patient, name); ok {
+		if v, ok := st.memberValues(st.patient, name); ok {
 			return v, nil
 		}
 	}
@@ -308,6 +314,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if len(left) == 0 {
 			return nil, nil
+		}
+		if vs, ok := singletonValueSet(right); ok {
+			ok, err := st.inValueSet(left, vs)
+			if err != nil {
+				return nil, err
+			}
+			return []any{ok}, nil
 		}
 		return []any{containsValue(right, left[0])}, nil
 	case "contains":
@@ -444,7 +457,7 @@ func (st *evalState) evalMember(n *memberNode) ([]any, error) {
 	}
 	var out []any
 	for _, item := range base {
-		vals, ok := fieldValues(item, n.name)
+		vals, ok := st.memberValues(item, n.name)
 		if !ok {
 			continue
 		}
@@ -682,14 +695,187 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 	if st.retriever == nil {
 		return nil, errf("%w: retrieve [%s] requires a data retriever", ErrUnsupported, n.resourceType)
 	}
-	if strings.EqualFold(n.resourceType, "Patient") && st.patient != nil {
+	if strings.EqualFold(n.resourceType, "Patient") && st.patient != nil && n.terminology == "" {
 		return []any{st.patient}, nil
 	}
-	items, err := st.retriever.Retrieve(st.ctx, RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology}, st.patient)
+	req := st.retrieveRequest(n)
+	items, err := st.retriever.Retrieve(st.ctx, req, st.patient)
 	if err != nil {
 		return nil, err
 	}
-	return items, nil
+	if req.Terminology == "" && req.ValueSetURL == "" && req.Code == "" {
+		return items, nil
+	}
+	var out []any
+	for _, item := range items {
+		ok, err := matchResourceTerminology(st.ctx, item, req, st.terminology())
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
+	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology}
+	if n.terminology == "" {
+		return req
+	}
+	if vs := st.lookupValueSet(n.terminology); vs != nil {
+		req.ValueSetURL = vs.URL
+		return req
+	}
+	if c := st.lookupCode(n.terminology); c != nil {
+		req.System = c.System
+		req.Code = c.Code
+		return req
+	}
+	if sys, code, ok := splitSystemCode(n.terminology); ok {
+		req.System = sys
+		req.Code = code
+	}
+	return req
+}
+
+func (st *evalState) terminology() fhirpath.TerminologyValidator {
+	if st.engine == nil {
+		return nil
+	}
+	return st.engine.terminology
+}
+
+func (st *evalState) lookupValueSet(name string) *ValueSet {
+	search := func(lib *Library) *ValueSet {
+		if lib == nil {
+			return nil
+		}
+		for i := range lib.ValueSets {
+			if lib.ValueSets[i].Name == name || strings.EqualFold(lib.ValueSets[i].Name, name) {
+				return &lib.ValueSets[i]
+			}
+		}
+		return nil
+	}
+	if vs := search(st.current); vs != nil {
+		return vs
+	}
+	for _, lib := range st.libraries {
+		if vs := search(lib); vs != nil {
+			return vs
+		}
+	}
+	return nil
+}
+
+func (st *evalState) lookupCode(name string) *Code {
+	search := func(lib *Library) *Code {
+		if lib == nil {
+			return nil
+		}
+		for i := range lib.Codes {
+			if lib.Codes[i].Name == name || strings.EqualFold(lib.Codes[i].Name, name) {
+				return &lib.Codes[i]
+			}
+		}
+		return nil
+	}
+	if c := search(st.current); c != nil {
+		return c
+	}
+	for _, lib := range st.libraries {
+		if c := search(lib); c != nil {
+			return c
+		}
+	}
+	return nil
+}
+
+func (st *evalState) inValueSet(values []any, vs ValueSet) (bool, error) {
+	req := RetrieveRequest{ValueSetURL: vs.URL, Terminology: vs.Name}
+	for _, v := range values {
+		ok, err := matchResourceTerminology(st.ctx, v, req, st.terminology())
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+		if codingMatches([]fhirCoding{codingFromValue(v)}, "", "", vs.Name) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (st *evalState) memberValues(item any, name string) ([]any, bool) {
+	if st.engine != nil && st.engine.fhirpath != nil && fhirPathNavigable(item) {
+		vals, err := st.engine.fhirpath.Eval(st.ctx, name, item)
+		if err == nil {
+			if out, ok := convertFHIRPathCollection(vals); ok && len(out) > 0 {
+				return out, true
+			}
+		}
+	}
+	return fieldValues(item, name)
+}
+
+func fhirPathNavigable(v any) bool {
+	switch x := v.(type) {
+	case *types.ResourceEnvelope:
+		return x != nil
+	case types.ResourceEnvelope:
+		return true
+	case map[string]any:
+		_, ok := x["resourceType"].(string)
+		return ok && x["resourceType"] != ""
+	}
+	return false
+}
+
+func convertFHIRPathCollection(vals []fhirpath.Value) ([]any, bool) {
+	if len(vals) == 0 {
+		return nil, false
+	}
+	out := make([]any, 0, len(vals))
+	for _, v := range vals {
+		cv, ok := convertFHIRPathValue(v)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, flattenJSON(cv)...)
+	}
+	return out, true
+}
+
+func convertFHIRPathValue(v fhirpath.Value) (any, bool) {
+	switch v.Type() {
+	case "Boolean", "String", "Integer", "Decimal", "Date", "DateTime", "Time", "Quantity":
+		return fhirPathScalar(v), true
+	case "null":
+		return nil, true
+	}
+	raw := v.Raw()
+	if raw == nil {
+		return nil, true
+	}
+	if _, ok := asObject(raw); ok {
+		return raw, true
+	}
+	if s, err := v.String(); err == nil {
+		return s, true
+	}
+	return nil, false
+}
+
+func singletonValueSet(v []any) (ValueSet, bool) {
+	if len(v) != 1 {
+		return ValueSet{}, false
+	}
+	vs, ok := v[0].(ValueSet)
+	return vs, ok
 }
 
 func callName(n Node) string {

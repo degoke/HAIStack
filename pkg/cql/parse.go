@@ -53,17 +53,23 @@ func parseLibrary(src string) (*Library, error) {
 			}
 			lib.Includes = append(lib.Includes, inc)
 		case p.acceptKeyword("codesystem"):
-			if err := p.skipNamedDeclaration(); err != nil {
+			cs, err := p.parseCodeSystem()
+			if err != nil {
 				return nil, err
 			}
+			lib.CodeSystems = append(lib.CodeSystems, cs)
 		case p.acceptKeyword("valueset"):
-			if err := p.skipNamedDeclaration(); err != nil {
+			vs, err := p.parseValueSet()
+			if err != nil {
 				return nil, err
 			}
+			lib.ValueSets = append(lib.ValueSets, vs)
 		case p.acceptKeyword("code"):
-			if err := p.skipNamedDeclaration(); err != nil {
+			code, err := p.parseCode()
+			if err != nil {
 				return nil, err
 			}
+			lib.Codes = append(lib.Codes, code)
 		case p.acceptKeyword("concept"):
 			if err := p.skipNamedDeclaration(); err != nil {
 				return nil, err
@@ -89,6 +95,7 @@ func parseLibrary(src string) (*Library, error) {
 				if len(lib.Defines) == 0 {
 					return nil, parseError(src, p.lex.lookahead().pos, "library has no define statements")
 				}
+				resolveTerminologyDecls(lib)
 				return lib, nil
 			}
 			return nil, parseError(src, p.lex.lookahead().pos, "unexpected token %q", p.lex.lookahead().text)
@@ -170,6 +177,91 @@ func (p *parser) parseDefine() (Define, error) {
 	return Define{Name: name, Access: access, Expression: expr, Source: strings.TrimSpace(p.src[start:end])}, nil
 }
 
+func (p *parser) parseCodeSystem() (CodeSystem, error) {
+	name, url, err := p.parseNamedURL("codesystem")
+	if err != nil {
+		return CodeSystem{}, err
+	}
+	return CodeSystem{Name: name, URL: url}, nil
+}
+
+func (p *parser) parseValueSet() (ValueSet, error) {
+	name, url, err := p.parseNamedURL("valueset")
+	if err != nil {
+		return ValueSet{}, err
+	}
+	if p.acceptKeyword("codesystems") {
+		if !p.acceptKind(tLBrace) {
+			return ValueSet{}, parseError(p.src, p.lex.lookahead().pos, "expected '{' after codesystems")
+		}
+		if !p.acceptKind(tRBrace) {
+			for {
+				if _, err := p.requireName("codesystem reference"); err != nil {
+					return ValueSet{}, err
+				}
+				if p.acceptKind(tComma) {
+					continue
+				}
+				break
+			}
+			if !p.acceptKind(tRBrace) {
+				return ValueSet{}, parseError(p.src, p.lex.lookahead().pos, "expected '}' after codesystems")
+			}
+		}
+	}
+	return ValueSet{Name: name, URL: url}, nil
+}
+
+func (p *parser) parseCode() (Code, error) {
+	name, err := p.requireName("code name")
+	if err != nil {
+		return Code{}, err
+	}
+	if !p.acceptKind(tColon) {
+		return Code{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' in code declaration")
+	}
+	code, err := p.requireString("code value")
+	if err != nil {
+		return Code{}, err
+	}
+	out := Code{Name: name, Code: code}
+	if p.acceptKeyword("from") {
+		system, err := p.requireName("codesystem")
+		if err != nil {
+			return Code{}, err
+		}
+		out.System = system
+	}
+	if p.acceptKeyword("display") {
+		display, err := p.requireString("code display")
+		if err != nil {
+			return Code{}, err
+		}
+		out.Display = display
+	}
+	return out, nil
+}
+
+func (p *parser) parseNamedURL(kind string) (name, url string, err error) {
+	name, err = p.requireName(kind + " name")
+	if err != nil {
+		return "", "", err
+	}
+	if !p.acceptKind(tColon) {
+		return "", "", parseError(p.src, p.lex.lookahead().pos, "expected ':' in %s declaration", kind)
+	}
+	url, err = p.requireString(kind + " url")
+	if err != nil {
+		return "", "", err
+	}
+	if p.acceptKeyword("version") {
+		if _, err := p.requireString(kind + " version"); err != nil {
+			return "", "", err
+		}
+	}
+	return name, url, nil
+}
+
 func (p *parser) skipNamedDeclaration() error {
 	if _, err := p.requireName("declaration name"); err != nil {
 		return err
@@ -192,6 +284,26 @@ func (p *parser) skipNamedDeclaration() error {
 		}
 	}
 	return nil
+}
+
+func resolveTerminologyDecls(lib *Library) {
+	if lib == nil {
+		return
+	}
+	csByName := map[string]string{}
+	for _, cs := range lib.CodeSystems {
+		if cs.Name != "" && cs.URL != "" {
+			csByName[cs.Name] = cs.URL
+		}
+	}
+	for i, c := range lib.Codes {
+		if c.System == "" || strings.Contains(c.System, "://") {
+			continue
+		}
+		if url, ok := csByName[c.System]; ok {
+			lib.Codes[i].System = url
+		}
+	}
 }
 
 func (p *parser) skipParameter() error {
@@ -544,6 +656,13 @@ func (p *parser) parsePrimary() (Node, error) {
 		if keywordEq(t.text, "if") {
 			return p.parseIf()
 		}
+		if keywordEq(t.text, "from") || keywordEq(t.text, "with") || keywordEq(t.text, "without") {
+			return nil, errf("%w: CQL query (%s ...); this engine evaluates define expressions, not query syntax", ErrUnsupported, t.text)
+		}
+		if keywordEq(t.text, "Interval") {
+			p.lex.next()
+			return nil, errf("%w: Interval types and promotion", ErrUnsupported)
+		}
 		p.lex.next()
 		return &identNode{nodeBase: nodeBase{src: t.text}, name: t.text}, nil
 	case tQuotedIdent:
@@ -622,6 +741,9 @@ func (p *parser) parseRetrieve() (Node, error) {
 	}
 	if !p.acceptKind(tRBrack) {
 		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after retrieve")
+	}
+	if t := p.lex.lookahead(); t.kind == tIdent && !isExprStartKeyword(t.text) && !keywordEq(t.text, "where") && !keywordEq(t.text, "select") {
+		return nil, errf("%w: related-context retrieve alias %q", ErrUnsupported, t.text)
 	}
 	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term}, nil
 }

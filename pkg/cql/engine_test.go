@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -272,5 +273,255 @@ func TestCommentsAndArithmetic(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != int64(4) {
 		t.Fatalf("comments: %#v", got)
+	}
+}
+
+func TestNewEngineLeavesFHIRPathOptional(t *testing.T) {
+	eng := testEngine(t)
+	if eng.fhirpath != nil {
+		t.Fatal("NewEngine must not construct a FHIRPath engine when Config.FHIRPath is nil")
+	}
+}
+
+type tracingFHIRPath struct {
+	inner fhirpath.Engine
+	calls []string
+}
+
+func (t *tracingFHIRPath) Compile(expr string) (fhirpath.CompiledExpression, error) {
+	return t.inner.Compile(expr)
+}
+func (t *tracingFHIRPath) Eval(ctx context.Context, expr string, resource any) ([]fhirpath.Value, error) {
+	t.calls = append(t.calls, expr)
+	return t.inner.Eval(ctx, expr, resource)
+}
+func (t *tracingFHIRPath) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]fhirpath.Value, error) {
+	t.calls = append(t.calls, expr)
+	return t.inner.EvalWithEnv(ctx, expr, resource, env)
+}
+func (t *tracingFHIRPath) EvalBool(ctx context.Context, expr string, resource any) (bool, error) {
+	t.calls = append(t.calls, expr)
+	return t.inner.EvalBool(ctx, expr, resource)
+}
+func (t *tracingFHIRPath) EvalString(ctx context.Context, expr string, resource any) (string, error) {
+	t.calls = append(t.calls, expr)
+	return t.inner.EvalString(ctx, expr, resource)
+}
+
+func TestEvalUsesConfiguredFHIRPath(t *testing.T) {
+	fp, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace := &tracingFHIRPath{inner: fp}
+	eng, err := NewEngine(Config{
+		FHIRPath: trace,
+		Now:      func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "Patient.gender", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "female" {
+		t.Fatalf("gender: %#v", got)
+	}
+	if len(trace.calls) == 0 {
+		t.Fatal("expected Config.FHIRPath to evaluate resource member access")
+	}
+	found := false
+	for _, c := range trace.calls {
+		if c == "gender" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("FHIRPath calls: %v", trace.calls)
+	}
+}
+
+func TestRetrieveMatchesStructuredCodesNotJSONSubstring(t *testing.T) {
+	leak, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "8867-4-leak",
+		"status": "final",
+		"code": {"text": "Body weight"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hit, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}], "text": "Heart rate"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{leak, hit},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[Observation: '8867-4'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("code match: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: 'Heart rate'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("display match: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: 'final'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("status must not match as terminology: %#v", got)
+	}
+}
+
+func TestRetrieveDeclaredCodeAndValueSet(t *testing.T) {
+	hit, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{hit},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library HeartLogic version '1.0.0'
+using FHIR version '4.0.1'
+codesystem "LOINC": 'http://loinc.org'
+valueset "Heart Rate": 'http://example.org/ValueSet/heart-rate'
+code "Heart rate": '8867-4' from "LOINC" display 'Heart rate'
+context Patient
+define "HR Count":
+  [Observation: "Heart rate"].count()
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.Codes) != 1 || lib.Codes[0].System != "http://loinc.org" || lib.Codes[0].Code != "8867-4" {
+		t.Fatalf("code decl: %#v", lib.Codes)
+	}
+	if len(lib.ValueSets) != 1 || lib.ValueSets[0].URL != "http://example.org/ValueSet/heart-rate" {
+		t.Fatalf("valueset decl: %#v", lib.ValueSets)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "HR Count", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("declared code retrieve: %#v", got)
+	}
+}
+
+type staticMembership map[string]bool
+
+func (s staticMembership) MemberOf(_ context.Context, valueSetURL, system, code string) (bool, error) {
+	return s[valueSetURL+"|"+system+"|"+code], nil
+}
+
+func TestRetrieveValueSetMemberOf(t *testing.T) {
+	hit, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	miss, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "wt",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "29463-7"}]},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{hit, miss},
+		Terminology: staticMembership{
+			"http://example.org/ValueSet/heart-rate|http://loinc.org|8867-4": true,
+		},
+		Now: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library HeartLogic version '1.0.0'
+using FHIR version '4.0.1'
+codesystem "LOINC": 'http://loinc.org'
+valueset "Heart Rate": 'http://example.org/ValueSet/heart-rate'
+code "HR": '8867-4' from "LOINC"
+context Patient
+define "HR Count":
+  [Observation: "Heart Rate"].count()
+define "Code In VS":
+  "HR" in "Heart Rate"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "HR Count", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("valueset retrieve: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "Code In VS", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("in valueset: %#v", got)
+	}
+}
+
+func TestUnsupportedQueryAndInterval(t *testing.T) {
+	eng := testEngine(t)
+	_, err := eng.ParseExpression("from [Observation] O where O.status = 'final'")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected unsupported query, got %v", err)
+	}
+	_, err = eng.ParseExpression("Interval[1, 10]")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected unsupported Interval, got %v", err)
+	}
+	_, err = eng.ParseExpression("[Observation] O")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected unsupported related-context retrieve, got %v", err)
 	}
 }

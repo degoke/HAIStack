@@ -12,12 +12,22 @@ import (
 )
 
 // StoreLibraryResolver loads FHIR Library resources from a ResourceStore and
-// optionally a DefinitionStore, then compiles their CQL content.
+// optionally a DefinitionStore, then compiles their CQL content. Resolve peeks
+// url/name/version and compiles only matching candidates, caching by resource
+// ID and envelope Hash.
 type StoreLibraryResolver struct {
 	Resources store.ResourceStore
 	Registry  store.DefinitionStore
 	Engine    *Engine
 	mu        sync.Mutex
+	compiled  map[string]cachedLibrary
+	// compileCount is the number of CQL compiles performed (tests).
+	compileCount int
+}
+
+type cachedLibrary struct {
+	hash string
+	lib  *Library
 }
 
 func (r *StoreLibraryResolver) Resolve(ctx context.Context, canonical string) (*Library, error) {
@@ -28,13 +38,11 @@ func (r *StoreLibraryResolver) Resolve(ctx context.Context, canonical string) (*
 		return nil, ErrEngineUnavailable
 	}
 	if r.Resources != nil {
-		r.mu.Lock()
-		byURL, err := r.buildIndex(ctx)
-		r.mu.Unlock()
+		libs, err := r.resolveFromStore(ctx, canonical)
 		if err != nil {
 			return nil, err
 		}
-		if lib, ok, resolveErr := resolveLibraryIndex(byURL, canonical); resolveErr != nil {
+		if lib, ok, resolveErr := resolveCompiledLibraries(libs, canonical); resolveErr != nil {
 			return nil, resolveErr
 		} else if ok {
 			return lib, nil
@@ -60,22 +68,79 @@ func (r *StoreLibraryResolver) Resolve(ctx context.Context, canonical string) (*
 	return nil, errf("%w: %s", ErrLibraryNotFound, canonical)
 }
 
-func (r *StoreLibraryResolver) buildIndex(ctx context.Context) (map[string][]*Library, error) {
-	byURL := map[string][]*Library{}
-	if r.Resources == nil {
-		return byURL, nil
-	}
+func (r *StoreLibraryResolver) resolveFromStore(ctx context.Context, canonical string) ([]*Library, error) {
 	ids, err := r.Resources.ListIDs(ctx, "Library", 10000, 0)
 	if err != nil {
 		return nil, fmt.Errorf("list Library resources: %w", err)
 	}
+	var out []*Library
 	for _, id := range ids {
 		env, err := r.Resources.Read(ctx, "Library", id)
 		if err != nil || env == nil {
 			continue
 		}
-		lib, err := compileEnvelope(r.Engine, env)
-		if err != nil || lib == nil {
+		url, name, version := peekLibraryMeta(env)
+		if !matchesLibraryMeta(url, name, version, canonical) {
+			continue
+		}
+		lib, err := r.compileCached(env)
+		if err != nil {
+			return nil, err
+		}
+		if lib != nil {
+			out = append(out, lib)
+		}
+	}
+	return out, nil
+}
+
+func (r *StoreLibraryResolver) compileCached(env *types.ResourceEnvelope) (*Library, error) {
+	if env == nil {
+		return nil, nil
+	}
+	key := env.ID
+	if key == "" {
+		key = env.Hash
+	}
+	r.mu.Lock()
+	if r.compiled == nil {
+		r.compiled = map[string]cachedLibrary{}
+	}
+	if key != "" {
+		if cached, ok := r.compiled[key]; ok && cached.hash == env.Hash && cached.lib != nil {
+			lib := cached.lib
+			r.mu.Unlock()
+			return lib, nil
+		}
+	}
+	r.mu.Unlock()
+
+	lib, err := compileEnvelope(r.Engine, env)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" || lib == nil {
+		return lib, nil
+	}
+	r.mu.Lock()
+	r.compiled[key] = cachedLibrary{hash: env.Hash, lib: lib}
+	r.compileCount++
+	r.mu.Unlock()
+	return lib, nil
+}
+
+func compileEnvelope(engine *Engine, env *types.ResourceEnvelope) (*Library, error) {
+	src, url, name, version, err := parseLibraryEnvelope(env)
+	if err != nil {
+		return nil, err
+	}
+	return compileLibrarySource(engine, src, url, name, version)
+}
+
+func resolveCompiledLibraries(libs []*Library, canonical string) (*Library, bool, error) {
+	byURL := map[string][]*Library{}
+	for _, lib := range libs {
+		if lib == nil {
 			continue
 		}
 		key := lib.URL
@@ -87,15 +152,7 @@ func (r *StoreLibraryResolver) buildIndex(ctx context.Context) (map[string][]*Li
 		}
 		byURL[key] = append(byURL[key], lib)
 	}
-	return byURL, nil
-}
-
-func compileEnvelope(engine *Engine, env *types.ResourceEnvelope) (*Library, error) {
-	src, url, name, version, err := parseLibraryEnvelope(env)
-	if err != nil {
-		return nil, err
-	}
-	return compileLibrarySource(engine, src, url, name, version)
+	return resolveLibraryIndex(byURL, canonical)
 }
 
 func resolveLibraryIndex(byURL map[string][]*Library, canonical string) (*Library, bool, error) {
@@ -136,6 +193,10 @@ func resolveLibraryIndex(byURL map[string][]*Library, canonical string) (*Librar
 
 func versionLess(a, b string) bool {
 	return strings.TrimSpace(a) < strings.TrimSpace(b)
+}
+
+func matchesLibraryMeta(url, name, version, canonical string) bool {
+	return matchesCanonical(&Library{URL: url, Name: name, Version: version}, canonical)
 }
 
 // MapLibraryResolver resolves from an in-memory CQL source table.

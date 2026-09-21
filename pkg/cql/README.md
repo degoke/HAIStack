@@ -27,13 +27,17 @@ expressions should share named clinical logic.
 - `define` named expressions
 - literals, identifiers, arithmetic, comparison, `and` / `or` / `not`
 - `if then else`, `is null` / `is not null`
-- FHIR property navigation (`Patient.name.given`)
+- FHIR property navigation (`Patient.name.given`); uses `Config.FHIRPath` when set, otherwise JSON navigation
 - retrieve `[ResourceType]` when `Config.Retriever` is set
+- `codesystem` / `valueset` / `code` declarations
+- retrieve and `in` filters against FHIR `Coding` / `CodeableConcept` (value-set `MemberOf` when `Config.Terminology` is set)
 - `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString` and related helpers
 
-Unsupported (clear error): `define function`, ELM-only libraries, related-context
-retrieve, Interval promotion, terminology membership (`in SomeValueSet`), and
-CQF Measure evaluation.
+This is a **Patient-context subset for SDC**, not a CQL 1.5 implementation.
+
+Unsupported (clear error): `define function`, ELM-only libraries, CQL query
+syntax (`from` / `with` / `without`), related-context retrieve, Interval types
+and promotion, and CQF Measure evaluation.
 
 ## Usage
 

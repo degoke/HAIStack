@@ -23,13 +23,16 @@
 //   - define statements (named expressions)
 //   - literals, identifiers, arithmetic, comparison, and/or/not
 //   - if-then-else, is null / is not null
-//   - FHIR property navigation (Patient.name.given)
+//   - FHIR property navigation (Patient.name.given); FHIRPath when Config.FHIRPath is set
 //   - retrieve [ResourceType] when a Retriever is configured
+//   - codesystem / valueset / code declarations
+//   - retrieve and `in` filters against Coding/CodeableConcept (MemberOf when Config.Terminology is set)
 //   - First, Last, Count, Exists, AgeInYears, ToString and related helpers
 //
 // Unsupported (return a clear error): define function, ELM-only libraries,
-// related-context retrieve, Interval promotion, terminology membership,
-// and CQF Measure evaluation.
+// CQL query syntax (from / with / without), related-context retrieve,
+// Interval types and promotion, and CQF Measure evaluation. This is a
+// Patient-context subset for SDC, not a CQL 1.5 engine.
 //
 // # Integration
 //

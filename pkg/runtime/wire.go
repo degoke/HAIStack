@@ -317,6 +317,21 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	engine := b.fhirPathEngine
+	var term fhirpath.TerminologyValidator
+	if state.services.TerminologyService != nil {
+		termSvc := state.services.TerminologyService
+		term = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+			result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
+				ScopeID: termScope,
+				URL:     valueSetURL,
+				Coding:  terminology.Coding{System: system, Code: code},
+			})
+			if err != nil {
+				return false, err
+			}
+			return result != nil && result.Status == terminology.Valid, nil
+		})
+	}
 	if engine == nil {
 		fpCfg := fhirpath.Config{}
 		readFn := func(ctx context.Context, resourceType, id string) (any, error) {
@@ -327,20 +342,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Read:             readFn,
 			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
 		})
-		if state.services.TerminologyService != nil {
-			termSvc := state.services.TerminologyService
-			fpCfg.Terminology = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
-				result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
-					ScopeID: termScope,
-					URL:     valueSetURL,
-					Coding:  terminology.Coding{System: system, Code: code},
-				})
-				if err != nil {
-					return false, err
-				}
-				return result != nil && result.Status == terminology.Valid, nil
-			})
-		}
+		fpCfg.Terminology = term
 		var err error
 		engine, err = fhirpath.NewEngine(fpCfg)
 		if err != nil {
@@ -349,8 +351,9 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 	state.services.FHIRPathEngine = engine
 	cqlEngine, err := cql.NewEngine(cql.Config{
-		FHIRPath:  engine,
-		Retriever: cql.StoreRetriever{Resources: pc.resources},
+		FHIRPath:    engine,
+		Retriever:   cql.StoreRetriever{Resources: pc.resources},
+		Terminology: term,
 	})
 	if err != nil {
 		return fmt.Errorf("runtime: cql engine: %w", err)

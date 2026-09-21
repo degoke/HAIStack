@@ -2,8 +2,10 @@ package cql
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
@@ -33,9 +35,6 @@ func (r StoreRetriever) Retrieve(ctx context.Context, req RetrieveRequest, patie
 			continue
 		}
 		if wantRef != "" && !resourceMatchesPatient(env, wantRef) {
-			continue
-		}
-		if req.Terminology != "" && !resourceMatchesTerminology(env, req.Terminology) {
 			continue
 		}
 		out = append(out, env)
@@ -109,12 +108,212 @@ func resourceMatchesPatient(env *types.ResourceEnvelope, wantRef string) bool {
 	return strings.EqualFold(ref, wantRef) || strings.HasSuffix(ref, "/"+strings.TrimPrefix(wantRef, "Patient/"))
 }
 
-func resourceMatchesTerminology(env *types.ResourceEnvelope, term string) bool {
-	if env == nil || term == "" {
+func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest, term fhirpath.TerminologyValidator) (bool, error) {
+	if req.Terminology == "" && req.ValueSetURL == "" && req.Code == "" {
+		return true, nil
+	}
+	codes := extractCodings(item)
+	if len(codes) == 0 {
+		if c := codingFromValue(item); c.Code != "" || c.Display != "" || c.Text != "" || c.System != "" {
+			codes = []fhirCoding{c}
+		}
+	}
+	if req.Code != "" {
+		return codingMatches(codes, req.System, req.Code, ""), nil
+	}
+	if req.ValueSetURL != "" && term != nil {
+		for _, c := range codes {
+			if c.Code == "" {
+				continue
+			}
+			ok, err := term.MemberOf(ctx, req.ValueSetURL, c.System, c.Code)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	if req.ValueSetURL != "" {
+		if codingMatches(codes, "", "", req.ValueSetURL) || codingMatches(codes, "", "", req.Terminology) {
+			return true, nil
+		}
+		return false, nil
+	}
+	return codingMatches(codes, "", "", req.Terminology), nil
+}
+
+type fhirCoding struct {
+	System  string
+	Code    string
+	Display string
+	Text    string
+}
+
+func extractCodings(v any) []fhirCoding {
+	obj, ok := asObject(v)
+	if !ok {
+		return nil
+	}
+	var out []fhirCoding
+	walkCodings(obj, &out)
+	return out
+}
+
+func walkCodings(v any, out *[]fhirCoding) {
+	switch x := v.(type) {
+	case map[string]any:
+		if raw, ok := x["coding"].([]any); ok {
+			text := strField(x, "text")
+			for _, el := range raw {
+				m, ok := el.(map[string]any)
+				if !ok {
+					continue
+				}
+				*out = append(*out, fhirCoding{
+					System:  strField(m, "system"),
+					Code:    strField(m, "code"),
+					Display: strField(m, "display"),
+					Text:    text,
+				})
+			}
+			if text != "" && len(raw) == 0 {
+				*out = append(*out, fhirCoding{Text: text})
+			}
+		} else if isCodingShape(x) {
+			*out = append(*out, fhirCoding{
+				System:  strField(x, "system"),
+				Code:    strField(x, "code"),
+				Display: strField(x, "display"),
+			})
+		} else if text := strField(x, "text"); text != "" && looksLikeCodeableText(x) {
+			*out = append(*out, fhirCoding{Text: text})
+		}
+		for k, child := range x {
+			if k == "coding" {
+				continue
+			}
+			walkCodings(child, out)
+		}
+	case []any:
+		for _, el := range x {
+			walkCodings(el, out)
+		}
+	}
+}
+
+func isCodingShape(m map[string]any) bool {
+	code, _ := m["code"].(string)
+	if code == "" {
+		return false
+	}
+	_, hasSystem := m["system"]
+	_, hasDisplay := m["display"]
+	return hasSystem || hasDisplay
+}
+
+func looksLikeCodeableText(m map[string]any) bool {
+	if _, hasCoding := m["coding"]; hasCoding {
 		return true
 	}
-	blob := string(env.JSON)
-	return strings.Contains(blob, term)
+	// CodeableConcept with only text: typically just "text" and maybe "id"/"extension".
+	if _, hasText := m["text"]; !hasText {
+		return false
+	}
+	_, hasSystem := m["system"]
+	_, hasCode := m["code"]
+	return !hasSystem && !hasCode
+}
+
+func codingFromValue(v any) fhirCoding {
+	switch x := v.(type) {
+	case Code:
+		return fhirCoding{System: x.System, Code: x.Code, Display: x.Display}
+	case fhirCoding:
+		return x
+	case string:
+		if sys, code, ok := splitSystemCode(x); ok {
+			return fhirCoding{System: sys, Code: code}
+		}
+		return fhirCoding{Code: x, Text: x, Display: x}
+	}
+	if obj, ok := asObject(v); ok {
+		if isCodingShape(obj) {
+			return fhirCoding{System: strField(obj, "system"), Code: strField(obj, "code"), Display: strField(obj, "display")}
+		}
+		if raw, ok := obj["coding"].([]any); ok {
+			text := strField(obj, "text")
+			if len(raw) > 0 {
+				if m, ok := raw[0].(map[string]any); ok {
+					return fhirCoding{
+						System:  strField(m, "system"),
+						Code:    strField(m, "code"),
+						Display: strField(m, "display"),
+						Text:    text,
+					}
+				}
+			}
+			return fhirCoding{Text: text}
+		}
+		return fhirCoding{Text: strField(obj, "text"), Code: strField(obj, "code")}
+	}
+	s := strings.TrimSpace(fmt.Sprint(unwrapPrimitive(v)))
+	if s == "" || s == "<nil>" {
+		return fhirCoding{}
+	}
+	return fhirCoding{Code: s, Text: s, Display: s}
+}
+
+func codingMatches(codes []fhirCoding, system, code, term string) bool {
+	for _, c := range codes {
+		if code != "" {
+			if !strings.EqualFold(c.Code, code) {
+				continue
+			}
+			if system != "" && !strings.EqualFold(c.System, system) {
+				continue
+			}
+			return true
+		}
+		if term == "" {
+			continue
+		}
+		if strings.EqualFold(c.Code, term) || strings.EqualFold(c.Display, term) || strings.EqualFold(c.Text, term) || strings.EqualFold(c.System, term) {
+			return true
+		}
+		if sys, cd, ok := splitSystemCode(term); ok {
+			if (sys == "" || strings.EqualFold(c.System, sys)) && strings.EqualFold(c.Code, cd) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func splitSystemCode(term string) (system, code string, ok bool) {
+	term = strings.TrimSpace(term)
+	i := strings.LastIndex(term, "|")
+	if i <= 0 || i == len(term)-1 {
+		return "", "", false
+	}
+	return strings.TrimSpace(term[:i]), strings.TrimSpace(term[i+1:]), true
+}
+
+func strField(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if ok {
+		return s
+	}
+	return fmt.Sprint(unwrapPrimitive(v))
 }
 
 func resourceTypeOf(v any) string {
