@@ -88,6 +88,12 @@ type isNode struct {
 	target string // "null" or type name
 }
 
+type asNode struct {
+	nodeBase
+	x      Node
+	target string
+}
+
 type quantityNode struct {
 	nodeBase
 	value any

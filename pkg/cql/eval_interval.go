@@ -408,6 +408,24 @@ func intervalContainsResult(iv Interval, point any, properly bool) ([]any, error
 	return []any{ok}, nil
 }
 
+func intervalContainsAll(iv Interval, points []any) ([]any, error) {
+	unknown := false
+	for _, item := range points {
+		ok, comparable := intervalContains(iv, item, false)
+		if !comparable {
+			unknown = true
+			continue
+		}
+		if !ok {
+			return []any{false}, nil
+		}
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
+}
+
 func intervalContains(iv Interval, point any, properly bool) (bool, bool) {
 	if point == nil {
 		return false, false

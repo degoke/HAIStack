@@ -289,12 +289,20 @@ func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error)
 func collapseIntervals(v []any) []any {
 	var ivs []Interval
 	for _, item := range v {
-		if iv, ok := asInterval(item); ok {
-			ivs = append(ivs, iv)
+		if item == nil || unwrapPrimitive(item) == nil {
+			continue
 		}
+		iv, ok := asInterval(item)
+		if !ok {
+			return nil
+		}
+		ivs = append(ivs, iv)
 	}
 	if len(ivs) == 0 {
-		return v
+		if v == nil {
+			return nil
+		}
+		return []any{}
 	}
 	changed := true
 	for changed {

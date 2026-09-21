@@ -1164,6 +1164,43 @@ func TestELMRetrieveDateWindow(t *testing.T) {
 	}
 }
 
+func TestELMRetrievePluralDateBoundsMatchNone(t *testing.T) {
+	in, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation", "id": "in", "status": "final",
+		"code": {"text": "HR"}, "effectiveDateTime": "2020-06-01", "subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := parseELMExpr(map[string]any{
+		"type":         "Retrieve",
+		"dataType":     "{http://hl7.org/fhir}Observation",
+		"dateProperty": "effective",
+		"dateLow": map[string]any{
+			"type": "List",
+			"element": []any{
+				map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+				map[string]any{"type": "Date", "year": 2019, "month": 1, "day": 1},
+			},
+		},
+		"dateHigh": map[string]any{"type": "Date", "year": 2020, "month": 12, "day": 31},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{Retriever: StaticRetriever{in}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t), Retriever: StaticRetriever{in}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("plural dateLow must match none: %#v", got)
+	}
+}
+
 func TestELMToListNullAndUnknownType(t *testing.T) {
 	n, err := parseELMExpr(map[string]any{"type": "ToList", "operand": map[string]any{"type": "Null"}})
 	if err != nil {

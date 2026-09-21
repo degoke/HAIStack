@@ -130,23 +130,9 @@ func (st *evalState) eval(n Node) ([]any, error) {
 	case *retrieveNode:
 		return st.evalRetrieve(x)
 	case *isNode:
-		v, err := st.eval(x.x)
-		if err != nil {
-			return nil, err
-		}
-		isNull := v == nil || (len(v) == 1 && v[0] == nil)
-		result := isNull
-		if !strings.EqualFold(x.target, "null") {
-			if isNull || len(v) == 0 {
-				result = false
-			} else {
-				result = typeName(v[0]) == x.target || strings.EqualFold(typeName(v[0]), x.target)
-			}
-		}
-		if x.not {
-			result = !result
-		}
-		return []any{result}, nil
+		return st.evalIs(x)
+	case *asNode:
+		return st.evalAs(x)
 	case *quantityNode:
 		return st.evalQuantity(x)
 	case *intervalNode:
@@ -572,13 +558,18 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			}
 			return []any{ok}, nil
 		}
-		item := membershipItem(n.left, left)
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
-				return intervalContainsResult(iv, item, false)
+				return intervalContainsAll(iv, left)
 			}
 		}
-		return containsResult(right, item), nil
+		if isListValued(n.left) {
+			if pointsVersusIntervals(left, right) {
+				return allPointsInAnyInterval(left, right), nil
+			}
+			return containsResult(right, membershipItem(n.left, left)), nil
+		}
+		return containsResultWithIntervals(right, membershipItem(n.left, left)), nil
 	case "contains":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -591,13 +582,18 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if left == nil || right == nil {
 			return nil, nil
 		}
-		item := membershipItem(n.right, right)
 		if len(left) == 1 {
 			if iv, ok := asInterval(left[0]); ok {
-				return intervalContainsResult(iv, item, false)
+				return intervalContainsAll(iv, right)
 			}
 		}
-		return containsResult(left, item), nil
+		if isListValued(n.right) {
+			if pointsVersusIntervals(right, left) {
+				return allPointsInAnyInterval(right, left), nil
+			}
+			return containsResult(left, membershipItem(n.right, right)), nil
+		}
+		return containsResultWithIntervals(left, membershipItem(n.right, right)), nil
 	case "intersect":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -1097,28 +1093,31 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return []any{t}, nil
 	case "tointerval":
-		if len(args) == 0 || len(args[0]) == 0 {
+		item, ok := singletonArg(args)
+		if !ok {
 			return nil, nil
 		}
-		if iv, ok := asInterval(args[0][0]); ok {
+		if iv, ok := asInterval(item); ok {
 			return []any{iv}, nil
 		}
 		return nil, nil
 	case "toquantity":
-		if len(args) == 0 || len(args[0]) == 0 {
+		item, ok := singletonArg(args)
+		if !ok {
 			return nil, nil
 		}
-		if q, ok := asQuantity(args[0][0]); ok {
+		if q, ok := asQuantity(item); ok {
 			return []any{q}, nil
 		}
 		return nil, nil
 	case "todatetime", "todate", "totime":
-		if len(args) == 0 || len(args[0]) == 0 {
+		item, ok := singletonArg(args)
+		if !ok {
 			return nil, nil
 		}
-		tm, ok := asTime(args[0][0])
+		tm, ok := asTime(item)
 		if !ok {
-			if s, isStr := unwrapPrimitive(args[0][0]).(string); isStr {
+			if s, isStr := unwrapPrimitive(item).(string); isStr {
 				if n == "totime" {
 					if parsed, pok := parseELMTimeString(s); pok {
 						tm = parsed
@@ -1346,12 +1345,15 @@ func (st *evalState) filterRetrieveDates(items []any, n *retrieveNode) ([]any, e
 	if n == nil || (n.datePath == "" && n.dateLow == nil && n.dateHigh == nil) {
 		return items, nil
 	}
-	window, err := st.retrieveDateWindow(n)
+	window, apply, err := st.retrieveDateWindow(n)
 	if err != nil {
 		return nil, err
 	}
-	if window == nil {
+	if !apply {
 		return items, nil
+	}
+	if window == nil {
+		return []any{}, nil
 	}
 	path := n.datePath
 	if path == "" {
@@ -1373,44 +1375,47 @@ func (st *evalState) filterRetrieveDates(items []any, n *retrieveNode) ([]any, e
 	return out, nil
 }
 
-func (st *evalState) retrieveDateWindow(n *retrieveNode) (*Interval, error) {
+func (st *evalState) retrieveDateWindow(n *retrieveNode) (*Interval, bool, error) {
 	low, err := st.eval(n.dateLow)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	high, err := st.eval(n.dateHigh)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if len(low) > 1 || len(high) > 1 {
+		return nil, true, nil
 	}
 	if len(low) == 0 && len(high) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	if n.dateHigh == nil && len(low) == 1 {
 		if iv, ok := asInterval(low[0]); ok {
-			return &iv, nil
+			return &iv, true, nil
 		}
 	}
 	if n.dateLow == nil && len(high) == 1 {
 		if iv, ok := asInterval(high[0]); ok {
-			return &iv, nil
+			return &iv, true, nil
 		}
 	}
 	lowClosed, err := st.evalClosed(n.dateLowClosed, n.dateLowClosedExpr)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	highClosed, err := st.evalClosed(n.dateHighClosed, n.dateHighClosedExpr)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	iv := Interval{LowClosed: lowClosed, HighClosed: highClosed}
-	if len(low) > 0 {
+	if len(low) == 1 {
 		iv.Low = singletonOrList(low)
 	}
-	if len(high) > 0 {
+	if len(high) == 1 {
 		iv.High = singletonOrList(high)
 	}
-	return &iv, nil
+	return &iv, true, nil
 }
 
 func valueInDateWindow(v any, window Interval) bool {
@@ -1745,7 +1750,7 @@ func singletonOrEmpty(v []any) any {
 }
 
 func asBool(v []any) *bool {
-	if len(v) == 0 {
+	if len(v) != 1 {
 		return nil
 	}
 	if x, ok := unwrapPrimitive(v[0]).(bool); ok {
@@ -2316,6 +2321,169 @@ func containsResult(list []any, item any) []any {
 	return []any{false}
 }
 
+func containsResultWithIntervals(list []any, item any) []any {
+	if item == nil {
+		return nil
+	}
+	if _, ok := asInterval(item); ok {
+		return containsResult(list, item)
+	}
+	unknown := false
+	for _, el := range list {
+		if iv, ok := asInterval(el); ok {
+			ok, comparable := intervalContains(iv, item, false)
+			if !comparable {
+				unknown = true
+				continue
+			}
+			if ok {
+				return []any{true}
+			}
+			continue
+		}
+		eq := cqlEqual3Value(el, item)
+		if eq == nil {
+			unknown = true
+			continue
+		}
+		if eq[0] == true {
+			return []any{true}
+		}
+	}
+	if unknown {
+		return nil
+	}
+	return []any{false}
+}
+
+func pointsVersusIntervals(points, intervals []any) bool {
+	hasInterval := false
+	for _, el := range intervals {
+		if el == nil || unwrapPrimitive(el) == nil {
+			continue
+		}
+		if _, ok := asInterval(el); !ok {
+			return false
+		}
+		hasInterval = true
+	}
+	if !hasInterval {
+		return false
+	}
+	for _, p := range points {
+		if p == nil || unwrapPrimitive(p) == nil {
+			continue
+		}
+		if _, ok := asInterval(p); ok {
+			return false
+		}
+	}
+	return true
+}
+
+func allPointsInAnyInterval(points, intervals []any) []any {
+	unknown := false
+	for _, p := range points {
+		res := containsResultWithIntervals(intervals, p)
+		if res == nil {
+			unknown = true
+			continue
+		}
+		if res[0] != true {
+			return []any{false}
+		}
+	}
+	if unknown {
+		return nil
+	}
+	return []any{true}
+}
+
+func (st *evalState) evalIs(n *isNode) ([]any, error) {
+	v, err := st.eval(n.x)
+	if err != nil {
+		return nil, err
+	}
+	isNull := v == nil || (len(v) == 1 && v[0] == nil)
+	if strings.EqualFold(n.target, "null") {
+		result := isNull
+		if n.not {
+			result = !result
+		}
+		return []any{result}, nil
+	}
+	if isNull {
+		return nil, nil
+	}
+	if len(v) == 0 {
+		result := false
+		if n.not {
+			result = !result
+		}
+		return []any{result}, nil
+	}
+	matches := true
+	unknown := false
+	for _, item := range v {
+		if item == nil || unwrapPrimitive(item) == nil {
+			unknown = true
+			continue
+		}
+		if !typeEquals(item, n.target) {
+			matches = false
+			break
+		}
+	}
+	if !matches {
+		result := false
+		if n.not {
+			result = !result
+		}
+		return []any{result}, nil
+	}
+	if unknown {
+		return nil, nil
+	}
+	result := true
+	if n.not {
+		result = !result
+	}
+	return []any{result}, nil
+}
+
+func (st *evalState) evalAs(n *asNode) ([]any, error) {
+	v, err := st.eval(n.x)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil || (len(v) == 1 && v[0] == nil) {
+		return nil, nil
+	}
+	if len(v) == 0 {
+		return nil, nil
+	}
+	for _, item := range v {
+		if item == nil || unwrapPrimitive(item) == nil {
+			return nil, nil
+		}
+		if !typeCompatible(item, n.target) {
+			return nil, nil
+		}
+	}
+	return v, nil
+}
+
+func typeEquals(v any, target string) bool {
+	return strings.EqualFold(typeName(v), target)
+}
+
+func typeCompatible(v any, target string) bool {
+	if typeEquals(v, target) {
+		return true
+	}
+	return strings.EqualFold(target, "Decimal") && typeEquals(v, "Integer")
+}
+
 func listOrStringLength(args [][]any) ([]any, error) {
 	if len(args) == 0 || args[0] == nil {
 		return nil, nil
@@ -2350,7 +2518,7 @@ func distinctValues(in []any) []any {
 }
 
 func typeName(v any) string {
-	switch unwrapPrimitive(v).(type) {
+	switch x := unwrapPrimitive(v).(type) {
 	case bool:
 		return "Boolean"
 	case string:
@@ -2360,6 +2528,9 @@ func typeName(v any) string {
 	case float32, float64:
 		return "Decimal"
 	case time.Time:
+		if isDateOnlyTime(x) {
+			return "Date"
+		}
 		return "DateTime"
 	case Quantity:
 		return "Quantity"

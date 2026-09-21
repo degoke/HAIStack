@@ -2821,4 +2821,224 @@ func TestScalarOpsRequireSingleton(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("Take null count must be null: %#v", got)
 	}
+	got, err = eng.Eval(context.Background(), "ToDateTime({@2020-01-01, @2021-01-01})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToDateTime list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToQuantity({1 'mg', 2 'mg'})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToQuantity list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToInterval({Interval[1, 2], Interval[3, 4]})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToInterval list must be null: %#v", got)
+	}
+}
+
+func TestIsChecksEveryElementAndNullOperand(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{true, 1} is Boolean", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{true, 1} is Boolean: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{true, null} is Boolean", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{true, null} is Boolean must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "null is Boolean", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("null is Boolean must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "@2020-01-01 is Date", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("@2020-01-01 is Date: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "@2020-01-01 is DateTime", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("@2020-01-01 is DateTime: %#v", got)
+	}
+}
+
+func TestAsIsACastNotANoOp(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 as String", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("1 as String must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 as Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) && got[0] != 1 {
+		t.Fatalf("1 as Integer: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'hello' as Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("'hello' as Integer must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "@2020-01-01 as String", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("@2020-01-01 as String must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{true, 1} as Boolean", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{true, 1} as Boolean must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 as Decimal", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("1 as Decimal: %#v", got)
+	}
+}
+
+func TestLogicAndIfRequireSingletonBoolean(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{true, false} and true", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("list and true must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "true and {true, false}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("true and list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{true, false} xor false", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("list xor must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "if {true, false} then 1 else 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("if list then must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "false and {true, false}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("false and list short-circuit: %#v", got)
+	}
+}
+
+func TestPointInIntervalLists(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{3, 4} in Interval[1, 5]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{3, 4} in Interval[1, 5]: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{3, 6} in Interval[1, 5]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{3, 6} in Interval[1, 5]: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] contains {3, 4}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Interval contains {3, 4}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "3 in { Interval[1, 5], Interval[10, 12] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("3 in list of intervals: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{3, 11} in { Interval[1, 5], Interval[10, 12] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{3, 11} in list of intervals: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ Interval[1, 5], Interval[10, 12] } contains 3", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("list of intervals contains 3: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] in { Interval[1, 5], Interval[10, 12] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("interval in list of intervals: %#v", got)
+	}
+}
+
+func TestCollapseRejectsMixedLists(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Collapse { Interval[1, 2], 'x', Interval[3, 4] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Collapse mixed must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Collapse { Interval[1, 3], Interval[2, 4] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Collapse overlapping: %#v", got)
+	}
+	iv, ok := asInterval(got[0])
+	if !ok || fmt.Sprint(iv.Low) != "1" || fmt.Sprint(iv.High) != "4" {
+		t.Fatalf("Collapse merge: %#v", got[0])
+	}
 }

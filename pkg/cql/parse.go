@@ -948,9 +948,11 @@ func (p *parser) parsePostfix() (Node, error) {
 				continue
 			}
 			if p.acceptKeyword("as") {
-				if _, err := p.requireName("type name"); err != nil {
+				tname, err := p.requireName("type name")
+				if err != nil {
 					return nil, err
 				}
+				n = &asNode{nodeBase: nodeBase{src: p.src}, x: n, target: tname}
 				continue
 			}
 			if lit, ok := n.(*litNode); ok {
