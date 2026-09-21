@@ -1,0 +1,21 @@
+name: haistack-research-workloads
+version: "1.0.0"
+description: >
+  Portable FHIR workloads for vendor-neutral comparison. Report per-workload
+  counts and elapsed time. Do not collapse into a single ranking score.
+workloads:
+  - name: crud-read
+    description: Sequential Patient reads by id
+    operation: read
+    resourceType: Patient
+  - name: view-observation
+    description: SQL-on-FHIR Observation view projection
+    operation: view
+    viewName: observation_view
+    viewVersion: "1.0.0"
+  - name: ai-run-view
+    description: Policy-governed run_view tool (HAIStack-only; omit on servers without AI tools)
+    operation: ai-run-view
+    viewName: observation_view
+    viewVersion: "1.0.0"
+    optional: true

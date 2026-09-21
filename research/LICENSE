@@ -1,0 +1,15 @@
+HAIStack research artefacts
+==========================
+
+Code under research/ is licensed under the Apache License, Version 2.0.
+See the repository root LICENSE file.
+
+Datasets, corpora, gold ConceptMaps, workload definitions, and synthetic FHIR
+instances under research/ are original, fully synthetic, and contain no PHI.
+They are also licensed under Apache License 2.0 so that code and data can be
+redistributed together.
+
+If a future dataset uses a different license (for example CC-BY for a
+third-party synthetic corpus), that dataset directory will include its own
+LICENSE file. None of the artefacts in this tree currently differ from
+Apache 2.0.

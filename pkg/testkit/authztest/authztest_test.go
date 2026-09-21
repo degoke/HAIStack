@@ -1,6 +1,7 @@
 package authztest_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/testkit/authztest"
@@ -24,5 +25,19 @@ func TestAuthorizationScenarioCatalog(t *testing.T) {
 func TestCatalogSize(t *testing.T) {
 	if authztest.CatalogSize() < 30 {
 		t.Fatalf("catalog size = %d, want >= 30", authztest.CatalogSize())
+	}
+}
+
+func TestResearchDeclarativeCatalog(t *testing.T) {
+	path, err := authztest.ResearchCatalogPath()
+	if err != nil {
+		t.Skip(err)
+	}
+	scenarios, err := authztest.LoadDeclarativeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authztest.RunDeclarative(context.Background(), scenarios); err != nil {
+		t.Fatal(err)
 	}
 }

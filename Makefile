@@ -1,4 +1,4 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock
+.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
@@ -64,5 +64,27 @@ clean: ## Remove build artifacts and test binaries
 	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
 ci: fmt-check vet lint test-race build ## Run all Go CI checks locally
+
+research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Run all research reproducibility checks
+
+research-ai-pipeline: ## Track E: FHIR → view → AI provenance pipeline
+	$(GO) test ./research/ai-pipeline -count=1
+	$(GO) run ./research/ai-pipeline/cmd
+
+research-policy: ## Track C: policy semantics catalogue
+	$(GO) test ./research/policy-semantics -count=1
+	$(GO) run ./research/policy-semantics/cmd
+
+research-conversion: ## Track B: R4/R5 conversion corpus scoring
+	$(GO) test ./research/semantic-conversion -count=1
+	$(GO) run ./research/semantic-conversion/cmd
+
+research-terminology: ## Track D: ConceptMap quality metrics
+	$(GO) test ./research/terminology-evaluation -count=1
+	$(GO) run ./research/terminology-evaluation/cmd
+
+research-benchmarks: ## Track A: vendor-neutral seeded workloads
+	$(GO) test ./research/benchmarks -count=1
+	$(GO) run ./research/benchmarks/cmd -size small
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

@@ -34,6 +34,8 @@ const (
 
 	ActionExport     = "export"
 	ActionBlobAccess = "blob.access"
+
+	ActionTerminologyTranslate = "terminology.translate"
 )
 
 // Event is the canonical audit event model used across the stack.

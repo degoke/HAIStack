@@ -74,6 +74,18 @@ Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlit
 
 ---
 
+## Research artefacts
+
+[`research/`](research/README.md) publishes vendor-neutral, fully synthetic artefacts for the five FHIR/clinical-AI gaps HAIStack is positioned to address: a portable benchmark suite, an R4→R5 conversion corpus, computable policy/consent semantics, ConceptMap quality metrics with audit provenance, and a reproducible FHIR → ViewDefinition → AI tool pipeline.
+
+```bash
+make research
+```
+
+Cite the software and artefacts with [`CITATION.cff`](CITATION.cff). Datasets contain no PHI.
+
+---
+
 ## Architecture
 
 ```

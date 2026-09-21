@@ -9,4 +9,6 @@
 // denials across REST, search, views, AI tools, sync, and module install.
 //
 // This package is for tests only. Production code must not import authztest.
+// Declarative JSON scenarios published under research/policy-semantics can be
+// loaded with LoadDeclarativeFile and RunDeclarative (consent overlays skipped).
 package authztest
