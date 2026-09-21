@@ -92,14 +92,16 @@ func (s *ResourceService) DeleteIfMatch(ctx context.Context, resourceType, id, e
 		}
 		return exceptionErr("read resource for delete", err)
 	}
-	if err := s.applyDeleteExpectedVersion(ctx, session, current, expectedVersion); err != nil {
+	original := cloneEnvelope(current)
+	deleted, err := s.applyDeleteExpectedVersion(ctx, session, current, expectedVersion)
+	if err != nil {
 		return err
 	}
 	if err := session.Commit(ctx); err != nil {
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
-	s.runPostCommit(ctx, hooks.ActionDelete, current, current)
+	s.runPostCommit(ctx, hooks.ActionDelete, deleted, original)
 	return nil
 }
 

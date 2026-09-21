@@ -26,6 +26,15 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 		return nil, err
 	}
 
+	pending, err := s.collectBundlePendingIdentities(parsed)
+	if err != nil {
+		return nil, err
+	}
+	if err := rewriteBundleLocalReferences(parsed, pending); err != nil {
+		return nil, err
+	}
+	ctx = contextWithPendingIdentities(ctx, pending)
+
 	session, err := s.sessions.BeginWrite(ctx)
 	if err != nil {
 		return nil, exceptionErr("begin write session", err)
@@ -84,6 +93,7 @@ type transactionBundle struct {
 type bundleRequestEntry struct {
 	Method      string
 	URL         string
+	FullURL     string
 	Resource    *types.ResourceEnvelope
 	IfMatch     string
 	IfNoneExist string
@@ -144,6 +154,8 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		method = strings.ToUpper(strings.TrimSpace(method))
 		url, _ := requestRaw["url"].(string)
 		url = strings.TrimSpace(url)
+		fullURL, _ := entryObj["fullUrl"].(string)
+		fullURL = strings.TrimSpace(fullURL)
 		ifMatch, _ := requestRaw["ifMatch"].(string)
 		ifNoneExist, _ := requestRaw["ifNoneExist"].(string)
 
@@ -178,6 +190,7 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 		entries = append(entries, bundleRequestEntry{
 			Method:      method,
 			URL:         url,
+			FullURL:     fullURL,
 			Resource:    resourceEnv,
 			IfMatch:     strings.TrimSpace(ifMatch),
 			IfNoneExist: strings.TrimSpace(ifNoneExist),
@@ -185,6 +198,98 @@ func parseTransactionBundle(bundle *types.ResourceEnvelope) (*transactionBundle,
 	}
 
 	return &transactionBundle{Entries: entries}, nil
+}
+
+func (s *ResourceService) collectBundlePendingIdentities(parsed *transactionBundle) (*pendingIdentities, error) {
+	pending := newPendingIdentities()
+	if parsed == nil {
+		return pending, nil
+	}
+	for i := range parsed.Entries {
+		entry := &parsed.Entries[i]
+		if entry.Method != "POST" && entry.Method != "PUT" {
+			pending.addURN(entry.FullURL)
+			continue
+		}
+		resourceType, id, err := s.pendingEntryIdentity(entry)
+		if err != nil {
+			return nil, err
+		}
+		pending.addTyped(resourceType, id)
+		pending.addURN(entry.FullURL)
+		if resourceType != "" && id != "" {
+			pending.resolveURN(entry.FullURL, resourceType+"/"+id)
+		}
+	}
+	return pending, nil
+}
+
+// rewriteBundleLocalReferences replaces intra-bundle urn:uuid Reference.reference
+// values with the target entry's Type/id so stored JSON does not keep unresolved
+// URNs that were resolved against this transaction.
+func rewriteBundleLocalReferences(parsed *transactionBundle, pending *pendingIdentities) error {
+	if parsed == nil || pending == nil || !pending.hasResolvedURNs() {
+		return nil
+	}
+	for i := range parsed.Entries {
+		entry := &parsed.Entries[i]
+		if entry.Resource == nil || len(entry.Resource.JSON) == 0 {
+			continue
+		}
+		rewritten, err := rewriteReferenceStrings(entry.Resource.JSON, pending)
+		if err != nil {
+			return invalidErr("rewrite bundle local references", err)
+		}
+		entry.Resource.JSON = rewritten
+	}
+	return nil
+}
+
+func (s *ResourceService) pendingEntryIdentity(entry *bundleRequestEntry) (resourceType, id string, err error) {
+	if entry == nil {
+		return "", "", nil
+	}
+	switch entry.Method {
+	case "PUT":
+		return parseResourceURL(entry.URL)
+	case "POST":
+		resourceType = entry.URL
+		if strings.Contains(resourceType, "/") {
+			return "", "", nil
+		}
+		if entry.Resource == nil {
+			return resourceType, "", nil
+		}
+		id, err = types.GetID(entry.Resource.JSON)
+		if err != nil {
+			return "", "", invalidErr("parse bundle entry id", err)
+		}
+		if id != "" {
+			return resourceType, id, nil
+		}
+		if resourceType == "" {
+			resourceType, err = types.GetResourceType(entry.Resource.JSON)
+			if err != nil {
+				return "", "", nil
+			}
+		}
+		if resourceType == "" {
+			return "", "", nil
+		}
+		generated, err := s.idPolicy.Generate(resourceType)
+		if err != nil {
+			return "", "", exceptionErr("generate resource id", err)
+		}
+		jsonWithID, err := types.SetID(entry.Resource.JSON, generated)
+		if err != nil {
+			return "", "", invalidErr("set resource id", err, "Resource.id")
+		}
+		entry.Resource.JSON = jsonWithID
+		entry.Resource.ID = generated
+		return resourceType, generated, nil
+	default:
+		return "", "", nil
+	}
 }
 
 func (s *ResourceService) executeBundleEntry(
@@ -368,10 +473,11 @@ func (s *ResourceService) executeBundleDelete(
 			return bundleExecutionResult{}, invalidErr("bundle ifMatch must contain one entity tag", nil)
 		}
 	}
-	if err := s.applyDeleteExpectedVersion(ctx, session, current, expected); err != nil {
+	deleted, err := s.applyDeleteExpectedVersion(ctx, session, current, expected)
+	if err != nil {
 		return bundleExecutionResult{}, err
 	}
-	return bundleDeleteResult(current), nil
+	return bundleDeleteResult(deleted), nil
 }
 
 func versionFromETag(raw string) (string, bool) {

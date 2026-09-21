@@ -29,17 +29,18 @@ type ResourceService struct {
 	idPolicy  ResourceIDPolicy
 	codec     types.ResourceCodec
 
-	validator               validate.Validator
-	indexer                 search.Indexer
-	outbox                  hasync.Outbox
-	terminology             store.TerminologyStore
-	terminologyScope        string
-	globalTerminologyScope  string
-	terminologySourceModule string
-	terminologyCache        terminology.Invalidator
-	definitionIngestor      DefinitionIngestor
-	conformanceRefresh      func(ctx context.Context) error
-	hooks                   hooks.Hooks
+	validator                   validate.Validator
+	indexer                     search.Indexer
+	outbox                      hasync.Outbox
+	terminology                 store.TerminologyStore
+	terminologyScope            string
+	globalTerminologyScope      string
+	terminologySourceModule     string
+	terminologyCache            terminology.Invalidator
+	definitionIngestor          DefinitionIngestor
+	conformanceRefresh          func(ctx context.Context) error
+	hooks                       hooks.Hooks
+	enforceReferentialIntegrity bool
 }
 
 // ResourceServiceConfig configures a ResourceService.
@@ -64,6 +65,12 @@ type ResourceServiceConfig struct {
 	DefinitionIngestor      DefinitionIngestor
 	ConformanceRefresh      func(ctx context.Context) error
 	Hooks                   hooks.Hooks
+
+	// EnforceReferentialIntegrity is the HAPI-style
+	// enforceReferentialIntegrityOnWrite toggle. Nil (the zero value) enables
+	// the check, matching NewResourceService's default. Set to a pointer to
+	// false to skip checkReferentialIntegrity on write.
+	EnforceReferentialIntegrity *bool
 }
 
 // NewResourceService constructs a ResourceService with required dependencies.
@@ -86,23 +93,28 @@ func NewResourceService(cfg ResourceServiceConfig) (*ResourceService, error) {
 	if cfg.TerminologyScope == "" {
 		cfg.TerminologyScope = "default"
 	}
+	enforceIntegrity := true
+	if cfg.EnforceReferentialIntegrity != nil {
+		enforceIntegrity = *cfg.EnforceReferentialIntegrity
+	}
 	return &ResourceService{
-		resources:               cfg.Resources,
-		history:                 cfg.History,
-		sessions:                cfg.Sessions,
-		idPolicy:                cfg.IDPolicy,
-		codec:                   cfg.Codec,
-		validator:               cfg.Validator,
-		indexer:                 cfg.Indexer,
-		outbox:                  cfg.Outbox,
-		terminology:             cfg.Terminology,
-		terminologyScope:        cfg.TerminologyScope,
-		globalTerminologyScope:  cfg.GlobalTerminologyScope,
-		terminologySourceModule: cfg.TerminologySourceModule,
-		terminologyCache:        cfg.TerminologyCache,
-		definitionIngestor:      cfg.DefinitionIngestor,
-		conformanceRefresh:      cfg.ConformanceRefresh,
-		hooks:                   cfg.Hooks,
+		resources:                   cfg.Resources,
+		history:                     cfg.History,
+		sessions:                    cfg.Sessions,
+		idPolicy:                    cfg.IDPolicy,
+		codec:                       cfg.Codec,
+		validator:                   cfg.Validator,
+		indexer:                     cfg.Indexer,
+		outbox:                      cfg.Outbox,
+		terminology:                 cfg.Terminology,
+		terminologyScope:            cfg.TerminologyScope,
+		globalTerminologyScope:      cfg.GlobalTerminologyScope,
+		terminologySourceModule:     cfg.TerminologySourceModule,
+		terminologyCache:            cfg.TerminologyCache,
+		definitionIngestor:          cfg.DefinitionIngestor,
+		conformanceRefresh:          cfg.ConformanceRefresh,
+		hooks:                       cfg.Hooks,
+		enforceReferentialIntegrity: enforceIntegrity,
 	}, nil
 }
 
@@ -291,15 +303,17 @@ func (s *ResourceService) Delete(ctx context.Context, resourceType, id string) e
 		return exceptionErr("read resource for delete", err)
 	}
 
-	if err := s.applyDelete(ctx, session, current); err != nil {
+	original := cloneEnvelope(current)
+	deleted, err := s.applyDelete(ctx, session, current)
+	if err != nil {
 		return err
 	}
 	if err := session.Commit(ctx); err != nil {
 		return exceptionErr("commit write session", err)
 	}
 	committed = true
-	s.runPostCommit(ctx, hooks.ActionDelete, current, current)
-	if err := s.removeDefinitionResource(ctx, current); err != nil {
+	s.runPostCommit(ctx, hooks.ActionDelete, deleted, original)
+	if err := s.removeDefinitionResource(ctx, original); err != nil {
 		return exceptionErr("remove definition from registry catalog", err)
 	}
 	return nil
@@ -394,18 +408,7 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	if hookAction == "" {
 		hookAction = hooksAction(action)
 	}
-	originalType, originalID := "", ""
-	if envelope != nil {
-		originalType, originalID = envelope.ResourceType, envelope.ID
-	}
-	envelope, err := s.runPreStorage(ctx, hookAction, envelope, previous)
-	if err != nil {
-		return nil, err
-	}
-	if err := rejectIdentityMutation(originalType, originalID, envelope); err != nil {
-		return nil, err
-	}
-	prepared, err := s.withVersionMeta(envelope, versionID, now)
+	prepared, err := s.prepareWrite(ctx, session, envelope, versionID, now, hookAction, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -468,11 +471,11 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	return prepared, nil
 }
 
-func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope) error {
+func (s *ResourceService) applyDelete(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
 	return s.applyDeleteExpectedVersion(ctx, session, current, "")
 }
 
-func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope, expectedVersion string) error {
+func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, session store.WriteSession, current *types.ResourceEnvelope, expectedVersion string) (*types.ResourceEnvelope, error) {
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
@@ -480,62 +483,63 @@ func (s *ResourceService) applyDeleteExpectedVersion(ctx context.Context, sessio
 	if current != nil {
 		originalType, originalID = current.ResourceType, current.ID
 	}
-	mutated, err := s.runPreStorage(ctx, hooks.ActionDelete, current, current)
+	stored := cloneEnvelope(current)
+	mutated, err := s.runPreStorage(ctx, hooks.ActionDelete, current, stored)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := rejectIdentityMutation(originalType, originalID, mutated); err != nil {
-		return err
+		return nil, err
 	}
 
 	if expectedVersion != "" {
 		conditional, ok := session.ResourceStore().(store.ConditionalResourceStore)
 		if !ok {
-			return notSupportedErr("conditional version deletes are not supported by the resource store", nil)
+			return nil, notSupportedErr("conditional version deletes are not supported by the resource store", nil)
 		}
-		matched, err := conditional.DeleteIfVersion(ctx, current.ResourceType, current.ID, expectedVersion)
+		matched, err := conditional.DeleteIfVersion(ctx, mutated.ResourceType, mutated.ID, expectedVersion)
 		if err != nil {
-			return exceptionErr("conditional delete resource", err)
+			return nil, exceptionErr("conditional delete resource", err)
 		}
 		if !matched {
-			return preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expectedVersion), nil)
+			return nil, preconditionErr(fmt.Sprintf("resource version does not match expected version %q", expectedVersion), nil)
 		}
-	} else if err := session.ResourceStore().Delete(ctx, current.ResourceType, current.ID); err != nil {
+	} else if err := session.ResourceStore().Delete(ctx, mutated.ResourceType, mutated.ID); err != nil {
 		if isStoreNotFound(err) {
-			return notFoundErr(err.Error(), err)
+			return nil, notFoundErr(err.Error(), err)
 		}
-		return exceptionErr("delete resource", err)
+		return nil, exceptionErr("delete resource", err)
 	}
-	if err := s.removeTerminology(ctx, session, current); err != nil {
-		return exceptionErr("delete terminology projection", err)
+	if err := s.removeTerminology(ctx, session, stored); err != nil {
+		return nil, exceptionErr("delete terminology projection", err)
 	}
 
 	version := store.ResourceVersion{
-		ResourceType: current.ResourceType,
-		ID:           current.ID,
+		ResourceType: mutated.ResourceType,
+		ID:           mutated.ID,
 		VersionID:    versionID,
 		Action:       store.VersionActionDelete,
 		Timestamp:    now,
-		Hash:         current.Hash,
+		Hash:         mutated.Hash,
 		Deleted:      true,
 	}
 	if err := session.HistoryStore().AppendVersion(ctx, version); err != nil {
-		return exceptionErr("append delete history version", err)
+		return nil, exceptionErr("append delete history version", err)
 	}
 
-	deleteEventEnv := cloneEnvelope(current)
+	deleteEventEnv := cloneEnvelope(mutated)
 	deleteEventEnv.VersionID = versionID
 	deleteEventEnv.LastUpdated = now
 	if err := s.appendEvent(ctx, session, deleteEventEnv, store.VersionActionDelete, now); err != nil {
-		return err
+		return nil, err
 	}
 
 	if s.indexer != nil {
-		if err := session.SearchStore().RemoveIndex(ctx, current.ResourceType, current.ID); err != nil {
-			return exceptionErr("remove search index", err)
+		if err := session.SearchStore().RemoveIndex(ctx, mutated.ResourceType, mutated.ID); err != nil {
+			return nil, exceptionErr("remove search index", err)
 		}
 	}
-	return nil
+	return mutated, nil
 }
 
 func (s *ResourceService) compileTerminology(ctx context.Context, session store.WriteSession, env *types.ResourceEnvelope) error {
@@ -633,6 +637,35 @@ func (s *ResourceService) removePreviousTerminology(ctx context.Context, session
 		}
 	}
 	return ts.TerminologyStore().DeleteResource(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
+}
+
+// prepareWrite is the single persist-prep path: pre-storage hooks, then
+// referential integrity, then version meta. Callers must not run integrity
+// before this helper so a pre-storage rewrite can satisfy Exists.
+func (s *ResourceService) prepareWrite(
+	ctx context.Context,
+	session store.WriteSession,
+	envelope *types.ResourceEnvelope,
+	versionID string,
+	now time.Time,
+	hookAction hooks.Action,
+	previous *types.ResourceEnvelope,
+) (*types.ResourceEnvelope, error) {
+	originalType, originalID := "", ""
+	if envelope != nil {
+		originalType, originalID = envelope.ResourceType, envelope.ID
+	}
+	envelope, err := s.runPreStorage(ctx, hookAction, envelope, previous)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectIdentityMutation(originalType, originalID, envelope); err != nil {
+		return nil, err
+	}
+	if err := s.checkReferentialIntegrity(ctx, session, envelope); err != nil {
+		return nil, err
+	}
+	return s.withVersionMeta(envelope, versionID, now)
 }
 
 func (s *ResourceService) withVersionMeta(envelope *types.ResourceEnvelope, versionID string, now time.Time) (*types.ResourceEnvelope, error) {
