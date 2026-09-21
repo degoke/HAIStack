@@ -82,6 +82,16 @@ func (s CoreMeasureService) EvaluateMeasure(ctx context.Context, req MeasureEval
 		if mreq.ReportType == "" {
 			mreq.ReportType = "individual"
 		}
+	} else if params.subject != "" && !isGroup {
+		patient, err := s.loadPatient(ctx, params.subject)
+		if err != nil {
+			return nil, err
+		}
+		mreq.Patient = patient
+		mreq.Patients = []any{patient}
+		if mreq.ReportType == "" {
+			mreq.ReportType = "summary"
+		}
 	} else {
 		patients, err := cql.ListStorePatients(ctx, s.Resources)
 		if err != nil {
@@ -371,8 +381,11 @@ func (s CoreMeasureService) loadGroupMembers(ctx context.Context, subject string
 			pid = ref[i+1:]
 		}
 		pat, err := s.Resources.Read(ctx, "Patient", pid)
-		if err != nil || pat == nil {
-			continue
+		if err != nil {
+			return nil, err
+		}
+		if pat == nil {
+			return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "Patient " + pid + " was not found"}
 		}
 		out = append(out, pat)
 	}

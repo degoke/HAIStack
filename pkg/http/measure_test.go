@@ -264,6 +264,60 @@ define "Numerator": Patient.gender = 'female'
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("nil measure envelope status=%d body=%s", rec.Code, rec.Body.String())
 	}
+
+	h = newTestHandler(t, hahttp.Config{
+		ResourceService:        &fakeResourceService{},
+		MeasureEvaluateService: svc,
+	})
+	rec = doRequest(t, h, http.MethodGet, "/fhir/Measure/adult/$evaluate-measure?periodStart=2020-01-01&periodEnd=2021-01-01&reportType=summary&subject=Patient/ada", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("summary subject status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var summaryReport map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &summaryReport); err != nil {
+		t.Fatal(err)
+	}
+	if summaryReport["type"] != "summary" {
+		t.Fatalf("summary subject type: %#v", summaryReport["type"])
+	}
+	groups, _ = summaryReport["group"].([]any)
+	g0, _ = groups[0].(map[string]any)
+	pops, _ = g0["population"].([]any)
+	ip := 0
+	for _, raw := range pops {
+		p, _ := raw.(map[string]any)
+		code, _ := p["code"].(map[string]any)
+		coding, _ := code["coding"].([]any)
+		c0, _ := coding[0].(map[string]any)
+		if c0["code"] == "initial-population" {
+			switch n := p["count"].(type) {
+			case float64:
+				ip = int(n)
+			case int:
+				ip = n
+			}
+		}
+	}
+	if ip != 1 {
+		t.Fatalf("summary+Patient subject should evaluate one patient, ip=%d report=%#v", ip, summaryReport)
+	}
+
+	missing := hahttp.CoreMeasureService{
+		Engine:    eng,
+		Libraries: cql.StaticLibraries{"http://example.org/Library/Adult": lib},
+		Resources: memStore{
+			"Measure/adult": measure,
+			"Group/panel":   group,
+		},
+	}
+	h = newTestHandler(t, hahttp.Config{
+		ResourceService:        &fakeResourceService{},
+		MeasureEvaluateService: missing,
+	})
+	rec = doRequest(t, h, http.MethodGet, "/fhir/Measure/adult/$evaluate-measure?periodStart=2020-01-01&periodEnd=2021-01-01&reportType=summary&subject=Group/panel", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing group member status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 type memStore map[string]*types.ResourceEnvelope

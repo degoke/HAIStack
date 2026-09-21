@@ -139,6 +139,8 @@ define "Numerator":
   Patient.gender = 'female'
 define "On Period End":
   @2021-01-01 during "Measurement Period"
+define "On Period End Day":
+  @2021-01-01T10:00:00 during "Measurement Period"
 define "SDE Sex":
   Patient.gender
 `)
@@ -171,6 +173,11 @@ define "SDE Sex":
 		"url": "http://example.org/Measure/Adult",
 		"library": ["http://example.org/Library/Adult"],
 		"scoring": {"coding": [{"code": "proportion"}]},
+		"supplementalData": [{
+			"id": "sde-sex",
+			"code": {"coding": [{"code": "SEX"}]},
+			"criteria": {"language": "text/cql.identifier", "expression": "SDE Sex"}
+		}],
 		"group": [{
 			"population": [
 				{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Initial Population"}},
@@ -248,6 +255,34 @@ define "SDE Sex":
 		t.Fatalf("event on periodEnd must be inside closed Measurement Period: %#v", decodeReport(t, periodReport))
 	}
 
+	periodDayMeasure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+		"resourceType": "Measure",
+		"id": "period-day",
+		"url": "http://example.org/Measure/PeriodDay",
+		"library": ["http://example.org/Library/Adult"],
+		"scoring": {"coding": [{"code": "cohort"}]},
+		"group": [{"population": [
+			{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "On Period End Day"}}
+		]}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	periodDayReport, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     periodDayMeasure,
+		PeriodStart: periodStart,
+		PeriodEnd:   periodEnd,
+		ReportType:  "individual",
+		Patient:     adaPatient(t),
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if populationCounts(t, decodeReport(t, periodDayReport))["initial-population"] != 1 {
+		t.Fatalf("datetime on periodEnd date must be inside date-only period: %#v", decodeReport(t, periodDayReport))
+	}
+
 	summary, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
 		Measure:     measure,
 		PeriodStart: periodStart,
@@ -262,6 +297,13 @@ define "SDE Sex":
 	sum := decodeReport(t, summary)
 	if n := stratifierIPCount(t, sum); n != 1 {
 		t.Fatalf("stratifier should count initial population only, got %d in %#v", n, sum)
+	}
+	if n := stratifierPopCount(t, sum, "denominator"); n != 1 {
+		t.Fatalf("stratifier denominator should be 1, got %d in %#v", n, sum)
+	}
+	contained, _ = sum["contained"].([]any)
+	if len(contained) != 1 {
+		t.Fatalf("supplemental data should only include initial population, got %#v", contained)
 	}
 }
 
@@ -291,6 +333,117 @@ func stratifierIPCount(t *testing.T, report map[string]any) int {
 		}
 	}
 	return total
+}
+
+func stratifierPopCount(t *testing.T, report map[string]any, popCode string) int {
+	t.Helper()
+	groups, _ := report["group"].([]any)
+	g, _ := groups[0].(map[string]any)
+	strats, _ := g["stratifier"].([]any)
+	if len(strats) == 0 {
+		return 0
+	}
+	s, _ := strats[0].(map[string]any)
+	strata, _ := s["stratum"].([]any)
+	total := 0
+	for _, raw := range strata {
+		st, _ := raw.(map[string]any)
+		pops, _ := st["population"].([]any)
+		for _, praw := range pops {
+			p, _ := praw.(map[string]any)
+			code, _ := p["code"].(map[string]any)
+			coding, _ := code["coding"].([]any)
+			c0, _ := coding[0].(map[string]any)
+			if c0["code"] != popCode {
+				continue
+			}
+			switch n := p["count"].(type) {
+			case float64:
+				total += int(n)
+			case int:
+				total += n
+			}
+		}
+	}
+	return total
+}
+
+func TestEvaluateMeasureUsesPeriodEndClockAndRawExclusionCounts(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Now: func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library Adult version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Measurement Period" Interval<DateTime>
+context Patient
+define "Initial Population": true
+define "Denominator": AgeInYears() >= 18
+define "Denominator Exclusion": true
+define "Numerator": false
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	measure, err := types.NewJSONCodec().ParseJSON("Measure", []byte(`{
+		"resourceType": "Measure",
+		"id": "adult",
+		"url": "http://example.org/Measure/Adult",
+		"scoring": {"coding": [{"code": "proportion"}]},
+		"group": [{"population": [
+			{"code": {"coding": [{"code": "initial-population"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Initial Population"}},
+			{"code": {"coding": [{"code": "denominator"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Denominator"}},
+			{"code": {"coding": [{"code": "denominator-exclusion"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Denominator Exclusion"}},
+			{"code": {"coding": [{"code": "numerator"}]}, "criteria": {"language": "text/cql.identifier", "expression": "Numerator"}}
+		]}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	youngPeriod := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	young, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     measure,
+		PeriodStart: time.Date(2016, 1, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   youngPeriod,
+		ReportType:  "individual",
+		Patient:     adaPatient(t),
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pops := populationCounts(t, decodeReport(t, young))
+	if pops["denominator"] != 0 {
+		t.Fatalf("AgeInYears must use period end (2017), not engine Now (2026): %#v", pops)
+	}
+
+	adultPeriodEnd := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	adult, err := eng.EvaluateMeasure(context.Background(), MeasureRequest{
+		Measure:     measure,
+		PeriodStart: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   adultPeriodEnd,
+		ReportType:  "individual",
+		Patient:     adaPatient(t),
+		Libraries:   []*Library{lib},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := decodeReport(t, adult)
+	pops = populationCounts(t, report)
+	if pops["denominator"] != 1 || pops["denominator-exclusion"] != 1 {
+		t.Fatalf("raw population counts should keep exclusions separate: %#v", pops)
+	}
+	groups, _ := report["group"].([]any)
+	g, _ := groups[0].(map[string]any)
+	if score, ok := g["measureScore"].(map[string]any); ok {
+		if measureScoreValue(t, report) != 0 {
+			t.Fatalf("score after exclusion should be 0, got %#v", score)
+		}
+	}
 }
 
 func decodeReport(t *testing.T, env *types.ResourceEnvelope) map[string]any {

@@ -950,7 +950,7 @@ func TestRetrieveCodeEqualsAndEquivalent(t *testing.T) {
 		"resourceType": "Observation",
 		"id": "hr",
 		"status": "final",
-		"code": {"text": "Heart rate"},
+		"code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}], "text": "HR"},
 		"subject": {"reference": "Patient/ada"}
 	}`))
 	if err != nil {
@@ -964,19 +964,33 @@ func TestRetrieveCodeEqualsAndEquivalent(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := EvalContext{Patient: adaPatient(t)}
-	got, err := eng.Eval(context.Background(), `[Observation: code = "Heart rate"]`, env)
+	got, err := eng.Eval(context.Background(), `[Observation: code = "8867-4"]`, env)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("code = retrieve: %#v", got)
+		t.Fatalf("code = code: %#v", got)
 	}
-	got, err = eng.Eval(context.Background(), `[Observation: code ~ "Heart rate"]`, env)
+	got, err = eng.Eval(context.Background(), `[Observation: code = "HR"]`, env)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("code ~ retrieve: %#v", got)
+		t.Fatalf("code = text: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: code = "Heart rate"]`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("code = must not match display: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), `[Observation: code ~ "heart rate"]`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("code ~ display: %#v", got)
 	}
 }
 
@@ -992,5 +1006,78 @@ func TestTimeUsesEngineClock(t *testing.T) {
 	}
 	if tm.Year() != 2026 || tm.Month() != time.September || tm.Day() != 21 || tm.Hour() != 1 || tm.Minute() != 2 || tm.Second() != 3 {
 		t.Fatalf("Time() used wall clock instead of engine Now: %v", tm)
+	}
+}
+
+func TestQueryAggregateSortKeepsLetsAndNullReturn(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "from {1, 2} N let y: N * 10 aggregate t starting 0: t + y", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "30" {
+		t.Fatalf("aggregate let: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {1, 2} N aggregate t starting 0: t + N", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "3" {
+		t.Fatalf("aggregate source: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {2, 1} N let k: N return N sort by k", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || fmt.Sprint(got[0]) != "1" || fmt.Sprint(got[1]) != "2" {
+		t.Fatalf("sort by let: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {1} A, {10, 20} B aggregate t starting 0: t + B", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "30" {
+		t.Fatalf("aggregate second alias: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {1} X return null", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != nil {
+		t.Fatalf("null return row: %#v", got)
+	}
+	_, err = eng.ParseLibrary(`
+library Bad version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Both":
+  from {1} X return X aggregate t starting 0: t + X
+`)
+	if err == nil {
+		t.Fatal("expected parse error for return and aggregate")
+	}
+}
+
+func TestQueryDoesNotReadPatientWhenThisIsBound(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"text": "Heart rate"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "[Observation] where family = 'Lovelace'", EvalContext{Patient: adaPatient(t)})
+	if err == nil && len(got) != 0 {
+		t.Fatalf("Observation where family must not use Patient.family: %#v", got)
 	}
 }

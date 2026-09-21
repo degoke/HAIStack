@@ -228,7 +228,7 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 		}
 		return []any{lib}, nil
 	}
-	if st.patient != nil {
+	if !st.thisSet && st.patient != nil {
 		if v, ok := st.memberValues(st.patient, name); ok {
 			return v, nil
 		}
@@ -1157,13 +1157,15 @@ func (st *evalState) evalRetrieve(n *retrieveNode) ([]any, error) {
 }
 
 func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
-	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology}
+	req := RetrieveRequest{ResourceType: n.resourceType, Terminology: n.terminology, Comparator: n.comparator}
 	if n.terminology == "" {
 		return req
 	}
-	if vs := st.lookupValueSet(n.terminology); vs != nil {
-		req.ValueSetURL = vs.URL
-		return req
+	if n.comparator != "=" && n.comparator != "~" {
+		if vs := st.lookupValueSet(n.terminology); vs != nil {
+			req.ValueSetURL = vs.URL
+			return req
+		}
 	}
 	if c := st.lookupCode(n.terminology); c != nil {
 		req.System = c.System

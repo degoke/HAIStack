@@ -1064,6 +1064,7 @@ func (p *parser) parseRetrieve() (Node, error) {
 		return nil, err
 	}
 	term := ""
+	comp := ""
 	if p.acceptKind(tColon) {
 		t := p.lex.lookahead()
 		if (t.kind == tIdent || t.kind == tQuotedIdent) && (keywordEq(t.text, "code") || keywordEq(t.text, "type")) {
@@ -1075,9 +1076,15 @@ func (p *parser) parseRetrieve() (Node, error) {
 			case next.kind == tIdent && keywordEq(next.text, "in"):
 				p.lex.next() // code
 				p.acceptKeyword("in")
-			case next.kind == tEq, next.kind == tTilde:
+				comp = "in"
+			case next.kind == tEq:
 				p.lex.next() // code
-				p.lex.next() // = or ~
+				p.lex.next() // =
+				comp = "="
+			case next.kind == tTilde:
+				p.lex.next() // code
+				p.lex.next() // ~
+				comp = "~"
 			}
 		}
 		switch p.lex.lookahead().kind {
@@ -1092,7 +1099,7 @@ func (p *parser) parseRetrieve() (Node, error) {
 	if !p.acceptKind(tRBrack) {
 		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after retrieve")
 	}
-	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term}, nil
+	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term, comparator: comp}, nil
 }
 
 func (p *parser) parseQuantitySuffix(n Node) Node {
@@ -1401,6 +1408,9 @@ func (p *parser) parseQuery(first querySource) (Node, error) {
 		q.ret = ret
 	}
 	if p.acceptKeyword("aggregate") {
+		if q.ret != nil {
+			return nil, parseError(p.src, p.lex.last.pos, "CQL query cannot have both return and aggregate")
+		}
 		agg := &aggregateNode{nodeBase: nodeBase{src: p.src}}
 		if p.acceptKeyword("distinct") {
 			agg.distinct = true

@@ -128,7 +128,7 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 	return []any{lt.Equal(rt)}, nil
 }
 
-func (st *evalState) evalAggregate(items []any, q *queryNode) ([]any, error) {
+func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error) {
 	agg := q.agg
 	var acc []any
 	if agg.starting != nil {
@@ -138,13 +138,10 @@ func (st *evalState) evalAggregate(items []any, q *queryNode) ([]any, error) {
 		}
 		acc = v
 	}
-	for _, item := range items {
-		locals := map[string][]any{}
-		if len(q.sources) > 0 && q.sources[0].alias != "" {
-			locals[q.sources[0].alias] = []any{item}
-		}
+	for _, row := range rows {
+		locals := copyQueryLocals(row.locals)
 		locals[agg.name] = acc
-		next, err := withQueryScope(st, locals, item, true, func() ([]any, error) {
+		next, err := withQueryScope(st, locals, row.this, row.thisSet, func() ([]any, error) {
 			return st.eval(agg.body)
 		})
 		if err != nil {

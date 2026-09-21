@@ -215,6 +215,12 @@ func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest
 			codes = []fhirCoding{c}
 		}
 	}
+	switch req.Comparator {
+	case "=":
+		return codingMatchesExact(codes, req.System, req.Code, req.Terminology), nil
+	case "~":
+		return codingMatchesEquivalent(codes, req.System, req.Code, req.Terminology), nil
+	}
 	if req.Code != "" {
 		return codingMatches(codes, req.System, req.Code, ""), nil
 	}
@@ -397,6 +403,57 @@ func codingFromValue(v any) fhirCoding {
 		return fhirCoding{}
 	}
 	return fhirCoding{Code: s, Text: s, Display: s}
+}
+
+func codingMatchesExact(codes []fhirCoding, system, code, term string) bool {
+	for _, c := range codes {
+		if code != "" {
+			if c.Code != code {
+				continue
+			}
+			if system != "" && c.System != system {
+				continue
+			}
+			return true
+		}
+		if term == "" {
+			continue
+		}
+		if c.Code == term || c.Text == term {
+			return true
+		}
+		if sys, cd, ok := splitSystemCode(term); ok {
+			if (sys == "" || c.System == sys) && c.Code == cd {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func codingMatchesEquivalent(codes []fhirCoding, system, code, term string) bool {
+	want := code
+	if want == "" {
+		want = term
+	}
+	if want == "" {
+		return false
+	}
+	for _, c := range codes {
+		matched := strings.EqualFold(c.Code, want) || strings.EqualFold(c.Display, want) || strings.EqualFold(c.Text, want)
+		if matched {
+			if system != "" && strings.EqualFold(c.Code, want) && !strings.EqualFold(c.System, system) {
+				continue
+			}
+			return true
+		}
+		if sys, cd, ok := splitSystemCode(term); ok {
+			if (sys == "" || strings.EqualFold(c.System, sys)) && (strings.EqualFold(c.Code, cd) || strings.EqualFold(c.Display, cd) || strings.EqualFold(c.Text, cd)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func codingMatches(codes []fhirCoding, system, code, term string) bool {

@@ -49,7 +49,7 @@ func (e *Engine) EvaluateMeasure(ctx context.Context, req MeasureRequest) (*type
 		return nil, err
 	}
 	reportType := normalizeReportType(req.ReportType, req.Subject, req.Patient)
-	periodStart, periodEnd := req.PeriodStart, req.PeriodEnd
+	periodStart, periodEnd := req.PeriodStart, closedPeriodEnd(req.PeriodEnd)
 	if periodStart.IsZero() || periodEnd.IsZero() {
 		return nil, errf("%w: periodStart and periodEnd are required", ErrMeasure)
 	}
@@ -73,7 +73,7 @@ func (e *Engine) EvaluateMeasure(ctx context.Context, req MeasureRequest) (*type
 	env := EvalContext{
 		Parameters: params,
 		Libraries:  req.Libraries,
-		Now:        e.clock(),
+		Now:        periodEnd,
 		Retriever:  req.Retriever,
 	}
 	return buildMeasureReport(ctx, e, m, reportType, periodStart, periodEnd, subjects, env)
@@ -99,6 +99,17 @@ func measureSubjects(req MeasureRequest, reportType string) ([]any, error) {
 		return nil, errf("%w: summary report requires a patient population", ErrMeasure)
 	}
 	return req.Patients, nil
+}
+
+func closedPeriodEnd(end time.Time) time.Time {
+	if end.IsZero() {
+		return end
+	}
+	utc := end.UTC()
+	if utc.Hour() == 0 && utc.Minute() == 0 && utc.Second() == 0 && utc.Nanosecond() == 0 {
+		return time.Date(utc.Year(), utc.Month(), utc.Day(), 23, 59, 59, 999999999, time.UTC)
+	}
+	return utc
 }
 
 func normalizeReportType(reportType, subject string, patient any) string {
@@ -266,10 +277,11 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 			break
 		}
 	}
-	stratumCounts := map[stratumKey]int{}
+	stratumPops := map[stratumKey]map[string]int{}
 	for _, subject := range subjects {
 		env.Patient = subject
 		inIP := !hasIP
+		matched := map[string]bool{}
 		for i := range pops {
 			ok, _, err := evalPopulation(ctx, e, pops[i].def, env)
 			if err != nil {
@@ -279,6 +291,7 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 				continue
 			}
 			pops[i].count++
+			matched[pops[i].code] = true
 			if pops[i].code == "initial-population" {
 				inIP = true
 			}
@@ -305,10 +318,20 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 				return nil, nil, errf("%w: stratifier: %v", ErrMeasure, err)
 			}
 			key := stratumKey{strat: si, value: fmt.Sprint(singletonOrList(vals))}
-			stratumCounts[key]++
+			counts := stratumPops[key]
+			if counts == nil {
+				counts = map[string]int{}
+				stratumPops[key] = counts
+			}
+			for _, p := range pops {
+				if matched[p.code] {
+					counts[p.code]++
+				}
+			}
 		}
 	}
-	applyPopulationExclusions(pops, scoring)
+	rawCounts := populationCountMap(pops)
+	scoreCounts := applyPopulationExclusions(rawCounts, scoring)
 	out := map[string]any{}
 	if g.ID != "" {
 		out["id"] = g.ID
@@ -320,7 +343,6 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 	}
 	var popOut []any
 	var contained []any
-	counts := map[string]int{}
 	for pi, p := range pops {
 		item := map[string]any{
 			"code":  conceptJSON(p.def.Code),
@@ -346,13 +368,12 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 			item["subjectResults"] = map[string]any{"reference": "#" + listID}
 		}
 		popOut = append(popOut, item)
-		counts[p.code] = p.count
 	}
 	out["population"] = popOut
-	if score, ok := measureScore(scoring, counts); ok {
+	if score, ok := measureScore(scoring, scoreCounts); ok {
 		out["measureScore"] = map[string]any{"value": score}
 	}
-	if len(g.Stratifier) > 0 && len(stratumCounts) > 0 {
+	if len(g.Stratifier) > 0 && len(stratumPops) > 0 {
 		var stratOut []any
 		for si, strat := range g.Stratifier {
 			sitem := map[string]any{}
@@ -363,16 +384,20 @@ func evalMeasureGroup(ctx context.Context, e *Engine, g fhirMeasureGroup, index 
 				sitem["code"] = conceptJSON(strat.Code)
 			}
 			var strata []any
-			for key, n := range stratumCounts {
+			for key, popCounts := range stratumPops {
 				if key.strat != si {
 					continue
 				}
+				var spops []any
+				for _, p := range pops {
+					spops = append(spops, map[string]any{
+						"code":  conceptJSON(p.def.Code),
+						"count": popCounts[p.code],
+					})
+				}
 				stratum := map[string]any{
-					"value": map[string]any{"text": key.value},
-					"population": []any{map[string]any{
-						"code":  map[string]any{"coding": []any{map[string]any{"code": "initial-population"}}},
-						"count": n,
-					}},
+					"value":      map[string]any{"text": key.value},
+					"population": spops,
 				}
 				strata = append(strata, stratum)
 			}
@@ -414,24 +439,27 @@ func evalPopulation(ctx context.Context, e *Engine, pop fhirMeasurePopulation, e
 	return true, 1, nil
 }
 
-func applyPopulationExclusions(pops []popEval, scoring string) {
+func populationCountMap(pops []popEval) map[string]int {
+	out := map[string]int{}
+	for _, p := range pops {
+		out[p.code] = p.count
+	}
+	return out
+}
+
+func applyPopulationExclusions(counts map[string]int, scoring string) map[string]int {
+	out := map[string]int{}
+	for k, v := range counts {
+		out[k] = v
+	}
 	get := func(code string) int {
-		for _, p := range pops {
-			if p.code == code {
-				return p.count
-			}
-		}
-		return 0
+		return out[code]
 	}
 	set := func(code string, n int) {
 		if n < 0 {
 			n = 0
 		}
-		for i := range pops {
-			if pops[i].code == code {
-				pops[i].count = n
-			}
-		}
+		out[code] = n
 	}
 	switch scoring {
 	case "proportion", "ratio":
@@ -459,6 +487,7 @@ func applyPopulationExclusions(pops []popEval, scoring string) {
 			set("denominator", den-adjust)
 		}
 	}
+	return out
 }
 
 func measureScore(scoring string, counts map[string]int) (float64, bool) {
@@ -533,6 +562,13 @@ func evalSupplementalData(ctx context.Context, e *Engine, m fhirMeasure, subject
 	var refs []any
 	idx := 0
 	for si, subject := range subjects {
+		inIP, err := subjectInInitialPopulation(ctx, e, m, subject, env)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !inIP {
+			continue
+		}
 		env.Patient = subject
 		for _, sd := range m.SupplementalData {
 			expr := strings.TrimSpace(sd.Criteria.Expression)
@@ -584,6 +620,27 @@ func evalSupplementalData(ctx context.Context, e *Engine, m fhirMeasure, subject
 		}
 	}
 	return contained, refs, nil
+}
+
+func subjectInInitialPopulation(ctx context.Context, e *Engine, m fhirMeasure, subject any, env EvalContext) (bool, error) {
+	hasIP := false
+	env.Patient = subject
+	for _, g := range m.Group {
+		for _, p := range g.Population {
+			if strings.ToLower(p.Code.code()) != "initial-population" {
+				continue
+			}
+			hasIP = true
+			ok, _, err := evalPopulation(ctx, e, p, env)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				return true, nil
+			}
+		}
+	}
+	return !hasIP, nil
 }
 
 func applyObservationValue(obs map[string]any, vals []any) {
@@ -675,8 +732,11 @@ func ListStorePatients(ctx context.Context, resources interface {
 	var out []any
 	for _, id := range ids {
 		env, err := resources.Read(ctx, "Patient", id)
-		if err != nil || env == nil {
-			continue
+		if err != nil {
+			return nil, err
+		}
+		if env == nil {
+			return nil, errf("%w: Patient %s was not found", ErrMeasure, id)
 		}
 		out = append(out, env)
 	}

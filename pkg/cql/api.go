@@ -156,6 +156,8 @@ type RetrieveRequest struct {
 	ResourceType string
 	// Terminology is the retrieve filter as written (valueset name, code name, or literal).
 	Terminology string
+	// Comparator is in, =, or ~ when the retrieve used `code in` / `code =` / `code ~`.
+	Comparator string
 	// ValueSetURL is set when Terminology names a declared valueset.
 	ValueSetURL string
 	// System and Code are set when Terminology names a declared code or system|code literal.

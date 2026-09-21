@@ -70,6 +70,7 @@ type retrieveNode struct {
 	nodeBase
 	resourceType string
 	terminology  string
+	comparator   string
 }
 
 type isNode struct {

@@ -4,6 +4,13 @@ import (
 	"sort"
 )
 
+type queryRow struct {
+	locals  map[string][]any
+	this    any
+	thisSet bool
+	item    any
+}
+
 func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 	if q == nil || len(q.sources) == 0 {
 		return nil, nil
@@ -16,9 +23,8 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		}
 		sourceVals[i] = v
 	}
-	rows := cartesian(sourceVals)
-	var out []any
-	for _, row := range rows {
+	var rows []queryRow
+	for _, row := range cartesian(sourceVals) {
 		locals := map[string][]any{}
 		var this any
 		thisSet := false
@@ -42,6 +48,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 					return false, err
 				}
 				st.stack[let.name] = v
+				locals[let.name] = v
 			}
 			for _, rel := range q.related {
 				pass, err := st.evalRelated(rel)
@@ -70,14 +77,12 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		if !ok {
 			continue
 		}
-		item, err := withQueryScope(st, locals, this, thisSet, func() (any, error) {
-			for _, let := range q.lets {
-				v, err := st.eval(let.expr)
-				if err != nil {
-					return nil, err
-				}
-				st.stack[let.name] = v
-			}
+		qr := queryRow{locals: copyQueryLocals(locals), this: this, thisSet: thisSet}
+		if q.agg != nil {
+			rows = append(rows, qr)
+			continue
+		}
+		item, err := withQueryScope(st, qr.locals, this, thisSet, func() (any, error) {
 			if q.ret != nil {
 				v, err := st.eval(q.ret)
 				if err != nil {
@@ -93,23 +98,46 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if item == nil {
-			continue
-		}
-		out = append(out, item)
-	}
-	if q.distinct {
-		out = distinctValues(out)
+		qr.item = item
+		rows = append(rows, qr)
 	}
 	if q.agg != nil {
-		return st.evalAggregate(out, q)
+		return st.evalAggregate(rows, q)
+	}
+	if q.distinct {
+		rows = distinctQueryRows(rows)
 	}
 	if len(q.sort) > 0 {
-		if err := st.sortQuery(out, q.sort, q.sources); err != nil {
+		if err := st.sortQuery(rows, q.sort); err != nil {
 			return nil, err
 		}
 	}
+	out := make([]any, len(rows))
+	for i, row := range rows {
+		out[i] = row.item
+	}
 	return out, nil
+}
+
+func copyQueryLocals(locals map[string][]any) map[string][]any {
+	out := make(map[string][]any, len(locals))
+	for k, v := range locals {
+		out[k] = v
+	}
+	return out
+}
+
+func distinctQueryRows(rows []queryRow) []queryRow {
+	var out []queryRow
+	var seen []any
+	for _, row := range rows {
+		if containsValue(seen, row.item) {
+			continue
+		}
+		seen = append(seen, row.item)
+		out = append(out, row)
+	}
+	return out
 }
 
 func (st *evalState) evalRelated(rel relatedClause) (bool, error) {
@@ -185,19 +213,15 @@ func cartesian(lists [][]any) [][]any {
 	return out
 }
 
-func (st *evalState) sortQuery(items []any, keys []sortItem, sources []querySource) error {
+func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 	type keyed struct {
-		item any
+		row  queryRow
 		keys []any
 	}
-	rows := make([]keyed, 0, len(items))
-	for _, item := range items {
-		locals := map[string][]any{}
-		if len(sources) > 0 && sources[0].alias != "" {
-			locals[sources[0].alias] = []any{item}
-		}
+	keyedRows := make([]keyed, 0, len(rows))
+	for _, row := range rows {
 		var ks []any
-		_, err := withQueryScope(st, locals, item, true, func() (bool, error) {
+		_, err := withQueryScope(st, row.locals, row.this, row.thisSet, func() (bool, error) {
 			for _, k := range keys {
 				v, err := st.eval(k.expr)
 				if err != nil {
@@ -210,11 +234,11 @@ func (st *evalState) sortQuery(items []any, keys []sortItem, sources []querySour
 		if err != nil {
 			return err
 		}
-		rows = append(rows, keyed{item: item, keys: ks})
+		keyedRows = append(keyedRows, keyed{row: row, keys: ks})
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
+	sort.SliceStable(keyedRows, func(i, j int) bool {
 		for ki, k := range keys {
-			cmp, ok := cqlCompare(rows[i].keys[ki], rows[j].keys[ki])
+			cmp, ok := cqlCompare(keyedRows[i].keys[ki], keyedRows[j].keys[ki])
 			if !ok || cmp == 0 {
 				continue
 			}
@@ -225,8 +249,8 @@ func (st *evalState) sortQuery(items []any, keys []sortItem, sources []querySour
 		}
 		return false
 	})
-	for i := range rows {
-		items[i] = rows[i].item
+	for i := range keyedRows {
+		rows[i] = keyedRows[i].row
 	}
 	return nil
 }
