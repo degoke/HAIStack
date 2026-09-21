@@ -248,6 +248,91 @@ func TestParseLibraryResource(t *testing.T) {
 	}
 }
 
+func TestDefineFunctionAndParameters(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library Fun version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Threshold" Integer default 18
+context Patient
+define function "Plus"(a Integer, b Integer):
+  a + b
+define fluent function "isAdult"(age Integer):
+  age >= Threshold
+define "Sum":
+  Plus(1, 2)
+define "Adult":
+  AgeInYears().isAdult()
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "Sum", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(3) {
+		t.Fatalf("Plus: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "Adult", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("fluent: %#v", got)
+	}
+}
+
+func TestQueryIntervalQuantity(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final",
+		"code": {"text": "Heart rate"},
+		"subject": {"reference": "Patient/ada"},
+		"effectiveDateTime": "2020-06-01"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "from [Observation] O where O.status = 'final' return O.id", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "hr" {
+		t.Fatalf("query: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation] O where O.status = 'final'", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("aliased retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "5 in Interval[1, 10] and Interval[@2020-01-01, @2021-01-01) contains @2020-06-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("interval: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "2 'mg' + 3 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := got[0].(Quantity)
+	if !ok || q.Value != 5 || q.Unit != "mg" {
+		t.Fatalf("quantity: %#v", got)
+	}
+}
+
 func TestELMOnlyLibraryIsUnsupported(t *testing.T) {
 	env, err := types.NewJSONCodec().ParseJSON("Library", []byte(`{
 		"resourceType": "Library",
@@ -260,18 +345,6 @@ func TestELMOnlyLibraryIsUnsupported(t *testing.T) {
 	_, _, _, _, err = EnvelopeLibrary(env)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("expected unsupported ELM-only library, got %v", err)
-	}
-}
-
-func TestUnsupportedFunction(t *testing.T) {
-	eng := testEngine(t)
-	_, err := eng.ParseLibrary(`library X version '1'
-using FHIR version '4.0.1'
-context Patient
-define function "Foo"(x Integer): x
-`)
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("expected unsupported function, got %v", err)
 	}
 }
 
@@ -699,21 +772,5 @@ define "In VS":
 	}
 	if len(got) != 1 || got[0] != false {
 		t.Fatalf("MemberOf false must not match valueset name/display: %#v", got)
-	}
-}
-
-func TestUnsupportedQueryAndInterval(t *testing.T) {
-	eng := testEngine(t)
-	_, err := eng.ParseExpression("from [Observation] O where O.status = 'final'")
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("expected unsupported query, got %v", err)
-	}
-	_, err = eng.ParseExpression("Interval[1, 10]")
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("expected unsupported Interval, got %v", err)
-	}
-	_, err = eng.ParseExpression("[Observation] O")
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("expected unsupported related-context retrieve, got %v", err)
 	}
 }

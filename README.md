@@ -177,7 +177,7 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
 | haistack-terminology | `pkg/terminology` | Done | Tenant-scoped CodeSystem lookup, ValueSet expansion, provider chain, and opt-in terminology validation |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
-| haistack-cql | `pkg/cql` | Done | Bounded CQL engine for SDC questionnaires and Patient-context clinical logic |
+| haistack-cql | `pkg/cql` | Done | CQL 1.5 engine for SDC questionnaires and CQF Measure evaluation |
 | haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
 | haistack-modules | `pkg/modules` | Planned | Installable capability modules |

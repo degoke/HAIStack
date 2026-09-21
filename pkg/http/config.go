@@ -98,6 +98,10 @@ type Config struct {
 	// $everything or implementation-specific operations.
 	OperationService OperationService
 
+	// MeasureEvaluateService handles Measure/$evaluate-measure.
+	// When nil, GET/POST /fhir/Measure/$evaluate-measure returns not-implemented.
+	MeasureEvaluateService MeasureEvaluateService
+
 	// ValidateService handles FHIR Resource/$validate for non-SDC resource types.
 	// When nil, POST /fhir/{type}/$validate returns not-supported.
 	ValidateService ValidateService

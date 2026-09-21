@@ -1,43 +1,46 @@
 # haistack-cql (`pkg/cql`)
 
-Bounded [Clinical Quality Language](https://cql.hl7.org) evaluation for SDC
-questionnaires and in-memory Patient-context reasoning.
+[Clinical Quality Language](https://cql.hl7.org) 1.5 evaluation for SDC
+questionnaires, in-memory clinical reasoning, and CQF Measure reports.
 
 This package **runs CQL libraries and inline expressions** against a Patient
-you already have in memory (and, optionally, retrieved clinical resources).
-It does **not** execute CQF Measure reports or clinical quality pipelines.
+(and, optionally, retrieved clinical resources). It also evaluates FHIR
+Measure resources into MeasureReport (`individual`, `summary`, `subject-list`).
+FHIR Library resources must include `text/cql` (or `application/cql`) source;
+ELM-only libraries return `ErrUnsupported`.
 
 ## CQL vs FHIRPath
 
 | | FHIRPath (`pkg/fhirpath`) | CQL (`pkg/cql`) |
 |--|--|--|
 | Typical SDC language | `text/fhirpath` | `text/cql`, `text/cql.identifier`, `application/cql`, `application/x-cql` |
-| Unit of reuse | One path on the current resource | Named `define` statements in a Library |
+| Unit of reuse | One path on the current resource | Named `define` / `define function` in a Library |
 | Context | Current resource (`%resource`, `%subject`) | `context Patient` plus parameters |
 | Clinical helpers | Custom functions you register | Built-ins such as `AgeInYears()` |
 | Retrieve | No (use FHIR Query / search) | `[Observation]` when a Retriever is wired |
+| Quality reporting | No | `EvaluateMeasure` → MeasureReport |
 
 Use FHIRPath for field access and enablement on the resource in focus. Use CQL
 when the questionnaire references a `cqf-library` (or contained Library) and
-expressions should share named clinical logic.
+expressions should share named clinical logic, or when evaluating a Measure.
 
-## Supported subset
+## CQL 1.5 coverage
 
-- `library` / `using FHIR` / `include` / `context Patient`
-- `define` named expressions
-- literals, identifiers, arithmetic, comparison, `and` / `or` / `not`
-- `if then else`, `is null` / `is not null`
+- `library` / `using FHIR` / `include` / `context Patient` or `Unfiltered`
+- `define` named expressions and `define function` / `define fluent function`
+- `parameter` declarations with optional defaults (`Measurement Period` for measures)
+- literals, identifiers, arithmetic, comparison, `and` / `or` / `xor` / `not` / `implies`
+- `if then else`, `case when else`, `is null` / `is not null`
 - FHIR property navigation (`Patient.name.given`); uses `Config.FHIRPath` when set, otherwise JSON navigation
-- retrieve `[ResourceType]` when `Config.Retriever` is set
+- retrieve `[ResourceType]` and related-context aliases (`[Observation] O`)
+- queries: `from` / `where` / `return` / `sort by` / `with` / `without` / `let`
+- `Interval` values and operators (`in`, `contains`, `during`, `includes`, `overlaps`, …)
+- Quantity literals (`5 'mg'`, `1 year`) and `duration in years between`
 - `codesystem` / `valueset` / `code` declarations
 - retrieve and `in` filters against FHIR `Coding` / `CodeableConcept` (value-set `MemberOf` when `Config.Terminology` is set)
-- `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString` and related helpers
+- `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString`, `ToInterval`, `Min` / `Max` / `Sum` and related helpers
 
-This is a **Patient-context subset for SDC**, not a CQL 1.5 implementation.
-
-Unsupported (clear error): `define function`, ELM-only libraries, CQL query
-syntax (`from` / `with` / `without`), related-context retrieve, Interval types
-and promotion, and CQF Measure evaluation.
+Unsupported (clear error): ELM-only libraries (no `text/cql` content).
 
 ## Usage
 
@@ -52,6 +55,19 @@ values, err := eng.Eval(ctx, "First(Patient.name.given)", cql.EvalContext{
 lib, err := eng.ParseLibrary(cqlSource)
 values, err = eng.EvalDefine(ctx, lib, "Patient Given Name", cql.EvalContext{
     Patient: patient,
+})
+```
+
+Evaluate a Measure:
+
+```go
+report, err := eng.EvaluateMeasure(ctx, cql.MeasureRequest{
+    Measure:     measureEnvelope,
+    PeriodStart: start,
+    PeriodEnd:   end,
+    ReportType:  "individual",
+    Patient:     patient,
+    Libraries:   []*cql.Library{lib},
 })
 ```
 
@@ -91,12 +107,22 @@ Questionnaire expressions:
 - `text/cql` / `application/cql` / `application/x-cql` — inline CQL
 - `text/cql.identifier` — name of a `define` in a loaded library
 
+## Measure/$evaluate-measure
+
+Runtime wires `http.CoreMeasureService` so GET/POST
+`/fhir/Measure/{id}/$evaluate-measure` (and type-level
+`/fhir/Measure/$evaluate-measure?measure=`) return a MeasureReport.
+
+Query or Parameters inputs: `periodStart`, `periodEnd` (required), `reportType`
+(`individual` / `subject-list` / `summary`), `subject` (`Patient/{id}`).
+
 ## Errors
 
 - `ErrMissingContext` — Patient context required but not supplied
 - `ErrLibraryNotFound` — canonical Library could not be loaded
 - `ErrExpressionNotFound` — named define is missing
-- `ErrUnsupported` — feature outside the subset (including ELM-only content)
+- `ErrUnsupported` — ELM-only content or an unimplemented operator
+- `ErrMeasure` — Measure evaluation input or criteria failed
 - `ErrEmptyExpression` / `ErrEngineUnavailable`
 
 See [`doc.go`](./doc.go) for package boundaries and the tests in this directory

@@ -8,7 +8,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
-// Engine compiles and evaluates a bounded CQL subset.
+// Engine compiles and evaluates CQL 1.5 libraries and Measure reports.
 type Engine struct {
 	fhirpath         fhirpath.Engine
 	retriever        Retriever
@@ -44,11 +44,48 @@ type Library struct {
 	Context     string
 	Includes    []Include
 	Defines     []Define
+	Functions   []Function
+	Parameters  []Parameter
 	CodeSystems []CodeSystem
 	ValueSets   []ValueSet
 	Codes       []Code
 	Source      string
 	URL         string
+}
+
+// Function is a named CQL function (define function / define fluent function).
+type Function struct {
+	Name   string
+	Access string
+	Fluent bool
+	Params []FunctionParam
+	Body   Node
+	Source string
+}
+
+// FunctionParam is a CQL function operand.
+type FunctionParam struct {
+	Name string
+	Type string
+}
+
+// Parameter is a CQL parameter declaration with an optional default.
+type Parameter struct {
+	Name    string
+	Type    string
+	Default Node
+}
+
+// Quantity is a CQL Quantity value (5 'mg', 1 year).
+type Quantity struct {
+	Value float64
+	Unit  string
+}
+
+// Interval is a CQL Interval value.
+type Interval struct {
+	Low, High             any
+	LowClosed, HighClosed bool
 }
 
 // CodeSystem is a CQL codesystem declaration.

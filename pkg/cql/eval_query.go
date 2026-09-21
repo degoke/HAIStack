@@ -1,0 +1,417 @@
+package cql
+
+import (
+	"sort"
+)
+
+func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
+	if q == nil || len(q.sources) == 0 {
+		return nil, nil
+	}
+	sourceVals := make([][]any, len(q.sources))
+	for i, src := range q.sources {
+		v, err := st.eval(src.expr)
+		if err != nil {
+			return nil, err
+		}
+		sourceVals[i] = v
+	}
+	rows := cartesian(sourceVals)
+	var out []any
+	for _, row := range rows {
+		locals := map[string][]any{}
+		var this any
+		thisSet := false
+		for i, src := range q.sources {
+			val := row[i]
+			if src.alias != "" {
+				if val == nil {
+					locals[src.alias] = nil
+				} else {
+					locals[src.alias] = []any{val}
+				}
+			}
+			if i == 0 {
+				this, thisSet = val, true
+			}
+		}
+		ok, err := withQueryScope(st, locals, this, thisSet, func() (bool, error) {
+			for _, let := range q.lets {
+				v, err := st.eval(let.expr)
+				if err != nil {
+					return false, err
+				}
+				st.stack[let.name] = v
+			}
+			for _, rel := range q.related {
+				pass, err := st.evalRelated(rel)
+				if err != nil {
+					return false, err
+				}
+				if !pass {
+					return false, nil
+				}
+			}
+			if q.where != nil {
+				v, err := st.eval(q.where)
+				if err != nil {
+					return false, err
+				}
+				b := asBool(v)
+				if b == nil || !*b {
+					return false, nil
+				}
+			}
+			return true, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		item, err := withQueryScope(st, locals, this, thisSet, func() (any, error) {
+			for _, let := range q.lets {
+				v, err := st.eval(let.expr)
+				if err != nil {
+					return nil, err
+				}
+				st.stack[let.name] = v
+			}
+			if q.ret != nil {
+				v, err := st.eval(q.ret)
+				if err != nil {
+					return nil, err
+				}
+				return singletonOrList(v), nil
+			}
+			if thisSet {
+				return this, nil
+			}
+			return nil, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if item == nil {
+			continue
+		}
+		out = append(out, item)
+	}
+	if q.distinct {
+		out = distinctValues(out)
+	}
+	if len(q.sort) > 0 {
+		if err := st.sortQuery(out, q.sort, q.sources); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (st *evalState) evalRelated(rel relatedClause) (bool, error) {
+	vals, err := st.eval(rel.source.expr)
+	if err != nil {
+		return false, err
+	}
+	matched := false
+	for _, item := range vals {
+		locals := map[string][]any{}
+		if rel.source.alias != "" {
+			locals[rel.source.alias] = []any{item}
+		}
+		ok, err := withQueryScope(st, locals, item, true, func() (bool, error) {
+			v, err := st.eval(rel.such)
+			if err != nil {
+				return false, err
+			}
+			b := asBool(v)
+			return b != nil && *b, nil
+		})
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			matched = true
+			break
+		}
+	}
+	if rel.without {
+		return !matched, nil
+	}
+	return matched, nil
+}
+
+func withQueryScope[T any](st *evalState, locals map[string][]any, this any, thisSet bool, fn func() (T, error)) (T, error) {
+	prevThis, prevSet := st.this, st.thisSet
+	if thisSet {
+		st.this, st.thisSet = this, true
+	}
+	prev := map[string][]any{}
+	had := map[string]bool{}
+	for k, v := range locals {
+		if old, ok := st.stack[k]; ok {
+			prev[k] = old
+			had[k] = true
+		}
+		st.stack[k] = v
+	}
+	defer func() {
+		st.this, st.thisSet = prevThis, prevSet
+		for k := range locals {
+			if had[k] {
+				st.stack[k] = prev[k]
+			} else {
+				delete(st.stack, k)
+			}
+		}
+	}()
+	return fn()
+}
+
+func cartesian(lists [][]any) [][]any {
+	if len(lists) == 0 {
+		return nil
+	}
+	out := [][]any{{}}
+	for _, list := range lists {
+		if len(list) == 0 {
+			return nil
+		}
+		var next [][]any
+		for _, prefix := range out {
+			for _, item := range list {
+				row := append(append([]any{}, prefix...), item)
+				next = append(next, row)
+			}
+		}
+		out = next
+	}
+	return out
+}
+
+func (st *evalState) sortQuery(items []any, keys []sortItem, sources []querySource) error {
+	type keyed struct {
+		item any
+		keys []any
+	}
+	rows := make([]keyed, 0, len(items))
+	for _, item := range items {
+		locals := map[string][]any{}
+		if len(sources) > 0 && sources[0].alias != "" {
+			locals[sources[0].alias] = []any{item}
+		}
+		var ks []any
+		_, err := withQueryScope(st, locals, item, true, func() (bool, error) {
+			for _, k := range keys {
+				v, err := st.eval(k.expr)
+				if err != nil {
+					return false, err
+				}
+				ks = append(ks, singletonOrList(v))
+			}
+			return true, nil
+		})
+		if err != nil {
+			return err
+		}
+		rows = append(rows, keyed{item: item, keys: ks})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		for ki, k := range keys {
+			cmp, ok := cqlCompare(rows[i].keys[ki], rows[j].keys[ki])
+			if !ok || cmp == 0 {
+				continue
+			}
+			if k.desc {
+				return cmp > 0
+			}
+			return cmp < 0
+		}
+		return false
+	})
+	for i := range rows {
+		items[i] = rows[i].item
+	}
+	return nil
+}
+
+func flattenValues(v []any) []any {
+	var out []any
+	for _, item := range v {
+		switch x := item.(type) {
+		case []any:
+			out = append(out, flattenValues(x)...)
+		default:
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func listIntersect(left, right []any) []any {
+	var out []any
+	for _, el := range left {
+		if containsValue(right, el) && !containsValue(out, el) {
+			out = append(out, el)
+		}
+	}
+	return out
+}
+
+func listExcept(left, right []any) []any {
+	var out []any
+	for _, el := range left {
+		if !containsValue(right, el) {
+			out = append(out, el)
+		}
+	}
+	return out
+}
+
+func listExtremum(args [][]any, min bool) ([]any, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
+		return nil, nil
+	}
+	best := args[0][0]
+	for _, item := range args[0][1:] {
+		cmp, ok := cqlCompare(item, best)
+		if !ok {
+			continue
+		}
+		if min && cmp < 0 {
+			best = item
+		}
+		if !min && cmp > 0 {
+			best = item
+		}
+	}
+	return []any{best}, nil
+}
+
+func listSum(args [][]any) ([]any, error) {
+	if len(args) == 0 {
+		return []any{int64(0)}, nil
+	}
+	sum := 0.0
+	intLike := true
+	for _, item := range args[0] {
+		f, ok := asFloat(item)
+		if !ok {
+			return nil, nil
+		}
+		if !isIntLike(item) {
+			intLike = false
+		}
+		sum += f
+	}
+	if intLike {
+		return []any{int64(sum)}, nil
+	}
+	return []any{sum}, nil
+}
+
+func listAvg(args [][]any) ([]any, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
+		return nil, nil
+	}
+	sum := 0.0
+	for _, item := range args[0] {
+		f, ok := asFloat(item)
+		if !ok {
+			return nil, nil
+		}
+		sum += f
+	}
+	return []any{sum / float64(len(args[0]))}, nil
+}
+
+func listAllAny(args [][]any, all bool) ([]any, error) {
+	if len(args) == 0 {
+		return []any{all}, nil
+	}
+	for _, item := range args[0] {
+		b := asBool([]any{item})
+		if all {
+			if b == nil || !*b {
+				return []any{false}, nil
+			}
+		} else if b != nil && *b {
+			return []any{true}, nil
+		}
+	}
+	return []any{all}, nil
+}
+
+func listTakeSkip(args [][]any, take bool) ([]any, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	list := args[0]
+	n := 0
+	if len(args) > 1 && len(args[1]) > 0 {
+		if v, ok := asInt(args[1][0]); ok {
+			n = int(v)
+		}
+	}
+	if n < 0 {
+		n = 0
+	}
+	if take {
+		if n > len(list) {
+			n = len(list)
+		}
+		return append([]any{}, list[:n]...), nil
+	}
+	if n >= len(list) {
+		return nil, nil
+	}
+	return append([]any{}, list[n:]...), nil
+}
+
+func listIndexOf(args [][]any) ([]any, error) {
+	if len(args) < 2 || len(args[1]) == 0 {
+		return []any{int64(-1)}, nil
+	}
+	item := args[1][0]
+	for i, el := range args[0] {
+		if cqlEqual(el, item) {
+			return []any{int64(i)}, nil
+		}
+	}
+	return []any{int64(-1)}, nil
+}
+
+func (st *evalState) evalCase(n *caseNode) ([]any, error) {
+	if n.test != nil {
+		test, err := st.eval(n.test)
+		if err != nil {
+			return nil, err
+		}
+		tv := singletonOrList(test)
+		for _, w := range n.whens {
+			when, err := st.eval(w.when)
+			if err != nil {
+				return nil, err
+			}
+			if cqlEqual(tv, singletonOrList(when)) {
+				return st.eval(w.then)
+			}
+		}
+	} else {
+		for _, w := range n.whens {
+			when, err := st.eval(w.when)
+			if err != nil {
+				return nil, err
+			}
+			b := asBool(when)
+			if b != nil && *b {
+				return st.eval(w.then)
+			}
+		}
+	}
+	if n.elseN != nil {
+		return st.eval(n.elseN)
+	}
+	return nil, nil
+}

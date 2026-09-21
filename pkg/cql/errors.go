@@ -23,9 +23,13 @@ var (
 	// ErrEngineUnavailable is returned when evaluation is attempted without an engine.
 	ErrEngineUnavailable = errors.New("CQL engine is unavailable")
 
-	// ErrUnsupported is returned for CQL features outside the supported subset.
+	// ErrUnsupported is returned for CQL features that are not implemented,
+	// including ELM-only libraries.
 	ErrUnsupported = errors.New("CQL feature is not supported")
 
 	// ErrEmptyExpression is returned when the expression text is empty.
 	ErrEmptyExpression = errors.New("CQL expression is empty")
+
+	// ErrMeasure is returned when a FHIR Measure cannot be evaluated.
+	ErrMeasure = errors.New("CQL measure evaluation failed")
 )

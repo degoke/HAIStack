@@ -758,6 +758,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				Terminology:             state.services.TerminologyService,
 			},
 		},
+		MeasureEvaluateService: hahttp.CoreMeasureService{
+			Engine:    cqlEngine,
+			Libraries: cqlProvider.Libraries,
+			Resources: pc.resources,
+			Retriever: retriever,
+		},
 		CapabilitySource:         hahttp.LiveCapabilitySource{Runtime: conformanceRuntime},
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,

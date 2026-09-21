@@ -79,6 +79,75 @@ type isNode struct {
 	target string // "null" or type name
 }
 
+type quantityNode struct {
+	nodeBase
+	value any
+	unit  string
+}
+
+type intervalNode struct {
+	nodeBase
+	low, high             Node
+	lowClosed, highClosed bool
+}
+
+type betweenNode struct {
+	nodeBase
+	x, low, high Node
+}
+
+type durationNode struct {
+	nodeBase
+	unit       string
+	of         Node
+	left       Node
+	right      Node
+	difference bool
+}
+
+type caseNode struct {
+	nodeBase
+	test  Node
+	whens []caseWhen
+	elseN Node
+}
+
+type caseWhen struct {
+	when, then Node
+}
+
+type queryNode struct {
+	nodeBase
+	sources  []querySource
+	lets     []letClause
+	related  []relatedClause
+	where    Node
+	ret      Node
+	distinct bool
+	sort     []sortItem
+}
+
+type querySource struct {
+	expr  Node
+	alias string
+}
+
+type letClause struct {
+	name string
+	expr Node
+}
+
+type relatedClause struct {
+	source  querySource
+	such    Node
+	without bool
+}
+
+type sortItem struct {
+	expr Node
+	desc bool
+}
+
 func identName(n Node) (string, bool) {
 	id, ok := n.(*identNode)
 	if !ok {

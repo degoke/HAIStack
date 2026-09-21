@@ -59,6 +59,9 @@ func (e *Engine) evalNode(ctx context.Context, n Node, env EvalContext, libs []*
 	if len(libs) > 0 {
 		st.current = libs[0]
 	}
+	if err := st.applyParameterDefaults(); err != nil {
+		return nil, err
+	}
 	return st.eval(n)
 }
 
@@ -138,6 +141,18 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			result = !result
 		}
 		return []any{result}, nil
+	case *quantityNode:
+		return st.evalQuantity(x)
+	case *intervalNode:
+		return st.evalInterval(x)
+	case *betweenNode:
+		return st.evalBetween(x)
+	case *durationNode:
+		return st.evalDuration(x)
+	case *caseNode:
+		return st.evalCase(x)
+	case *queryNode:
+		return st.evalQuery(x)
 	default:
 		return nil, errf("%w: unknown expression node", ErrUnsupported)
 	}
@@ -164,8 +179,11 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 	if def, lib := st.lookupDefine(name); def != nil {
 		return st.evalDefine(lib, *def)
 	}
+	if fn, lib := st.lookupFunction(name); fn != nil && len(fn.Params) == 0 {
+		return st.evalUserFunction(lib, fn, nil)
+	}
 	if st.params != nil {
-		if v, ok := st.params[name]; ok {
+		if v, ok := paramLookup(st.params, name); ok {
 			return wrapValue(v), nil
 		}
 	}
@@ -195,6 +213,59 @@ func (st *evalState) evalIdent(name string) ([]any, error) {
 	return nil, errf("%w: %s", ErrExpressionNotFound, name)
 }
 
+func paramLookup(params map[string]any, name string) (any, bool) {
+	if params == nil {
+		return nil, false
+	}
+	if v, ok := params[name]; ok {
+		return v, true
+	}
+	for k, v := range params {
+		if strings.EqualFold(k, name) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func (st *evalState) applyParameterDefaults() error {
+	seen := map[string]bool{}
+	for k := range st.params {
+		seen[k] = true
+		seen[strings.ToLower(k)] = true
+	}
+	apply := func(lib *Library) error {
+		if lib == nil {
+			return nil
+		}
+		for _, p := range lib.Parameters {
+			if seen[p.Name] || seen[strings.ToLower(p.Name)] {
+				continue
+			}
+			if p.Default == nil {
+				continue
+			}
+			v, err := st.eval(p.Default)
+			if err != nil {
+				return err
+			}
+			st.params[p.Name] = singletonOrList(v)
+			seen[p.Name] = true
+			seen[strings.ToLower(p.Name)] = true
+		}
+		return nil
+	}
+	if err := apply(st.current); err != nil {
+		return err
+	}
+	for _, lib := range st.libraries {
+		if err := apply(lib); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (st *evalState) lookupDefine(name string) (*Define, *Library) {
 	search := func(lib *Library) *Define {
 		if lib == nil {
@@ -221,6 +292,84 @@ func (st *evalState) lookupDefine(name string) (*Define, *Library) {
 		}
 	}
 	return nil, nil
+}
+
+func (st *evalState) lookupFunction(name string) (*Function, *Library) {
+	search := func(lib *Library) *Function {
+		if lib == nil {
+			return nil
+		}
+		for i := range lib.Functions {
+			if lib.Functions[i].Name == name {
+				return &lib.Functions[i]
+			}
+		}
+		for i := range lib.Functions {
+			if strings.EqualFold(lib.Functions[i].Name, name) {
+				return &lib.Functions[i]
+			}
+		}
+		return nil
+	}
+	if fn := search(st.current); fn != nil {
+		return fn, st.current
+	}
+	for _, lib := range st.libraries {
+		if fn := search(lib); fn != nil {
+			return fn, lib
+		}
+	}
+	return nil, nil
+}
+
+func (st *evalState) evalUserFunction(lib *Library, fn *Function, args [][]any) ([]any, error) {
+	if fn == nil {
+		return nil, errf("%w: function is nil", ErrExpressionNotFound)
+	}
+	if len(args) != len(fn.Params) {
+		return nil, errf("CQL function %q expected %d arguments, got %d", fn.Name, len(fn.Params), len(args))
+	}
+	key := "fn:" + fn.Name
+	if lib != nil && lib.Name != "" {
+		key = "fn:" + lib.Name + "." + fn.Name
+	}
+	if st.evaluating[key] {
+		return nil, errf("CQL function %q has a cyclic definition", fn.Name)
+	}
+	st.evaluating[key] = true
+	defer delete(st.evaluating, key)
+	prev := st.current
+	st.current = lib
+	defer func() { st.current = prev }()
+	locals := map[string][]any{}
+	for i, p := range fn.Params {
+		locals[p.Name] = args[i]
+	}
+	return st.withLocals(locals, func() ([]any, error) {
+		return st.eval(fn.Body)
+	})
+}
+
+func (st *evalState) withLocals(locals map[string][]any, fn func() ([]any, error)) ([]any, error) {
+	prev := map[string][]any{}
+	had := map[string]bool{}
+	for k, v := range locals {
+		if old, ok := st.stack[k]; ok {
+			prev[k] = old
+			had[k] = true
+		}
+		st.stack[k] = v
+	}
+	defer func() {
+		for k := range locals {
+			if had[k] {
+				st.stack[k] = prev[k]
+			} else {
+				delete(st.stack, k)
+			}
+		}
+	}()
+	return fn()
 }
 
 func (st *evalState) lookupLibrary(name string) *Library {
@@ -274,11 +423,55 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		if len(v) == 0 {
 			return nil, nil
 		}
+		if q, ok := asQuantity(v[0]); ok {
+			q.Value = -q.Value
+			return []any{q}, nil
+		}
 		num, ok := asFloat(v[0])
 		if !ok {
 			return nil, errf("CQL unary '-' requires a number")
 		}
 		return []any{-num}, nil
+	case "singleton":
+		if len(v) == 0 {
+			return nil, nil
+		}
+		if len(v) > 1 {
+			return nil, errf("CQL singleton from expected one item, got %d", len(v))
+		}
+		return []any{v[0]}, nil
+	case "flatten":
+		return flattenValues(v), nil
+	case "start":
+		if len(v) == 0 {
+			return nil, nil
+		}
+		if iv, ok := asInterval(v[0]); ok {
+			if iv.Low == nil {
+				return nil, nil
+			}
+			return []any{iv.Low}, nil
+		}
+		return nil, nil
+	case "end":
+		if len(v) == 0 {
+			return nil, nil
+		}
+		if iv, ok := asInterval(v[0]); ok {
+			if iv.High == nil {
+				return nil, nil
+			}
+			return []any{iv.High}, nil
+		}
+		return nil, nil
+	case "width":
+		if len(v) == 0 {
+			return nil, nil
+		}
+		if iv, ok := asInterval(v[0]); ok {
+			return intervalWidth(iv)
+		}
+		return nil, nil
 	}
 	return nil, errf("%w: unary operator %q", ErrUnsupported, n.op)
 }
@@ -326,6 +519,11 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			}
 			return []any{ok}, nil
 		}
+		if len(right) == 1 {
+			if iv, ok := asInterval(right[0]); ok {
+				return []any{intervalContains(iv, left[0], false)}, nil
+			}
+		}
 		return []any{containsValue(right, left[0])}, nil
 	case "contains":
 		left, err := st.eval(n.left)
@@ -339,7 +537,45 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if len(right) == 0 {
 			return nil, nil
 		}
+		if len(left) == 1 {
+			if iv, ok := asInterval(left[0]); ok {
+				return []any{intervalContains(iv, right[0], false)}, nil
+			}
+		}
 		return []any{containsValue(left, right[0])}, nil
+	case "intersect":
+		left, err := st.eval(n.left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := st.eval(n.right)
+		if err != nil {
+			return nil, err
+		}
+		if len(left) == 1 && len(right) == 1 {
+			if li, ok := asInterval(left[0]); ok {
+				if ri, ok := asInterval(right[0]); ok {
+					out, ok := intervalIntersect(li, ri)
+					if !ok {
+						return nil, nil
+					}
+					return []any{out}, nil
+				}
+			}
+		}
+		return listIntersect(left, right), nil
+	case "except":
+		left, err := st.eval(n.left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := st.eval(n.right)
+		if err != nil {
+			return nil, err
+		}
+		return listExcept(left, right), nil
+	case "includes", "properly includes", "included in", "properly included in", "during", "properly during", "overlaps", "starts", "ends", "meets", "before", "after":
+		return st.evalIntervalRel(n)
 	}
 	left, err := st.eval(n.left)
 	if err != nil {
@@ -500,6 +736,9 @@ func (st *evalState) evalCall(n *callNode) ([]any, error) {
 		}
 		args[i] = v
 	}
+	if fn, lib := st.lookupFunction(name); fn != nil {
+		return st.evalUserFunction(lib, fn, args)
+	}
 	return st.evalFunction(name, args)
 }
 
@@ -547,6 +786,18 @@ func (st *evalState) evalMethod(name string, recv []any, rawArgs []Node, args []
 			out = append(out, unwrapPrimitive(item))
 		}
 		return out, nil
+	}
+	if fn, lib := st.lookupFunction(name); fn != nil && (fn.Fluent || len(fn.Params) == len(rawArgs)+1) {
+		callArgs := make([][]any, 0, len(rawArgs)+1)
+		callArgs = append(callArgs, recv)
+		for _, a := range rawArgs {
+			v, err := st.eval(a)
+			if err != nil {
+				return nil, err
+			}
+			callArgs = append(callArgs, v)
+		}
+		return st.evalUserFunction(lib, fn, callArgs)
 	}
 	return st.evalFunction(name, append([][]any{recv}, args...))
 }
@@ -668,6 +919,69 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)}, nil
 		}
 		return []any{st.now.UTC()}, nil
+	case "tointerval":
+		if len(args) == 0 || len(args[0]) == 0 {
+			return nil, nil
+		}
+		if iv, ok := asInterval(args[0][0]); ok {
+			return []any{iv}, nil
+		}
+		return nil, nil
+	case "toquantity":
+		if len(args) == 0 || len(args[0]) == 0 {
+			return nil, nil
+		}
+		if q, ok := asQuantity(args[0][0]); ok {
+			return []any{q}, nil
+		}
+		return nil, nil
+	case "todatetime", "todate":
+		if len(args) == 0 || len(args[0]) == 0 {
+			return nil, nil
+		}
+		tm, ok := asTime(args[0][0])
+		if !ok {
+			return nil, nil
+		}
+		if n == "todate" {
+			tm = time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC)
+		}
+		return []any{tm}, nil
+	case "flatten":
+		if len(args) == 0 {
+			return nil, nil
+		}
+		return flattenValues(args[0]), nil
+	case "min":
+		return listExtremum(args, true)
+	case "max":
+		return listExtremum(args, false)
+	case "sum":
+		return listSum(args)
+	case "avg", "average":
+		return listAvg(args)
+	case "alltrue":
+		return listAllAny(args, true)
+	case "anytrue":
+		return listAllAny(args, false)
+	case "take":
+		return listTakeSkip(args, true)
+	case "skip":
+		return listTakeSkip(args, false)
+	case "indexof":
+		return listIndexOf(args)
+	case "singletonfrom":
+		if len(args) == 0 {
+			return nil, nil
+		}
+		v := args[0]
+		if len(v) == 0 {
+			return nil, nil
+		}
+		if len(v) > 1 {
+			return nil, errf("CQL SingletonFrom expected one item, got %d", len(v))
+		}
+		return []any{v[0]}, nil
 	}
 	return nil, errf("%w: function %s", ErrUnsupported, name)
 }
@@ -1051,6 +1365,20 @@ func asTime(v any) (time.Time, bool) {
 }
 
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
+	if q1, ok := asQuantity(lv); ok {
+		if q2, ok := asQuantity(rv); ok {
+			return evalQuantityArith(op, q1, q2)
+		}
+	}
+	if t, ok := asTime(lv); ok {
+		if q, ok := asQuantity(rv); ok {
+			out, ok := addDuration(t, q, op)
+			if !ok {
+				return nil, nil
+			}
+			return []any{out}, nil
+		}
+	}
 	lf, lok := asFloat(lv)
 	rf, rok := asFloat(rv)
 	if !lok || !rok {
@@ -1099,6 +1427,16 @@ func isIntLike(v any) bool {
 
 func cqlEqual(a, b any) bool {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if qa, ok := asQuantity(a); ok {
+		if qb, ok := asQuantity(b); ok {
+			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
+		}
+	}
+	if ia, ok := asInterval(a); ok {
+		if ib, ok := asInterval(b); ok {
+			return cqlEqual(ia.Low, ib.Low) && cqlEqual(ia.High, ib.High) && ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
+		}
+	}
 	if ta, ok := asTime(a); ok {
 		if tb, ok := asTime(b); ok {
 			return ta.Equal(tb)
@@ -1118,6 +1456,21 @@ func cqlEquivalent(a, b any) bool {
 
 func cqlCompare(a, b any) (int, bool) {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if qa, ok := asQuantity(a); ok {
+		if qb, ok := asQuantity(b); ok && (sameUnit(qa.Unit, qb.Unit) || (isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit))) {
+			va, vb := qa.Value, qb.Value
+			if !sameUnit(qa.Unit, qb.Unit) {
+				va, vb = toSeconds(qa), toSeconds(qb)
+			}
+			if va < vb {
+				return -1, true
+			}
+			if va > vb {
+				return 1, true
+			}
+			return 0, true
+		}
+	}
 	if ta, ok := asTime(a); ok {
 		if tb, ok := asTime(b); ok {
 			if ta.Before(tb) {
@@ -1182,6 +1535,10 @@ func typeName(v any) string {
 		return "Decimal"
 	case time.Time:
 		return "DateTime"
+	case Quantity:
+		return "Quantity"
+	case Interval:
+		return "Interval"
 	}
 	if obj, ok := asObject(v); ok {
 		if rt, _ := obj["resourceType"].(string); rt != "" {
@@ -1250,7 +1607,12 @@ func unwrapPrimitive(v any) any {
 	if !ok {
 		return v
 	}
-	if val, has := obj["value"]; has && len(obj) <= 3 {
+	if val, has := obj["value"]; has {
+		for k := range obj {
+			if k != "value" && k != "id" && k != "extension" {
+				return v
+			}
+		}
 		return val
 	}
 	return v

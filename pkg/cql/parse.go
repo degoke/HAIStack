@@ -75,9 +75,11 @@ func parseLibrary(src string) (*Library, error) {
 				return nil, err
 			}
 		case p.acceptKeyword("parameter"):
-			if err := p.skipParameter(); err != nil {
+			param, err := p.parseParameter()
+			if err != nil {
 				return nil, err
 			}
+			lib.Parameters = append(lib.Parameters, param)
 		case p.acceptKeyword("context"):
 			ctxName, err := p.requireIdent("context")
 			if err != nil {
@@ -85,14 +87,18 @@ func parseLibrary(src string) (*Library, error) {
 			}
 			lib.Context = ctxName
 		case p.acceptKeyword("define"):
-			def, err := p.parseDefine()
+			def, fn, err := p.parseDefine()
 			if err != nil {
 				return nil, err
 			}
-			lib.Defines = append(lib.Defines, def)
+			if fn != nil {
+				lib.Functions = append(lib.Functions, *fn)
+			} else {
+				lib.Defines = append(lib.Defines, def)
+			}
 		default:
 			if p.lex.lookahead().kind == tEOF {
-				if len(lib.Defines) == 0 {
+				if len(lib.Defines) == 0 && len(lib.Functions) == 0 {
 					return nil, parseError(src, p.lex.lookahead().pos, "library has no define statements")
 				}
 				resolveTerminologyDecls(lib)
@@ -142,30 +148,40 @@ func (p *parser) parseInclude() (Include, error) {
 	return inc, nil
 }
 
-func (p *parser) parseDefine() (Define, error) {
+func (p *parser) parseDefine() (Define, *Function, error) {
 	access := "public"
+	fluent := false
 	if p.acceptKeyword("public") || p.acceptKeyword("private") || p.acceptKeyword("fluent") {
 		access = strings.ToLower(p.lex.last.text)
 		if access == "fluent" {
-			p.acceptKeyword("public")
-			p.acceptKeyword("private")
+			fluent = true
+			access = "public"
+			if p.acceptKeyword("public") || p.acceptKeyword("private") {
+				access = strings.ToLower(p.lex.last.text)
+			}
 		}
 	}
+	if p.acceptKeyword("fluent") {
+		fluent = true
+	}
 	if p.acceptKeyword("function") {
-		name, _ := p.requireName("function")
-		return Define{}, errf("%w: define function %q", ErrUnsupported, name)
+		fn, err := p.parseFunction(access, fluent)
+		if err != nil {
+			return Define{}, nil, err
+		}
+		return Define{}, &fn, nil
 	}
 	name, err := p.requireName("define name")
 	if err != nil {
-		return Define{}, err
+		return Define{}, nil, err
 	}
 	if !p.acceptKind(tColon) {
-		return Define{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' after define %s", name)
+		return Define{}, nil, parseError(p.src, p.lex.lookahead().pos, "expected ':' after define %s", name)
 	}
 	start := p.lex.lookahead().pos
 	expr, err := p.parseExpr()
 	if err != nil {
-		return Define{}, err
+		return Define{}, nil, err
 	}
 	end := p.lex.lookahead().pos
 	if end < start {
@@ -174,7 +190,58 @@ func (p *parser) parseDefine() (Define, error) {
 	if end > len(p.src) {
 		end = len(p.src)
 	}
-	return Define{Name: name, Access: access, Expression: expr, Source: strings.TrimSpace(p.src[start:end])}, nil
+	return Define{Name: name, Access: access, Expression: expr, Source: strings.TrimSpace(p.src[start:end])}, nil, nil
+}
+
+func (p *parser) parseFunction(access string, fluent bool) (Function, error) {
+	name, err := p.requireName("function")
+	if err != nil {
+		return Function{}, err
+	}
+	if !p.acceptKind(tLParen) {
+		return Function{}, parseError(p.src, p.lex.lookahead().pos, "expected '(' after function %s", name)
+	}
+	var params []FunctionParam
+	if !p.acceptKind(tRParen) {
+		for {
+			pname, err := p.requireName("function parameter")
+			if err != nil {
+				return Function{}, err
+			}
+			ptype := p.parseOptionalTypeName()
+			params = append(params, FunctionParam{Name: pname, Type: ptype})
+			if p.acceptKind(tComma) {
+				continue
+			}
+			if !p.acceptKind(tRParen) {
+				return Function{}, parseError(p.src, p.lex.lookahead().pos, "expected ')' after function parameters")
+			}
+			break
+		}
+	}
+	if !p.acceptKind(tColon) {
+		return Function{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' after function %s", name)
+	}
+	start := p.lex.lookahead().pos
+	body, err := p.parseExpr()
+	if err != nil {
+		return Function{}, err
+	}
+	end := p.lex.lookahead().pos
+	if end < start {
+		end = start
+	}
+	if end > len(p.src) {
+		end = len(p.src)
+	}
+	return Function{
+		Name:   name,
+		Access: access,
+		Fluent: fluent,
+		Params: params,
+		Body:   body,
+		Source: strings.TrimSpace(p.src[start:end]),
+	}, nil
 }
 
 func (p *parser) parseCodeSystem() (CodeSystem, error) {
@@ -306,33 +373,75 @@ func resolveTerminologyDecls(lib *Library) {
 	}
 }
 
-func (p *parser) skipParameter() error {
-	if _, err := p.requireName("parameter name"); err != nil {
-		return err
+func (p *parser) parseParameter() (Parameter, error) {
+	name, err := p.requireName("parameter name")
+	if err != nil {
+		return Parameter{}, err
 	}
-	// Optional type: Ident or Ident<Ident>
-	if p.lex.lookahead().kind == tIdent && !isExprStartKeyword(p.lex.lookahead().text) {
-		p.lex.next()
-		if p.acceptKind(tLt) {
-			if _, err := p.requireIdent("type argument"); err != nil {
-				return err
-			}
-			if !p.acceptKind(tGt) {
-				return parseError(p.src, p.lex.lookahead().pos, "expected '>' after type argument")
-			}
-		}
+	param := Parameter{Name: name}
+	if p.lex.lookahead().kind == tIdent && !isExprStartKeyword(p.lex.lookahead().text) && !keywordEq(p.lex.lookahead().text, "default") {
+		param.Type = p.parseOptionalTypeName()
 	}
 	if p.acceptKeyword("default") {
-		if _, err := p.parseExpr(); err != nil {
-			return err
+		expr, err := p.parseExpr()
+		if err != nil {
+			return Parameter{}, err
 		}
+		param.Default = expr
 	}
-	return nil
+	return param, nil
+}
+
+func (p *parser) parseOptionalTypeName() string {
+	t := p.lex.lookahead()
+	if t.kind != tIdent && t.kind != tQuotedIdent {
+		return ""
+	}
+	if isExprStartKeyword(t.text) || keywordEq(t.text, "default") {
+		return ""
+	}
+	p.lex.next()
+	name := t.text
+	if p.acceptKind(tLt) {
+		inner, err := p.requireName("type argument")
+		if err != nil {
+			return name
+		}
+		_ = p.acceptKind(tGt)
+		return name + "<" + inner + ">"
+	}
+	return name
 }
 
 func isExprStartKeyword(text string) bool {
 	switch strings.ToLower(text) {
-	case "library", "using", "include", "codesystem", "valueset", "code", "concept", "parameter", "context", "define", "and", "or", "not":
+	case "library", "using", "include", "codesystem", "valueset", "code", "concept", "parameter", "context", "define",
+		"and", "or", "not", "xor", "implies", "default", "function", "fluent",
+		"where", "return", "sort", "with", "without", "let", "aggregate":
+		return true
+	}
+	return false
+}
+
+func isQueryClauseKeyword(text string) bool {
+	switch strings.ToLower(text) {
+	case "where", "return", "sort", "with", "without", "let", "aggregate", "such", "from":
+		return true
+	}
+	return false
+}
+
+func isReservedAlias(text string) bool {
+	if isExprStartKeyword(text) || isQueryClauseKeyword(text) {
+		return true
+	}
+	switch strings.ToLower(text) {
+	case "then", "else", "is", "as", "in", "contains", "union", "intersect", "except",
+		"div", "mod", "true", "false", "null", "if", "case", "end", "when", "between",
+		"during", "includes", "overlaps", "starts", "ends", "meets", "before", "after",
+		"of", "duration", "difference", "asc", "desc", "all", "distinct", "year", "years",
+		"month", "months", "week", "weeks", "day", "days", "hour", "hours", "minute",
+		"minutes", "second", "seconds", "millisecond", "milliseconds":
 		return true
 	}
 	return false
@@ -419,12 +528,23 @@ func (p *parser) parseIn() (Node, error) {
 		return nil, err
 	}
 	for {
-		op := ""
-		if p.acceptKeyword("in") {
-			op = "in"
-		} else if p.acceptKeyword("contains") {
-			op = "contains"
-		} else {
+		if p.acceptKeyword("between") {
+			low, err := p.parseComparison()
+			if err != nil {
+				return nil, err
+			}
+			if !p.acceptKeyword("and") {
+				return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'and' after between")
+			}
+			high, err := p.parseComparison()
+			if err != nil {
+				return nil, err
+			}
+			left = &betweenNode{nodeBase: nodeBase{src: p.src}, x: left, low: low, high: high}
+			continue
+		}
+		op := p.parseMembershipOp()
+		if op == "" {
 			break
 		}
 		right, err := p.parseComparison()
@@ -434,6 +554,49 @@ func (p *parser) parseIn() (Node, error) {
 		left = &binaryNode{nodeBase: nodeBase{src: p.src}, op: op, left: left, right: right}
 	}
 	return left, nil
+}
+
+func (p *parser) parseMembershipOp() string {
+	if p.acceptKeyword("properly") {
+		switch {
+		case p.acceptKeyword("includes"):
+			return "properly includes"
+		case p.acceptKeyword("included"):
+			_ = p.acceptKeyword("in")
+			return "properly included in"
+		case p.acceptKeyword("during"):
+			return "properly during"
+		default:
+			return "properly"
+		}
+	}
+	if p.acceptKeyword("included") {
+		_ = p.acceptKeyword("in")
+		return "included in"
+	}
+	switch {
+	case p.acceptKeyword("in"):
+		return "in"
+	case p.acceptKeyword("contains"):
+		return "contains"
+	case p.acceptKeyword("includes"):
+		return "includes"
+	case p.acceptKeyword("during"):
+		return "during"
+	case p.acceptKeyword("overlaps"):
+		return "overlaps"
+	case p.acceptKeyword("starts"):
+		return "starts"
+	case p.acceptKeyword("ends"):
+		return "ends"
+	case p.acceptKeyword("meets"):
+		return "meets"
+	case p.acceptKeyword("before"):
+		return "before"
+	case p.acceptKeyword("after"):
+		return "after"
+	}
+	return ""
 }
 
 func (p *parser) parseComparison() (Node, error) {
@@ -503,6 +666,10 @@ func (p *parser) parseAdd() (Node, error) {
 		default:
 			if p.acceptKeyword("union") {
 				op = "|"
+			} else if p.acceptKeyword("intersect") {
+				op = "intersect"
+			} else if p.acceptKeyword("except") {
+				op = "except"
 			} else {
 				return left, nil
 			}
@@ -557,7 +724,50 @@ func (p *parser) parseUnary() (Node, error) {
 	if p.acceptKind(tPlus) {
 		return p.parseUnary()
 	}
+	if p.acceptKeyword("singleton") {
+		_ = p.acceptKeyword("from")
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "singleton", x: x}, nil
+	}
+	if p.acceptKeyword("flatten") {
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "flatten", x: x}, nil
+	}
+	if startOf, op := p.peekStartEndWidth(); startOf {
+		p.lex.next()
+		_ = p.acceptKeyword("of")
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: op, x: x}, nil
+	}
 	return p.parsePostfix()
+}
+
+func (p *parser) peekStartEndWidth() (bool, string) {
+	t := p.lex.lookahead()
+	if t.kind != tIdent {
+		return false, ""
+	}
+	op := strings.ToLower(t.text)
+	if op != "start" && op != "end" && op != "width" {
+		return false, ""
+	}
+	rest := p.src[t.pos:]
+	lx := newLexer(rest)
+	_ = lx.next()
+	next := lx.next()
+	if next.kind == tIdent && keywordEq(next.text, "of") {
+		return true, op
+	}
+	return false, ""
 }
 
 func (p *parser) parsePostfix() (Node, error) {
@@ -565,6 +775,7 @@ func (p *parser) parsePostfix() (Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	n = p.parseQuantitySuffix(n)
 	for {
 		switch p.lex.lookahead().kind {
 		case tDot:
@@ -656,12 +867,21 @@ func (p *parser) parsePrimary() (Node, error) {
 		if keywordEq(t.text, "if") {
 			return p.parseIf()
 		}
-		if keywordEq(t.text, "from") || keywordEq(t.text, "with") || keywordEq(t.text, "without") {
-			return nil, errf("%w: CQL query (%s ...); this engine evaluates define expressions, not query syntax", ErrUnsupported, t.text)
+		if keywordEq(t.text, "from") {
+			p.lex.next()
+			return p.parseFromQuery()
 		}
 		if keywordEq(t.text, "Interval") {
-			p.lex.next()
-			return nil, errf("%w: Interval types and promotion", ErrUnsupported)
+			return p.parseInterval()
+		}
+		if keywordEq(t.text, "case") {
+			return p.parseCase()
+		}
+		if keywordEq(t.text, "duration") || keywordEq(t.text, "difference") {
+			return p.parseDuration(keywordEq(t.text, "difference"))
+		}
+		if unit := timeUnitName(t.text); unit != "" && p.looksLikeUnitBetween() {
+			return p.parseUnitBetween()
 		}
 		p.lex.next()
 		return &identNode{nodeBase: nodeBase{src: t.text}, name: t.text}, nil
@@ -692,7 +912,19 @@ func (p *parser) parsePrimary() (Node, error) {
 		}
 		return n, nil
 	case tLBrack:
-		return p.parseRetrieve()
+		n, err := p.parseRetrieve()
+		if err != nil {
+			return nil, err
+		}
+		t := p.lex.lookahead()
+		if t.kind == tQuotedIdent || (t.kind == tIdent && !isReservedAlias(t.text)) {
+			p.lex.next()
+			return p.parseQuery(querySource{expr: n, alias: t.text})
+		}
+		if t.kind == tIdent && isQueryClauseKeyword(t.text) {
+			return p.parseQuery(querySource{expr: n})
+		}
+		return n, nil
 	case tLBrace:
 		return p.parseBrace()
 	}
@@ -742,10 +974,349 @@ func (p *parser) parseRetrieve() (Node, error) {
 	if !p.acceptKind(tRBrack) {
 		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' after retrieve")
 	}
-	if t := p.lex.lookahead(); t.kind == tIdent && !isExprStartKeyword(t.text) && !keywordEq(t.text, "where") && !keywordEq(t.text, "select") {
-		return nil, errf("%w: related-context retrieve alias %q", ErrUnsupported, t.text)
-	}
 	return &retrieveNode{nodeBase: nodeBase{src: name}, resourceType: name, terminology: term}, nil
+}
+
+func (p *parser) parseQuantitySuffix(n Node) Node {
+	lit, ok := n.(*litNode)
+	if !ok {
+		return n
+	}
+	if _, isNum := asParseFloat(lit.value); !isNum {
+		return n
+	}
+	t := p.lex.lookahead()
+	unit := ""
+	switch t.kind {
+	case tString:
+		p.lex.next()
+		unit = t.text
+	case tIdent:
+		if u := timeUnitName(t.text); u != "" {
+			p.lex.next()
+			unit = u
+		}
+	}
+	if unit == "" {
+		return n
+	}
+	return &quantityNode{nodeBase: nodeBase{src: p.src}, value: lit.value, unit: unit}
+}
+
+func asParseFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case float64:
+		return x, true
+	}
+	return 0, false
+}
+
+func timeUnitName(text string) string {
+	switch strings.ToLower(text) {
+	case "year", "years":
+		return "year"
+	case "month", "months":
+		return "month"
+	case "week", "weeks":
+		return "week"
+	case "day", "days":
+		return "day"
+	case "hour", "hours":
+		return "hour"
+	case "minute", "minutes":
+		return "minute"
+	case "second", "seconds":
+		return "second"
+	case "millisecond", "milliseconds":
+		return "millisecond"
+	}
+	return ""
+}
+
+func (p *parser) looksLikeUnitBetween() bool {
+	t := p.lex.lookahead()
+	rest := p.src[t.pos:]
+	lx := newLexer(rest)
+	_ = lx.next() // unit
+	next := lx.next()
+	return next.kind == tIdent && keywordEq(next.text, "between")
+}
+
+func (p *parser) parseUnitBetween() (Node, error) {
+	unitTok := p.lex.next()
+	unit := timeUnitName(unitTok.text)
+	if !p.acceptKeyword("between") {
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected between")
+	}
+	left, err := p.parseComparison()
+	if err != nil {
+		return nil, err
+	}
+	if !p.acceptKeyword("and") {
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'and' after between")
+	}
+	right, err := p.parseComparison()
+	if err != nil {
+		return nil, err
+	}
+	return &durationNode{nodeBase: nodeBase{src: p.src}, unit: unit, left: left, right: right}, nil
+}
+
+func (p *parser) parseDuration(difference bool) (Node, error) {
+	p.lex.next() // duration | difference
+	if !p.acceptKeyword("in") {
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'in' after duration")
+	}
+	unitTok := p.lex.lookahead()
+	unit := timeUnitName(unitTok.text)
+	if unit == "" {
+		name, err := p.requireName("duration unit")
+		if err != nil {
+			return nil, err
+		}
+		unit = name
+	} else {
+		p.lex.next()
+	}
+	n := &durationNode{nodeBase: nodeBase{src: p.src}, unit: unit, difference: difference}
+	if p.acceptKeyword("of") {
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		n.of = x
+		return n, nil
+	}
+	if p.acceptKeyword("between") {
+		left, err := p.parseComparison()
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKeyword("and") {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'and' after between")
+		}
+		right, err := p.parseComparison()
+		if err != nil {
+			return nil, err
+		}
+		n.left, n.right = left, right
+		return n, nil
+	}
+	return nil, parseError(p.src, p.lex.lookahead().pos, "expected 'of' or 'between' after duration in %s", unit)
+}
+
+func (p *parser) parseInterval() (Node, error) {
+	p.lex.next() // Interval
+	lowClosed := false
+	switch p.lex.lookahead().kind {
+	case tLBrack:
+		p.lex.next()
+		lowClosed = true
+	case tLParen:
+		p.lex.next()
+		lowClosed = false
+	default:
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected '[' or '(' after Interval")
+	}
+	low, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	if !p.acceptKind(tComma) {
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ',' in Interval")
+	}
+	high, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	highClosed := false
+	switch p.lex.lookahead().kind {
+	case tRBrack:
+		p.lex.next()
+		highClosed = true
+	case tRParen:
+		p.lex.next()
+		highClosed = false
+	default:
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected ']' or ')' after Interval")
+	}
+	return &intervalNode{nodeBase: nodeBase{src: p.src}, low: low, high: high, lowClosed: lowClosed, highClosed: highClosed}, nil
+}
+
+func (p *parser) parseCase() (Node, error) {
+	p.lex.next() // case
+	n := &caseNode{nodeBase: nodeBase{src: p.src}}
+	if !keywordEq(p.lex.lookahead().text, "when") {
+		test, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		n.test = test
+	}
+	for p.acceptKeyword("when") {
+		when, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKeyword("then") {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected then")
+		}
+		thenN, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		n.whens = append(n.whens, caseWhen{when: when, then: thenN})
+	}
+	if p.acceptKeyword("else") {
+		elseN, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		n.elseN = elseN
+	}
+	if !p.acceptKeyword("end") {
+		return nil, parseError(p.src, p.lex.lookahead().pos, "expected end")
+	}
+	return n, nil
+}
+
+func (p *parser) parseFromQuery() (Node, error) {
+	src, err := p.parseAliasedSource()
+	if err != nil {
+		return nil, err
+	}
+	return p.parseQuery(src)
+}
+
+func (p *parser) parseAliasedSource() (querySource, error) {
+	expr, err := p.parseQuerySourceExpr()
+	if err != nil {
+		return querySource{}, err
+	}
+	src := querySource{expr: expr}
+	t := p.lex.lookahead()
+	if t.kind == tQuotedIdent || (t.kind == tIdent && !isReservedAlias(t.text)) {
+		p.lex.next()
+		src.alias = t.text
+	}
+	return src, nil
+}
+
+func (p *parser) parseQuerySourceExpr() (Node, error) {
+	t := p.lex.lookahead()
+	if t.kind == tLBrack {
+		return p.parseRetrieve()
+	}
+	if t.kind == tLParen {
+		p.lex.next()
+		n, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKind(tRParen) {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected ')'")
+		}
+		return n, nil
+	}
+	return p.parsePostfix()
+}
+
+func (p *parser) parseQuery(first querySource) (Node, error) {
+	q := &queryNode{nodeBase: nodeBase{src: p.src}, sources: []querySource{first}}
+	for p.acceptKind(tComma) {
+		src, err := p.parseAliasedSource()
+		if err != nil {
+			return nil, err
+		}
+		q.sources = append(q.sources, src)
+	}
+	for p.acceptKeyword("let") {
+		name, err := p.requireName("let name")
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKind(tColon) {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected ':' after let %s", name)
+		}
+		expr, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		q.lets = append(q.lets, letClause{name: name, expr: expr})
+	}
+	for {
+		without := false
+		if p.acceptKeyword("with") {
+			without = false
+		} else if p.acceptKeyword("without") {
+			without = true
+		} else {
+			break
+		}
+		rel, err := p.parseRelated(without)
+		if err != nil {
+			return nil, err
+		}
+		q.related = append(q.related, rel)
+	}
+	if p.acceptKeyword("where") {
+		where, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		q.where = where
+	}
+	if p.acceptKeyword("return") {
+		if p.acceptKeyword("distinct") {
+			q.distinct = true
+		} else {
+			_ = p.acceptKeyword("all")
+		}
+		ret, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		q.ret = ret
+	}
+	if p.acceptKeyword("sort") {
+		_ = p.acceptKeyword("by")
+		for {
+			expr, err := p.parseComparison()
+			if err != nil {
+				return nil, err
+			}
+			item := sortItem{expr: expr}
+			if p.acceptKeyword("desc") {
+				item.desc = true
+			} else {
+				_ = p.acceptKeyword("asc")
+			}
+			q.sort = append(q.sort, item)
+			if !p.acceptKind(tComma) {
+				break
+			}
+		}
+	}
+	return q, nil
+}
+
+func (p *parser) parseRelated(without bool) (relatedClause, error) {
+	src, err := p.parseAliasedSource()
+	if err != nil {
+		return relatedClause{}, err
+	}
+	if !p.acceptKeyword("such") || !p.acceptKeyword("that") {
+		return relatedClause{}, parseError(p.src, p.lex.lookahead().pos, "expected 'such that'")
+	}
+	such, err := p.parseExpr()
+	if err != nil {
+		return relatedClause{}, err
+	}
+	return relatedClause{source: src, such: such, without: without}, nil
 }
 
 func (p *parser) parseBrace() (Node, error) {

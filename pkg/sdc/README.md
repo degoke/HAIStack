@@ -263,7 +263,7 @@ Included:
 
 - FHIR R4 / SDC 3.0.0 questionnaire behavior
 - FHIRPath expression integration via pkg/fhirpath
-- CQL expression integration via pkg/cql (Patient-context subset; not CQF Measure evaluation)
+- CQL expression integration via pkg/cql (CQL 1.5 libraries; CQF Measure evaluation is in pkg/cql / Measure/$evaluate-measure)
 - population, validation, assembly, rendering state, and extraction contracts
 - canonical transaction Bundle generation without persistence side effects
 - adaptive protocol interfaces
