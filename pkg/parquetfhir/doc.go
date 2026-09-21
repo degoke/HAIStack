@@ -9,8 +9,10 @@
 // StructureDefinition elements into the schema index. Timestamp annotations default
 // to Parquet TIMESTAMP(MILLIS) on INT64 for parquet-go map writer compatibility.
 // Pass WithTimestampEncoding(TimestampEncodingInt96) or set
-// _parquetTimestampEncoding=int96 to emit spec INT96 + TIMESTAMP(MILLIS) via a
-// typed parquet.Row writer. WriteResourcesStreaming uses a two-pass replay model
+// _parquetTimestampEncoding=int96 (query or Parameters body) to emit spec
+// INT96 + TIMESTAMP(MILLIS) via a typed parquet.Row writer. Values are Unix
+// millis packed with Int64ToInt96. parquet-go remaps TIMESTAMP to INT64 on
+// read; use ReadInt96MillisColumn to round-trip those columns. WriteResourcesStreaming uses a two-pass replay model
 // for bounded memory. Use _parquetLayout=fhir on view export/run operations and
 // analytics lakehouse sinks.
 package parquetfhir

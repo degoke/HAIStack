@@ -276,7 +276,7 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 	if err := json.Unmarshal(body, &params); err != nil {
 		return req, invalidRequest("invalid Parameters body", err)
 	}
-	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "viewName", "version")
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "viewName", "version", "parquetTimestampEncoding", "_parquetTimestampEncoding")
 	if subject != "" {
 		req.Subject = subject
 	}
@@ -299,6 +299,11 @@ func parseViewRunRequest(r *http.Request, route parsedRoute) (view.ViewRunReques
 			req.Version = p.Value.String
 		}
 	}
+	encoding, err = applyTimestampEncodingParameter(req.TimestampEncoding, timestampEncodingParameter(params.Parameter))
+	if err != nil {
+		return req, invalidRequest("invalid parquetTimestampEncoding parameter", err)
+	}
+	req.TimestampEncoding = encoding
 	if len(params.Resource) > 0 {
 		req.InlineDef = params.Resource
 	}
@@ -392,7 +397,7 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if err != nil {
 		return req, invalidRequest("invalid request body", err)
 	}
-	views, subject, actor, format, params, err := parseExportParametersBody(body)
+	views, subject, actor, format, timestampEncoding, params, err := parseExportParametersBody(body)
 	if err != nil {
 		return req, err
 	}
@@ -408,6 +413,11 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	if format != "" {
 		req.Format = format
 	}
+	encoding, err = applyTimestampEncodingParameter(req.TimestampEncoding, timestampEncoding)
+	if err != nil {
+		return req, invalidRequest("invalid parquetTimestampEncoding parameter", err)
+	}
+	req.TimestampEncoding = encoding
 	if len(views) > 0 {
 		req.Views = views
 	}
@@ -417,12 +427,12 @@ func parseViewExportRequest(r *http.Request, route parsedRoute) (view.ViewExport
 	return req, nil
 }
 
-func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, view.OutputFormat, map[string]any, error) {
+func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, string, view.OutputFormat, string, map[string]any, error) {
 	var params struct {
 		Parameter []operationParameter `json:"parameter"`
 	}
 	if err := json.Unmarshal(body, &params); err != nil {
-		return nil, "", "", "", nil, invalidRequest("invalid Parameters body", err)
+		return nil, "", "", "", "", nil, invalidRequest("invalid Parameters body", err)
 	}
 	var views []view.ViewExportTarget
 	var format view.OutputFormat
@@ -454,8 +464,29 @@ func parseExportParametersBody(body []byte) ([]view.ViewExportTarget, string, st
 		}
 		format = view.ParseOutputFormat(p.Value.String)
 	}
-	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view", "format")
-	return views, subject, actor, format, operationParams, nil
+	subject, actor, operationParams := parseOperationContextFromParameters(params.Parameter, "view", "format", "parquetTimestampEncoding", "_parquetTimestampEncoding")
+	return views, subject, actor, format, timestampEncodingParameter(params.Parameter), operationParams, nil
+}
+
+func timestampEncodingParameter(parameters []operationParameter) string {
+	var raw string
+	for _, p := range parameters {
+		if p.Value == nil || len(p.Part) > 0 {
+			continue
+		}
+		switch p.Name {
+		case "_parquetTimestampEncoding", "parquetTimestampEncoding":
+			raw = p.Value.String
+		}
+	}
+	return strings.TrimSpace(raw)
+}
+
+func applyTimestampEncodingParameter(current view.TimestampEncoding, raw string) (view.TimestampEncoding, error) {
+	if strings.TrimSpace(raw) == "" {
+		return current, nil
+	}
+	return view.ParseTimestampEncoding(raw)
 }
 
 type operationParameter struct {

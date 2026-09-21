@@ -12,7 +12,7 @@ const (
 	TimestampEncodingInt96 = parquetfhir.TimestampEncodingInt96
 )
 
-// ParseTimestampEncoding maps _parquetTimestampEncoding query values.
+// ParseTimestampEncoding maps _parquetTimestampEncoding query or Parameters body values.
 func ParseTimestampEncoding(raw string) (TimestampEncoding, error) {
 	return parquetfhir.ParseTimestampEncoding(raw)
 }

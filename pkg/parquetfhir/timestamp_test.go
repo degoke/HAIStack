@@ -18,6 +18,17 @@ func TestTimestampToInt96UsesUnixMillis(t *testing.T) {
 	}
 }
 
+func TestTimestampToInt96IsNotHiveJulianDay(t *testing.T) {
+	epoch := timestampToInt96(time.Unix(0, 0).UTC())
+	const hiveUnixEpochJulianDay uint32 = 2440588
+	if epoch[2] == hiveUnixEpochJulianDay {
+		t.Fatal("INT96 last word is Hive julian-day 2440588; layout is millis packed, not Hive nanos-of-day + julian day")
+	}
+	if epoch != deprecated.Int64ToInt96(0) {
+		t.Fatalf("epoch INT96=%v, want millis-packed zero", epoch)
+	}
+}
+
 func TestApplyTimestampEncodingConvertsTimes(t *testing.T) {
 	row := map[string]any{
 		"birthDate":         "1970-01-01",

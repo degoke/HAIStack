@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -68,6 +70,9 @@ func TestInteropSpecPatientINT96TimestampAnnotations(t *testing.T) {
 	assertMetadataPhysicalType(t, data, format.Int96, "__birthDate_end")
 	assertMetadataTimestampMillis(t, data, "__birthDate_start")
 	assertMetadataTimestampMillis(t, data, "__birthDate_end")
+	assertParquetGoCannotReadINT96Timestamp(t, data, "__birthDate_start")
+	assertInt96MillisRoundTrip(t, data, "__birthDate_start", time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+	assertInt96MillisRoundTrip(t, data, "__birthDate_end", time.Date(1970, 1, 1, 23, 59, 59, 999000000, time.UTC))
 }
 
 func TestInteropSpecObservationINT96TimestampAnnotations(t *testing.T) {
@@ -85,6 +90,31 @@ func TestInteropSpecObservationINT96TimestampAnnotations(t *testing.T) {
 	assertMetadataPhysicalType(t, data, format.Int96, "__effectiveDateTime_end")
 	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_start")
 	assertMetadataTimestampMillis(t, data, "__effectiveDateTime_end")
+	assertInt96MillisRoundTrip(t, data, "__effectiveDateTime_start", time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC))
+}
+
+func TestInteropSpecObservationPeriodStartINT96TimestampAnnotations(t *testing.T) {
+	sd := bundledSD(t, "Observation")
+	resources := []map[string]any{
+		{
+			"resourceType": "Observation",
+			"id":           "obs-period",
+			"status":       "final",
+			"effectivePeriod": map[string]any{
+				"start": "2022-02-10T00:00:00Z",
+				"end":   "2022-02-11T00:00:00Z",
+			},
+		},
+	}
+	data := writeParquet(t, sd, resources, parquetfhir.WithTimestampEncoding(parquetfhir.TimestampEncodingInt96))
+	assertMetadataPhysicalType(t, data, format.Int96, "__start_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "__start_end")
+	assertMetadataPhysicalType(t, data, format.Int96, "__end_start")
+	assertMetadataPhysicalType(t, data, format.Int96, "__end_end")
+	assertMetadataTimestampMillis(t, data, "__start_start")
+	assertMetadataTimestampMillis(t, data, "__start_end")
+	assertInt96MillisRoundTrip(t, data, "__start_start", time.Date(2022, 2, 10, 0, 0, 0, 0, time.UTC))
+	assertInt96MillisRoundTrip(t, data, "__end_start", time.Date(2022, 2, 11, 0, 0, 0, 0, time.UTC))
 }
 
 func TestWriteResourcesStreamingINT96TimestampAnnotations(t *testing.T) {
@@ -603,6 +633,56 @@ func assertMetadataTimestampMillis(t *testing.T, data []byte, name string) {
 	if _, ok := ts.Unit.Value.(*format.MilliSeconds); !ok {
 		t.Fatalf("column %s TIMESTAMP unit=%v, want MILLIS", name, ts.Unit.Value)
 	}
+}
+
+func assertParquetGoCannotReadINT96Timestamp(t *testing.T, data []byte, name string) {
+	t.Helper()
+	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	col := findLeafColumn(file.Root(), name)
+	if col == nil {
+		t.Fatalf("column %q not found", name)
+	}
+	pages := col.Pages()
+	defer pages.Close()
+	_, err = pages.ReadPage()
+	if err == nil {
+		t.Fatal("parquet-go ReadPage succeeded; expected INT64 decode failure on INT96 TIMESTAMP pages")
+	}
+	if !strings.Contains(err.Error(), "INT64") && !strings.Contains(err.Error(), "size 12") {
+		t.Fatalf("ReadPage error=%v, want INT64/size 12 mismatch", err)
+	}
+}
+
+func assertInt96MillisRoundTrip(t *testing.T, data []byte, name string, want time.Time) {
+	t.Helper()
+	got, err := parquetfhir.ReadInt96MillisColumn(bytesReader(data), int64(len(data)), name)
+	if err != nil {
+		t.Fatalf("ReadInt96MillisColumn(%q): %v", name, err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ReadInt96MillisColumn(%q) len=%d, want 1", name, len(got))
+	}
+	if !got[0].Equal(want) {
+		t.Fatalf("ReadInt96MillisColumn(%q)=%v, want %v", name, got[0], want)
+	}
+}
+
+func findLeafColumn(col *parquet.Column, name string) *parquet.Column {
+	if col == nil {
+		return nil
+	}
+	if col.Leaf() && col.Name() == name {
+		return col
+	}
+	for _, child := range col.Columns() {
+		if found := findLeafColumn(child, name); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 type bytesReader []byte

@@ -21,8 +21,8 @@ const (
 	TimestampEncodingInt96 TimestampEncoding = "int96"
 )
 
-// ParseTimestampEncoding maps _parquetTimestampEncoding query values.
-// Empty input defaults to int64. Unknown values return an error.
+// ParseTimestampEncoding maps _parquetTimestampEncoding query or Parameters
+// body values. Empty input defaults to int64. Unknown values return an error.
 func ParseTimestampEncoding(raw string) (TimestampEncoding, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "int64":
@@ -42,6 +42,10 @@ func NormalizeTimestampEncoding(enc TimestampEncoding) TimestampEncoding {
 	return TimestampEncodingInt64
 }
 
+// timestampToInt96 packs Unix milliseconds into parquet INT96 via Int64ToInt96.
+// This matches TIMESTAMP(MILLIS) and is not the Hive/Impala INT96 layout
+// (8-byte nanoseconds-of-day + 4-byte Julian day). Engines that ignore the
+// logical type and treat every INT96 as a Hive timestamp will misread values.
 func timestampToInt96(t time.Time) deprecated.Int96 {
 	return deprecated.Int64ToInt96(t.UTC().UnixMilli())
 }

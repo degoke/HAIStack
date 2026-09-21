@@ -8,6 +8,10 @@ import (
 
 // timestampMillisInt96Type is INT96 physical type with TIMESTAMP(MILLIS)
 // logical type, as specified by Parquet-on-FHIR date range annotations.
+//
+// parquet-go's schemaElementTypeOf remaps TIMESTAMP to INT64 on read, so
+// File.Schema and Pages cannot round-trip these columns. Use
+// ReadInt96MillisColumn, which decodes from file metadata physical type.
 type timestampMillisInt96Type struct {
 	parquet.Type
 	logical   *format.LogicalType
