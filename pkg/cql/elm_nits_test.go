@@ -1447,3 +1447,22 @@ func TestReviewNitsRound6(t *testing.T) {
 		t.Fatalf("UCUM foot: %#v", got)
 	}
 }
+
+func TestReviewNitsRound7(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ConvertQuantity(500 'ml', 'L')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "L" || q.Value != 0.5 {
+		t.Fatalf("UCUM ml to L: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "5 'mg' ~ 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("quantity equivalence via UCUM: %#v", got)
+	}
+}

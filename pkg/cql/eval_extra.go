@@ -992,9 +992,7 @@ func (st *evalState) codingSubsumes(broad, narrow fhirCoding) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			if ok {
-				return true, nil
-			}
+			return ok, nil
 		}
 	}
 	return codingSubsumesHeuristic(broad, narrow), nil

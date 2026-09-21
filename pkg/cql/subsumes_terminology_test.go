@@ -25,6 +25,23 @@ func (f fakeSubsumption) Subsumes(_ context.Context, _ string, broad, narrow str
 	return false, nil
 }
 
+func TestSubsumesStrictWhenTerminologyWired(t *testing.T) {
+	term := fakeSubsumption{tree: map[string]string{}}
+	eng, err := NewEngine(Config{Terminology: term})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(),
+		"{code:'chi', system:'http://cs'} subsumes {code:'child', system:'http://cs'}",
+		EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("expected false without heuristic when terminology is wired: %#v", got)
+	}
+}
+
 func TestSubsumesUsesTerminologyValidator(t *testing.T) {
 	term := fakeSubsumption{tree: map[string]string{"child": "parent", "parent": "root"}}
 	eng, err := NewEngine(Config{Terminology: term})

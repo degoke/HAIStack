@@ -36,3 +36,21 @@ func TestLocalServiceSubsumesWalksParents(t *testing.T) {
 		t.Fatalf("leaf should not subsume root: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestLocalServiceSubsumesBreaksParentCycles(t *testing.T) {
+	ctx := context.Background()
+	mem := NewMemoryStore()
+	scope := "s1"
+	sys := "http://example.org/cs"
+	if err := mem.ReplaceCodeSystem(ctx, scope, sys, "1", []store.TerminologyConceptRecord{
+		{ScopeID: scope, SystemURL: sys, SystemVersion: "1", Code: "a", ParentCode: "b", Active: true},
+		{ScopeID: scope, SystemURL: sys, SystemVersion: "1", Code: "b", ParentCode: "a", Active: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &LocalService{Store: mem, ScopeID: scope}
+	ok, err := svc.Subsumes(ctx, SubsumesRequest{ScopeID: scope, System: sys, Version: "1", BroadCode: "root", NarrowCode: "a"})
+	if err != nil || ok {
+		t.Fatalf("cycle should not report subsumes: ok=%v err=%v", ok, err)
+	}
+}

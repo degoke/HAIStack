@@ -27,7 +27,12 @@ func (s *LocalService) Subsumes(ctx context.Context, r SubsumesRequest) (bool, e
 	}
 	scope := s.effectiveScope(ctx, r.ScopeID)
 	current := narrow
+	seen := make(map[string]struct{}, 8)
 	for depth := 0; depth < maxSubsumptionDepth; depth++ {
+		if _, loop := seen[strings.ToLower(current)]; loop {
+			return false, nil
+		}
+		seen[strings.ToLower(current)] = struct{}{}
 		c, err := s.Store.LookupConcept(ctx, scope, r.System, r.Version, current)
 		if err != nil {
 			return false, err

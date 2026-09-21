@@ -2,7 +2,6 @@ package cql
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/iimos/ucum"
 )
@@ -23,7 +22,6 @@ var defaultUCUM UCUMConverter = &ucumEngine{conv: ucum.NewConverter()}
 
 type ucumEngine struct {
 	conv *ucum.Conv
-	mu   sync.Mutex
 }
 
 func (e *ucumEngine) Canonicalize(unit string) (string, bool) {
