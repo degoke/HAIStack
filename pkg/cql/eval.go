@@ -2490,8 +2490,16 @@ func evalArithmetic(op string, lv, rv any) ([]any, error) {
 		}
 	}
 	if q1, ok := asQuantity(lv); ok {
+		if scaled, ok := scaleQuantityByScalar(op, q1, rv); ok {
+			return scaled, nil
+		}
 		if q2, ok := asQuantity(rv); ok {
 			return evalQuantityArith(op, q1, q2)
+		}
+	}
+	if q2, ok := asQuantity(rv); ok {
+		if scaled, ok := scaleQuantityByScalarLeft(op, lv, q2); ok {
+			return scaled, nil
 		}
 	}
 	if t, ok := asTime(lv); ok {

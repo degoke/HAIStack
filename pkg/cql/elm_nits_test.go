@@ -1320,7 +1320,7 @@ func TestReviewNitsRound4(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, ok := got[0].(Ratio)
-	if !ok || r.Numerator.Value != 6 || r.Denominator.Value != 8 {
+	if !ok || r.Numerator.Value != 3 || r.Denominator.Value != 4 {
 		t.Fatalf("ratio add diff denom: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "Repeat(1, 0)", EvalContext{})
@@ -1351,5 +1351,40 @@ func TestReviewNitsRound4(t *testing.T) {
 	q, ok := asQuantity(got[0])
 	if !ok || q.Unit != "g" || q.Value < 28.34 || q.Value > 28.35 {
 		t.Fatalf("UCUM ounce: %#v", got)
+	}
+}
+
+func TestReviewNitsRound5(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 'mg' * 2 : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Value != 2 || r.Numerator.Unit != "mg" || r.Denominator.Value != 4 {
+		t.Fatalf("ratio scaled numerator: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "(1 'mg' : 2 'mL') / (2 'mg' : 4 'mL')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = got[0].(Ratio)
+	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 1 {
+		t.Fatalf("ratio divide simplify: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Repeat(1, -1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Repeat negative: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[st_av]', 'kg')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "kg" || q.Value < 6.34 || q.Value > 6.36 {
+		t.Fatalf("UCUM stone: %#v", got)
 	}
 }

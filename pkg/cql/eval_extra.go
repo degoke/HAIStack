@@ -1046,6 +1046,8 @@ func quantitySIFactor(unit string) (float64, string, bool) {
 		return 453.59237, "mass", true
 	case "[oz_av]", "oz", "ounce", "ounces":
 		return 28.349523125, "mass", true
+	case "[st_av]", "st", "stone", "stones":
+		return 6350.29318, "mass", true
 	case "g", "gm", "gram", "grams":
 		return 1, "mass", true
 	case "mg":
@@ -1197,10 +1199,83 @@ func combineRatios(op string, a, b Ratio) (Ratio, bool) {
 	if op == "-" {
 		numVal = left - right
 	}
-	return Ratio{
+	return simplifyRatio(Ratio{
 		Numerator:   Quantity{Value: numVal, Unit: a.Numerator.Unit},
 		Denominator: Quantity{Value: denVal, Unit: a.Denominator.Unit},
-	}, true
+	}), true
+}
+
+func simplifyRatio(r Ratio) Ratio {
+	n, d := r.Numerator.Value, r.Denominator.Value
+	if n == 0 || d == 0 {
+		return r
+	}
+	g := ratioValueGCD(n, d)
+	if g > 0 && g != 1 {
+		r.Numerator.Value = n / g
+		r.Denominator.Value = d / g
+	}
+	return r
+}
+
+func ratioValueGCD(a, b float64) float64 {
+	for scale := 1e3; scale <= 1e12; scale *= 10 {
+		ia := int64(math.Round(a * scale))
+		ib := int64(math.Round(b * scale))
+		if ia == 0 || ib == 0 {
+			continue
+		}
+		g := int64GCD(ia, ib)
+		if g > 1 {
+			return float64(g) / scale
+		}
+	}
+	return 1
+}
+
+func int64GCD(a, b int64) int64 {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+func scaleQuantityByScalar(op string, q Quantity, rv any) ([]any, bool) {
+	f, ok := asFloat(rv)
+	if !ok {
+		return nil, false
+	}
+	switch op {
+	case "*":
+		q.Value *= f
+		return []any{q}, true
+	case "/":
+		if f == 0 {
+			return nil, false
+		}
+		q.Value /= f
+		return []any{q}, true
+	default:
+		return nil, false
+	}
+}
+
+func scaleQuantityByScalarLeft(op string, lv any, q Quantity) ([]any, bool) {
+	if op != "*" {
+		return nil, false
+	}
+	f, ok := asFloat(lv)
+	if !ok {
+		return nil, false
+	}
+	q.Value *= f
+	return []any{q}, true
 }
 
 func multiplyQuantityValues(q1, q2 Quantity) (float64, bool) {
@@ -1213,51 +1288,6 @@ func multiplyQuantityValues(q1, q2 Quantity) (float64, bool) {
 	return q1.Value * q2.Value, true
 }
 
-func multiplyQuantities(q1, q2 Quantity) (Quantity, bool) {
-	if isDimensionlessUnit(q1.Unit) {
-		return Quantity{Value: q1.Value * q2.Value, Unit: q2.Unit}, true
-	}
-	if isDimensionlessUnit(q2.Unit) {
-		return Quantity{Value: q1.Value * q2.Value, Unit: q1.Unit}, true
-	}
-	if sameUnit(q1.Unit, q2.Unit) {
-		return Quantity{Value: q1.Value * q2.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q2, q1.Unit); ok {
-		return Quantity{Value: q1.Value * conv.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q1, q2.Unit); ok {
-		return Quantity{Value: conv.Value * q2.Value, Unit: q2.Unit}, true
-	}
-	return Quantity{}, false
-}
-
-func addQuantities(q1, q2 Quantity) (Quantity, bool) {
-	if sameUnit(q1.Unit, q2.Unit) {
-		return Quantity{Value: q1.Value + q2.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q2, q1.Unit); ok {
-		return Quantity{Value: q1.Value + conv.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q1, q2.Unit); ok {
-		return Quantity{Value: conv.Value + q2.Value, Unit: q2.Unit}, true
-	}
-	return Quantity{}, false
-}
-
-func subtractQuantities(q1, q2 Quantity) (Quantity, bool) {
-	if sameUnit(q1.Unit, q2.Unit) {
-		return Quantity{Value: q1.Value - q2.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q2, q1.Unit); ok {
-		return Quantity{Value: q1.Value - conv.Value, Unit: q1.Unit}, true
-	}
-	if conv, ok := convertQuantityValue(q1, q2.Unit); ok {
-		return Quantity{Value: conv.Value - q2.Value, Unit: q2.Unit}, true
-	}
-	return Quantity{}, false
-}
-
 func evalRatioArith(op string, a, b Ratio) ([]any, error) {
 	switch op {
 	case "+", "-":
@@ -1265,7 +1295,7 @@ func evalRatioArith(op string, a, b Ratio) ([]any, error) {
 		if !ok {
 			return nil, nil
 		}
-		return []any{out}, nil
+		return []any{simplifyRatio(out)}, nil
 	case "*":
 		num := Quantity{Value: a.Numerator.Value * b.Numerator.Value, Unit: a.Numerator.Unit}
 		den := Quantity{Value: a.Denominator.Value * b.Denominator.Value, Unit: a.Denominator.Unit}
@@ -1275,7 +1305,7 @@ func evalRatioArith(op string, a, b Ratio) ([]any, error) {
 		if isDimensionlessUnit(den.Unit) {
 			den.Unit = b.Denominator.Unit
 		}
-		return []any{Ratio{Numerator: num, Denominator: den}}, nil
+		return []any{simplifyRatio(Ratio{Numerator: num, Denominator: den})}, nil
 	case "/":
 		if b.Numerator.Value == 0 {
 			return nil, nil
@@ -1288,7 +1318,7 @@ func evalRatioArith(op string, a, b Ratio) ([]any, error) {
 		if isDimensionlessUnit(den.Unit) {
 			den.Unit = a.Denominator.Unit
 		}
-		return []any{Ratio{Numerator: num, Denominator: den}}, nil
+		return []any{simplifyRatio(Ratio{Numerator: num, Denominator: den})}, nil
 	default:
 		return nil, nil
 	}
@@ -1299,10 +1329,10 @@ func listRepeat(args [][]any) ([]any, error) {
 		return nil, nil
 	}
 	n, ok := asInt(args[1][0])
-	if !ok || n < 0 {
+	if !ok {
 		return nil, nil
 	}
-	if n == 0 {
+	if n <= 0 {
 		return []any{}, nil
 	}
 	var out []any

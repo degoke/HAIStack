@@ -830,7 +830,7 @@ func (p *parser) parseRatioMul() (Node, error) {
 }
 
 func (p *parser) parseRatio() (Node, error) {
-	left, err := p.parsePower()
+	left, err := p.parseMul()
 	if err != nil {
 		return nil, err
 	}
