@@ -6,7 +6,9 @@ import (
 )
 
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
-// It is a corpus converter, not a complete HL7 version conversion map.
+// It is a corpus converter scored against independently stored gold R5 in
+// testdata/corpus.json. It is not a complete HL7 version conversion map, and
+// the scorer does not generate expected R5 from this function.
 func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []string, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(r4, &obj); err != nil {

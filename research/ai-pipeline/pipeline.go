@@ -62,7 +62,8 @@ func Run(ctx context.Context) (*Result, error) {
 
 	now := FixedNow
 	auditStore := audit.NewMemoryStore()
-	auditLogger := &audit.StoreAdapter{Store: auditStore, Now: now, NewID: sequentialID("audit")}
+	newID := sequentialID("audit")
+	auditLogger := &audit.StoreAdapter{Store: auditStore, Now: now, NewID: newID}
 
 	engine, err := newAuthEngine()
 	if err != nil {
@@ -89,7 +90,7 @@ func Run(ctx context.Context) (*Result, error) {
 			TenantID: TenantID,
 			Resolve:  resolve,
 		},
-		Audit: &view.AuditStoreAdapter{Store: auditStore, Now: now},
+		Audit: &view.AuditStoreAdapter{Store: auditStore, Now: now, NewID: newID},
 		Now:   now,
 	})
 	if err != nil {
@@ -99,7 +100,7 @@ func Run(ctx context.Context) (*Result, error) {
 	aiExec, err := ai.NewExecutor(ai.Config{
 		Resources:             resources,
 		Views:                 viewExec,
-		Audit:                 &ai.AuditStoreAdapter{Store: auditStore, Now: now},
+		Audit:                 &ai.AuditStoreAdapter{Store: auditStore, Now: now, NewID: newID},
 		AuditRequired:         true,
 		RequireConversationID: true,
 		Policy: &auth.AIPolicyAdapter{
@@ -143,10 +144,10 @@ func Run(ctx context.Context) (*Result, error) {
 			"version":  ViewVersion,
 		},
 	})
-	deniedErr := ""
-	if denied != nil {
-		deniedErr = denied.Error()
+	if denied == nil {
+		return nil, fmt.Errorf("research-ai-pipeline: denied actor %s was allowed run_view", DeniedActorID)
 	}
+	deniedErr := denied.Error()
 
 	model, err := aiExec.InvokeModel(ctx, ai.ToolRequest{
 		Actor:          ActorID,

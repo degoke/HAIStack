@@ -36,9 +36,12 @@ func (f AuditLoggerFunc) LogToolAccess(ctx context.Context, rec AuditRecord) err
 
 // AuditStoreAdapter writes AI audit records through pkg/audit into a
 // store.AuditStore. Action naming is owned by pkg/audit (execute-tool).
+// Set NewID for deterministic event IDs (research provenance bundles);
+// the default is a UUID.
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
+	NewID func() string
 }
 
 // LogToolAccess converts an ai.AuditRecord to a canonical audit event and
@@ -47,7 +50,7 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 	if a == nil || a.Store == nil {
 		return nil
 	}
-	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.AIToolCallEvent{
+	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now, NewID: a.NewID}, audit.AIToolCallEvent{
 		Actor:          rec.Actor,
 		Tenant:         rec.Tenant,
 		Subject:        rec.Subject,

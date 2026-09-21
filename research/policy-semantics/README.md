@@ -17,9 +17,11 @@ go run ./research/policy-semantics/cmd
 ```
 
 The runner evaluates `principal + SMART scopes + consent state + request →
-expected decision` against `pkg/auth` and `pkg/smart`. Declarative scenarios
-are also executable from `pkg/testkit/authztest` (consent overlays are
-research-only and skipped there).
+expected decision` against `pkg/auth` and `pkg/smart`. SMART scenarios add a
+research-only `*.read` overlay on the clinician role so wildcard scopes can
+satisfy `RequiredPermissions`; that is not production `pkg/auth` ∩ SMART
+(see SEMANTICS.md). Declarative scenarios are also executable from
+`pkg/testkit/authztest` (consent overlays are research-only and skipped there).
 
 ## Catalogue size
 

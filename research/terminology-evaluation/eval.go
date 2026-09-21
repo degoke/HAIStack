@@ -41,7 +41,12 @@ type CaseResult struct {
 	Provenance bool   `json:"provenanceComplete"`
 }
 
-// Metrics are ConceptMap quality measures.
+// Metrics grade the translator against gold, not the gold file against itself.
+// Exact/Narrow/Broad/Unmatched count observed (gotClass) buckets.
+// Precision is TP/(TP+FP) among predicted matches; recall is TP/(TP+FN)
+// among gold matches. ProvenanceCompleteness is the share of translations
+// whose emitted audit event records ConceptMap URL+version, source CodeSystem
+// version, and timestamp.
 type Metrics struct {
 	Exact      int          `json:"exact"`
 	Narrow     int          `json:"narrow"`
@@ -50,12 +55,14 @@ type Metrics struct {
 	Passed     int          `json:"passed"`
 	Failed     int          `json:"failed"`
 	Precision  float64      `json:"precision"`
+	Recall     float64      `json:"recall"`
 	Provenance float64      `json:"provenanceCompleteness"`
 	Results    []CaseResult `json:"results"`
 }
 
 // Evaluate loads the gold ConceptMap into pkg/terminology, translates each
-// case, scores equivalence classes, and emits terminology.translate audit events.
+// case, scores the translator's equivalence class against gold, and emits
+// terminology.translate audit events. Audit emit failures abort the run.
 func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Metrics, error) {
 	mapJSON, err := os.ReadFile(mapPath)
 	if err != nil {
@@ -96,33 +103,39 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 
 	var metrics Metrics
 	var complete int
+	var tp, fp, fn int
 	for _, c := range gold.Cases {
 		gotClass, target, transErr := translateClass(ctx, svc, gold, cmap, c.Code)
 		pass := gotClass == c.Class && (c.Target == "" || c.Target == target)
-		prov := gold.ConceptMapURL != "" && gold.ConceptMapVersion != "" && gold.SourceSystemVersion != "" && !now.IsZero()
-		if prov {
-			complete++
-		}
 		if pass {
 			metrics.Passed++
 		} else {
 			metrics.Failed++
 		}
-		switch c.Class {
-		case "exact":
-			metrics.Exact++
-		case "narrow":
-			metrics.Narrow++
-		case "broad":
-			metrics.Broad++
-		default:
-			metrics.Unmatched++
+		incrementObservedClass(&metrics, gotClass)
+		predictedMatch := gotClass != "unmatched"
+		goldMatch := c.Class != "unmatched"
+		switch {
+		case predictedMatch && pass:
+			tp++
+		case predictedMatch && !pass:
+			fp++
+		case goldMatch && !pass:
+			fn++
 		}
+
 		outcome := audit.OutcomeSuccess
 		if transErr != nil {
 			outcome = audit.OutcomeError
 		}
-		_ = audit.LogTerminologyTranslate(ctx, logger, audit.TerminologyTranslateEvent{
+		details := map[string]string{
+			"equivalenceClass": gotClass,
+			"wantClass":        c.Class,
+		}
+		if gold.SourceSystemVersion != "" {
+			details["sourceSystemVersion"] = gold.SourceSystemVersion
+		}
+		if err := audit.LogTerminologyTranslate(ctx, logger, audit.TerminologyTranslateEvent{
 			Actor:        "research-terminology",
 			Tenant:       "research",
 			Outcome:      outcome,
@@ -132,12 +145,24 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 			SourceCode:   c.Code,
 			TargetCode:   target,
 			Timestamp:    now,
-			Details: map[string]string{
-				"sourceSystemVersion": gold.SourceSystemVersion,
-				"equivalenceClass":    gotClass,
-				"wantClass":           c.Class,
-			},
+			Details:      details,
+		}); err != nil {
+			return Metrics{}, fmt.Errorf("terminology-evaluation: audit %s: %w", c.Code, err)
+		}
+		events, err := logger.ListEvents(ctx, audit.Query{
+			Action: audit.ActionTerminologyTranslate,
+			Limit:  len(gold.Cases) + 1,
 		})
+		if err != nil {
+			return Metrics{}, err
+		}
+		if len(events) == 0 {
+			return Metrics{}, fmt.Errorf("terminology-evaluation: no audit event for %s", c.Code)
+		}
+		prov := provenanceComplete(events[len(events)-1])
+		if prov {
+			complete++
+		}
 		metrics.Results = append(metrics.Results, CaseResult{
 			Code:       c.Code,
 			WantClass:  c.Class,
@@ -147,13 +172,38 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 			Provenance: prov,
 		})
 	}
-	if metrics.Passed+metrics.Failed > 0 {
-		metrics.Precision = float64(metrics.Passed) / float64(metrics.Passed+metrics.Failed)
+	if tp+fp > 0 {
+		metrics.Precision = float64(tp) / float64(tp+fp)
+	}
+	if tp+fn > 0 {
+		metrics.Recall = float64(tp) / float64(tp+fn)
 	}
 	if len(gold.Cases) > 0 {
 		metrics.Provenance = float64(complete) / float64(len(gold.Cases))
 	}
 	return metrics, nil
+}
+
+func incrementObservedClass(metrics *Metrics, gotClass string) {
+	switch gotClass {
+	case "exact":
+		metrics.Exact++
+	case "narrow":
+		metrics.Narrow++
+	case "broad":
+		metrics.Broad++
+	default:
+		metrics.Unmatched++
+	}
+}
+
+func provenanceComplete(ev audit.Event) bool {
+	if ev.Timestamp.IsZero() {
+		return false
+	}
+	return ev.Details["conceptMapUrl"] != "" &&
+		ev.Details["conceptMapVersion"] != "" &&
+		ev.Details["sourceSystemVersion"] != ""
 }
 
 func translateClass(ctx context.Context, svc *terminology.LocalService, gold GoldFile, cmap conceptmap.Map, code string) (class, target string, err error) {

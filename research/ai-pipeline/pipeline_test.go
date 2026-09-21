@@ -86,4 +86,20 @@ func TestPipelineProvenanceChain(t *testing.T) {
 	if again.Bundle.Policy.Hash != b.Policy.Hash {
 		t.Fatal("policy hash not stable")
 	}
+	firstJSON, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := json.Marshal(again.Bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstJSON, secondJSON) {
+		t.Fatalf("provenance bundle is not byte-stable\nfirst:  %s\nsecond: %s", firstJSON, secondJSON)
+	}
+	for _, ev := range b.Audit {
+		if ev.ID == "" {
+			t.Fatal("audit event missing stable id")
+		}
+	}
 }

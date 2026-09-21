@@ -60,6 +60,26 @@ SMART warning that scopes are necessary but not sufficient.
 not include the verb, the required-permission check fails **before** policy
 allow rules are considered — another form of intersection.
 
+### Research runner overlay (not production)
+
+The catalogue runner grants the clinician role `*.read` **only when a
+scenario carries SMART scopes**. That is required so a `patient/*.read`
+token can satisfy `RequiredPermissions` (`*.read`) set by
+`pkg/smart.AuthAdapter.ToReadRequest`. Without the overlay, wildcard SMART
+examples fail the permission check before policy rules run.
+
+This overlay is **research-layer wiring**, not how production `pkg/auth`
+intersects SMART:
+
+- Production principals hold only the permissions their roles declare.
+- SMART scopes still must imply the verb (`scope_grants`).
+- Policy still narrows those grants (`policy_allows`).
+
+The compact production equation remains `scope_grants ∩ policy_allows ∩
+consent_permits ∩ patient_scope_ok`. The extra `*.read` is not part of that
+intersection; it only makes wildcard SMART cases executable in this runner.
+Policy-only scenarios (no `scopes` field) do not receive the overlay.
+
 ## Worked examples
 
 Each example has a matching id in `testdata/scenarios.json`.

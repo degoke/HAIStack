@@ -1,0 +1,3541 @@
+[
+  {
+    "id": "patient-unchanged-pat-01",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-01",
+      "gender": "female",
+      "birthDate": "1980-01-01",
+      "name": [
+        {
+          "family": "Synth01",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-01",
+      "gender": "female",
+      "birthDate": "1980-01-01",
+      "name": [
+        {
+          "family": "Synth01",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-01"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "female"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-02",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-02",
+      "gender": "male",
+      "birthDate": "1980-01-02",
+      "name": [
+        {
+          "family": "Synth02",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-02",
+      "gender": "male",
+      "birthDate": "1980-01-02",
+      "name": [
+        {
+          "family": "Synth02",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-02"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "male"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-03",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-03",
+      "gender": "other",
+      "birthDate": "1980-01-03",
+      "name": [
+        {
+          "family": "Synth03",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-03",
+      "gender": "other",
+      "birthDate": "1980-01-03",
+      "name": [
+        {
+          "family": "Synth03",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-03"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "other"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-04",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-04",
+      "gender": "unknown",
+      "birthDate": "1980-01-04",
+      "name": [
+        {
+          "family": "Synth04",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-04",
+      "gender": "unknown",
+      "birthDate": "1980-01-04",
+      "name": [
+        {
+          "family": "Synth04",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-04"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "unknown"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-05",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-05",
+      "gender": "female",
+      "birthDate": "1980-01-05",
+      "name": [
+        {
+          "family": "Synth05",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-05",
+      "gender": "female",
+      "birthDate": "1980-01-05",
+      "name": [
+        {
+          "family": "Synth05",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-05"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "female"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-06",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-06",
+      "gender": "male",
+      "birthDate": "1980-01-06",
+      "name": [
+        {
+          "family": "Synth06",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-06",
+      "gender": "male",
+      "birthDate": "1980-01-06",
+      "name": [
+        {
+          "family": "Synth06",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-06"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "male"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-07",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-07",
+      "gender": "other",
+      "birthDate": "1980-01-07",
+      "name": [
+        {
+          "family": "Synth07",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-07",
+      "gender": "other",
+      "birthDate": "1980-01-07",
+      "name": [
+        {
+          "family": "Synth07",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-07"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "other"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-08",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-08",
+      "gender": "unknown",
+      "birthDate": "1980-01-08",
+      "name": [
+        {
+          "family": "Synth08",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-08",
+      "gender": "unknown",
+      "birthDate": "1980-01-08",
+      "name": [
+        {
+          "family": "Synth08",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-08"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "unknown"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-09",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-09",
+      "gender": "female",
+      "birthDate": "1980-01-09",
+      "name": [
+        {
+          "family": "Synth09",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-09",
+      "gender": "female",
+      "birthDate": "1980-01-09",
+      "name": [
+        {
+          "family": "Synth09",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-09"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "female"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-10",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-10",
+      "gender": "male",
+      "birthDate": "1980-01-10",
+      "name": [
+        {
+          "family": "Synth10",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-10",
+      "gender": "male",
+      "birthDate": "1980-01-10",
+      "name": [
+        {
+          "family": "Synth10",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-10"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "male"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-11",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-11",
+      "gender": "other",
+      "birthDate": "1980-01-11",
+      "name": [
+        {
+          "family": "Synth11",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-11",
+      "gender": "other",
+      "birthDate": "1980-01-11",
+      "name": [
+        {
+          "family": "Synth11",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-11"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "other"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-unchanged-pat-12",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-12",
+      "gender": "unknown",
+      "birthDate": "1980-01-12",
+      "name": [
+        {
+          "family": "Synth12",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-12",
+      "gender": "unknown",
+      "birthDate": "1980-01-12",
+      "name": [
+        {
+          "family": "Synth12",
+          "given": [
+            "Pat"
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-12"
+        ]
+      },
+      {
+        "name": "gender",
+        "r4": "Patient.gender",
+        "r5": "Patient.gender",
+        "want": [
+          "unknown"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "patient-loss-pat-animal-01",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-animal-01",
+      "gender": "female",
+      "animal": {
+        "species": {
+          "text": "canine"
+        }
+      }
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-animal-01",
+      "gender": "female"
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-animal-01"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "Patient.animal removed in R5"
+    ]
+  },
+  {
+    "id": "patient-loss-pat-animal-02",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-animal-02",
+      "gender": "female",
+      "animal": {
+        "species": {
+          "text": "canine"
+        }
+      }
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-animal-02",
+      "gender": "female"
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-animal-02"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "Patient.animal removed in R5"
+    ]
+  },
+  {
+    "id": "patient-loss-pat-animal-03",
+    "resourceType": "Patient",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Patient",
+      "id": "pat-animal-03",
+      "gender": "female",
+      "animal": {
+        "species": {
+          "text": "canine"
+        }
+      }
+    },
+    "r5": {
+      "resourceType": "Patient",
+      "id": "pat-animal-03",
+      "gender": "female"
+    },
+    "assertions": [
+      {
+        "name": "id",
+        "r4": "Patient.id",
+        "r5": "Patient.id",
+        "want": [
+          "pat-animal-03"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "Patient.animal removed in R5"
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-01",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-01",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 10,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-01",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 10,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "718-7"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-02",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-02",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 11,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-02",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 11,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "6690-2"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-03",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-03",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2951-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 12,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-03",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2951-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 12,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2951-2"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-04",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-04",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2823-3"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 13,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-04",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2823-3"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 13,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2823-3"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-05",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-05",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2345-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 14,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-05",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2345-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 14,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2345-7"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-06",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-06",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 15,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-06",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 15,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "718-7"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-07",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-07",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 16,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-07",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 16,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "6690-2"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-08",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-08",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2951-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 17,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-08",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2951-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 17,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2951-2"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-09",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-09",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2823-3"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 18,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-09",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2823-3"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 18,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2823-3"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-10",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-10",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2345-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 19,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-10",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2345-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 19,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "2345-7"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-11",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-11",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 20,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-11",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "718-7"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 20,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "718-7"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-unchanged-obs-12",
+    "resourceType": "Observation",
+    "category": "unchanged",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-12",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 21,
+        "unit": "1"
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-12",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "6690-2"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "valueQuantity": {
+        "value": 21,
+        "unit": "1"
+      }
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "Observation.status",
+        "r5": "Observation.status",
+        "want": [
+          "final"
+        ]
+      },
+      {
+        "name": "code",
+        "r4": "Observation.code.coding.first().code",
+        "r5": "Observation.code.coding.first().code",
+        "want": [
+          "6690-2"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-card-obs-interp-01",
+    "resourceType": "Observation",
+    "category": "cardinality",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-interp-01",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": {
+        "coding": [
+          {
+            "code": "N"
+          }
+        ]
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-interp-01",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": [
+        {
+          "coding": [
+            {
+              "code": "N"
+            }
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "interp",
+        "r4": "Observation.interpretation.coding.first().code",
+        "r5": "Observation.interpretation.first().coding.first().code",
+        "want": [
+          "N"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-card-obs-interp-02",
+    "resourceType": "Observation",
+    "category": "cardinality",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-interp-02",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": {
+        "coding": [
+          {
+            "code": "N"
+          }
+        ]
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-interp-02",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": [
+        {
+          "coding": [
+            {
+              "code": "N"
+            }
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "interp",
+        "r4": "Observation.interpretation.coding.first().code",
+        "r5": "Observation.interpretation.first().coding.first().code",
+        "want": [
+          "N"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-card-obs-interp-03",
+    "resourceType": "Observation",
+    "category": "cardinality",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-interp-03",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": {
+        "coding": [
+          {
+            "code": "N"
+          }
+        ]
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-interp-03",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": [
+        {
+          "coding": [
+            {
+              "code": "N"
+            }
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "interp",
+        "r4": "Observation.interpretation.coding.first().code",
+        "r5": "Observation.interpretation.first().coding.first().code",
+        "want": [
+          "N"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "observation-card-obs-interp-04",
+    "resourceType": "Observation",
+    "category": "cardinality",
+    "r4": {
+      "resourceType": "Observation",
+      "id": "obs-interp-04",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": {
+        "coding": [
+          {
+            "code": "N"
+          }
+        ]
+      }
+    },
+    "r5": {
+      "resourceType": "Observation",
+      "id": "obs-interp-04",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "code": "718-7"
+          }
+        ]
+      },
+      "interpretation": [
+        {
+          "coding": [
+            {
+              "code": "N"
+            }
+          ]
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "interp",
+        "r4": "Observation.interpretation.coding.first().code",
+        "r5": "Observation.interpretation.first().coding.first().code",
+        "want": [
+          "N"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-01",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-01",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-01"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-01",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-01"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-01"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-02",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-02",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-02"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-02",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-02"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-02"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-03",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-03",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-03"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-03",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-03"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-03"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-04",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-04",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-04"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-04",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-04"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-04"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-05",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-05",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-01"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-05",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-01"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-01"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-06",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-06",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-02"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-06",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-02"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-02"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-07",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-07",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-03"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-07",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-03"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-03"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-08",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-08",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-04"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-08",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-04"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-04"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-09",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-09",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-01"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-09",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-01"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-01"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-10",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-10",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-02"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-10",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-02"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-02"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-11",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-11",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-03"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-11",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-03"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-03"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "condition-renamed-cond-12",
+    "resourceType": "Condition",
+    "category": "renamed",
+    "r4": {
+      "resourceType": "Condition",
+      "id": "cond-12",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "asserter": {
+        "reference": "Practitioner/prac-04"
+      }
+    },
+    "r5": {
+      "resourceType": "Condition",
+      "id": "cond-12",
+      "clinicalStatus": {
+        "coding": [
+          {
+            "code": "active"
+          }
+        ]
+      },
+      "code": {
+        "coding": [
+          {
+            "code": "38341003"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "participant": [
+        {
+          "function": {
+            "coding": [
+              {
+                "code": "informant"
+              }
+            ]
+          },
+          "actor": {
+            "reference": "Practitioner/prac-04"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "asserter",
+        "r4": "Condition.asserter.reference",
+        "r5": "Condition.participant.first().actor.reference",
+        "want": [
+          "Practitioner/prac-04"
+        ]
+      },
+      {
+        "name": "status",
+        "r4": "Condition.clinicalStatus.coding.first().code",
+        "r5": "Condition.clinicalStatus.coding.first().code",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-01",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-01",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-01"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-01",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-01"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-02",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-02",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-02"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-02",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-02"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-03",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-03",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-03"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-03",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-03"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-04",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-04",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-04"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-04",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-04"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-05",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-05",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-01"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-05",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-01"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-06",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-06",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-02"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-06",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-02"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-07",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-07",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-03"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-07",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-03"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-cc-medreq-08",
+    "resourceType": "MedicationRequest",
+    "category": "codeableconcept",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-08",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "code": "313820"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reasonCode": [
+        {
+          "coding": [
+            {
+              "code": "38341003"
+            }
+          ]
+        }
+      ],
+      "reasonReference": [
+        {
+          "reference": "Condition/cond-04"
+        }
+      ]
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-08",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "313820"
+              }
+            ]
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reason": [
+        {
+          "concept": {
+            "coding": [
+              {
+                "code": "38341003"
+              }
+            ]
+          }
+        },
+        {
+          "reference": {
+            "reference": "Condition/cond-04"
+          }
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "medreq-type-medreq-reported-01",
+    "resourceType": "MedicationRequest",
+    "category": "type-change",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-01",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "text": "aspirin"
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reportedReference": {
+        "reference": "RelatedPerson/rp-1"
+      }
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-01",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "text": "aspirin"
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reported": true,
+      "informationSource": [
+        {
+          "reference": "RelatedPerson/rp-1"
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "reportedReference collapsed to reported boolean plus informationSource"
+    ]
+  },
+  {
+    "id": "medreq-type-medreq-reported-02",
+    "resourceType": "MedicationRequest",
+    "category": "type-change",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-02",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "text": "aspirin"
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reportedReference": {
+        "reference": "RelatedPerson/rp-1"
+      }
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-02",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "text": "aspirin"
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reported": true,
+      "informationSource": [
+        {
+          "reference": "RelatedPerson/rp-1"
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "reportedReference collapsed to reported boolean plus informationSource"
+    ]
+  },
+  {
+    "id": "medreq-type-medreq-reported-03",
+    "resourceType": "MedicationRequest",
+    "category": "type-change",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-03",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "text": "aspirin"
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reportedReference": {
+        "reference": "RelatedPerson/rp-1"
+      }
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-03",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "text": "aspirin"
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reported": true,
+      "informationSource": [
+        {
+          "reference": "RelatedPerson/rp-1"
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "reportedReference collapsed to reported boolean plus informationSource"
+    ]
+  },
+  {
+    "id": "medreq-type-medreq-reported-04",
+    "resourceType": "MedicationRequest",
+    "category": "type-change",
+    "r4": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-04",
+      "status": "active",
+      "intent": "order",
+      "medicationCodeableConcept": {
+        "text": "aspirin"
+      },
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reportedReference": {
+        "reference": "RelatedPerson/rp-1"
+      }
+    },
+    "r5": {
+      "resourceType": "MedicationRequest",
+      "id": "medreq-reported-04",
+      "status": "active",
+      "intent": "order",
+      "medication": [
+        {
+          "concept": {
+            "text": "aspirin"
+          }
+        }
+      ],
+      "subject": {
+        "reference": "Patient/pat-01"
+      },
+      "reported": true,
+      "informationSource": [
+        {
+          "reference": "RelatedPerson/rp-1"
+        }
+      ]
+    },
+    "assertions": [
+      {
+        "name": "status",
+        "r4": "MedicationRequest.status",
+        "r5": "MedicationRequest.status",
+        "want": [
+          "active"
+        ]
+      }
+    ],
+    "informationLoss": [
+      "reportedReference collapsed to reported boolean plus informationSource"
+    ]
+  }
+]

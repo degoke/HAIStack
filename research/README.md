@@ -48,9 +48,10 @@ From the repository root (Go 1.26+):
 | `make research` | All of the above |
 
 CI workflow [`.github/workflows/research.yml`](../.github/workflows/research.yml)
-runs the same checks. It is **non-blocking** (`continue-on-error: true`) until
-the artefacts stabilize. Fast unit tests under `research/` also run as part of
-the main `go test ./...` job.
+runs `go test ./research/...` as a **blocking** job (same tests as the main
+`go test ./...` job, isolated here so research regressions fail this workflow).
+The `make research` artefact job stays **non-blocking** (`continue-on-error:
+true`) until the published command outputs stabilize.
 
 ## FAIR metadata
 

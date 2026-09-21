@@ -229,13 +229,12 @@ func principalByName(name string) auth.Principal {
 }
 
 func engineConfig(sc Scenario) auth.Config {
-	trueVal := true
 	roles := []auth.Role{
 		{
 			Name: "clinician",
 			Permissions: []auth.Permission{
 				"appointment.read", "patient.read", "observation.read",
-				"read-patient-summary", "*.read",
+				"read-patient-summary",
 			},
 		},
 		{
@@ -247,15 +246,34 @@ func engineConfig(sc Scenario) auth.Config {
 			Permissions: []auth.Permission{"*.read", "patient.read"},
 		},
 	}
+	if sc.Scopes != "" {
+		// Research overlay: wildcard SMART scopes set RequiredPermissions to
+		// *.read. Production pkg/auth ∩ SMART does not inject this permission.
+		roles = withWildcardRead(roles)
+	}
 	principals := []auth.Principal{principalByName("clinician"), principalByName("admin")}
 	return auth.Config{
 		Roles:      roles,
 		Principals: principals,
-		Policy:     policyByName(sc.Policy, trueVal),
+		Policy:     policyByName(sc.Policy),
 	}
 }
 
-func policyByName(name string, _ bool) *auth.PolicyDocument {
+func withWildcardRead(roles []auth.Role) []auth.Role {
+	out := make([]auth.Role, len(roles))
+	copy(out, roles)
+	for i := range out {
+		if out[i].Name != "clinician" {
+			continue
+		}
+		perms := append([]auth.Permission(nil), out[i].Permissions...)
+		perms = append(perms, "*.read")
+		out[i].Permissions = perms
+	}
+	return out
+}
+
+func policyByName(name string) *auth.PolicyDocument {
 	patientAccess := auth.PolicyRule{
 		Name:   "patient-access",
 		Effect: auth.EffectAllow,

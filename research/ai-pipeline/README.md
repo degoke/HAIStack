@@ -21,8 +21,11 @@ go run ./research/ai-pipeline/cmd
 ```
 
 The command prints a provenance bundle on stdout. Hashes, view version, policy
-version, tool name, stub seed, and audit actions are stable across runs (fixed
-clock `2026-09-21T13:00:00Z`, stub seed `11`).
+version, tool name, stub seed, **sequential audit event IDs**, and the full
+bundle JSON are byte-stable across runs (fixed clock `2026-09-21T13:00:00Z`,
+stub seed `11`, `NewID` `audit-01`…). If the denied actor is not actually
+denied, `Run` returns an error and the command exits without printing a
+bundle.
 
 ## Dataset
 
@@ -47,5 +50,5 @@ The bundle records:
 | `citations` | view + resource citations from `pkg/ai` |
 | `audit[]` | `execute-view` and `execute-tool` events |
 
-Denied paths (wrong actor / wrong view) are asserted in tests so the chain is
-not a success-only happy path.
+Denied paths (wrong actor / wrong view) are required: `Run` fails if the
+denied actor is allowed, so `go run` cannot publish a success-only bundle.

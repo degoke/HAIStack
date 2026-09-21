@@ -39,9 +39,12 @@ func (f AuditLoggerFunc) LogViewAccess(ctx context.Context, rec AuditRecord) err
 
 // AuditStoreAdapter writes view audit records through pkg/audit into a
 // store.AuditStore. Action naming is owned by pkg/audit (execute-view).
+// Set NewID for deterministic event IDs (research provenance bundles);
+// the default is a UUID.
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
+	NewID func() string
 }
 
 // LogViewAccess converts a view.AuditRecord to a canonical audit event and
@@ -51,7 +54,7 @@ func (a *AuditStoreAdapter) LogViewAccess(ctx context.Context, rec AuditRecord) 
 		return nil
 	}
 	details := auditDetails(rec)
-	return audit.LogViewAccess(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, audit.ViewAccessEvent{
+	return audit.LogViewAccess(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now, NewID: a.NewID}, audit.ViewAccessEvent{
 		Actor:     rec.Actor,
 		Subject:   rec.Subject,
 		ViewName:  rec.ViewName,

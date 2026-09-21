@@ -44,6 +44,7 @@ type ModelProvenance struct {
 
 // AuditEvent is a compact audit record copied from pkg/audit.
 type AuditEvent struct {
+	ID       string            `json:"id,omitempty"`
 	Action   string            `json:"action"`
 	Outcome  string            `json:"outcome"`
 	ToolName string            `json:"toolName,omitempty"`
@@ -85,6 +86,7 @@ func compactAudit(events []audit.Event) []AuditEvent {
 	out := make([]AuditEvent, 0, len(events))
 	for _, ev := range events {
 		out = append(out, AuditEvent{
+			ID:       ev.ID,
 			Action:   ev.Action,
 			Outcome:  ev.Outcome,
 			ToolName: ev.ToolName,

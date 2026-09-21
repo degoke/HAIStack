@@ -88,7 +88,10 @@ func (a *HAIStackAdapter) RunAIView(ctx context.Context, name, version string) (
 	if err != nil {
 		return 0, err
 	}
-	data, _ := res.Data.(map[string]any)
+	data, ok := res.Data.(map[string]any)
+	if !ok || data == nil {
+		return 0, fmt.Errorf("unexpected view data %T", res.Data)
+	}
 	switch rows := data["rows"].(type) {
 	case []map[string]any:
 		return len(rows), nil

@@ -2,11 +2,20 @@ package semanticconversion
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/types"
+)
+
+const (
+	engineFHIRPath = "fhirpath"
+	engineJSONPath = "json-path"
 )
 
 // PairScore is the per-instance conversion score.
@@ -16,6 +25,8 @@ type PairScore struct {
 	Category        string   `json:"category"`
 	StructuralOK    bool     `json:"structuralOk"`
 	SemanticOK      bool     `json:"semanticOk"`
+	R4Engine        string   `json:"r4Engine,omitempty"`
+	R5Engine        string   `json:"r5Engine,omitempty"`
 	InformationLoss []string `json:"informationLoss,omitempty"`
 	Errors          []string `json:"errors,omitempty"`
 }
@@ -30,14 +41,28 @@ type Report struct {
 	Scores     []PairScore    `json:"scores"`
 }
 
-// ScoreCorpus converts each R4 instance and compares it to the expected R5
-// payload, then evaluates FHIRPath-subset assertions against canonical JSON.
-// Assertions are written as FHIRPath; evaluation uses JSON navigation so R5
-// instances can be scored before a production R5 protobuf codec exists.
+// ScoreCorpus converts each R4 instance with ConvertR4ToR5 and compares it to
+// the independently stored gold R5 in testdata (not produced by the converter
+// at score time).
+//
+// Semantic R4 checks use pkg/fhirpath. Instances the R4 protobuf codec cannot
+// load (unknown fields such as Patient.animal, singleton JSON for 0..*
+// interpretation) fall back to the JSON-path subset. Semantic R5 checks always
+// use that JSON-path subset because no production R5 codec exists yet, and they
+// run against the converted payload rather than the gold file.
 func ScoreCorpus(pairs []Pair) (Report, error) {
+	fp, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		return Report{}, err
+	}
+	env := scoreEnv{
+		ctx:   context.Background(),
+		fp:    fp,
+		codec: types.NewJSONCodec(),
+	}
 	report := Report{ByCategory: map[string]int{}}
 	for _, pair := range pairs {
-		score := scorePair(pair)
+		score := scorePair(env, pair)
 		report.Pairs++
 		report.ByCategory[pair.Category]++
 		if score.StructuralOK {
@@ -54,11 +79,19 @@ func ScoreCorpus(pairs []Pair) (Report, error) {
 	return report, nil
 }
 
-func scorePair(pair Pair) PairScore {
+type scoreEnv struct {
+	ctx   context.Context
+	fp    fhirpath.Engine
+	codec *types.JSONCodec
+}
+
+func scorePair(env scoreEnv, pair Pair) PairScore {
 	score := PairScore{
 		ID:           pair.ID,
 		ResourceType: pair.ResourceType,
 		Category:     pair.Category,
+		R4Engine:     engineFHIRPath,
+		R5Engine:     engineJSONPath,
 	}
 	got, loss, err := ConvertR4ToR5(pair.ResourceType, pair.R4)
 	if err != nil {
@@ -73,19 +106,24 @@ func scorePair(pair Pair) PairScore {
 	}
 	score.StructuralOK = eq
 	if !eq {
-		score.Errors = append(score.Errors, "converted R5 does not match expected R5")
+		score.Errors = append(score.Errors, "converted R5 does not match gold R5")
 	}
 
 	score.SemanticOK = true
 	for _, as := range pair.Assertions {
 		if as.R4 != "" {
-			if err := assertPath(pair.R4, as.R4, as.Want); err != nil {
+			engine, err := assertR4(env, pair.ResourceType, pair.R4, as.R4, as.Want)
+			if engine == engineJSONPath {
+				score.R4Engine = engineJSONPath
+			}
+			if err != nil {
 				score.SemanticOK = false
 				score.Errors = append(score.Errors, "R4 "+as.Name+": "+err.Error())
 			}
 		}
 		if as.R5 != "" {
-			if err := assertPath(pair.R5, as.R5, as.Want); err != nil {
+			// Grade the converter output, not the gold R5 file.
+			if err := assertJSONPath(got, as.R5, as.Want); err != nil {
 				score.SemanticOK = false
 				score.Errors = append(score.Errors, "R5 "+as.Name+": "+err.Error())
 			}
@@ -98,11 +136,70 @@ func scorePair(pair Pair) PairScore {
 	return score
 }
 
-func assertPath(raw json.RawMessage, expr string, want []string) error {
+func assertR4(env scoreEnv, resourceType string, raw json.RawMessage, expr string, want []string) (string, error) {
+	envelope, err := env.codec.ParseJSON(resourceType, raw)
+	if err != nil {
+		return engineJSONPath, assertJSONPath(raw, expr, want)
+	}
+	values, err := env.fp.Eval(env.ctx, expr, envelope)
+	if err != nil {
+		if r4CodecCannotLoad(err) {
+			return engineJSONPath, assertJSONPath(raw, expr, want)
+		}
+		return engineFHIRPath, err
+	}
+	got, err := stringifyFHIR(values)
+	if err != nil {
+		return engineFHIRPath, err
+	}
+	return engineFHIRPath, compareValues(expr, got, want)
+}
+
+func r4CodecCannotLoad(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "unknown field") || strings.Contains(s, "expected array")
+}
+
+func stringifyFHIR(values []fhirpath.Value) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if s, err := v.String(); err == nil {
+			out = append(out, s)
+			continue
+		}
+		if n, err := v.Float64(); err == nil {
+			if n == float64(int(n)) {
+				out = append(out, strconv.Itoa(int(n)))
+			} else {
+				out = append(out, strconv.FormatFloat(n, 'g', -1, 64))
+			}
+			continue
+		}
+		if b, err := v.Bool(); err == nil {
+			out = append(out, strconv.FormatBool(b))
+			continue
+		}
+		if v.Raw() == nil {
+			return nil, fmt.Errorf("unstringifiable FHIRPath value type %s", v.Type())
+		}
+		// Proto bound codes (GenderCode, StatusCode, …) stringify as value:FEMALE.
+		out = append(out, fmt.Sprint(v.Raw()))
+	}
+	return out, nil
+}
+
+func assertJSONPath(raw json.RawMessage, expr string, want []string) error {
 	got, err := evalJSONPath(raw, expr)
 	if err != nil {
 		return err
 	}
+	return compareValues(expr, got, want)
+}
+
+func compareValues(expr string, got, want []string) error {
 	if len(want) == 0 {
 		if len(got) == 0 {
 			return fmt.Errorf("%s: empty result", expr)

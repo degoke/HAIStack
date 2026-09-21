@@ -1,7 +1,8 @@
 # Track D — Terminology mapping quality and provenance
 
-Gold-standard ConceptMap plus quality metrics and an audit-backed provenance
-model for translations that affect validation or analytics.
+Gold-standard ConceptMap plus quality metrics that grade **the translator**,
+and an audit-backed provenance model for translations that affect validation
+or analytics.
 
 ## Reproduce
 
@@ -31,11 +32,21 @@ expected equivalence class:
 
 ## Metrics
 
-The scorer reports counts and rates for exact / narrow / broad / unmatched,
-plus **provenance completeness**: share of attempted translations that record
-ConceptMap URL+version, source CodeSystem version, and timestamp.
+Exact / narrow / broad / unmatched counts are the **translator's** observed
+class (`gotClass` from `$translate` + ConceptMap equivalence), not the gold
+label. A case passes when `gotClass` matches gold and the target code matches
+when gold specifies one.
 
-Each translation is also appended as a `terminology.translate` audit event
+**Precision** is TP / (TP + FP) among predicted matches (`gotClass` other
+than unmatched). **Recall** is TP / (TP + FN) among gold matches. These are
+not the overall pass rate.
+
+**Provenance completeness** is the share of attempted translations whose
+emitted `terminology.translate` audit event records ConceptMap URL+version,
+source CodeSystem version, and timestamp. Gold-file fields alone do not
+count; a failed `LogTerminologyTranslate` aborts the run.
+
+Each translation is appended as a `terminology.translate` audit event
 (`pkg/audit.LogTerminologyTranslate`).
 
 ## Finite ValueSet expansion
