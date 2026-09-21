@@ -1019,3 +1019,176 @@ func evalELMExpr(t *testing.T, obj map[string]any) []any {
 	}
 	return got
 }
+
+func TestELMMeetsBeforeAfter(t *testing.T) {
+	intLit := func(v string) map[string]any {
+		return map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": v}
+	}
+	interval := func(low, high string) map[string]any {
+		return map[string]any{"type": "Interval", "low": intLit(low), "high": intLit(high)}
+	}
+	got := evalELMExpr(t, map[string]any{"type": "MeetsBefore", "operand": []any{interval("1", "5"), interval("5", "10")}})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("meets before: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "MeetsAfter", "operand": []any{interval("5", "10"), interval("1", "5")}})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("meets after: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{"type": "MeetsBefore", "operand": []any{interval("5", "10"), interval("1", "5")}})
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("meets before reversed: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval[1, 5] meets before Interval[5, 10]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("CQL meets before: %#v", got)
+	}
+}
+
+func TestELMBeforeYearOf(t *testing.T) {
+	date := func(y, m, d int) map[string]any {
+		return map[string]any{"type": "Date", "year": y, "month": m, "day": d}
+	}
+	got := evalELMExpr(t, map[string]any{
+		"type": "Before", "precision": "Year",
+		"operand": []any{date(2019, 12, 31), date(2020, 6, 1)},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("before year of: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "Before", "precision": "Year",
+		"operand": []any{date(2020, 1, 1), date(2020, 12, 31)},
+	})
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("same year is not before year of: %#v", got)
+	}
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "@2019-12-31 before year of @2020-06-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("CQL before year of: %#v", got)
+	}
+}
+
+func TestELMSortByDirection(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{
+		"type": "Query",
+		"source": []any{map[string]any{
+			"alias": "X",
+			"expression": map[string]any{
+				"type": "List",
+				"element": []any{
+					map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "2"},
+					map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "3"},
+					map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+				},
+			},
+		}},
+		"sort": map[string]any{
+			"by": []any{map[string]any{"type": "ByDirection", "direction": "desc"}},
+		},
+	})
+	if len(got) != 3 || got[0] != int64(3) || got[1] != int64(2) || got[2] != int64(1) {
+		t.Fatalf("ByDirection desc: %#v", got)
+	}
+}
+
+func TestELMIndexerSourceIndex(t *testing.T) {
+	got := evalELMExpr(t, map[string]any{
+		"type": "Indexer",
+		"source": map[string]any{
+			"type": "List",
+			"element": []any{
+				map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "a"},
+				map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "b"},
+			},
+		},
+		"index": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+	})
+	if len(got) != 1 || got[0] != "b" {
+		t.Fatalf("named Indexer: %#v", got)
+	}
+}
+
+func TestELMRetrieveDateWindow(t *testing.T) {
+	in, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation", "id": "in", "status": "final",
+		"code": {"text": "HR"}, "effectiveDateTime": "2020-06-01", "subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation", "id": "out", "status": "final",
+		"code": {"text": "HR"}, "effectiveDateTime": "2018-01-01", "subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := parseELMExpr(map[string]any{
+		"type":         "Retrieve",
+		"dataType":     "{http://hl7.org/fhir}Observation",
+		"dateProperty": "effective",
+		"dateLow":      map[string]any{"type": "Date", "year": 2020, "month": 1, "day": 1},
+		"dateHigh":     map[string]any{"type": "Date", "year": 2020, "month": 12, "day": 31},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*retrieveNode)
+	if !ok || r.datePath != "effective" || r.dateLow == nil || r.dateHigh == nil {
+		t.Fatalf("retrieve date fields: %#v", n)
+	}
+	eng, err := NewEngine(Config{Retriever: StaticRetriever{in, out}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.evalNode(context.Background(), n, EvalContext{Patient: adaPatient(t), Retriever: StaticRetriever{in, out}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("date window: %#v", got)
+	}
+	obj, _ := asObject(got[0])
+	if obj["id"] != "in" {
+		t.Fatalf("date window kept wrong resource: %#v", got[0])
+	}
+}
+
+func TestELMToListNullAndUnknownType(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{"type": "ToList", "operand": map[string]any{"type": "Null"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, ok := n.(*unaryNode)
+	if !ok || u.op != "tolist" {
+		t.Fatalf("ToList should wrap, got %#v", n)
+	}
+	got := evalELMExpr(t, map[string]any{"type": "ToList", "operand": map[string]any{"type": "Null"}})
+	if got == nil || len(got) != 0 {
+		t.Fatalf("ToList(null) should be empty list, got %#v", got)
+	}
+	_, err = parseELMExpr(map[string]any{"type": "NotARealOperator", "operand": map[string]any{"type": "Null"}})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unknown ELM type should fail at compile, got %v", err)
+	}
+}
+
+func TestParseELMRespectsMaxExpressionLen(t *testing.T) {
+	eng, err := NewEngine(Config{MaxExpressionLen: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = eng.ParseELM([]byte(`{"library":{"identifier":{"id":"X"}}}`))
+	if err == nil || !strings.Contains(err.Error(), "maximum length") {
+		t.Fatalf("ParseELM should enforce maxExpressionLen, got %v", err)
+	}
+}

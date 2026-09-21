@@ -1294,6 +1294,80 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 	return req
 }
 
+func (st *evalState) filterRetrieveDates(items []any, n *retrieveNode) ([]any, error) {
+	if n == nil || (n.datePath == "" && n.dateLow == nil && n.dateHigh == nil) {
+		return items, nil
+	}
+	window, err := st.retrieveDateWindow(n)
+	if err != nil {
+		return nil, err
+	}
+	if window == nil {
+		return items, nil
+	}
+	path := n.datePath
+	if path == "" {
+		path = "effective"
+	}
+	var out []any
+	for _, item := range items {
+		vals, ok := fieldValues(item, path)
+		if !ok {
+			continue
+		}
+		for _, v := range vals {
+			if valueInDateWindow(v, *window) {
+				out = append(out, item)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (st *evalState) retrieveDateWindow(n *retrieveNode) (*Interval, error) {
+	low, err := st.eval(n.dateLow)
+	if err != nil {
+		return nil, err
+	}
+	high, err := st.eval(n.dateHigh)
+	if err != nil {
+		return nil, err
+	}
+	if len(low) == 0 && len(high) == 0 {
+		return nil, nil
+	}
+	if n.dateHigh == nil && len(low) == 1 {
+		if iv, ok := asInterval(low[0]); ok {
+			return &iv, nil
+		}
+	}
+	if n.dateLow == nil && len(high) == 1 {
+		if iv, ok := asInterval(high[0]); ok {
+			return &iv, nil
+		}
+	}
+	iv := Interval{LowClosed: true, HighClosed: true}
+	if len(low) > 0 {
+		iv.Low = singletonOrList(low)
+	}
+	if len(high) > 0 {
+		iv.High = singletonOrList(high)
+	}
+	return &iv, nil
+}
+
+func valueInDateWindow(v any, window Interval) bool {
+	if v == nil {
+		return false
+	}
+	if iv, ok := asInterval(v); ok {
+		return intervalOverlaps(iv, window)
+	}
+	ok, comparable := intervalContains(window, v, false)
+	return comparable && ok
+}
+
 func looksLikeCanonical(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -654,29 +654,44 @@ func (p *parser) parseMembershipOp() string {
 	case p.acceptKeyword("in"):
 		return "in"
 	case p.acceptKeyword("contains"):
-		return "contains"
+		return "contains" + p.timingPrecision()
 	case p.acceptKeyword("includes"):
-		return "includes"
+		return "includes" + p.timingPrecision()
 	case p.acceptKeyword("during"):
-		return "during"
+		return "during" + p.timingPrecision()
 	case p.acceptKeyword("overlaps"):
+		op := "overlaps"
 		if p.acceptKeyword("before") {
-			return "overlaps before"
+			op = "overlaps before"
+		} else if p.acceptKeyword("after") {
+			op = "overlaps after"
 		}
-		if p.acceptKeyword("after") {
-			return "overlaps after"
-		}
-		return "overlaps"
+		return op + p.timingPrecision()
 	case p.acceptKeyword("starts"):
-		return "starts"
+		return "starts" + p.timingPrecision()
 	case p.acceptKeyword("ends"):
-		return "ends"
+		return "ends" + p.timingPrecision()
 	case p.acceptKeyword("meets"):
-		return "meets"
+		op := "meets"
+		if p.acceptKeyword("before") {
+			op = "meets before"
+		} else if p.acceptKeyword("after") {
+			op = "meets after"
+		}
+		return op + p.timingPrecision()
 	case p.acceptKeyword("before"):
-		return "before"
+		return "before" + p.timingPrecision()
 	case p.acceptKeyword("after"):
-		return "after"
+		return "after" + p.timingPrecision()
+	}
+	return ""
+}
+
+func (p *parser) timingPrecision() string {
+	if u := timeUnitName(p.lex.lookahead().text); u != "" {
+		p.lex.next()
+		_ = p.acceptKeyword("of")
+		return " " + u + " of"
 	}
 	return ""
 }

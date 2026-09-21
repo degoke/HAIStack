@@ -87,6 +87,7 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 }
 
 func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
+	base, unit := splitTimingOp(n.op)
 	left, err := st.eval(n.left)
 	if err != nil {
 		return nil, err
@@ -98,18 +99,20 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
 	}
+	left = applyPrecisionList(left, unit)
+	right = applyPrecisionList(right, unit)
 	li, lok := asInterval(left[0])
 	ri, rok := asInterval(right[0])
-	switch n.op {
+	switch base {
 	case "includes", "properly includes":
 		if lok && rok {
-			return []any{intervalIncludes(li, ri, strings.HasPrefix(n.op, "properly"))}, nil
+			return []any{intervalIncludes(li, ri, strings.HasPrefix(base, "properly"))}, nil
 		}
 		if lok {
-			return intervalContainsResult(li, right[0], strings.HasPrefix(n.op, "properly"))
+			return intervalContainsResult(li, right[0], strings.HasPrefix(base, "properly"))
 		}
 	case "included in", "during", "properly included in", "properly during":
-		proper := strings.HasPrefix(n.op, "properly")
+		proper := strings.HasPrefix(base, "properly")
 		if lok && rok {
 			return []any{intervalIncludes(ri, li, proper)}, nil
 		}
@@ -140,6 +143,14 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 		if lok && rok {
 			return []any{intervalMeets(li, ri)}, nil
 		}
+	case "meets before":
+		if lok && rok {
+			return []any{intervalMeetsBefore(li, ri)}, nil
+		}
+	case "meets after":
+		if lok && rok {
+			return []any{intervalMeetsAfter(li, ri)}, nil
+		}
 	case "before":
 		if lok && rok {
 			cmp, ok := cqlCompare(li.High, ri.Low)
@@ -160,8 +171,91 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{cmp > 0}, nil
+	case "contains":
+		if lok {
+			return intervalContainsResult(li, right[0], false)
+		}
 	}
 	return nil, nil
+}
+
+func intervalRelOp(op string) bool {
+	base, unit := splitTimingOp(op)
+	switch base {
+	case "includes", "properly includes", "included in", "properly included in",
+		"during", "properly during", "overlaps", "overlaps before", "overlaps after",
+		"starts", "ends", "meets", "meets before", "meets after", "before", "after":
+		return true
+	case "contains":
+		return unit != ""
+	}
+	return false
+}
+
+func splitTimingOp(op string) (base, unit string) {
+	op = strings.ToLower(strings.TrimSpace(op))
+	if strings.HasSuffix(op, " of") {
+		rest := strings.TrimSpace(strings.TrimSuffix(op, " of"))
+		if i := strings.LastIndex(rest, " "); i >= 0 {
+			if u := timeUnitName(rest[i+1:]); u != "" {
+				return strings.TrimSpace(rest[:i]), u
+			}
+		}
+	}
+	return op, ""
+}
+
+func applyPrecisionList(vals []any, unit string) []any {
+	if unit == "" || len(vals) == 0 {
+		return vals
+	}
+	out := make([]any, len(vals))
+	for i, v := range vals {
+		out[i] = applyPrecisionValue(v, unit)
+	}
+	return out
+}
+
+func applyPrecisionValue(v any, unit string) any {
+	if iv, ok := asInterval(v); ok {
+		iv.Low = truncateToPrecision(iv.Low, unit)
+		iv.High = truncateToPrecision(iv.High, unit)
+		return iv
+	}
+	return truncateToPrecision(v, unit)
+}
+
+func truncateToPrecision(v any, unit string) any {
+	tm, ok := asTime(v)
+	if !ok {
+		return v
+	}
+	loc := tm.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	switch unit {
+	case "year":
+		return time.Date(tm.Year(), 1, 1, 0, 0, 0, 0, loc)
+	case "month":
+		return time.Date(tm.Year(), tm.Month(), 1, 0, 0, 0, 0, loc)
+	case "week":
+		wd := int(tm.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		day := tm.AddDate(0, 0, 1-wd)
+		return time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
+	case "day":
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc)
+	case "hour":
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), tm.Hour(), 0, 0, 0, loc)
+	case "minute":
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), tm.Hour(), tm.Minute(), 0, 0, loc)
+	case "second":
+		return time.Date(tm.Year(), tm.Month(), tm.Day(), tm.Hour(), tm.Minute(), tm.Second(), 0, loc)
+	}
+	return tm
 }
 
 func asQuantity(v any) (Quantity, bool) {
@@ -399,9 +493,17 @@ func intervalEnds(a, b Interval) bool {
 }
 
 func intervalMeets(a, b Interval) bool {
+	return intervalMeetsBefore(a, b) || intervalMeetsAfter(a, b)
+}
+
+func intervalMeetsBefore(a, b Interval) bool {
 	if a.High != nil && b.Low != nil && cqlEqual(a.High, b.Low) {
 		return a.HighClosed != b.LowClosed || (a.HighClosed && b.LowClosed)
 	}
+	return false
+}
+
+func intervalMeetsAfter(a, b Interval) bool {
 	if b.High != nil && a.Low != nil && cqlEqual(b.High, a.Low) {
 		return b.HighClosed != a.LowClosed || (b.HighClosed && a.LowClosed)
 	}

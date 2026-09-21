@@ -49,6 +49,9 @@ func (e *Engine) ParseELM(src []byte) (*Library, error) {
 	if e == nil {
 		return nil, ErrEngineUnavailable
 	}
+	if err := e.checkLen(string(src)); err != nil {
+		return nil, err
+	}
 	return parseELMLibrary(src)
 }
 

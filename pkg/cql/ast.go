@@ -72,6 +72,9 @@ type retrieveNode struct {
 	terminology  string
 	comparator   string
 	codePath     string
+	datePath     string
+	dateLow      Node
+	dateHigh     Node
 }
 
 type isNode struct {

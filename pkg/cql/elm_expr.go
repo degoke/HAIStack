@@ -94,14 +94,7 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 	case "Property":
 		return parseELMProperty(obj)
 	case "Indexer":
-		ops, err := parseELMOperands(obj)
-		if err != nil {
-			return nil, err
-		}
-		if len(ops) < 2 {
-			return nil, errf("%w: ELM Indexer requires two operands", ErrUnsupported)
-		}
-		return &indexNode{x: ops[0], index: ops[1]}, nil
+		return parseELMIndexer(obj)
 	case "Retrieve":
 		return parseELMRetrieve(obj)
 	case "Query":
@@ -208,7 +201,11 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		}
 		return &unaryNode{op: "width", x: x}, nil
 	case "ToList":
-		return firstELMOperand(obj)
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "tolist", x: x}, nil
 	case "Message":
 		if src, err := parseELMChild(obj, "source"); err == nil {
 			return src, nil
@@ -256,7 +253,10 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		}
 		return n, nil
 	}
-	return parseELMCallFallback(obj, typ)
+	if elmIsBuiltinCall(typ) {
+		return parseELMCallFallback(obj, typ)
+	}
+	return nil, errf("%w: ELM operator %s", ErrUnsupported, typ)
 }
 
 func parseELMInValueSet(obj map[string]any) (Node, error) {
@@ -427,6 +427,16 @@ func parseELMRetrieve(obj map[string]any) (Node, error) {
 		n.comparator = cmp
 	}
 	n.codePath = firstNonEmpty(elmString(obj["codeProperty"]), elmString(obj["codePath"]))
+	n.datePath = firstNonEmpty(elmString(obj["dateProperty"]), elmString(obj["datePath"]))
+	low, err := parseELMOptional(obj, "dateLow")
+	if err != nil {
+		return nil, err
+	}
+	high, err := parseELMOptional(obj, "dateHigh")
+	if err != nil {
+		return nil, err
+	}
+	n.dateLow, n.dateHigh = low, high
 	if codes, ok := asObject(obj["codes"]); ok {
 		term, cmp := elmRetrieveCodes(codes, n.comparator)
 		n.terminology = term
@@ -601,6 +611,8 @@ func parseELMQuery(obj map[string]any) (Node, error) {
 					}
 					expr = n
 				}
+			case "ByDirection":
+				expr = &identNode{name: "$this"}
 			}
 			if expr != nil {
 				q.sort = append(q.sort, sortItem{expr: expr, desc: desc})
@@ -843,7 +855,7 @@ func elmBinaryOp(typ string) (string, bool) {
 		"ProperIn": "properly included in", "ProperContains": "properly includes",
 		"During": "during", "ProperDuring": "properly during",
 		"Overlaps": "overlaps", "OverlapsBefore": "overlaps before", "OverlapsAfter": "overlaps after",
-		"Starts": "starts", "Ends": "ends", "Meets": "meets",
+		"Starts": "starts", "Ends": "ends", "Meets": "meets", "MeetsBefore": "meets before", "MeetsAfter": "meets after",
 		"Before": "before", "After": "after",
 		"SameAs": "same as", "SameOrBefore": "same or before", "SameOrAfter": "same or after",
 	}
@@ -863,8 +875,49 @@ func elmPrecisionOp(typ, op string, obj map[string]any) string {
 		return "same " + prec + " or before"
 	case "SameOrAfter":
 		return "same " + prec + " or after"
+	case "Before", "After", "Starts", "Ends", "During", "ProperDuring",
+		"Overlaps", "OverlapsBefore", "OverlapsAfter",
+		"Meets", "MeetsBefore", "MeetsAfter",
+		"Includes", "IncludedIn", "Contains",
+		"ProperIncludes", "ProperIncludedIn", "ProperContains", "ProperIn":
+		return op + " " + prec + " of"
 	}
 	return op
+}
+
+func parseELMIndexer(obj map[string]any) (Node, error) {
+	ops, err := parseELMOperands(obj)
+	if err != nil {
+		return nil, err
+	}
+	if len(ops) >= 2 {
+		return &indexNode{x: ops[0], index: ops[1]}, nil
+	}
+	src, srcErr := parseELMNamedOrOperand(obj, "source")
+	idx, idxErr := parseELMOptional(obj, "index")
+	if srcErr == nil && idxErr == nil && src != nil && idx != nil {
+		return &indexNode{x: src, index: idx}, nil
+	}
+	if idxErr != nil {
+		return nil, idxErr
+	}
+	return nil, errf("%w: ELM Indexer requires two operands", ErrUnsupported)
+}
+
+func elmIsBuiltinCall(typ string) bool {
+	switch strings.ToLower(typ) {
+	case "first", "last", "count", "exists", "empty", "distinct",
+		"now", "today", "length",
+		"tostring", "tointeger", "todecimal", "toboolean",
+		"todate", "todatetime", "totime", "toquantity", "tointerval",
+		"min", "max", "sum", "avg", "average", "alltrue", "anytrue",
+		"take", "skip", "indexof", "flatten", "singletonfrom",
+		"date", "datetime", "time",
+		"startswith", "endswith", "matches", "replace", "split", "combine",
+		"upper", "lower", "substring", "collapse", "expand":
+		return true
+	}
+	return false
 }
 
 func parseELMCollection(obj map[string]any, elemKey string, filter bool) (Node, error) {
