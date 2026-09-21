@@ -762,11 +762,10 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	case "=":
 		return cqlEqualResult(left, right), nil
 	case "!=":
-		eq := cqlEqualResult(left, right)
-		if len(eq) == 0 {
-			return nil, nil
+		if neq := cqlNotEqualResult(left, right); neq != nil {
+			return neq, nil
 		}
-		return []any{eq[0] != true}, nil
+		return nil, nil
 	case "~":
 		return cqlEquivalentResult(left, right), nil
 	case "!~":
@@ -2419,6 +2418,24 @@ func cqlEqualResult(left, right []any) []any {
 	return cqlEqual3List(left, right)
 }
 
+func cqlNotEqualResult(left, right []any) []any {
+	if left == nil || right == nil {
+		return nil
+	}
+	if len(left) == 1 && len(right) == 1 {
+		if qa, oka := asQuantity(left[0]); oka {
+			if qb, okb := asQuantity(right[0]); okb {
+				return []any{!cqlEquivalent(qa, qb)}
+			}
+		}
+	}
+	eq := cqlEqualResult(left, right)
+	if len(eq) == 0 {
+		return nil
+	}
+	return []any{eq[0] != true}
+}
+
 func cqlEqual3List(left, right []any) []any {
 	if len(left) != len(right) {
 		return []any{false}
@@ -2487,6 +2504,9 @@ func evalArithmetic(op string, lv, rv any) ([]any, error) {
 	if r1, ok := asRatio(lv); ok {
 		if r2, ok := asRatio(rv); ok {
 			return evalRatioArith(op, r1, r2)
+		}
+		if scaled, ok := scaleRatioByScalar(op, r1, rv); ok {
+			return scaled, nil
 		}
 	}
 	if q1, ok := asQuantity(lv); ok {

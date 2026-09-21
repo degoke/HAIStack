@@ -1388,3 +1388,45 @@ func TestReviewNitsRound5(t *testing.T) {
 		t.Fatalf("UCUM stone: %#v", got)
 	}
 }
+
+func TestReviewNitsRound6(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "(1 'mg' : 2 'mL') * 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 1 {
+		t.Fatalf("ratio times scalar: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' * 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = got[0].(Ratio)
+	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 4 {
+		t.Fatalf("ratio denom scale: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'g' != 1000 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("quantity != uses equivalence: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[mi_us]', 'km')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "km" || q.Value < 1.6 || q.Value > 1.61 {
+		t.Fatalf("UCUM mile: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' * 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ratio multiply two ratios: %#v", got)
+	}
+}

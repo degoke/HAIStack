@@ -1048,6 +1048,8 @@ func quantitySIFactor(unit string) (float64, string, bool) {
 		return 28.349523125, "mass", true
 	case "[st_av]", "st", "stone", "stones":
 		return 6350.29318, "mass", true
+	case "[mi_us]", "[mi_i]", "mi", "mile", "miles":
+		return 1609.344, "length", true
 	case "g", "gm", "gram", "grams":
 		return 1, "mass", true
 	case "mg":
@@ -1210,12 +1212,38 @@ func simplifyRatio(r Ratio) Ratio {
 	if n == 0 || d == 0 {
 		return r
 	}
-	g := ratioValueGCD(n, d)
-	if g > 0 && g != 1 {
-		r.Numerator.Value = n / g
-		r.Denominator.Value = d / g
+	if ratioNearInteger(n) && ratioNearInteger(d) {
+		g := ratioValueGCD(n, d)
+		if g > 0 && g != 1 {
+			r.Numerator.Value = n / g
+			r.Denominator.Value = d / g
+		}
 	}
 	return r
+}
+
+func ratioNearInteger(v float64) bool {
+	return math.Abs(v-math.Round(v)) <= 1e-9*math.Max(1, math.Abs(v))
+}
+
+func scaleRatioByScalar(op string, r Ratio, rv any) ([]any, bool) {
+	f, ok := asFloat(rv)
+	if !ok {
+		return nil, false
+	}
+	switch op {
+	case "*":
+		r.Numerator.Value *= f
+		return []any{simplifyRatio(r)}, true
+	case "/":
+		if f == 0 {
+			return nil, false
+		}
+		r.Numerator.Value /= f
+		return []any{simplifyRatio(r)}, true
+	default:
+		return nil, false
+	}
 }
 
 func ratioValueGCD(a, b float64) float64 {
