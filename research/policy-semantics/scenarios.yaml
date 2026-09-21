@@ -4,6 +4,8 @@ version: "1"
 # Policy documents, roles, and principals live in this file (portable pkg/auth DSL).
 # observation-only grants clinician *.read so SMART user/*.read satisfies
 # RequiredPermissions; policy rules still narrow the allowed resource types.
+# Patient overlay is examples 6–7 (action: read + patientId). The runner
+# supports action: patient-access; this catalogue does not use it.
 roles:
   - name: clinician
     permissions:
@@ -73,11 +75,6 @@ policies:
           actions: [execute-ai-tool]
           toolNames: [run_view]
         reason: ai may run view tool
-      - name: patient-access
-        effect: allow
-        match:
-          actions: [patient-access]
-        reason: patient compartment access
       - name: device-push
         effect: allow
         match:
@@ -102,18 +99,13 @@ policies:
           resourceTypes: [Observation]
           anyPermissions: [observation.read, "*.read"]
         reason: policy allows observation only
-      - name: patient-access
-        effect: allow
-        match:
-          actions: [patient-access]
-        reason: patient compartment access
   allow-all-read:
     version: "1"
     rules:
       - name: allow-all-read
         effect: allow
         match:
-          actions: [read, write, execute-view, execute-ai-tool, patient-access]
+          actions: [read, write, execute-view, execute-ai-tool]
         reason: broad policy allows when scopes grant
   deny-first:
     version: "1"

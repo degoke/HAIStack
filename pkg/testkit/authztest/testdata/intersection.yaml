@@ -49,11 +49,6 @@ policies:
           resourceTypes: [Observation]
           anyPermissions: [observation.read, "*.read"]
         reason: policy allows observation only
-      - name: patient-access
-        effect: allow
-        match:
-          actions: [patient-access]
-        reason: patient compartment access
 scenarios:
   - name: testdata_scope_and_policy_allow_observation
     doc: user/*.read ∩ observation-only policy allows Observation read.

@@ -12,7 +12,9 @@ abstract: >-
   policy-governed AI access, ViewDefinition analytics, terminology
   projections, and reproducible research artefacts (benchmarks, policy
   semantics, semantic conversion corpora, terminology evaluation, and
-  FHIR-to-AI provenance pipelines).
+  FHIR-to-AI provenance pipelines). The source repository is
+  https://github.com/degoke/HAIStack; the Go module path is
+  github.com/degoke/health-ai-stack.
 keywords:
   - FHIR
   - SMART on FHIR

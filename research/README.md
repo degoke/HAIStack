@@ -55,6 +55,9 @@ policy semantics, and evaluation corpora. 2026.
 https://github.com/degoke/HAIStack
 ```
 
+The git repository is `degoke/HAIStack`. The Go module path is
+`github.com/degoke/health-ai-stack`.
+
 A Zenodo/figshare DOI can be added to `CITATION.cff` when the artefact is
 deposited. Until then, cite the git tag or commit.
 

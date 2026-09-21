@@ -77,8 +77,9 @@ Each **fixture** translation records:
 - equivalence class
 
 Those fields are copied onto `pkg/audit` event details
-(`terminology.translate`) so analytics and AI pipelines can cite which
-map produced a code.
+(`terminology.translate`) for the planted fixture only. The gold control
+does not emit audit events (nil logger). Analytics and AI pipelines can
+cite which map produced a fixture code.
 
 ## Limitations
 

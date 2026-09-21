@@ -1,12 +1,12 @@
 # HAIStack
 
-[![CI](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/degoke/HAIStack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/HAIStack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **Health AI Stack is a collection of modular Go libraries for building FHIR-native health data infrastructure with safe AI access.**
 
 The libraries can be used independently or composed together to create offline-first local runtimes, edge FHIR servers, cloud repositories, sync engines, analytics layers, and health data tools. It is not a single monolithic FHIR server — it is building blocks for health data systems that run locally, at the edge, on-premise, or in the cloud.
 
-**Module:** `github.com/degoke/health-ai-stack` · **Go:** 1.26+
+**Module:** `github.com/degoke/health-ai-stack` · **Repo:** [degoke/HAIStack](https://github.com/degoke/HAIStack) · **Go:** 1.26+
 
 ---
 
@@ -213,7 +213,7 @@ Import only the packages you need, for example `github.com/degoke/health-ai-stac
 To work on this repository:
 
 ```bash
-git clone https://github.com/degoke/health-ai-stack.git
+git clone https://github.com/degoke/HAIStack.git
 cd health-ai-stack
 go test ./...
 ```

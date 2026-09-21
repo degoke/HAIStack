@@ -1,5 +1,5 @@
 name: patient-read
-description: Sequential Patient reads by id (random access).
+description: Sequential Patient reads by id (deterministic round-robin over the seeded pool).
 operations:
   - type: read
     resourceType: Patient
