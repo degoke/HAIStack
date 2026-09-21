@@ -1399,13 +1399,21 @@ func TestReviewNitsRound6(t *testing.T) {
 	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 1 {
 		t.Fatalf("ratio times scalar: %#v", got)
 	}
-	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' * 2", EvalContext{})
+	got, err = eng.Eval(context.Background(), "1 'mg' : (2 'mL' * 2)", EvalContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r, ok = got[0].(Ratio)
 	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 4 {
 		t.Fatalf("ratio denom scale: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' * 2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = got[0].(Ratio)
+	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 1 {
+		t.Fatalf("ratio literal times scalar: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "1 'g' != 1000 'mg'", EvalContext{})
 	if err != nil {
@@ -1426,7 +1434,16 @@ func TestReviewNitsRound6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 {
+	r, ok = got[0].(Ratio)
+	if !ok || !ratioEqual(r, Ratio{Numerator: Quantity{Value: 1, Unit: "mg"}, Denominator: Quantity{Value: 1, Unit: "mL"}}) {
 		t.Fatalf("ratio multiply two ratios: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[ft_i]', 'm')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Unit != "m" || q.Value < 0.304 || q.Value > 0.305 {
+		t.Fatalf("UCUM foot: %#v", got)
 	}
 }

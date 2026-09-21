@@ -1050,6 +1050,8 @@ func quantitySIFactor(unit string) (float64, string, bool) {
 		return 6350.29318, "mass", true
 	case "[mi_us]", "[mi_i]", "mi", "mile", "miles":
 		return 1609.344, "length", true
+	case "[ft_i]", "[ft_us]", "ft", "foot", "feet":
+		return 0.3048, "length", true
 	case "g", "gm", "gram", "grams":
 		return 1, "mass", true
 	case "mg":
@@ -1325,15 +1327,15 @@ func evalRatioArith(op string, a, b Ratio) ([]any, error) {
 		}
 		return []any{simplifyRatio(out)}, nil
 	case "*":
-		num := Quantity{Value: a.Numerator.Value * b.Numerator.Value, Unit: a.Numerator.Unit}
-		den := Quantity{Value: a.Denominator.Value * b.Denominator.Value, Unit: a.Denominator.Unit}
-		if isDimensionlessUnit(num.Unit) {
-			num.Unit = b.Numerator.Unit
+		numVal, ok1 := multiplyQuantityValues(a.Numerator, b.Denominator)
+		denVal, ok2 := multiplyQuantityValues(a.Denominator, b.Numerator)
+		if !ok1 || !ok2 || denVal == 0 {
+			return nil, nil
 		}
-		if isDimensionlessUnit(den.Unit) {
-			den.Unit = b.Denominator.Unit
-		}
-		return []any{simplifyRatio(Ratio{Numerator: num, Denominator: den})}, nil
+		return []any{simplifyRatio(Ratio{
+			Numerator:   Quantity{Value: numVal, Unit: a.Numerator.Unit},
+			Denominator: Quantity{Value: denVal, Unit: a.Denominator.Unit},
+		})}, nil
 	case "/":
 		if b.Numerator.Value == 0 {
 			return nil, nil

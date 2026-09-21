@@ -829,45 +829,6 @@ func (p *parser) parseRatioMul() (Node, error) {
 	}
 }
 
-func (p *parser) parseRatioDenominator() (Node, error) {
-	right, err := p.parsePower()
-	if err != nil {
-		return nil, err
-	}
-	for p.lex.lookahead().kind == tStar && !p.peekStarThenRatioColon() {
-		p.acceptKind(tStar)
-		rv, err := p.parsePower()
-		if err != nil {
-			return nil, err
-		}
-		right = &binaryNode{nodeBase: nodeBase{src: p.src}, op: "*", left: right, right: rv}
-	}
-	return right, nil
-}
-
-func (p *parser) peekStarThenRatioColon() bool {
-	t := p.lex.lookahead()
-	if t.kind != tStar {
-		return false
-	}
-	rest := p.src[t.pos:]
-	lx := newLexer(rest)
-	if lx.next().kind != tStar {
-		return false
-	}
-	switch lx.next().kind {
-	case tNumber:
-	case tString:
-	case tIdent:
-	default:
-		return false
-	}
-	if lx.lookahead().kind == tString {
-		lx.next()
-	}
-	return lx.lookahead().kind == tColon
-}
-
 func (p *parser) parseRatio() (Node, error) {
 	left, err := p.parseMul()
 	if err != nil {
@@ -877,7 +838,7 @@ func (p *parser) parseRatio() (Node, error) {
 		return left, nil
 	}
 	p.acceptKind(tColon)
-	right, err := p.parseRatioDenominator()
+	right, err := p.parsePower()
 	if err != nil {
 		return nil, err
 	}
@@ -894,7 +855,7 @@ func (p *parser) peekRatioRightAfterColon() bool {
 	_ = lx.next()
 	next := lx.next()
 	switch next.kind {
-	case tNumber, tString:
+	case tNumber, tString, tLParen:
 		return true
 	case tIdent:
 		after := lx.next()
