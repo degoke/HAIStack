@@ -126,20 +126,55 @@ func TestFileObjectKey(t *testing.T) {
 	if _, err := binary.FileObjectKey("bulk-export", "job/../Patient.ndjson"); err == nil {
 		t.Fatal("expected parent segment rejected")
 	}
+	if _, err := binary.FileObjectKey("bulk-export", "job//Patient.ndjson"); err == nil {
+		t.Fatal("expected empty segment rejected")
+	}
 }
 
-func TestPrefixedFileStoreRejectsEmptyPayload(t *testing.T) {
+func TestPrefixedFileStorePayloads(t *testing.T) {
 	ctx := context.Background()
+	payloadKey := "bulk-export/job/real.ndjson"
 	blobs := &memStoreBlobs{data: map[string]store.BlobObject{
-		"bulk-export/job/loc.ndjson": {
-			Key:      "bulk-export/job/loc.ndjson",
+		payloadKey: {
+			Key:  payloadKey,
+			Data: []byte("hydrated"),
+		},
+		"bulk-export/job/ptr.ndjson": {
+			Key:      "bulk-export/job/ptr.ndjson",
+			Location: payloadKey,
+			Data:     nil,
+		},
+		"bulk-export/job/s3ptr.ndjson": {
+			Key:      "bulk-export/job/s3ptr.ndjson",
 			Location: "s3://bucket/key",
 			Data:     nil,
 		},
+		"bulk-export/job/empty.ndjson": {
+			Key:  "bulk-export/job/empty.ndjson",
+			Data: []byte{},
+		},
 	}}
 	files := binary.NewPrefixedFileStore(blobs, "bulk-export", "export", "application/fhir+ndjson")
-	if _, _, err := files.Get(ctx, "job/loc.ndjson"); err == nil {
-		t.Fatal("expected missing file for nil Data")
+	if _, _, err := files.Get(ctx, "job/missing.ndjson"); err == nil || !errors.Is(err, binary.ErrNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+	got, _, err := files.Get(ctx, "job/ptr.ndjson")
+	if err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	if string(got) != "hydrated" {
+		t.Fatalf("hydrated = %q", got)
+	}
+	_, _, err = files.Get(ctx, "job/s3ptr.ndjson")
+	if err == nil || errors.Is(err, binary.ErrNotFound) {
+		t.Fatalf("unresolved location should not look missing: %v", err)
+	}
+	empty, _, err := files.Get(ctx, "job/empty.ndjson")
+	if err != nil {
+		t.Fatalf("empty: %v", err)
+	}
+	if empty == nil || len(empty) != 0 {
+		t.Fatalf("empty = %#v", empty)
 	}
 	if err := files.Put(ctx, "job/Patient..ndjson", []byte("{}"), ""); err != nil {
 		t.Fatalf("Put Patient..ndjson: %v", err)

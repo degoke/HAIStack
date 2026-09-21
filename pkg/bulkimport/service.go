@@ -3,10 +3,12 @@ package bulkimport
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -94,7 +96,9 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 	for i, input := range req.Inputs {
 		path := inputPath(id, i, input.Type)
 		if err := s.files.Put(ctx, path, input.NDJSON, InputFormatNDJSON); err != nil {
-			s.deleteKickoffFiles(ctx, written)
+			if delErr := s.deleteKickoffFiles(ctx, written); delErr != nil {
+				return nil, fmt.Errorf("%w (cleanup: %v)", err, delErr)
+			}
 			return nil, err
 		}
 		written = append(written, path)
@@ -108,7 +112,9 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 		Progress:  "0%",
 	}
 	if err := s.jobs.Create(ctx, job); err != nil {
-		s.deleteKickoffFiles(ctx, written)
+		if delErr := s.deleteKickoffFiles(ctx, written); delErr != nil {
+			return nil, fmt.Errorf("%w (cleanup: %v)", err, delErr)
+		}
 		return nil, err
 	}
 	if s.jobQueue != nil {
@@ -116,11 +122,10 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 			Now: s.now,
 		})
 		if err != nil {
-			s.deleteKickoffFiles(ctx, written)
-			if markErr := s.failJob(ctx, &job, err); markErr != nil {
-				return nil, fmt.Errorf("import: enqueue: %w (mark failed: %v)", err, markErr)
+			if delErr := s.deleteKickoffFiles(ctx, written); delErr != nil {
+				err = fmt.Errorf("%w (cleanup: %v)", err, delErr)
 			}
-			return nil, err
+			return nil, s.abortKickoff(ctx, &job, err)
 		}
 	} else if err := s.RunJob(ctx, id); err != nil {
 		return nil, err
@@ -300,13 +305,34 @@ func (s *Service) failJob(ctx context.Context, job *Job, cause error) error {
 	return s.jobs.Update(ctx, *job)
 }
 
-func (s *Service) deleteKickoffFiles(ctx context.Context, paths []string) {
+type jobDeleter interface {
+	Delete(ctx context.Context, id string) error
+}
+
+func (s *Service) abortKickoff(ctx context.Context, job *Job, cause error) error {
+	if deleter, ok := s.jobs.(jobDeleter); ok {
+		if err := deleter.Delete(ctx, job.ID); err != nil {
+			return fmt.Errorf("import: enqueue: %w (delete status: %v)", cause, err)
+		}
+		return cause
+	}
+	if markErr := s.failJob(ctx, job, cause); markErr != nil {
+		return fmt.Errorf("import: enqueue: %w (mark failed: %v)", cause, markErr)
+	}
+	return cause
+}
+
+func (s *Service) deleteKickoffFiles(ctx context.Context, paths []string) error {
 	if s == nil || s.files == nil {
-		return
+		return nil
 	}
+	var errs []error
 	for _, path := range paths {
-		_ = s.files.Delete(ctx, path)
+		if err := s.files.Delete(ctx, path); err != nil && !errors.Is(err, binary.ErrNotFound) {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
 
 // JobHandler returns a jobs.Handler that executes bulk import jobs.

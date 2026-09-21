@@ -70,6 +70,13 @@ func WriteRecord(ctx context.Context, db store.JobStore, record *store.JobRecord
 	if db == nil {
 		return ErrNilStore
 	}
+	if err := encodeRecord(record, payload, status, lastError); err != nil {
+		return err
+	}
+	return db.Update(ctx, *record)
+}
+
+func encodeRecord(record *store.JobRecord, payload any, status store.JobStatus, lastError string) error {
 	if record == nil {
 		return ErrJobNotFound
 	}
@@ -80,16 +87,46 @@ func WriteRecord(ctx context.Context, db store.JobStore, record *store.JobRecord
 	record.Payload = body
 	record.Status = status
 	record.LastError = lastError
-	record.UpdatedAt = time.Now().UTC()
-	return db.Update(ctx, *record)
+	record.UpdatedAt = time.Now().UTC().Truncate(time.Microsecond)
+	return nil
+}
+
+// ApplyCancelGuard keeps a cancelled bulk-status row from being overwritten by
+// a later complete or in-progress write. mark must set cancelled state on T.
+func ApplyCancelGuard[T any](existing, incoming T, cancelled func(T) bool, mark func(T) T) T {
+	if cancelled == nil || !cancelled(existing) {
+		return incoming
+	}
+	if mark == nil {
+		return existing
+	}
+	if !cancelled(incoming) {
+		return mark(existing)
+	}
+	return mark(incoming)
+}
+
+// MapBulkRecordStatus maps FHIR bulk job status strings onto store.JobStatus.
+func MapBulkRecordStatus(status string) store.JobStatus {
+	switch status {
+	case "complete", "cancelled":
+		return store.JobStatusCompleted
+	case "error":
+		return store.JobStatusFailed
+	default:
+		return store.JobStatusRunning
+	}
 }
 
 // Guard merges an incoming status-row update with the persisted value.
 type Guard[T any] func(existing, incoming T) T
 
+const maxCASAttempts = 32
+
 // StatusStore persists typed FHIR job records in store.JobStore.
 // Update holds a mutex so cancel-wins guards cannot race with complete writes
-// in-process (the same protection InMemoryJobStore gets from its lock).
+// in-process. When db implements store.JobCASStore, Update also compare-and-swaps
+// on UpdatedAt so two processes sharing the database keep cancel-wins.
 type StatusStore[T any] struct {
 	mu  sync.Mutex
 	db  store.JobStore
@@ -136,27 +173,59 @@ func (s *StatusStore[T]) Update(ctx context.Context, id string, incoming T, guar
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record, err := GetRecord(ctx, s.db, s.typ, id)
-	if err != nil {
-		return err
+	cas, hasCAS := s.db.(store.JobCASStore)
+	for attempt := 0; attempt < maxCASAttempts; attempt++ {
+		record, err := GetRecord(ctx, s.db, s.typ, id)
+		if err != nil {
+			return err
+		}
+		if record == nil {
+			return ErrJobNotFound
+		}
+		var existing T
+		if err := UnmarshalPayload(record.Payload, &existing); err != nil {
+			return fmt.Errorf("jobs: decode %s %q: %w", s.typ, id, err)
+		}
+		job := incoming
+		if guard != nil {
+			job = guard(existing, incoming)
+		}
+		status := store.JobStatusRunning
+		var lastError string
+		if meta != nil {
+			status, lastError = meta(job)
+		}
+		if !hasCAS {
+			return WriteRecord(ctx, s.db, record, job, status, lastError)
+		}
+		expected := record.UpdatedAt
+		if err := encodeRecord(record, job, status, lastError); err != nil {
+			return err
+		}
+		ok, err := cas.UpdateIf(ctx, *record, expected)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
 	}
-	if record == nil {
-		return ErrJobNotFound
+	return fmt.Errorf("%w: %s %q", ErrConcurrentUpdate, s.typ, id)
+}
+
+// Delete removes a status row when the underlying store implements JobDeleter.
+func (s *StatusStore[T]) Delete(ctx context.Context, id string) error {
+	if s == nil || s.db == nil {
+		return ErrNilStore
 	}
-	var existing T
-	if err := UnmarshalPayload(record.Payload, &existing); err != nil {
-		return fmt.Errorf("jobs: decode %s %q: %w", s.typ, id, err)
+	if id == "" {
+		return ErrEmptyJobID
 	}
-	job := incoming
-	if guard != nil {
-		job = guard(existing, incoming)
+	deleter, ok := s.db.(store.JobDeleter)
+	if !ok {
+		return fmt.Errorf("jobs: delete is not supported")
 	}
-	status := store.JobStatusRunning
-	var lastError string
-	if meta != nil {
-		status, lastError = meta(job)
-	}
-	return WriteRecord(ctx, s.db, record, job, status, lastError)
+	return deleter.Delete(ctx, id)
 }
 
 func createdAtNow(created time.Time) func() time.Time {

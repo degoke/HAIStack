@@ -18,7 +18,11 @@ func newJobStore(db *sql.DB) *JobStore {
 	return &JobStore{db: db}
 }
 
-var _ store.JobStore = (*JobStore)(nil)
+var (
+	_ store.JobStore    = (*JobStore)(nil)
+	_ store.JobCASStore = (*JobStore)(nil)
+	_ store.JobDeleter  = (*JobStore)(nil)
+)
 
 // Enqueue implements store.JobStore.
 func (s *JobStore) Enqueue(ctx context.Context, job store.JobRecord) error {
@@ -100,16 +104,19 @@ func (s *JobStore) ClaimNext(ctx context.Context, jobType string) (*store.JobRec
 	return job, nil
 }
 
-// Update implements store.JobStore.
-func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
-	var runAfter any
+func jobUpdateArgs(job store.JobRecord) (runAfter any, lastError any) {
 	if !job.RunAfter.IsZero() {
 		runAfter = formatTime(job.RunAfter)
 	}
-	var lastError any
 	if job.LastError != "" {
 		lastError = job.LastError
 	}
+	return runAfter, lastError
+}
+
+// Update implements store.JobStore.
+func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
+	runAfter, lastError := jobUpdateArgs(job)
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE hai_background_job
 		SET type = ?, payload = ?, status = ?, attempts = ?, updated_at = ?, run_after = ?, last_error = ?
@@ -126,6 +133,48 @@ func (s *JobStore) Update(ctx context.Context, job store.JobRecord) error {
 	}
 	if affected == 0 {
 		return fmt.Errorf("job not found: %s", job.ID)
+	}
+	return nil
+}
+
+// UpdateIf implements store.JobCASStore.
+func (s *JobStore) UpdateIf(ctx context.Context, job store.JobRecord, expectedUpdatedAt time.Time) (bool, error) {
+	runAfter, lastError := jobUpdateArgs(job)
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE hai_background_job
+		SET type = ?, payload = ?, status = ?, attempts = ?, updated_at = ?, run_after = ?, last_error = ?
+		WHERE id = ? AND updated_at = ?`,
+		job.Type, job.Payload, string(job.Status), job.Attempts, formatTime(job.UpdatedAt),
+		runAfter, lastError, job.ID, formatTime(expectedUpdatedAt),
+	)
+	if err != nil {
+		return false, fmt.Errorf("update job if: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("update job if rows: %w", err)
+	}
+	if affected > 0 {
+		return true, nil
+	}
+	if _, err := s.Get(ctx, job.ID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// Delete implements store.JobDeleter.
+func (s *JobStore) Delete(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM hai_background_job WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete job: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete job rows: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("job not found: %s", id)
 	}
 	return nil
 }

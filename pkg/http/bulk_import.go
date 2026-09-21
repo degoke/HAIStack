@@ -128,7 +128,7 @@ func (h *handler) handleBulkImportFile(w http.ResponseWriter, r *http.Request, j
 	}
 	data, contentType, err := h.cfg.BulkImportService.GetFile(r.Context(), jobID, filename)
 	if err != nil {
-		writeError(w, notFound("import file not found"))
+		writeFileError(w, err, "import file not found")
 		return
 	}
 	if contentType == "" {

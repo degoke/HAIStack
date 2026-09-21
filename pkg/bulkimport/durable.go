@@ -65,26 +65,26 @@ func NewBlobFileStore(blobs store.BlobStore) FileStore {
 }
 
 func recordStatus(status JobStatus) store.JobStatus {
-	switch status {
-	case StatusComplete, StatusCancelled:
-		return store.JobStatusCompleted
-	case StatusError:
-		return store.JobStatusFailed
-	default:
-		return store.JobStatusRunning
-	}
+	return jobs.MapBulkRecordStatus(string(status))
 }
 
 func applyCancelGuard(existing, incoming Job) Job {
-	if existing.Status != StatusCancelled && !existing.CancelRequested {
-		return incoming
+	return jobs.ApplyCancelGuard(existing, incoming, func(j Job) bool {
+		return j.Status == StatusCancelled || j.CancelRequested
+	}, func(j Job) Job {
+		j.Status = StatusCancelled
+		j.CancelRequested = true
+		return j
+	})
+}
+
+// Delete removes a status row. Used to abandon a Kickoff that failed to enqueue.
+func (s *DurableJobStore) Delete(ctx context.Context, id string) error {
+	if s == nil || s.records == nil {
+		return fmt.Errorf("import: job store is required")
 	}
-	if incoming.Status != StatusCancelled {
-		existing.Status = StatusCancelled
-		existing.CancelRequested = true
-		return existing
+	if err := s.records.Delete(ctx, id); err != nil && !jobs.IsMissing(err) {
+		return err
 	}
-	incoming.Status = StatusCancelled
-	incoming.CancelRequested = true
-	return incoming
+	return nil
 }

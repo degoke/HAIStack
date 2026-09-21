@@ -633,6 +633,25 @@ func TestSQLiteChunkBlobStorePutGetHeadDelete(t *testing.T) {
 		t.Fatalf("expected not found, got %v", err)
 	}
 
+	large := bytes.Repeat([]byte("n"), binary.DefaultChunkSize+32)
+	if _, err := blobStore.Put(ctx, "blob-sqlite-chunks", large, "text/plain"); err != nil {
+		t.Fatalf("Put large: %v", err)
+	}
+	count, err := blobStore.ListChunkCount(ctx, "blob-sqlite-chunks")
+	if err != nil {
+		t.Fatalf("ListChunkCount: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("chunk count = %d, want 2", count)
+	}
+	gotLarge, _, err := blobStore.Get(ctx, "blob-sqlite-chunks")
+	if err != nil {
+		t.Fatalf("Get large: %v", err)
+	}
+	if !bytes.Equal(gotLarge, large) {
+		t.Fatalf("large payload mismatch")
+	}
+
 	// Legacy binary_object still works.
 	legacy := db.BinaryStore()
 	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)

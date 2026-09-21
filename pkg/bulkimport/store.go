@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/degoke/health-ai-stack/pkg/binary"
 )
 
 // JobStore persists bulk import job state.
@@ -71,6 +73,16 @@ func (s *InMemoryJobStore) Update(_ context.Context, job Job) error {
 	return nil
 }
 
+func (s *InMemoryJobStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[id]; !ok {
+		return fmt.Errorf("import: job %q not found", id)
+	}
+	delete(s.jobs, id)
+	return nil
+}
+
 // InMemoryFileStore is a concurrent-safe FileStore for tests and local use.
 type InMemoryFileStore struct {
 	mu    sync.RWMutex
@@ -102,7 +114,7 @@ func (s *InMemoryFileStore) Get(_ context.Context, path string) ([]byte, string,
 	defer s.mu.RUnlock()
 	file, ok := s.files[path]
 	if !ok {
-		return nil, "", fmt.Errorf("import: file %q not found", path)
+		return nil, "", fmt.Errorf("import: file %q not found: %w", path, binary.ErrNotFound)
 	}
 	return append([]byte(nil), file.data...), file.contentType, nil
 }

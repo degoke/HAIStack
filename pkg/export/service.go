@@ -92,10 +92,7 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 			Now: s.now,
 		})
 		if err != nil {
-			if markErr := s.failJob(ctx, &job, err); markErr != nil {
-				return nil, fmt.Errorf("export: enqueue: %w (mark failed: %v)", err, markErr)
-			}
-			return nil, err
+			return nil, s.abortKickoff(ctx, &job, err)
 		}
 	} else if err := s.RunJob(ctx, id); err != nil {
 		return nil, err
@@ -269,6 +266,23 @@ func (s *Service) failJob(ctx context.Context, job *Job, cause error) error {
 	job.LastError = cause.Error()
 	job.CompletedAt = nowUTC(s.now)
 	return s.jobs.Update(ctx, *job)
+}
+
+type jobDeleter interface {
+	Delete(ctx context.Context, id string) error
+}
+
+func (s *Service) abortKickoff(ctx context.Context, job *Job, cause error) error {
+	if deleter, ok := s.jobs.(jobDeleter); ok {
+		if err := deleter.Delete(ctx, job.ID); err != nil {
+			return fmt.Errorf("export: enqueue: %w (delete status: %v)", cause, err)
+		}
+		return cause
+	}
+	if markErr := s.failJob(ctx, job, cause); markErr != nil {
+		return fmt.Errorf("export: enqueue: %w (mark failed: %v)", cause, markErr)
+	}
+	return cause
 }
 
 // JobHandler returns a jobs.Handler that executes bulk export jobs.

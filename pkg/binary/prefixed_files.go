@@ -44,7 +44,7 @@ func (s *PrefixedFileStore) Put(ctx context.Context, path string, data []byte, c
 		Key:         key,
 		ContentType: contentType,
 		Size:        int64(len(data)),
-		Data:        append([]byte(nil), data...),
+		Data:        copyBytes(data),
 		CreatedAt:   time.Now().UTC(),
 	})
 }
@@ -60,18 +60,25 @@ func (s *PrefixedFileStore) Get(ctx context.Context, path string) ([]byte, strin
 	obj, err := s.blobs.Get(ctx, key)
 	if err != nil {
 		if IsBlobMissing(err) {
-			return nil, "", fmt.Errorf("%s: file %q not found", fileStorePkg(s), path)
+			return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
 		}
 		return nil, "", err
 	}
-	if obj == nil || obj.Data == nil {
-		return nil, "", fmt.Errorf("%s: file %q not found", fileStorePkg(s), path)
+	if obj == nil {
+		return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
+	}
+	data, err := hydrateBlobPayload(ctx, s.blobs, obj, nil)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
+		}
+		return nil, "", fmt.Errorf("%s: file %q: %w", fileStorePkg(s), path, err)
 	}
 	ct := obj.ContentType
 	if ct == "" {
 		ct = s.defaultCT
 	}
-	return append([]byte(nil), obj.Data...), ct, nil
+	return data, ct, nil
 }
 
 func (s *PrefixedFileStore) Delete(ctx context.Context, path string) error {
@@ -95,20 +102,63 @@ func fileStorePkg(s *PrefixedFileStore) string {
 	return s.pkgName
 }
 
+// hydrateBlobPayload returns object bytes, following Location pointers once
+// they resolve to another blob key. Empty Data is a valid empty file.
+// Data==nil with no Location is missing. An unresolved Location is an error
+// that is not ErrNotFound so callers do not treat a pointer-only object as 404.
+func hydrateBlobPayload(ctx context.Context, blobs store.BlobStore, obj *store.BlobObject, seen map[string]struct{}) ([]byte, error) {
+	if obj.Data != nil {
+		return copyBytes(obj.Data), nil
+	}
+	if strings.TrimSpace(obj.Location) == "" {
+		return nil, ErrNotFound
+	}
+	if blobs == nil {
+		return nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, obj.Location)
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	if _, ok := seen[obj.Location]; ok {
+		return nil, fmt.Errorf("blob location cycle at %q", obj.Location)
+	}
+	seen[obj.Location] = struct{}{}
+	next, err := blobs.Get(ctx, obj.Location)
+	if err != nil {
+		if IsBlobMissing(err) {
+			return nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, obj.Location)
+		}
+		return nil, err
+	}
+	if next == nil {
+		return nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, obj.Location)
+	}
+	if next.Data != nil {
+		return copyBytes(next.Data), nil
+	}
+	if strings.TrimSpace(next.Location) == "" {
+		return nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, obj.Location)
+	}
+	return hydrateBlobPayload(ctx, blobs, next, seen)
+}
+
 // FileObjectKey builds a blob key from prefix and a relative path.
-// Path traversal segments ("." / "..") are rejected; names like Patient..ndjson are allowed.
+// Path traversal segments (empty / "." / "..") are rejected; names like Patient..ndjson are allowed.
 func FileObjectKey(prefix, path string) (string, error) {
 	cleaned := strings.ReplaceAll(strings.TrimSpace(path), "\\", "/")
 	cleaned = strings.Trim(cleaned, "/")
 	if cleaned == "" {
 		return "", fmt.Errorf("%w: file path is required", ErrInvalidArgument)
 	}
-	for _, part := range strings.Split(cleaned, "/") {
-		if part == "." || part == ".." {
+	parts := strings.Split(cleaned, "/")
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." || part == ".." {
 			return "", fmt.Errorf("%w: invalid file path %q", ErrInvalidArgument, path)
 		}
+		parts[i] = part
 	}
-	return prefix + "/" + cleaned, nil
+	return prefix + "/" + strings.Join(parts, "/"), nil
 }
 
 // IsBlobMissing reports whether err means the blob key is absent.

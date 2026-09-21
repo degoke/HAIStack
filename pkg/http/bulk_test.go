@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
@@ -464,5 +466,82 @@ func TestBulkImportErrorFileDownload(t *testing.T) {
 	}
 	if !strings.Contains(fileRec.Body.String(), "OperationOutcome") {
 		t.Fatalf("error artifact = %s", fileRec.Body.String())
+	}
+}
+
+type stubExportFiles struct {
+	err error
+}
+
+func (s stubExportFiles) Kickoff(context.Context, export.KickoffRequest) (*export.Job, error) {
+	return nil, fmt.Errorf("unused")
+}
+func (s stubExportFiles) GetJob(context.Context, string) (*export.Job, error) { return nil, nil }
+func (s stubExportFiles) Cancel(context.Context, string) error                { return nil }
+func (s stubExportFiles) Manifest(*export.Job) *export.Manifest               { return nil }
+func (s stubExportFiles) StatusURL(string) string                             { return "" }
+func (s stubExportFiles) GetFile(context.Context, string, string) ([]byte, string, error) {
+	return nil, "", s.err
+}
+
+type stubImportFiles struct {
+	err error
+}
+
+func (s stubImportFiles) Kickoff(context.Context, bulkimport.KickoffRequest) (*bulkimport.Job, error) {
+	return nil, fmt.Errorf("unused")
+}
+func (s stubImportFiles) GetJob(context.Context, string) (*bulkimport.Job, error) { return nil, nil }
+func (s stubImportFiles) Cancel(context.Context, string) error                    { return nil }
+func (s stubImportFiles) Manifest(*bulkimport.Job) *bulkimport.Manifest           { return nil }
+func (s stubImportFiles) StatusURL(string) string                                 { return "" }
+func (s stubImportFiles) GetFile(context.Context, string, string) ([]byte, string, error) {
+	return nil, "", s.err
+}
+
+func TestBulkExportFilePreservesStoreErrors(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkExportService: stubExportFiles{err: fmt.Errorf("connection refused")},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &bulkAuthChecker{allowExport: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/$export/files/job-1/Patient.ndjson", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkExportFileMissingIsNotFound(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &bulkResourceService{},
+		BulkExportService: stubExportFiles{
+			err: fmt.Errorf("export: file %q not found: %w", "Patient.ndjson", binary.ErrNotFound),
+		},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &bulkAuthChecker{allowExport: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/$export/files/job-1/Patient.ndjson", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportFilePreservesStoreErrors(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: stubImportFiles{err: fmt.Errorf("connection refused")},
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: &bulkAuthChecker{allowRead: true},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/$import/files/job-1/error-0-Patient.ndjson", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 }

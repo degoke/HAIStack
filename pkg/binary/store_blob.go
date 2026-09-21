@@ -36,7 +36,7 @@ func (a *storeAdapter) Get(ctx context.Context, key string) (*store.BlobObject, 
 	}
 	obj := &store.BlobObject{
 		Key:  key,
-		Data: append([]byte(nil), data...),
+		Data: append([]byte{}, data...),
 		Size: int64(len(data)),
 	}
 	if desc != nil {

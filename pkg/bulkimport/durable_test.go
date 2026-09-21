@@ -279,4 +279,11 @@ func TestKickoffDeletesFilesWhenEnqueueFails(t *testing.T) {
 	if _, _, getErr := files.Get(ctx, "job-1/input-0-Patient.ndjson"); getErr == nil {
 		t.Fatal("expected kickoff input file to be deleted")
 	}
+	got, err := jobsStore.Get(ctx, "job-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected status row deleted, got %#v", got)
+	}
 }

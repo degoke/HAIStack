@@ -351,11 +351,11 @@ func TestKickoffMarksJobErrorWhenEnqueueFails(t *testing.T) {
 		t.Fatal("expected Kickoff enqueue error")
 	}
 	got, err := jobsStore.Get(context.Background(), "job-1")
-	if err != nil || got == nil {
-		t.Fatalf("Get: %v %#v", err, got)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	if got.Status != export.StatusError {
-		t.Fatalf("status = %s, want error", got.Status)
+	if got != nil {
+		t.Fatalf("expected status row deleted, got %#v", got)
 	}
 }
 
@@ -381,6 +381,77 @@ func TestDurableJobStoreCancelWinsConcurrentComplete(t *testing.T) {
 	}()
 	wg.Wait()
 	got, err := jobsStore.Get(ctx, "job-1")
+	if err != nil || got == nil {
+		t.Fatalf("Get: %v %#v", err, got)
+	}
+	if got.Status != export.StatusCancelled || !got.CancelRequested {
+		t.Fatalf("got = %#v, want cancelled", got)
+	}
+}
+
+func TestDurableJobStoreCancelWinsAcrossStores(t *testing.T) {
+	ctx := context.Background()
+	db := jobs.NewInMemoryJobStore()
+	left := export.NewDurableJobStore(db)
+	right := export.NewDurableJobStore(db)
+	if err := left.Create(ctx, export.Job{ID: "job-1", Status: export.StatusInProgress}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = left.Update(ctx, export.Job{ID: "job-1", Status: export.StatusComplete, Progress: "100%"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := right.Update(ctx, export.Job{ID: "job-1", Status: export.StatusCancelled, CancelRequested: true}); err != nil {
+			t.Errorf("cancel: %v", err)
+		}
+	}()
+	wg.Wait()
+	got, err := left.Get(ctx, "job-1")
+	if err != nil || got == nil {
+		t.Fatalf("Get: %v %#v", err, got)
+	}
+	if got.Status != export.StatusCancelled || !got.CancelRequested {
+		t.Fatalf("got = %#v, want cancelled", got)
+	}
+}
+
+func TestDurableJobStoreSQLiteCancelWinsAcrossStores(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "cas.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	left := export.NewDurableJobStore(db.JobStore())
+	right := export.NewDurableJobStore(db.JobStore())
+	if err := left.Create(ctx, export.Job{ID: "job-1", Status: export.StatusInProgress}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = left.Update(ctx, export.Job{ID: "job-1", Status: export.StatusComplete, Progress: "100%"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := right.Update(ctx, export.Job{ID: "job-1", Status: export.StatusCancelled, CancelRequested: true}); err != nil {
+			t.Errorf("cancel: %v", err)
+		}
+	}()
+	wg.Wait()
+	got, err := left.Get(ctx, "job-1")
 	if err != nil || got == nil {
 		t.Fatalf("Get: %v %#v", err, got)
 	}
