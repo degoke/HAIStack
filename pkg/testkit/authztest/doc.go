@@ -19,8 +19,8 @@
 // TenantA or KindUser fallback). policyRoleGrants / roleGrants overlay extra
 // role permissions per named policy or scenario. YAML catalogues run with
 // RunYAML and do not construct Go BaseConfig kits. Scenario principal,
-// scopes, action, and policy are required (no clinician / user/*.read /
-// read / base fallbacks).
+// scopes, action, resourceType, and policy are required (no clinician /
+// user/*.read / read / Patient / base fallbacks).
 //
 // This package is for tests and the Track C research CLI
 // (research/policy-semantics), which issue #11 places in authztest. Other

@@ -259,6 +259,7 @@ policies:
 		{"scopes", "  - name: x\n    principal: clinician\n    policy: base\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing scopes"},
 		{"policy", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing policy"},
 		{"action", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    policy: base\n    resourceType: Patient\n    expectAllow: true\n", "missing action"},
+		{"resourceType", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    policy: base\n    action: read\n    expectAllow: true\n", "missing resourceType"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -40,7 +40,7 @@ type YAMLPrincipal struct {
 // portable pkg/auth policy inline. Named Go policy enums are not used.
 // Principal names YAMLFile.Principals. RoleGrants overlay extra permissions
 // for this scenario only (in addition to PolicyRoleGrants). Principal, scopes,
-// action, and policy (or PolicyDocument) are required.
+// action, resourceType, and policy (or PolicyDocument) are required.
 type YAMLScenario struct {
 	Name           string                       `yaml:"name"`
 	Doc            string                       `yaml:"doc"`
@@ -101,6 +101,9 @@ func ParseYAML(data []byte) (YAMLFile, error) {
 		}
 		if strings.TrimSpace(spec.Action) == "" {
 			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing action", i, spec.Name)
+		}
+		if strings.TrimSpace(spec.ResourceType) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing resourceType", i, spec.Name)
 		}
 	}
 	return file, nil
@@ -196,9 +199,9 @@ func evaluateYAMLIntersection(ctx context.Context, eng *auth.Engine, adapter *sm
 		decision, err = eng.CanExecuteAITool(ctx, req)
 		return scopeOK, decision, err
 	case auth.ActionPatientAccess:
-		resourceType := spec.ResourceType
+		resourceType := strings.TrimSpace(spec.ResourceType)
 		if resourceType == "" {
-			resourceType = "Patient"
+			return false, auth.Decision{}, fmt.Errorf("missing resourceType")
 		}
 		scopeOK = adapter.ScopeImplies(bundle, resourceType, smart.VerbRead)
 		req := adapter.ToPatientScopeRequest(bundle, spec.PatientID)

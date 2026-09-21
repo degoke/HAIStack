@@ -394,8 +394,9 @@ go run ./examples/ai-authz
 
 Reproducible evaluation artefacts live in [research/README.md](research/README.md):
 vendor-neutral benchmarks, an R4→R5 conversion corpus, SMART scope ∩ policy
-semantics, ConceptMap quality metrics, and a FHIR → ViewDefinition → AI tool
-provenance pipeline. Cite via [`CITATION.cff`](CITATION.cff).
+semantics, a ConceptMap scorer harness (planted fixture, not a quality
+study), and a FHIR → ViewDefinition → AI tool provenance pipeline. Cite via
+[`CITATION.cff`](CITATION.cff).
 
 ```bash
 make research

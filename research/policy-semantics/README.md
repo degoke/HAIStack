@@ -39,7 +39,7 @@ every principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
 do the same for deny-by-default, first-match, view, and AI-tool examples so
 those cases pass SMART `RequiredPermissions` after `user/*.read` and then
 fail or allow at the policy gate. Every scenario must declare `principal`,
-`scopes`, `action`, and `policy` (or `policyDocument`). Track C is the exception to
+`scopes`, `action`, `resourceType`, and `policy` (or `policyDocument`). Track C is the exception to
 “testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
 do **not** import `pkg/testkit`.
 

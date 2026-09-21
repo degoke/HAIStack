@@ -1,13 +1,14 @@
 # Track E — Reproducible FHIR → AI pipeline
 
 End-to-end demonstration that HAIStack can turn **validated FHIR** into
-**permissioned ViewDefinition rows**, invoke a **policy-governed AI tool**,
+**authorized ViewDefinition output**, invoke a **policy-governed AI tool**,
 and emit an **auditable provenance chain**.
 
 ```
 FHIR resources (synthetic, validated)
   → ViewDefinition projection (pkg/view)
-  → permissioned row set (pkg/auth)
+  → authorized view/tool execution (pkg/auth; full authorized view output,
+    not per-row ACL filtering or a deny-path demo)
   → AI tool `run_view` (pkg/ai)
   → seeded stub model (no API keys)
   → audit log + provenance bundle (pkg/audit)
@@ -42,8 +43,10 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 ## What the bundle proves
 
 - Each input resource has a canonical JSON hash and was validated against the recorded profile (`hai-patient` for Patient, HL7 R4 base for Observation).
-- The view name, version, and row hashes are recorded.
+- The view name, version, and row hashes are recorded for the **full
+  authorized view output** (no per-row ACL filtering in this artefact).
 - The policy document hash is recorded.
+- The tool **name** is recorded (not a separate tool-version field).
 - Tool citations point at the view and source Observation ids.
 - Audit events cover view execution, AI tool success, and stub model invocation (`pkg/ai.Executor.InvokeModel`).
 

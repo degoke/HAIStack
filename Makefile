@@ -72,7 +72,7 @@ research-conversion: ## Track B — R4→R5 semantic conversion corpus scorer
 	$(GO) test ./research/semantic-conversion
 	$(GO) run ./research/semantic-conversion >/dev/null
 
-research-terminology: ## Track D — ConceptMap gold set quality metrics
+research-terminology: ## Track D — ConceptMap gold vs planted scorer fixture
 	$(GO) test ./research/terminology-evaluation
 	$(GO) run ./research/terminology-evaluation >/dev/null
 

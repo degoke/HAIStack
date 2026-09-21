@@ -74,14 +74,16 @@ All datasets are synthetic. See [`LICENSE`](LICENSE).
 ```
 FHIR resources (validated)
   → ViewDefinition projection (pkg/view)
-  → permissioned row set (pkg/auth)
+  → authorized view/tool execution (pkg/auth; full authorized view output,
+    not per-row ACL filtering)
   → AI tool invocation (pkg/ai)
   → stub model response
   → audit log + exportable provenance bundle (pkg/audit)
 ```
 
-The provenance bundle records input hashes, view version, policy hash, tool
-name, model adapter/seed, citations, and audit events.
+The provenance bundle records input hashes, view name/version, policy hash,
+tool **name** (not a separate tool-version field), model adapter/seed,
+citations, and audit events.
 
 ## Relationship to packages
 
@@ -99,3 +101,17 @@ name, model adapter/seed, citations, and audit events.
 
 Related product issues: conformance IG pinning, authorization semantics,
 Bulk Data / analytics paths, and proof-of-conformance benchmarks.
+
+## Scope relative to issue #11
+
+This tree implements the issue **acceptance criteria** (reproducible
+tracks, ≥10 SMART ∩ policy examples, ≥50 conversion pairs, terminology
+gold + metrics harness, `CITATION.cff`, AI provenance chain). It does not
+implement every sentence in the issue **proposal**:
+
+- Consent state is compiled into YAML policy/overlay; `scenarios.yaml`
+  has no consent-state field.
+- Track E records the tool **name**, not a separate tool version.
+- Track B is a catalogue scorer, not a live R5 converter.
+- Track D is a planted scorer fixture, not a mapping-quality study.
+
