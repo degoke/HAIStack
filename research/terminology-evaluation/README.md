@@ -21,7 +21,10 @@ go test ./research/terminology-evaluation
 go run ./research/terminology-evaluation
 ```
 
-The CLI prints both scores.
+`go run ./research/terminology-evaluation` prints gold and fixture
+scores (plus provenance and audit counts). `make research-terminology`
+runs the same CLI but discards stdout (`>/dev/null`); it is an
+exit-status check.
 
 - Exit 0: gold control is perfect (Translate + scorer harness) **and**
   the defective fixture is not (scorer can emit F1 < 1).

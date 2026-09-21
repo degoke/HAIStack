@@ -58,7 +58,7 @@ validate-ig: ig ## Build the IG and validate examples with the Go validator
 conformance-lock: ## Record current git commit and toolchain pins in conformance-lock.json
 	bash conformance/scripts/write-lock.sh
 
-research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Run all research artefact checks
+research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Exit-status check for all research tracks (CLI stdout discarded)
 
 research-ai-pipeline: ## Track E — FHIR → view → AI tool provenance pipeline
 	$(GO) test ./research/ai-pipeline

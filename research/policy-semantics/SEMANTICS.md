@@ -62,7 +62,7 @@ YAML runner does not accept those actions; they are not catalogue cases.
 | `roles` | any overlapping role |
 | `anyPermissions` / `allPermissions` | permission checks |
 | `resourceTypes` | FHIR resource type |
-| `actions` | `read`, `write`, `execute-view`, `execute-ai-tool`, … |
+| `actions` | Catalogue cases use `read`, `write`, `execute-view`, `execute-ai-tool`. The YAML runner also accepts `search` as an alias of `read` (same `ScopeImplies` + `CanReadResource`). This catalogue does not use `search`. |
 | `viewNames` / `toolNames` / `moduleNames` | named targets |
 | `purposeOfUse` | attribute match |
 | `deviceTrusted` / `deviceStatuses` | device trust |
@@ -106,7 +106,9 @@ permission (`policyRoleGrants` on `observation-only`, or per-scenario
 4. **Matching granular scope ∩ matching policy (allow).**
    `user/Observation.rs` ∩ observation-only policy → Observation allowed.
 5. **Write scope missing (deny).** `user/Observation.read` ∩ allow-all
-   policy → Observation write denied (no write verb).
+   policy → Observation write denied (no write verb). This is a
+   **scope-layer** deny. The catalogue has no case that grants write
+   scope and then allows or denies at the policy gate.
 6. **Patient overlay allow.** `launch/patient user/Patient.read` with
    `patient=pat-1` reading Patient/pat-1 → allow (base policy patient-read).
 7. **Patient overlay deny.** Same token reading Patient/pat-2 → deny

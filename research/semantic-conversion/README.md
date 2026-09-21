@@ -21,6 +21,9 @@ go test ./research/semantic-conversion
 go run ./research/semantic-conversion
 ```
 
+`go run` prints the score JSON. `make research-conversion` discards
+stdout (`>/dev/null`); it is an exit-status check.
+
 Static `Corpus()` in `corpus.go` embeds **≥50 pairs** across Patient,
 Observation, Condition, and MedicationRequest. There is no generator
 CLI. **≥30 pairs** have distinct R4 and R5 JSON. Categories `renamed`,
@@ -57,6 +60,11 @@ For each pair:
 5. `informationLoss` flags must be **present on R4** and **absent on R5**
    (including `extension[url]`). A flag for a field that never existed on R4
    fails the pair.
+
+The CLI field `informationLossFlags` is
+`sum(len(pair.InformationLoss))` over the corpus: a count of **declared
+flag strings**, not a scored loss metric and not
+`byCategory.information_loss`.
 
 Relationship to HL7: pairs follow published R4/R5 resource diffs where a
 mapping is defined. They are not a substitute for the HL7 version

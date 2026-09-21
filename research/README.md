@@ -38,8 +38,11 @@ make research-terminology     # Track D
 make research-benchmarks      # Track A
 ```
 
-Each target runs the track's tests and a deterministic CLI (`go run`). No
-network services, API keys, or PHI are required. Pull request CI is the
+Each `make research-*` target runs the track's tests and a deterministic
+CLI (`go run … >/dev/null`). That is an **exit-status** check: Makefile
+and CI discard stdout. To inspect JSON scores, provenance, or benchmark
+reports, run `go run ./research/…` (or `-dump DIR` for Track A) yourself.
+No network services, API keys, or PHI are required. Pull request CI is the
 required **CI** workflow (`.github/workflows/ci.yml`), which runs
 `make research` inside the `ci` job. Merge blocking depends on that GitHub
 check remaining required in branch protection; that setting cannot be
@@ -68,7 +71,7 @@ deposited. Until then, cite the git tag or commit.
 | Findable | `CITATION.cff`, this README, stable paths under `research/` |
 | Accessible | Apache-2.0 git repository; no login for synthetic data |
 | Interoperable | FHIR JSON, ViewDefinition, ConceptMap, SMART scopes, YAML scenarios |
-| Reusable | Apache-2.0; synthetic-only; methodology docs per track; pinned seeds |
+| Reusable | Apache-2.0; synthetic-only; methodology docs per track. Tracks A and E pin seed `11`; Track B is static `Corpus()`; Track D is embedded gold/fixture JSON |
 
 All datasets are synthetic. See [`LICENSE`](LICENSE).
 

@@ -23,7 +23,9 @@ go test ./research/ai-pipeline
 go run ./research/ai-pipeline
 ```
 
-The CLI prints a JSON provenance bundle to stdout. The bundle is
+`go run ./research/ai-pipeline` prints a JSON provenance bundle to
+stdout. `make research-ai-pipeline` runs the same CLI but discards
+stdout (`>/dev/null`); it is an exit-status check. The bundle is
 deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 `11`.
 

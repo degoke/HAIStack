@@ -17,15 +17,17 @@ To compare another FHIR implementation (HAPI FHIR, Firely, IBM, etc.):
    reference runner does) or split them. Do not publish a single blended score.
 4. Keep PHI out of dumps. Only synthetic resources from this repository are licensed Apache-2.0.
 
-Suggested Go seam:
+Suggested Go seam for an **external** port (this repository does not
+define or implement `Adapter`; `runner.go` is an inline `switch` over
+`MemoryResourceStore` + `pkg/view`):
 
 ```go
 type Adapter interface {
     Read(ctx context.Context, resourceType, id string) error
-    ListIDs(ctx context.Context, resourceType string, limit int) ([]string, error)
+    ListIDs(ctx context.Context, resourceType string, limit, offset int) ([]string, error)
     ExecuteView(ctx context.Context, name string, limit int) (rowCount int, err error)
 }
 ```
 
-HAIStack's runner in `runner.go` is the reference `Adapter` over
-`research/internal/researchutil.MemoryResourceStore` and `pkg/view`.
+The reference runner calls `ListIDs(ctx, resourceType, count, 0)` then
+`Read` for each id, and `ExecuteView` with the YAML `limit`.

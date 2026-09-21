@@ -12,8 +12,6 @@ roles:
   - name: clinician
     permissions:
       - appointment.read
-      - read-patient-summary
-      - read-appointment
       - patient.read
       - observation.read
   - name: backend
@@ -40,13 +38,6 @@ policies:
   base:
     version: "1"
     rules:
-      - name: appointment-rw
-        effect: allow
-        match:
-          actions: [read, write]
-          resourceTypes: [Appointment]
-          anyPermissions: [appointment.read]
-        reason: clinicians may access appointments
       - name: patient-read
         effect: allow
         match:

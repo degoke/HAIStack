@@ -26,8 +26,10 @@ type ScoreReport struct {
 	Differing  int            `json:"differingPairs"`
 	ByCategory map[string]int `json:"byCategory"`
 	ByType     map[string]int `json:"byResourceType"`
-	LossFlags  int            `json:"informationLossFlags"`
-	Failures   []PairFailure  `json:"failures,omitempty"`
+	// LossFlags is the count of declared pair.InformationLoss strings, not
+	// a scored metric and not byCategory["information_loss"].
+	LossFlags int           `json:"informationLossFlags"`
+	Failures  []PairFailure `json:"failures,omitempty"`
 }
 
 // PairFailure records why one pair did not score cleanly.

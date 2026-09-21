@@ -40,7 +40,10 @@ Tests call `authztest.RunYAML`. Neither uses a Go `BaseConfig` kit.
 do the same for deny-by-default, first-match, view, and AI-tool examples so
 those cases pass SMART `RequiredPermissions` after `user/*.read` and then
 fail or allow at the policy gate. Every scenario must declare `principal`,
-`scopes`, `action`, `resourceType`, and `policy` (or `policyDocument`). Track C is the exception to
+`scopes`, `action`, `resourceType`, and `policy` (or `policyDocument`).
+Catalogue actions are `read`, `write`, `execute-view`, and
+`execute-ai-tool`. The runner also accepts `search` as an alias of
+`read`; this catalogue does not use it. Track C is the exception to
 “testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
 do **not** import `pkg/testkit`.
 
