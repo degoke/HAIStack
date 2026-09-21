@@ -3,8 +3,11 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -47,12 +50,46 @@ type stubBlobAdapter struct {
 func (s stubBlobAdapter) Name() string               { return "stub-object-store" }
 func (s stubBlobAdapter) BlobStore() store.BlobStore { return s.blobs }
 
-type memRuntimeBlobs struct {
-	store.BlobStore
+type adapterBlobStore struct {
+	mu   sync.Mutex
+	data map[string]store.BlobObject
+}
+
+func newAdapterBlobStore() *adapterBlobStore {
+	return &adapterBlobStore{data: make(map[string]store.BlobObject)}
+}
+
+func (s *adapterBlobStore) Put(_ context.Context, obj store.BlobObject) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[obj.Key] = obj
+	return nil
+}
+
+func (s *adapterBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	obj, ok := s.data[key]
+	if !ok {
+		return nil, fmt.Errorf("blob not found: %s", key)
+	}
+	copy := obj
+	return &copy, nil
+}
+
+func (s *adapterBlobStore) Head(ctx context.Context, key string) (*store.BlobObject, error) {
+	return s.Get(ctx, key)
+}
+
+func (s *adapterBlobStore) Delete(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, key)
+	return nil
 }
 
 func TestResolveBulkBlobStorePrefersObjectStoreAdapter(t *testing.T) {
-	adapterBlobs := &memRuntimeBlobs{}
+	adapterBlobs := newAdapterBlobStore()
 	b := &Builder{blobStore: stubBlobAdapter{blobs: adapterBlobs}}
 	state := &wireState{services: &ServiceContainer{}}
 	got := b.resolveBulkBlobStore(state)
@@ -66,5 +103,27 @@ func TestResolveBulkBlobStoreNilAdapterFallsThrough(t *testing.T) {
 	state := &wireState{services: &ServiceContainer{}}
 	if got := b.resolveBulkBlobStore(state); got != nil {
 		t.Fatalf("got %#v, want nil without sqlite/postgres", got)
+	}
+}
+
+func TestBulkFilesRoundTripThroughObjectStoreAdapter(t *testing.T) {
+	ctx := context.Background()
+	adapterBlobs := newAdapterBlobStore()
+	b := &Builder{blobStore: stubBlobAdapter{blobs: adapterBlobs}}
+	resolved := b.resolveBulkBlobStore(&wireState{services: &ServiceContainer{}})
+	files := export.NewBlobFileStore(resolved)
+	body := []byte("{\"resourceType\":\"Patient\",\"id\":\"p1\"}\n")
+	if err := files.Put(ctx, "job-1/Patient.ndjson", body, "application/fhir+ndjson"); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if _, ok := adapterBlobs.data["bulk-export/job-1/Patient.ndjson"]; !ok {
+		t.Fatalf("object store missing key, have %#v", adapterBlobs.data)
+	}
+	got, ct, err := files.Get(ctx, "job-1/Patient.ndjson")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if ct != "application/fhir+ndjson" || string(got) != string(body) {
+		t.Fatalf("got %q %q", ct, got)
 	}
 }

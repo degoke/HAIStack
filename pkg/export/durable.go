@@ -2,8 +2,8 @@ package export
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
@@ -16,62 +16,47 @@ const blobKeyPrefix = "bulk-export"
 // Records use jobs.TypeExportBulkRecord so worker ClaimNext(TypeExportBulk)
 // never claims status rows.
 type DurableJobStore struct {
-	db store.JobStore
+	records *jobs.StatusStore[Job]
 }
 
 // NewDurableJobStore wraps a database-backed job store.
 func NewDurableJobStore(db store.JobStore) *DurableJobStore {
-	return &DurableJobStore{db: db}
+	return &DurableJobStore{records: jobs.NewStatusStore[Job](db, jobs.TypeExportBulkRecord)}
 }
 
 var _ JobStore = (*DurableJobStore)(nil)
 
 func (s *DurableJobStore) Create(ctx context.Context, job Job) error {
-	if s == nil || s.db == nil {
+	if s == nil || s.records == nil {
 		return fmt.Errorf("export: job store is required")
 	}
 	if job.ID == "" {
 		return fmt.Errorf("export: job id is required")
 	}
-	record, err := jobs.NewJob(jobs.TypeExportBulkRecord, job, jobs.EnqueueOptions{
-		ID:  job.ID,
-		Now: createdAtNow(job.CreatedAt),
-	})
-	if err != nil {
-		return err
-	}
-	record.Status = recordStatus(job.Status)
-	record.LastError = job.LastError
-	return s.db.Enqueue(ctx, record)
+	return s.records.Create(ctx, job.ID, job, recordStatus(job.Status), job.LastError, job.CreatedAt)
 }
 
 func (s *DurableJobStore) Get(ctx context.Context, id string) (*Job, error) {
-	if s == nil || s.db == nil {
+	if s == nil || s.records == nil {
 		return nil, fmt.Errorf("export: job store is required")
 	}
-	return jobs.Lookup[Job](ctx, s.db, jobs.TypeExportBulkRecord, id)
+	return s.records.Get(ctx, id)
 }
 
 func (s *DurableJobStore) Update(ctx context.Context, job Job) error {
-	if s == nil || s.db == nil {
+	if s == nil || s.records == nil {
 		return fmt.Errorf("export: job store is required")
 	}
 	if job.ID == "" {
 		return fmt.Errorf("export: job id is required")
 	}
-	record, err := jobs.GetRecord(ctx, s.db, jobs.TypeExportBulkRecord, job.ID)
-	if err != nil {
-		return err
-	}
-	if record == nil {
+	err := s.records.Update(ctx, job.ID, job, applyCancelGuard, func(j Job) (store.JobStatus, string) {
+		return recordStatus(j.Status), j.LastError
+	})
+	if errors.Is(err, jobs.ErrJobNotFound) {
 		return fmt.Errorf("export: job %q not found", job.ID)
 	}
-	var existing Job
-	if err := jobs.UnmarshalPayload(record.Payload, &existing); err != nil {
-		return fmt.Errorf("export: decode job %q: %w", job.ID, err)
-	}
-	job = applyCancelGuard(existing, job)
-	return jobs.WriteRecord(ctx, s.db, record, job, recordStatus(job.Status), job.LastError)
+	return err
 }
 
 // NewBlobFileStore wraps a blob store for export artifacts.
@@ -88,13 +73,6 @@ func recordStatus(status JobStatus) store.JobStatus {
 	default:
 		return store.JobStatusRunning
 	}
-}
-
-func createdAtNow(created time.Time) func() time.Time {
-	if created.IsZero() {
-		return nil
-	}
-	return func() time.Time { return created }
 }
 
 func applyCancelGuard(existing, incoming Job) Job {

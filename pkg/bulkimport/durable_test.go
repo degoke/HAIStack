@@ -13,6 +13,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/jobs"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
 type memBlobStore struct {
@@ -236,5 +237,46 @@ func TestDurableJobStoreGetPreservesStoreErrors(t *testing.T) {
 	}
 	if jobs.IsMissing(err) {
 		t.Fatalf("connection error treated as missing: %v", err)
+	}
+}
+
+type failNthEnqueue struct {
+	*jobs.InMemoryJobStore
+	n     int
+	failN int
+}
+
+func (s *failNthEnqueue) Enqueue(ctx context.Context, job store.JobRecord) error {
+	s.n++
+	if s.n >= s.failN {
+		return fmt.Errorf("queue full")
+	}
+	return s.InMemoryJobStore.Enqueue(ctx, job)
+}
+
+func TestKickoffDeletesFilesWhenEnqueueFails(t *testing.T) {
+	ctx := context.Background()
+	files := bulkimport.NewInMemoryFileStore()
+	queue := &failNthEnqueue{InMemoryJobStore: jobs.NewInMemoryJobStore(), failN: 2}
+	jobsStore := bulkimport.NewDurableJobStore(queue)
+	writer := &memoryWriter{resources: map[string]*types.ResourceEnvelope{}}
+	svc, err := bulkimport.NewService(bulkimport.Config{
+		Jobs:     jobsStore,
+		Files:    files,
+		Executor: &bulkimport.Executor{Resources: writer, Files: files},
+		JobQueue: queue,
+		NewID:    func() string { return "job-1" },
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	_, err = svc.Kickoff(ctx, bulkimport.KickoffRequest{
+		Inputs: []bulkimport.InputFile{{Type: "Patient", NDJSON: []byte(`{"resourceType":"Patient","id":"p1"}`)}},
+	})
+	if err == nil {
+		t.Fatal("expected enqueue error")
+	}
+	if _, _, getErr := files.Get(ctx, "job-1/input-0-Patient.ndjson"); getErr == nil {
+		t.Fatal("expected kickoff input file to be deleted")
 	}
 }

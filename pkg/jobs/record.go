@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -81,4 +82,86 @@ func WriteRecord(ctx context.Context, db store.JobStore, record *store.JobRecord
 	record.LastError = lastError
 	record.UpdatedAt = time.Now().UTC()
 	return db.Update(ctx, *record)
+}
+
+// Guard merges an incoming status-row update with the persisted value.
+type Guard[T any] func(existing, incoming T) T
+
+// StatusStore persists typed FHIR job records in store.JobStore.
+// Update holds a mutex so cancel-wins guards cannot race with complete writes
+// in-process (the same protection InMemoryJobStore gets from its lock).
+type StatusStore[T any] struct {
+	mu  sync.Mutex
+	db  store.JobStore
+	typ string
+}
+
+// NewStatusStore wraps db for records of typ (for example TypeExportBulkRecord).
+func NewStatusStore[T any](db store.JobStore, typ string) *StatusStore[T] {
+	return &StatusStore[T]{db: db, typ: typ}
+}
+
+// Create enqueues a new status row. It is not claimed by workers of other types.
+func (s *StatusStore[T]) Create(ctx context.Context, id string, job T, status store.JobStatus, lastError string, createdAt time.Time) error {
+	if s == nil || s.db == nil {
+		return ErrNilStore
+	}
+	if id == "" {
+		return ErrEmptyJobID
+	}
+	record, err := NewJob(s.typ, job, EnqueueOptions{ID: id, Now: createdAtNow(createdAt)})
+	if err != nil {
+		return err
+	}
+	record.Status = status
+	record.LastError = lastError
+	return s.db.Enqueue(ctx, record)
+}
+
+// Get returns the decoded status row, or (nil, nil) when missing.
+func (s *StatusStore[T]) Get(ctx context.Context, id string) (*T, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrNilStore
+	}
+	return Lookup[T](ctx, s.db, s.typ, id)
+}
+
+// Update applies guard under a mutex, then writes mapped store status from meta.
+func (s *StatusStore[T]) Update(ctx context.Context, id string, incoming T, guard Guard[T], meta func(T) (store.JobStatus, string)) error {
+	if s == nil || s.db == nil {
+		return ErrNilStore
+	}
+	if id == "" {
+		return ErrEmptyJobID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, err := GetRecord(ctx, s.db, s.typ, id)
+	if err != nil {
+		return err
+	}
+	if record == nil {
+		return ErrJobNotFound
+	}
+	var existing T
+	if err := UnmarshalPayload(record.Payload, &existing); err != nil {
+		return fmt.Errorf("jobs: decode %s %q: %w", s.typ, id, err)
+	}
+	job := incoming
+	if guard != nil {
+		job = guard(existing, incoming)
+	}
+	status := store.JobStatusRunning
+	var lastError string
+	if meta != nil {
+		status, lastError = meta(job)
+	}
+	return WriteRecord(ctx, s.db, record, job, status, lastError)
+}
+
+func createdAtNow(created time.Time) func() time.Time {
+	if created.IsZero() {
+		return nil
+	}
+	return func() time.Time { return created }
 }

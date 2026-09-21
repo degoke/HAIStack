@@ -3,6 +3,7 @@ package bulkimport_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,37 @@ func TestBulkImportRoundTrip(t *testing.T) {
 	}
 	if _, err := writer.Read(context.Background(), "Patient", "p2"); err != nil {
 		t.Fatalf("read p2: %v", err)
+	}
+}
+
+type failCreateJobs struct{}
+
+func (failCreateJobs) Create(context.Context, bulkimport.Job) error {
+	return fmt.Errorf("create failed")
+}
+func (failCreateJobs) Get(context.Context, string) (*bulkimport.Job, error) { return nil, nil }
+func (failCreateJobs) Update(context.Context, bulkimport.Job) error         { return nil }
+
+func TestKickoffDeletesFilesWhenCreateFails(t *testing.T) {
+	ctx := context.Background()
+	files := bulkimport.NewInMemoryFileStore()
+	svc, err := bulkimport.NewService(bulkimport.Config{
+		Jobs:     failCreateJobs{},
+		Files:    files,
+		Executor: &bulkimport.Executor{Resources: &memoryWriter{resources: map[string]*types.ResourceEnvelope{}}, Files: files},
+		NewID:    func() string { return "job-1" },
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	_, err = svc.Kickoff(ctx, bulkimport.KickoffRequest{
+		Inputs: []bulkimport.InputFile{{Type: "Patient", NDJSON: []byte(`{"resourceType":"Patient","id":"p1"}`)}},
+	})
+	if err == nil {
+		t.Fatal("expected create error")
+	}
+	if _, _, getErr := files.Get(ctx, "job-1/input-0-Patient.ndjson"); getErr == nil {
+		t.Fatal("expected kickoff input file to be deleted")
 	}
 }
 

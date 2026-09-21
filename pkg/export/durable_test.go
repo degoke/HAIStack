@@ -358,3 +358,33 @@ func TestKickoffMarksJobErrorWhenEnqueueFails(t *testing.T) {
 		t.Fatalf("status = %s, want error", got.Status)
 	}
 }
+
+func TestDurableJobStoreCancelWinsConcurrentComplete(t *testing.T) {
+	ctx := context.Background()
+	jobsStore := export.NewDurableJobStore(jobs.NewInMemoryJobStore())
+	if err := jobsStore.Create(ctx, export.Job{ID: "job-1", Status: export.StatusInProgress}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = jobsStore.Update(ctx, export.Job{ID: "job-1", Status: export.StatusComplete, Progress: "100%"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := jobsStore.Update(ctx, export.Job{ID: "job-1", Status: export.StatusCancelled, CancelRequested: true}); err != nil {
+			t.Errorf("cancel: %v", err)
+		}
+	}()
+	wg.Wait()
+	got, err := jobsStore.Get(ctx, "job-1")
+	if err != nil || got == nil {
+		t.Fatalf("Get: %v %#v", err, got)
+	}
+	if got.Status != export.StatusCancelled || !got.CancelRequested {
+		t.Fatalf("got = %#v, want cancelled", got)
+	}
+}
