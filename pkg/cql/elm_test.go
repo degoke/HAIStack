@@ -1222,6 +1222,9 @@ func TestELMToTimeAndCoalesce(t *testing.T) {
 		"type":    "ToTime",
 		"operand": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}String", "value": "@T08:15:00"},
 	})
+	if len(got) != 1 {
+		t.Fatalf("ToTime string: %#v", got)
+	}
 	tm, ok = asTime(got[0])
 	if !ok || tm.Hour() != 8 || tm.Minute() != 15 {
 		t.Fatalf("ToTime string: %#v", got)

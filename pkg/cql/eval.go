@@ -1098,7 +1098,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		tm, ok := asTime(args[0][0])
 		if !ok {
-			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+			if s, isStr := unwrapPrimitive(args[0][0]).(string); isStr {
 				if n == "totime" {
 					if parsed, pok := parseELMTimeString(s); pok {
 						tm = parsed
