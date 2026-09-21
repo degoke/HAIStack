@@ -977,3 +977,143 @@ func TestChildrenDescendants(t *testing.T) {
 		t.Fatalf("Descendants values: %#v", got)
 	}
 }
+
+func TestPopulationStatsToRatioSubsumes(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "PopulationStdDev({1.0, 2.0, 3.0})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asFloatMust(t, got[0]) != 0.816496580927726 {
+		t.Fatalf("PopulationStdDev: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "PopulationVariance({1.0, 2.0, 3.0})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asFloatMust(t, got[0]) != 2.0/3.0 {
+		t.Fatalf("PopulationVariance: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Value != 1 || r.Numerator.Unit != "mg" || r.Denominator.Unit != "mL" {
+		t.Fatalf("ratio literal: %#v", got[0])
+	}
+	got, err = eng.Eval(context.Background(), "ToRatio(1 'g', 1000 'mg')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok = got[0].(Ratio)
+	if !ok || r.Numerator.Unit != "g" {
+		t.Fatalf("ToRatio: %#v", got[0])
+	}
+	got, err = eng.Eval(context.Background(), "{code: 'a', system: 'http://x'} subsumes {code: 'a', system: 'http://x'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("subsumes: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "Subsumes",
+		"operand": []any{
+			map[string]any{"type": "Code", "code": "a", "system": "http://x"},
+			map[string]any{"type": "Code", "code": "a", "system": "http://x"},
+		},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ELM Subsumes: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "ToRatio",
+		"operand": []any{
+			map[string]any{"type": "Quantity", "value": 1, "unit": "mg"},
+			map[string]any{"type": "Quantity", "value": 2, "unit": "mL"},
+		},
+	})
+	r, ok = got[0].(Ratio)
+	if !ok || r.Numerator.Unit != "mg" {
+		t.Fatalf("ELM ToRatio: %#v", got)
+	}
+}
+
+func TestQuantityEquivalentCompareStringListOps(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 'g' ~ 1000 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("quantity equivalent: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'g' > 1 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("quantity compare: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'abc' contains 'b'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("string contains: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'b' in 'abc'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("string in: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 2, 3} includes {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("list includes: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1, 2} included in {1, 2, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("list included in: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToList(1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := got[0].([]any)
+	if !ok || len(list) != 1 || list[0] != int64(1) {
+		t.Fatalf("ToList: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Message(5, true, 'x', 'info', 'm')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(5) {
+		t.Fatalf("Message: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type": "Equivalent",
+		"operand": []any{
+			map[string]any{"type": "Quantity", "value": 1, "unit": "g"},
+			map[string]any{"type": "Quantity", "value": 1000, "unit": "mg"},
+		},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ELM Equivalent quantity: %#v", got)
+	}
+	got = evalELMExpr(t, map[string]any{
+		"type":    "Contains",
+		"operand": []any{elmStrLit("abc"), elmStrLit("b")},
+	})
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ELM Contains string: %#v", got)
+	}
+}

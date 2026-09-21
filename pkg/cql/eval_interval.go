@@ -116,6 +116,30 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 
 func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	base, unit := splitTimingOp(n.op)
+	if unit == "" && isListValued(n.left) && isListValued(n.right) {
+		switch base {
+		case "includes", "properly includes":
+			left, err := st.eval(n.left)
+			if err != nil {
+				return nil, err
+			}
+			right, err := st.eval(n.right)
+			if err != nil {
+				return nil, err
+			}
+			return listSubsetIncludes(left, right, strings.HasPrefix(base, "properly")), nil
+		case "included in", "properly included in":
+			left, err := st.eval(n.left)
+			if err != nil {
+				return nil, err
+			}
+			right, err := st.eval(n.right)
+			if err != nil {
+				return nil, err
+			}
+			return listSubsetIncludes(right, left, strings.HasPrefix(base, "properly")), nil
+		}
+	}
 	left, err := st.eval(n.left)
 	if err != nil {
 		return nil, err
@@ -264,6 +288,32 @@ func splitTimingOp(op string) (base, unit string) {
 		}
 	}
 	return op, ""
+}
+
+func listSubsetIncludes(superset, subset []any, proper bool) []any {
+	for _, item := range subset {
+		if !listContainsEqual(superset, item) {
+			return []any{false}
+		}
+	}
+	if !proper {
+		return []any{true}
+	}
+	for _, item := range superset {
+		if !listContainsEqual(subset, item) {
+			return []any{true}
+		}
+	}
+	return []any{false}
+}
+
+func listContainsEqual(list []any, item any) bool {
+	for _, el := range list {
+		if cqlEqual(el, item) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyPrecisionList(vals []any, unit string) []any {

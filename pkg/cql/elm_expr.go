@@ -32,7 +32,7 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &binaryNode{op: "/", left: num, right: den}, nil
+		return &binaryNode{op: ":", left: num, right: den}, nil
 	case "Date", "DateTime", "Time":
 		return parseELMTemporal(obj, typ)
 	case "Interval":
@@ -1121,6 +1121,7 @@ func elmBinaryOp(typ string) (string, bool) {
 	ops := map[string]string{
 		"And": "and", "Or": "or", "Xor": "xor", "Implies": "implies",
 		"Equal": "=", "Equivalent": "~", "NotEqual": "!=", "NotEquivalent": "!~",
+		"Subsumes": "subsumes", "ProperSubsumes": "properly subsumes",
 		"Less": "<", "Greater": ">", "LessOrEqual": "<=", "GreaterOrEqual": ">=",
 		"Add": "+", "Subtract": "-", "Multiply": "*", "Divide": "/",
 		"TruncatedDivide": "div", "Modulo": "mod", "Power": "^",
@@ -1201,6 +1202,8 @@ func elmIsBuiltinCall(typ string) bool {
 		"convertstointeger", "convertstolong", "convertstodecimal", "convertstoboolean",
 		"convertstostring", "convertstoquantity", "convertstodate", "convertstodatetime", "convertstotime",
 		"median", "mode", "stddev", "stdev", "variance", "product", "geometricmean",
+		"populationstddev", "populationvariance", "populationstdev",
+		"toratio", "message", "tolist",
 		"highboundary", "lowboundary", "precision", "pointfrom",
 		"children", "descendants":
 		return true

@@ -574,6 +574,24 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{ls + rs}, nil
+	case ":":
+		left, err := st.eval(n.left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := st.eval(n.right)
+		if err != nil {
+			return nil, err
+		}
+		if len(left) != 1 || len(right) != 1 {
+			return nil, nil
+		}
+		num, ok1 := asQuantity(left[0])
+		den, ok2 := asQuantity(right[0])
+		if !ok1 || !ok2 {
+			return nil, nil
+		}
+		return []any{Ratio{Numerator: num, Denominator: den}}, nil
 	case "in", "all in", "any in":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -618,6 +636,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if n.op == "any in" {
 			return anyContainsResult(right, left), nil
 		}
+		if n.op == "in" && len(left) == 1 && len(right) == 1 {
+			ls, lok := unwrapPrimitive(left[0]).(string)
+			rs, rok := unwrapPrimitive(right[0]).(string)
+			if lok && rok {
+				return []any{strings.Contains(rs, ls)}, nil
+			}
+		}
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
 				return intervalContainsAll(iv, left)
@@ -641,6 +666,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		if left == nil || right == nil {
 			return nil, nil
+		}
+		if len(left) == 1 && len(right) == 1 {
+			ls, lok := unwrapPrimitive(left[0]).(string)
+			rs, rok := unwrapPrimitive(right[0]).(string)
+			if lok && rok {
+				return []any{strings.Contains(ls, rs)}, nil
+			}
 		}
 		if len(left) == 1 {
 			if iv, ok := asInterval(left[0]); ok {
@@ -695,6 +727,28 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	}
 	if strings.HasPrefix(n.op, "same") {
 		return st.evalSameAs(n)
+	}
+	switch n.op {
+	case "subsumes", "properly subsumes":
+		left, err := st.eval(n.left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := st.eval(n.right)
+		if err != nil {
+			return nil, err
+		}
+		return cqlSubsumesResult(left, right, strings.HasPrefix(n.op, "properly"))
+	case "subsumed by":
+		left, err := st.eval(n.left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := st.eval(n.right)
+		if err != nil {
+			return nil, err
+		}
+		return cqlSubsumesResult(right, left, false)
 	}
 	if intervalRelOp(n.op) {
 		return st.evalIntervalRel(n)
@@ -1381,6 +1435,19 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listStdDev(args)
 	case "variance":
 		return listVariance(args)
+	case "populationvariance":
+		return listPopulationVariance(args)
+	case "populationstddev", "populationstdev":
+		return listPopulationStdDev(args)
+	case "toratio":
+		return ratioFromArgs(args)
+	case "tolist":
+		return evalToList(args)
+	case "message":
+		if len(args) == 0 || args[0] == nil || len(args[0]) == 0 {
+			return nil, nil
+		}
+		return []any{args[0][0]}, nil
 	case "product":
 		return listProduct(args)
 	case "geometricmean":
@@ -2541,6 +2608,10 @@ func cqlEqual(a, b any) bool {
 	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
+			va, vb, ok := quantityValuesComparable(qa, qb)
+			if ok {
+				return va == vb
+			}
 			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
 		}
 	}
@@ -2649,6 +2720,14 @@ func cqlEquivalent(a, b any) bool {
 	if cqlEqual(a, b) {
 		return true
 	}
+	if qa, ok := asQuantity(a); ok {
+		if qb, ok := asQuantity(b); ok {
+			va, vb, ok := quantityValuesComparable(qa, qb)
+			if ok && va == vb {
+				return true
+			}
+		}
+	}
 	if ca, ok := asCodeLike(a); ok {
 		if cb, ok := asCodeLike(b); ok {
 			return codesEquivalent(ca, cb)
@@ -2712,18 +2791,30 @@ func clockInZone(t time.Time) time.Time {
 func cqlCompare(a, b any) (int, bool) {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
 	if qa, ok := asQuantity(a); ok {
-		if qb, ok := asQuantity(b); ok && (sameUnit(qa.Unit, qb.Unit) || (isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit))) {
-			va, vb := qa.Value, qb.Value
-			if !sameUnit(qa.Unit, qb.Unit) {
-				va, vb = toSeconds(qa), toSeconds(qb)
+		if qb, ok := asQuantity(b); ok {
+			va, vb, ok := quantityValuesComparable(qa, qb)
+			if ok {
+				if va < vb {
+					return -1, true
+				}
+				if va > vb {
+					return 1, true
+				}
+				return 0, true
 			}
-			if va < vb {
-				return -1, true
+			if sameUnit(qa.Unit, qb.Unit) || (isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit)) {
+				va, vb := qa.Value, qb.Value
+				if !sameUnit(qa.Unit, qb.Unit) {
+					va, vb = toSeconds(qa), toSeconds(qb)
+				}
+				if va < vb {
+					return -1, true
+				}
+				if va > vb {
+					return 1, true
+				}
+				return 0, true
 			}
-			if va > vb {
-				return 1, true
-			}
-			return 0, true
 		}
 	}
 	if ta, aok := asTemporal(a, temporalLocation(b)); aok {

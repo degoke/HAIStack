@@ -86,6 +86,12 @@ type Quantity struct {
 	Unit  string
 }
 
+// Ratio is a CQL Ratio value (numerator / denominator quantities).
+type Ratio struct {
+	Numerator   Quantity
+	Denominator Quantity
+}
+
 // Interval is a CQL Interval value.
 type Interval struct {
 	Low, High             any

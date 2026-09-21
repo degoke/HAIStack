@@ -623,6 +623,13 @@ func (p *parser) parseMembershipOp() string {
 		_ = p.acceptKeyword("in")
 		return "included in"
 	}
+	if p.acceptKeyword("subsumes") {
+		return "subsumes"
+	}
+	if p.acceptKeyword("subsumed") {
+		_ = p.acceptKeyword("by")
+		return "subsumed by"
+	}
 	if p.acceptKeyword("occurs") {
 		if p.acceptKeyword("during") {
 			return "during"
@@ -757,7 +764,7 @@ func (p *parser) parseConcat() (Node, error) {
 }
 
 func (p *parser) parseAdd() (Node, error) {
-	left, err := p.parseMul()
+	left, err := p.parseRatio()
 	if err != nil {
 		return nil, err
 	}
@@ -784,12 +791,52 @@ func (p *parser) parseAdd() (Node, error) {
 				return left, nil
 			}
 		}
-		right, err := p.parseMul()
+		right, err := p.parseRatio()
 		if err != nil {
 			return nil, err
 		}
 		left = &binaryNode{nodeBase: nodeBase{src: p.src}, op: op, left: left, right: right}
 	}
+}
+
+func (p *parser) parseRatio() (Node, error) {
+	left, err := p.parseMul()
+	if err != nil {
+		return nil, err
+	}
+	if !p.peekRatioRightAfterColon() {
+		return left, nil
+	}
+	p.acceptKind(tColon)
+	right, err := p.parseMul()
+	if err != nil {
+		return nil, err
+	}
+	return &binaryNode{nodeBase: nodeBase{src: p.src}, op: ":", left: left, right: right}, nil
+}
+
+func (p *parser) peekRatioRightAfterColon() bool {
+	t := p.lex.lookahead()
+	if t.kind != tColon {
+		return false
+	}
+	rest := p.src[t.pos:]
+	lx := newLexer(rest)
+	_ = lx.next()
+	next := lx.next()
+	switch next.kind {
+	case tNumber, tString:
+		return true
+	case tIdent:
+		after := lx.next()
+		if after.kind == tString {
+			return true
+		}
+		if timeUnitName(next.text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *parser) parseMul() (Node, error) {

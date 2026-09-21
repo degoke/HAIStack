@@ -904,6 +904,76 @@ func quantityUnitArg(v any) (string, bool) {
 	return "", false
 }
 
+func quantityValuesComparable(qa, qb Quantity) (float64, float64, bool) {
+	if sameUnit(qa.Unit, qb.Unit) {
+		return qa.Value, qb.Value, true
+	}
+	if conv, ok := convertQuantityValue(qb, qa.Unit); ok {
+		return qa.Value, conv.Value, true
+	}
+	if conv, ok := convertQuantityValue(qa, qb.Unit); ok {
+		return conv.Value, qb.Value, true
+	}
+	if isTimeUnit(qa.Unit) && isTimeUnit(qb.Unit) {
+		return toSeconds(qa), toSeconds(qb), true
+	}
+	return 0, 0, false
+}
+
+func ratioFromArgs(args [][]any) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	num, ok1 := asQuantity(args[0][0])
+	den, ok2 := asQuantity(args[1][0])
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	return []any{Ratio{Numerator: num, Denominator: den}}, nil
+}
+
+func evalToList(args [][]any) ([]any, error) {
+	if len(args) == 0 || args[0] == nil {
+		return []any{}, nil
+	}
+	if len(args[0]) > 1 {
+		return nil, nil
+	}
+	v := args[0][0]
+	if list, ok := v.([]any); ok {
+		return []any{list}, nil
+	}
+	return []any{[]any{v}}, nil
+}
+
+func cqlSubsumesResult(left, right []any, proper bool) ([]any, error) {
+	if len(left) != 1 || len(right) != 1 {
+		return nil, nil
+	}
+	ca, oka := asCodeLike(left[0])
+	cb, okb := asCodeLike(right[0])
+	if !oka || !okb {
+		return nil, nil
+	}
+	ok := codingSubsumes(ca, cb)
+	if ok && proper {
+		ok = !codesEquivalent(ca, cb)
+	}
+	return []any{ok}, nil
+}
+
+func codingSubsumes(broad, narrow fhirCoding) bool {
+	if codesEquivalent(broad, narrow) {
+		return true
+	}
+	if broad.Code != "" && narrow.Code != "" && strings.EqualFold(broad.Code, narrow.Code) {
+		if broad.System == "" || narrow.System == "" || strings.EqualFold(broad.System, narrow.System) {
+			return true
+		}
+	}
+	return false
+}
+
 func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
 	if sameUnit(q.Unit, unit) {
 		return Quantity{Value: q.Value, Unit: unit}, true
@@ -1579,6 +1649,36 @@ func listVariance(args [][]any) ([]any, error) {
 
 func listStdDev(args [][]any) ([]any, error) {
 	v, err := listVariance(args)
+	if err != nil || len(v) == 0 {
+		return v, err
+	}
+	f, ok := asFloat(v[0])
+	if !ok || f < 0 {
+		return nil, nil
+	}
+	return []any{math.Sqrt(f)}, nil
+}
+
+func listPopulationVariance(args [][]any) ([]any, error) {
+	nums, _, ok := listFloats(args)
+	if !ok || len(nums) < 2 {
+		return nil, nil
+	}
+	mean := 0.0
+	for _, n := range nums {
+		mean += n
+	}
+	mean /= float64(len(nums))
+	sum := 0.0
+	for _, n := range nums {
+		d := n - mean
+		sum += d * d
+	}
+	return []any{sum / float64(len(nums))}, nil
+}
+
+func listPopulationStdDev(args [][]any) ([]any, error) {
+	v, err := listPopulationVariance(args)
 	if err != nil || len(v) == 0 {
 		return v, err
 	}
