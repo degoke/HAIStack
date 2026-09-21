@@ -20,10 +20,29 @@ func (st *evalState) evalIndex(n *indexNode) ([]any, error) {
 		return nil, nil
 	}
 	i, ok := asInt(idx[0])
-	if !ok || i < 0 || int(i) >= len(base) {
+	if !ok {
+		return nil, nil
+	}
+	if !indexesAsList(n.x) && len(base) == 1 {
+		if s, ok := unwrapPrimitive(base[0]).(string); ok {
+			if i < 0 || int(i) >= len(s) {
+				return nil, nil
+			}
+			return []any{string(s[i])}, nil
+		}
+	}
+	if i < 0 || int(i) >= len(base) {
 		return nil, nil
 	}
 	return []any{base[i]}, nil
+}
+
+func indexesAsList(n Node) bool {
+	switch n.(type) {
+	case *listNode, *retrieveNode, *queryNode, *memberNode:
+		return true
+	}
+	return false
 }
 
 func (st *evalState) evalIndexer(args [][]any) ([]any, error) {
@@ -120,7 +139,7 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 		cmp, ok = cqlCompare(left[0], right[0])
 	}
 	if !ok {
-		return []any{cqlEqual(left[0], right[0])}, nil
+		return nil, nil
 	}
 	switch {
 	case before:
@@ -371,7 +390,7 @@ func constructDate(args [][]any, dateTime bool) ([]any, error) {
 }
 
 func (st *evalState) constructTime(args [][]any) ([]any, error) {
-	h, m, s := 0, 0, 0
+	h, m, s, ns := 0, 0, 0, 0
 	if len(args) > 0 && len(args[0]) > 0 {
 		if n, ok := asInt(args[0][0]); ok {
 			h = int(n)
@@ -387,6 +406,11 @@ func (st *evalState) constructTime(args [][]any) ([]any, error) {
 			s = int(n)
 		}
 	}
+	if len(args) > 3 && len(args[3]) > 0 {
+		if n, ok := asInt(args[3][0]); ok {
+			ns = int(n) * int(time.Millisecond)
+		}
+	}
 	now := time.Now()
 	if st != nil && !st.now.IsZero() {
 		now = clockInZone(st.now)
@@ -395,7 +419,7 @@ func (st *evalState) constructTime(args [][]any) ([]any, error) {
 	if loc == nil {
 		loc = time.UTC
 	}
-	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, loc)}, nil
+	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, ns, loc)}, nil
 }
 
 func stringPred(args [][]any, fn func(string, string) bool) ([]any, error) {

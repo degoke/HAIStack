@@ -2459,3 +2459,176 @@ func TestEquivalentNullsAreTrue(t *testing.T) {
 		t.Fatalf("null ~ 1: %#v", got)
 	}
 }
+
+func TestCoalesceKeepsEmptyList(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Coalesce({}, 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("Coalesce({}, 1) must be {}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Coalesce(null, {})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("Coalesce(null, {}) must be {}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Coalesce(null, 2)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "2" {
+		t.Fatalf("Coalesce(null, 2): %#v", got)
+	}
+}
+
+func TestDifferenceCountsBoundaries(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "difference in months between @2014-01-31 and @2014-02-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "1" {
+		t.Fatalf("difference in months: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "duration in months between @2014-01-31 and @2014-02-01", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "0" {
+		t.Fatalf("duration in months: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "difference in days between @2020-01-01T12:00:00 and @2020-01-02T06:00:00", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "1" {
+		t.Fatalf("difference in days: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "duration in days between @2020-01-01T12:00:00 and @2020-01-02T06:00:00", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0]) != "0" {
+		t.Fatalf("duration in days: %#v", got)
+	}
+}
+
+func TestStringIndexerIndexesCharacters(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'abc'[0]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "a" {
+		t.Fatalf("'abc'[0]: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'abc'[1]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "b" {
+		t.Fatalf("'abc'[1]: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{'abc'}[0]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "abc" {
+		t.Fatalf("{'abc'}[0] must stay the element: %#v", got)
+	}
+}
+
+func TestListOfIntervalsUnionIsDistinctList(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{ Interval[1, 5] } union { Interval[10, 12] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("list-of-interval union: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] union Interval[10, 12]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("bare interval union still null: %#v", got)
+	}
+}
+
+func TestIntervalRelTestsEveryElement(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Interval[1, 5] includes {3, 6}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("includes {3, 6}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ Interval[1, 2], Interval[10, 11] } before Interval[3, 4]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("list of intervals before: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] includes {3, 4}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("includes {3, 4}: %#v", got)
+	}
+}
+
+func TestTimeConstructorUsesMillisecond(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Time(1, 2, 3, 500)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, ok := asTime(got[0])
+	if !ok || tm.Nanosecond() != 500*int(time.Millisecond) {
+		t.Fatalf("Time millisecond: %#v", got)
+	}
+}
+
+func TestSameAsIncomparableIsNull(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "'a' same as 1", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("'a' same as 1 must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 same as 1", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("1 same as 1: %#v", got)
+	}
+}
+
+func TestFlattenAndDistinctKeepEmptyList(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Flatten({}) = {}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Flatten({}) = {}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Distinct({}) = {}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Distinct({}) = {}: %#v", got)
+	}
+}

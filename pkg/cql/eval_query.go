@@ -274,7 +274,10 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 }
 
 func flattenValues(v []any) []any {
-	var out []any
+	if v == nil {
+		return nil
+	}
+	out := []any{}
 	for _, item := range v {
 		switch x := item.(type) {
 		case []any:

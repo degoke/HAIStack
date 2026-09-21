@@ -101,11 +101,17 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 		}
 		start, end = left[0], right[0]
 	}
-	years, ok := durationInUnit(start, end, n.unit)
+	var nval int64
+	var ok bool
+	if n.difference {
+		nval, ok = differenceInUnit(start, end, n.unit)
+	} else {
+		nval, ok = durationInUnit(start, end, n.unit)
+	}
 	if !ok {
 		return nil, nil
 	}
-	return []any{years}, nil
+	return []any{nval}, nil
 }
 
 func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
@@ -118,87 +124,120 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(left) == 0 || len(right) == 0 {
+	if left == nil || right == nil {
 		return nil, nil
 	}
 	left = applyPrecisionList(left, unit)
 	right = applyPrecisionList(right, unit)
-	li, lok := asInterval(left[0])
-	ri, rok := asInterval(right[0])
+	unknown := false
+	for _, lv := range left {
+		for _, rv := range right {
+			res := intervalRelOne(base, lv, rv)
+			if res == nil {
+				unknown = true
+				continue
+			}
+			if res[0] != true {
+				return []any{false}, nil
+			}
+		}
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
+}
+
+func intervalRelOne(base string, lv, rv any) []any {
+	li, lok := asInterval(lv)
+	ri, rok := asInterval(rv)
 	switch base {
 	case "includes", "properly includes":
+		proper := strings.HasPrefix(base, "properly")
 		if lok && rok {
-			return []any{intervalIncludes(li, ri, strings.HasPrefix(base, "properly"))}, nil
+			return []any{intervalIncludes(li, ri, proper)}
 		}
 		if lok {
-			return intervalContainsResult(li, right[0], strings.HasPrefix(base, "properly"))
+			ok, comparable := intervalContains(li, rv, proper)
+			if !comparable {
+				return nil
+			}
+			return []any{ok}
 		}
 	case "included in", "during", "properly included in", "properly during":
 		proper := strings.HasPrefix(base, "properly")
 		if lok && rok {
-			return []any{intervalIncludes(ri, li, proper)}, nil
+			return []any{intervalIncludes(ri, li, proper)}
 		}
 		if rok {
-			return intervalContainsResult(ri, left[0], proper)
+			ok, comparable := intervalContains(ri, lv, proper)
+			if !comparable {
+				return nil
+			}
+			return []any{ok}
 		}
 	case "overlaps":
 		if lok && rok {
-			return []any{intervalOverlaps(li, ri)}, nil
+			return []any{intervalOverlaps(li, ri)}
 		}
 	case "overlaps before":
 		if lok && rok {
-			return []any{intervalOverlapsBefore(li, ri)}, nil
+			return []any{intervalOverlapsBefore(li, ri)}
 		}
 	case "overlaps after":
 		if lok && rok {
-			return []any{intervalOverlapsAfter(li, ri)}, nil
+			return []any{intervalOverlapsAfter(li, ri)}
 		}
 	case "starts":
 		if lok && rok {
-			return []any{intervalStarts(li, ri)}, nil
+			return []any{intervalStarts(li, ri)}
 		}
 	case "ends":
 		if lok && rok {
-			return []any{intervalEnds(li, ri)}, nil
+			return []any{intervalEnds(li, ri)}
 		}
 	case "meets":
 		if lok && rok {
-			return []any{intervalMeets(li, ri)}, nil
+			return []any{intervalMeets(li, ri)}
 		}
 	case "meets before":
 		if lok && rok {
-			return []any{intervalMeetsBefore(li, ri)}, nil
+			return []any{intervalMeetsBefore(li, ri)}
 		}
 	case "meets after":
 		if lok && rok {
-			return []any{intervalMeetsAfter(li, ri)}, nil
+			return []any{intervalMeetsAfter(li, ri)}
 		}
 	case "before":
 		if lok && rok {
 			cmp, ok := cqlCompare(li.High, ri.Low)
-			return []any{ok && (cmp < 0 || (!li.HighClosed && cmp == 0) || (!ri.LowClosed && cmp == 0))}, nil
+			return []any{ok && (cmp < 0 || (!li.HighClosed && cmp == 0) || (!ri.LowClosed && cmp == 0))}
 		}
-		cmp, ok := cqlCompare(left[0], right[0])
+		cmp, ok := cqlCompare(lv, rv)
 		if !ok {
-			return nil, nil
+			return nil
 		}
-		return []any{cmp < 0}, nil
+		return []any{cmp < 0}
 	case "after":
 		if lok && rok {
 			cmp, ok := cqlCompare(li.Low, ri.High)
-			return []any{ok && (cmp > 0 || (!li.LowClosed && cmp == 0) || (!ri.HighClosed && cmp == 0))}, nil
+			return []any{ok && (cmp > 0 || (!li.LowClosed && cmp == 0) || (!ri.HighClosed && cmp == 0))}
 		}
-		cmp, ok := cqlCompare(left[0], right[0])
+		cmp, ok := cqlCompare(lv, rv)
 		if !ok {
-			return nil, nil
+			return nil
 		}
-		return []any{cmp > 0}, nil
+		return []any{cmp > 0}
 	case "contains":
 		if lok {
-			return intervalContainsResult(li, right[0], false)
+			ok, comparable := intervalContains(li, rv, false)
+			if !comparable {
+				return nil
+			}
+			return []any{ok}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func intervalRelOp(op string) bool {
@@ -877,4 +916,60 @@ func durationInUnit(start, end any, unit string) (int64, bool) {
 		return et.Sub(st).Milliseconds(), true
 	}
 	return 0, false
+}
+
+func differenceInUnit(start, end any, unit string) (int64, bool) {
+	st, ok := asTime(start)
+	if !ok {
+		return 0, false
+	}
+	et, ok := asTime(end)
+	if !ok {
+		return 0, false
+	}
+	if et.Before(st) {
+		n, ok := differenceInUnit(end, start, unit)
+		return -n, ok
+	}
+	unit = timeUnitName(unit)
+	if unit == "" {
+		return 0, false
+	}
+	switch unit {
+	case "year":
+		return int64(et.Year() - st.Year()), true
+	case "month":
+		return int64((et.Year()-st.Year())*12 + int(et.Month()-st.Month())), true
+	case "week":
+		sw, _ := truncateToPrecision(st, "week").(time.Time)
+		ew, _ := truncateToPrecision(et, "week").(time.Time)
+		return int64(ew.Sub(sw).Hours() / 24 / 7), true
+	case "day":
+		sd := calendarTruncate(st, "day")
+		ed := calendarTruncate(et, "day")
+		return int64(ed.Sub(sd).Hours() / 24), true
+	case "hour":
+		sh := calendarTruncate(st, "hour")
+		eh := calendarTruncate(et, "hour")
+		return int64(eh.Sub(sh).Hours()), true
+	case "minute":
+		sm := calendarTruncate(st, "minute")
+		em := calendarTruncate(et, "minute")
+		return int64(em.Sub(sm).Minutes()), true
+	case "second":
+		ss := calendarTruncate(st, "second")
+		es := calendarTruncate(et, "second")
+		return int64(es.Sub(ss).Seconds()), true
+	case "millisecond":
+		return et.Sub(st).Milliseconds(), true
+	}
+	return 0, false
+}
+
+func calendarTruncate(t time.Time, unit string) time.Time {
+	v := truncateToPrecision(t, unit)
+	if tm, ok := v.(time.Time); ok {
+		return tm
+	}
+	return t
 }

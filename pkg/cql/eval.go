@@ -517,7 +517,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 1 && len(right) == 1 {
+		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					if intervalOverlaps(li, ri) || intervalMeets(li, ri) {
@@ -1132,7 +1132,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return []any{tm}, nil
 	case "coalesce":
 		for _, a := range args {
-			if len(a) == 0 {
+			if a == nil {
 				continue
 			}
 			if len(a) == 1 && a[0] == nil {
@@ -1142,7 +1142,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return nil, nil
 	case "flatten":
-		if len(args) == 0 {
+		if len(args) == 0 || args[0] == nil {
 			return nil, nil
 		}
 		return flattenValues(args[0]), nil
@@ -2264,7 +2264,10 @@ func listOrStringLength(args [][]any) ([]any, error) {
 }
 
 func distinctValues(in []any) []any {
-	var out []any
+	if in == nil {
+		return nil
+	}
+	out := []any{}
 	for _, item := range in {
 		if containsValue(out, item) {
 			continue
