@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -261,7 +262,7 @@ func (e *StoreExecutor) executeParamPlan(ctx context.Context, resourceType strin
 	seen := make(map[string]struct{})
 	var ids []string
 	for _, pred := range plan.Predicates {
-		matches, err := e.Backend.LookupMatch(ctx, store.SearchMatch{
+		matches, err := lookupMatch(ctx, e.Backend, store.SearchMatch{
 			ResourceType: resourceType,
 			FieldKey:     pred.FieldKey,
 			Value:        pred.Value,
@@ -301,7 +302,7 @@ func (e *StoreExecutor) executeChainPlan(ctx context.Context, resourceType strin
 	var ids []string
 	for _, targetID := range targetIDs {
 		for _, value := range referenceLookupValues(chain.TargetType, targetID) {
-			matches, err := e.Backend.LookupMatch(ctx, store.SearchMatch{
+			matches, err := lookupMatch(ctx, e.Backend, store.SearchMatch{
 				ResourceType: resourceType,
 				FieldKey:     chain.RefFieldKey,
 				Value:        value,
@@ -529,4 +530,18 @@ func parseIncludedReference(value string) string {
 		return value[:i]
 	}
 	return ""
+}
+
+func lookupMatch(ctx context.Context, backend store.SearchQueryExecutor, match store.SearchMatch) ([]string, error) {
+	if backend == nil {
+		return nil, fmt.Errorf("search backend is required")
+	}
+	matches, err := backend.LookupMatch(ctx, match)
+	if err != nil {
+		if errors.Is(err, store.ErrUnsupportedFeature) {
+			return nil, fmt.Errorf("%w: %v", ErrUnsupportedFeature, err)
+		}
+		return nil, err
+	}
+	return matches, nil
 }

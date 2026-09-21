@@ -286,8 +286,9 @@ func inferChainTargetType(reg Registry, refInfo ParameterInfo, chainedCode strin
 
 // maxWildcardIncludeExpansion is the maximum number of concrete include/revinclude
 // directives produced from one _include/_revinclude value, including *:* wildcards.
-// Larger expansions are rejected rather than fanning out unbounded reference parameters.
-const maxWildcardIncludeExpansion = 64
+// R4 Observation:* can expand past 64 because multi-target params emit one
+// directive per enabled target type. Larger expansions are rejected.
+const maxWildcardIncludeExpansion = 512
 
 func resolveIncludes(reg Registry, resourceType string, inc IncludeDirective) ([]IncludeDirective, error) {
 	if inc.ParamCode != "*" {

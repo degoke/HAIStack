@@ -12,7 +12,6 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -524,8 +523,8 @@ func TestSearchStoreLookupMatchRejectsUnsupportedOperators(t *testing.T) {
 		Value:        "http://example.org/fhir",
 		Operator:     "below",
 	})
-	if !errors.Is(err, search.ErrUnsupportedFeature) {
-		t.Fatalf("LookupMatch below = %v, want ErrUnsupportedFeature", err)
+	if !errors.Is(err, store.ErrUnsupportedFeature) {
+		t.Fatalf("LookupMatch below = %v, want store.ErrUnsupportedFeature", err)
 	}
 }
 
