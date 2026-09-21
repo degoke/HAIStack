@@ -1,10 +1,11 @@
-# Track D — Terminology mapping quality and provenance
+# Track D — Terminology mapping scorer harness
 
 Scores ConceptMap translations against an **independent gold-standard**
-catalogue and records **provenance** (ConceptMap version, source
-CodeSystem version, timestamp) on each decision. Audit events are
-emitted through `pkg/audit` so terminology outcomes join the same trail
-as AI and view access.
+catalogue. Provenance (ConceptMap version, source CodeSystem version,
+timestamp) is recorded on each **fixture** translation. Those fields are
+copied onto `pkg/audit` (`terminology.translate`) for the planted map
+only; the gold control run uses a nil logger and does not emit audit
+events.
 
 This is **not** a mapping-quality study of a real translator. The
 defective map is a **planted scorer fixture** so the metrics code can

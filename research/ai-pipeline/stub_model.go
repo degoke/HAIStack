@@ -35,7 +35,7 @@ func (m *StubModel) Invoke(_ context.Context, req ai.ModelRequest) (*ai.ModelRes
 	var b strings.Builder
 	fmt.Fprintf(&b, "Deterministic vitals summary (stub model, seed %d). Fingerprint %s.\n", seed, digest)
 	if strings.TrimSpace(req.Context) != "" {
-		b.WriteString("Grounded on permissioned view rows supplied in tool context.")
+		b.WriteString("Grounded on authorized view output supplied in tool context.")
 	}
 	return &ai.ModelResponse{Adapter: m.Name(), Content: b.String()}, nil
 }

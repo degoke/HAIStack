@@ -190,7 +190,7 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 		TenantID:       pipelineTenant,
 		ConversationID: conversationID,
 		ModelHint:      "local",
-	}, "Summarize permissioned vitals for research evaluation.", toolRes.Context)
+	}, "Summarize authorized vitals view output for research evaluation.", toolRes.Context)
 	if err != nil {
 		return nil, fmt.Errorf("invoke model: %w", err)
 	}
@@ -208,7 +208,7 @@ func Run(ctx context.Context) (*ProvenanceBundle, error) {
 	defHash := researchutil.HashBytes(vitalsView)
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("expected permissioned view rows, got 0")
+		return nil, fmt.Errorf("expected authorized view rows, got 0")
 	}
 	// preliminary observation is filtered out of the view
 	if len(rows) != 5 {
