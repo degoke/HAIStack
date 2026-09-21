@@ -55,7 +55,7 @@ func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oaut
 	if err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	return consumeBoundJSON[oauth.AuthorizationCode](s.client, key, bound, s.now())
+	return consumeBound[oauth.AuthorizationCode](s.client, key, bound, s.now(), peekBoundJSONValue, deleteBoundJSONIfMatch)
 }
 
 func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshTokenEntry) error {
@@ -93,7 +93,7 @@ func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.Re
 	if err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	return consumeBoundRefresh[oauth.RefreshTokenEntry](s.client, key, bound, s.now())
+	return consumeBound[oauth.RefreshTokenEntry](s.client, key, bound, s.now(), peekBoundRefreshValue, deleteBoundRefreshIfMatch)
 }
 
 func (s *AuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
@@ -167,12 +167,18 @@ func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oau
 	if err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	return consumeBoundJSON[oauth.PendingAuthorization](s.client, key, bound, s.now())
+	return consumeBound[oauth.PendingAuthorization](s.client, key, bound, s.now(), peekBoundJSONValue, deleteBoundJSONIfMatch)
 }
 
-func consumeBoundJSON[T any](client goredis.Cmdable, key, issuer string, now time.Time) (T, bool) {
+func consumeBound[T any](
+	client goredis.Cmdable,
+	key, issuer string,
+	now time.Time,
+	peek func(goredis.Cmdable, string, string, time.Time) (string, bool),
+	del func(goredis.Cmdable, string, string) bool,
+) (T, bool) {
 	var zero T
-	payload, ok := peekBoundJSONValue(client, key, issuer, now)
+	payload, ok := peek(client, key, issuer, now)
 	if !ok {
 		return zero, false
 	}
@@ -180,23 +186,7 @@ func consumeBoundJSON[T any](client goredis.Cmdable, key, issuer string, now tim
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return zero, false
 	}
-	if !deleteBoundJSONIfMatch(client, key, issuer, now, payload) {
-		return zero, false
-	}
-	return entry, true
-}
-
-func consumeBoundRefresh[T any](client goredis.Cmdable, key, issuer string, now time.Time) (T, bool) {
-	var zero T
-	payload, ok := peekBoundRefreshValue(client, key, issuer, now)
-	if !ok {
-		return zero, false
-	}
-	var entry T
-	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
-		return zero, false
-	}
-	if !deleteBoundRefreshIfMatch(client, key, issuer, now, payload) {
+	if !del(client, key, payload) {
 		return zero, false
 	}
 	return entry, true
@@ -218,13 +208,13 @@ func peekBoundRefreshValue(client goredis.Cmdable, key, issuer string, now time.
 	return payload, true
 }
 
-func deleteBoundJSONIfMatch(client goredis.Cmdable, key, issuer string, now time.Time, payload string) bool {
-	n, err := deleteBoundJSONIfMatchScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli(), payload).Int()
+func deleteBoundJSONIfMatch(client goredis.Cmdable, key, payload string) bool {
+	n, err := deleteBoundJSONIfMatchScript.Run(context.Background(), client, []string{key}, payload).Int()
 	return err == nil && n > 0
 }
 
-func deleteBoundRefreshIfMatch(client goredis.Cmdable, key, issuer string, now time.Time, payload string) bool {
-	n, err := deleteBoundRefreshIfMatchScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli(), payload).Int()
+func deleteBoundRefreshIfMatch(client goredis.Cmdable, key, payload string) bool {
+	n, err := deleteBoundRefreshIfMatchScript.Run(context.Background(), client, []string{key}, payload).Int()
 	return err == nil && n > 0
 }
 

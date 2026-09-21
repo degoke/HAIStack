@@ -321,6 +321,12 @@ func TestAuthorizationStore_GoUnmarshalFailureDoesNotBurn(t *testing.T) {
 	if err := client.HSet(ctx, refreshKey, "clientId", "redis-client", "payload", raw).Err(); err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := authStore.LookupRefreshToken(issuer, "badjson"); ok {
+		t.Fatal("Go-invalid refresh must not lookup")
+	}
+	if n, err := client.Exists(ctx, refreshKey).Result(); err != nil || n != 1 {
+		t.Fatalf("lookup must not delete invalid refresh n=%d err=%v", n, err)
+	}
 	if _, ok := authStore.ConsumeRefreshToken(issuer, "badjson"); ok {
 		t.Fatal("Go-invalid refresh must not consume")
 	}
@@ -331,6 +337,12 @@ func TestAuthorizationStore_GoUnmarshalFailureDoesNotBurn(t *testing.T) {
 	pendingKey := "test:pending:" + seg + ":badjson"
 	if err := client.Set(ctx, pendingKey, raw, time.Minute).Err(); err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := authStore.GetPendingAuthorization(issuer, "badjson"); ok {
+		t.Fatal("Go-invalid pending must not get")
+	}
+	if n, err := client.Exists(ctx, pendingKey).Result(); err != nil || n != 1 {
+		t.Fatalf("get must not delete invalid pending n=%d err=%v", n, err)
 	}
 	if _, ok := authStore.ConsumePendingAuthorization(issuer, "badjson"); ok {
 		t.Fatal("Go-invalid pending must not consume")

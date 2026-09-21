@@ -57,13 +57,10 @@ end
 return payload
 `)
 
-	// deleteBoundJSONIfMatchScript deletes a JSON string key only when the payload is unchanged and still usable.
-	deleteBoundJSONIfMatchScript = goredis.NewScript(luaBoundHelpers + `
+	// deleteBoundJSONIfMatchScript deletes a JSON string key only when the payload is unchanged.
+	deleteBoundJSONIfMatchScript = goredis.NewScript(`
 local payload = redis.call('GET', KEYS[1])
-if payload ~= ARGV[3] then
-  return 0
-end
-if not usable(payload, ARGV[1], ARGV[2]) then
+if payload ~= ARGV[1] then
   return 0
 end
 redis.call('DEL', KEYS[1])
@@ -79,13 +76,10 @@ end
 return payload
 `)
 
-	// deleteBoundRefreshIfMatchScript deletes a refresh hash only when the payload is unchanged and still usable.
-	deleteBoundRefreshIfMatchScript = goredis.NewScript(luaBoundHelpers + `
+	// deleteBoundRefreshIfMatchScript deletes a refresh hash only when the payload is unchanged.
+	deleteBoundRefreshIfMatchScript = goredis.NewScript(`
 local payload = redis.call('HGET', KEYS[1], 'payload')
-if payload ~= ARGV[3] then
-  return 0
-end
-if not usable(payload, ARGV[1], ARGV[2]) then
+if payload ~= ARGV[1] then
   return 0
 end
 redis.call('DEL', KEYS[1])
