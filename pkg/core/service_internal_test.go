@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -8,6 +9,53 @@ import (
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
+
+type rewriteMissingRefHooks struct{}
+
+func (rewriteMissingRefHooks) preStorage(_ context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if envelope == nil {
+		return nil, nil
+	}
+	rewritten := bytes.ReplaceAll(envelope.JSON, []byte("Patient/pat-missing"), []byte("https://example.org/fhir/Patient/ext"))
+	out := *envelope
+	out.JSON = rewritten
+	return &out, nil
+}
+
+func TestPrepareWriteRunsPreStorageBeforeIntegrity(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewResourceService(ResourceServiceConfig{
+		Resources: stubResourceStore{},
+		History:   stubHistoryStore{},
+		Sessions:  stubSessionProvider{session: stubWriteSession{}},
+	})
+	if err != nil {
+		t.Fatalf("NewResourceService: %v", err)
+	}
+	svc.hooks = rewriteMissingRefHooks{}
+
+	created, err := svc.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Observation",
+		ID:           "obs-1",
+		JSON:         []byte(`{"resourceType":"Observation","id":"obs-1","status":"final","code":{"text":"hr"},"subject":{"reference":"Patient/pat-missing"}}`),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v (pre-storage must run before referential integrity)", err)
+	}
+	if created == nil || !bytes.Contains(created.JSON, []byte("https://example.org/fhir/Patient/ext")) {
+		t.Fatalf("stored JSON = %s, want rewritten external reference", createdJSON(created))
+	}
+	if bytes.Contains(created.JSON, []byte("Patient/pat-missing")) {
+		t.Fatalf("stored JSON still has local missing reference: %s", created.JSON)
+	}
+}
+
+func createdJSON(env *types.ResourceEnvelope) string {
+	if env == nil {
+		return "<nil>"
+	}
+	return string(env.JSON)
+}
 
 func TestNewResourceServiceSetsOutbox(t *testing.T) {
 	ctx := context.Background()

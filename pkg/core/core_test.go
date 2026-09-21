@@ -720,12 +720,84 @@ func TestReferentialIntegrityTransactionAllowsMatchingURNUUID(t *testing.T) {
 			{"fullUrl":"urn:uuid:22222222-2222-2222-2222-222222222222","request":{"method":"POST","url":"Patient"},"resource":{"resourceType":"Patient","name":[{"family":"Txn"}]}}
 		]
 	}`)
+	resp, err := harness.svc.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
+		ResourceType: "Bundle",
+		JSON:         bundleJSON,
+	})
+	if err != nil {
+		t.Fatalf("ProcessTransactionBundle: %v", err)
+	}
+
+	obsID, patID := transactionCreatedIDs(t, resp.JSON, 0, 1)
+	stored, err := harness.svc.Read(ctx, "Observation", obsID)
+	if err != nil {
+		t.Fatalf("Read observation: %v", err)
+	}
+	body := string(stored.JSON)
+	want := "Patient/" + patID
+	if !strings.Contains(body, want) {
+		t.Fatalf("stored Observation JSON = %s, want reference %s", body, want)
+	}
+	if strings.Contains(strings.ToLower(body), "urn:uuid:") {
+		t.Fatalf("stored Observation JSON still contains urn:uuid: %s", body)
+	}
+}
+
+func TestTransactionRewritesURNUUIDWhenTargetHasAssignedID(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+
+	bundleJSON := []byte(`{
+		"resourceType":"Bundle",
+		"type":"transaction",
+		"entry":[
+			{"fullUrl":"urn:uuid:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","request":{"method":"POST","url":"Observation"},"resource":{"resourceType":"Observation","id":"obs-urn","status":"final","code":{"text":"hr"},"subject":{"reference":"urn:uuid:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}}},
+			{"fullUrl":"urn:uuid:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","request":{"method":"POST","url":"Patient"},"resource":{"resourceType":"Patient","id":"pat-urn","name":[{"family":"Txn"}]}}
+		]
+	}`)
 	if _, err := harness.svc.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
 		ResourceType: "Bundle",
 		JSON:         bundleJSON,
 	}); err != nil {
 		t.Fatalf("ProcessTransactionBundle: %v", err)
 	}
+
+	stored, err := harness.svc.Read(ctx, "Observation", "obs-urn")
+	if err != nil {
+		t.Fatalf("Read observation: %v", err)
+	}
+	body := string(stored.JSON)
+	if !strings.Contains(body, "Patient/pat-urn") {
+		t.Fatalf("stored Observation JSON = %s, want Patient/pat-urn", body)
+	}
+	if strings.Contains(strings.ToLower(body), "urn:uuid:") {
+		t.Fatalf("stored Observation JSON still contains urn:uuid: %s", body)
+	}
+}
+
+func transactionCreatedIDs(t *testing.T, bundleJSON []byte, obsIdx, patIdx int) (obsID, patID string) {
+	t.Helper()
+	var obj map[string]any
+	if err := json.Unmarshal(bundleJSON, &obj); err != nil {
+		t.Fatalf("unmarshal transaction-response: %v", err)
+	}
+	entries, ok := obj["entry"].([]any)
+	if !ok || len(entries) <= obsIdx || len(entries) <= patIdx {
+		t.Fatalf("transaction-response entries = %v", obj["entry"])
+	}
+	return locationResourceID(t, entries[obsIdx], "Observation"), locationResourceID(t, entries[patIdx], "Patient")
+}
+
+func locationResourceID(t *testing.T, raw any, wantType string) string {
+	t.Helper()
+	entry, _ := raw.(map[string]any)
+	resp, _ := entry["response"].(map[string]any)
+	location, _ := resp["location"].(string)
+	parts := strings.Split(location, "/")
+	if len(parts) < 2 || parts[0] != wantType || parts[1] == "" {
+		t.Fatalf("location = %q, want %s/{id}/...", location, wantType)
+	}
+	return parts[1]
 }
 
 func TestReferentialIntegrityDisabledAllowsMissingLocalReference(t *testing.T) {

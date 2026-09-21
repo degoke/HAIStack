@@ -38,6 +38,17 @@ type ResourceService struct {
 	definitionIngestor          DefinitionIngestor
 	conformanceRefresh          func(ctx context.Context) error
 	enforceReferentialIntegrity bool
+	// hooks is a local pre-storage SPI so prepareWrite can call optional
+	// pre-storage without importing pkg/hooks. Nil is a no-op. When hook SPI
+	// is merged, keep prepareWrite's order: pre-storage → integrity → version meta.
+	hooks writeHooks
+}
+
+// writeHooks is the unexported pre-storage collaborator used by prepareWrite.
+// A later hooks merge should keep calling runPreStorage from prepareWrite
+// rather than inserting integrity checks before pre-storage.
+type writeHooks interface {
+	preStorage(ctx context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error)
 }
 
 // ResourceServiceConfig configures a ResourceService.
@@ -389,14 +400,7 @@ func (s *ResourceService) applyWriteExpectedVersion(
 	versionID := uuid.NewString()
 	now := time.Now().UTC()
 
-	// Integrity runs immediately before version metadata and persist. If a
-	// pre-storage hook is merged in, order must remain: pre-storage →
-	// referential integrity → withVersionMeta → persist.
-	if err := s.checkReferentialIntegrity(ctx, session, envelope); err != nil {
-		return nil, err
-	}
-
-	prepared, err := s.withVersionMeta(envelope, versionID, now)
+	prepared, err := s.prepareWrite(ctx, session, envelope, versionID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -612,6 +616,34 @@ func (s *ResourceService) removePreviousTerminology(ctx context.Context, session
 		}
 	}
 	return ts.TerminologyStore().DeleteResource(ctx, scope, previous.ResourceType, oldMeta.URL, oldMeta.Version)
+}
+
+// prepareWrite is the single persist-prep path: optional pre-storage, then
+// referential integrity, then version meta. Callers must not run integrity
+// before this helper — if runPreStorage is merged from hook SPI, it belongs
+// here so integrity cannot run first.
+func (s *ResourceService) prepareWrite(
+	ctx context.Context,
+	session store.WriteSession,
+	envelope *types.ResourceEnvelope,
+	versionID string,
+	now time.Time,
+) (*types.ResourceEnvelope, error) {
+	prepared, err := s.runPreStorage(ctx, envelope)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkReferentialIntegrity(ctx, session, prepared); err != nil {
+		return nil, err
+	}
+	return s.withVersionMeta(prepared, versionID, now)
+}
+
+func (s *ResourceService) runPreStorage(ctx context.Context, envelope *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if s == nil || s.hooks == nil {
+		return envelope, nil
+	}
+	return s.hooks.preStorage(ctx, envelope)
 }
 
 func (s *ResourceService) withVersionMeta(envelope *types.ResourceEnvelope, versionID string, now time.Time) (*types.ResourceEnvelope, error) {

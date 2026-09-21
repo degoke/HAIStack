@@ -79,21 +79,27 @@
 //  1. Normalize and parse incoming JSON (types + codec).
 //  2. Validate with optional Validator.
 //  3. Resolve or generate id via ResourceIDPolicy.
-//  4. Enforce referential integrity for local typed relative references
+//  4. Optional pre-storage (if configured; no-op when hooks are nil).
+//  5. Enforce referential integrity for local typed relative references
 //     (types.GetReferences + ResourceStore.Exists) unless
 //     EnforceReferentialIntegrity is false. Contained fragments, absolute
 //     URLs, untyped ids, unresolved URNs, and self-references are skipped.
-//     Intra-bundle POST/PUT identities and matching urn:uuid fullUrl values
-//     satisfy Exists so transaction entry order does not matter.
-//  5. Generate a new versionId (UUID) and set meta.versionId / meta.lastUpdated.
-//  6. Recompute normalized JSON and hash.
-//  7. Persist current resource state (create, update, or delete).
-//  8. Append immutable history entry (ResourceVersion).
-//  9. Append outbox event when Outbox is configured (via sync.WithWriteSession).
+//     Intra-bundle POST/PUT identities satisfy Exists so transaction entry
+//     order does not matter. Matching urn:uuid fullUrl values are rewritten
+//     to the target entry Type/id before this check and persist.
+//  6. Generate a new versionId (UUID) and set meta.versionId / meta.lastUpdated.
+//  7. Recompute normalized JSON and hash.
+//  8. Persist current resource state (create, update, or delete).
+//  9. Append immutable history entry (ResourceVersion).
 //
-// 10. Rebuild search index entries when Indexer is configured.
+// 10. Append outbox event when Outbox is configured (via sync.WithWriteSession).
 //
-// 11. Commit session; rollback on any failure before commit.
+// 11. Rebuild search index entries when Indexer is configured.
+//
+// 12. Commit session; rollback on any failure before commit.
+//
+// Persist preparation (prepareWrite) is always pre-storage, then referential
+// integrity, then version meta, so a later hook SPI merge cannot run integrity first.
 //
 // Delete path reads the current envelope before removal so history tombstones and events
 // reference the last known content hash while receiving a new tombstone versionId.
@@ -117,9 +123,10 @@
 // Entries execute in order inside one WriteSession. Referential integrity
 // treats POST/PUT identities from every entry as already present, so an
 // Observation may precede the Patient it references in the same bundle.
-// Matching urn:uuid fullUrl values are also treated as present. The response
-// is a transaction-response Bundle envelope with per-entry status, location,
-// etag, and lastModified.
+// Matching urn:uuid fullUrl values are rewritten to the target entry's
+// Type/id in stored resource JSON (Patient/{assigned-id}) before persist.
+// The response is a transaction-response Bundle envelope with per-entry
+// status, location, etag, and lastModified.
 //
 // # Resource ID policy
 //

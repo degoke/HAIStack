@@ -29,6 +29,9 @@ func (s *ResourceService) ProcessTransactionBundle(ctx context.Context, bundle *
 	if err != nil {
 		return nil, err
 	}
+	if err := rewriteBundleLocalReferences(parsed, pending); err != nil {
+		return nil, err
+	}
 	ctx = contextWithPendingIdentities(ctx, pending)
 
 	session, err := s.sessions.BeginWrite(ctx)
@@ -201,8 +204,8 @@ func (s *ResourceService) collectBundlePendingIdentities(parsed *transactionBund
 	}
 	for i := range parsed.Entries {
 		entry := &parsed.Entries[i]
-		pending.addURN(entry.FullURL)
 		if entry.Method != "POST" && entry.Method != "PUT" {
+			pending.addURN(entry.FullURL)
 			continue
 		}
 		resourceType, id, err := s.pendingEntryIdentity(entry)
@@ -210,8 +213,33 @@ func (s *ResourceService) collectBundlePendingIdentities(parsed *transactionBund
 			return nil, err
 		}
 		pending.addTyped(resourceType, id)
+		pending.addURN(entry.FullURL)
+		if resourceType != "" && id != "" {
+			pending.resolveURN(entry.FullURL, resourceType+"/"+id)
+		}
 	}
 	return pending, nil
+}
+
+// rewriteBundleLocalReferences replaces intra-bundle urn:uuid Reference.reference
+// values with the target entry's Type/id so stored JSON does not keep unresolved
+// URNs that were resolved against this transaction.
+func rewriteBundleLocalReferences(parsed *transactionBundle, pending *pendingIdentities) error {
+	if parsed == nil || pending == nil || !pending.hasResolvedURNs() {
+		return nil
+	}
+	for i := range parsed.Entries {
+		entry := &parsed.Entries[i]
+		if entry.Resource == nil || len(entry.Resource.JSON) == 0 {
+			continue
+		}
+		rewritten, err := rewriteReferenceStrings(entry.Resource.JSON, pending)
+		if err != nil {
+			return invalidErr("rewrite bundle local references", err)
+		}
+		entry.Resource.JSON = rewritten
+	}
+	return nil
 }
 
 func (s *ResourceService) pendingEntryIdentity(entry *bundleRequestEntry) (resourceType, id string, err error) {
