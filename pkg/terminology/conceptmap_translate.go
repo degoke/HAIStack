@@ -46,9 +46,10 @@ func (s *LocalService) Translate(ctx context.Context, req ConceptMapTranslateReq
 	out := make([]Coding, 0, len(codings))
 	for _, coding := range codings {
 		out = append(out, Coding{
-			System:  stringValue(coding["system"]),
-			Code:    stringValue(coding["code"]),
-			Display: stringValue(coding["display"]),
+			System:      stringValue(coding["system"]),
+			Code:        stringValue(coding["code"]),
+			Display:     stringValue(coding["display"]),
+			Equivalence: stringValue(coding["equivalence"]),
 		})
 	}
 	return out, nil

@@ -1,4 +1,4 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
+.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock research research-run research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
@@ -65,7 +65,14 @@ clean: ## Remove build artifacts and test binaries
 
 ci: fmt-check vet lint test-race build ## Run all Go CI checks locally
 
-research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Run all research reproducibility checks
+research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Run all research tests and artefact commands
+
+research-run: ## Run published artefact commands only (no tests)
+	$(GO) run ./research/ai-pipeline/cmd
+	$(GO) run ./research/policy-semantics/cmd
+	$(GO) run ./research/semantic-conversion/cmd
+	$(GO) run ./research/terminology-evaluation/cmd
+	$(GO) run ./research/benchmarks/cmd -size small
 
 research-ai-pipeline: ## Track E: FHIR → view → AI provenance pipeline
 	$(GO) test ./research/ai-pipeline -count=1

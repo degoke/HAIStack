@@ -5,10 +5,14 @@ import (
 	"fmt"
 )
 
+// ParticipantInformantSystem is the R5 provenance-participant-type code for
+// Condition.asserter → Condition.participant.function. Gold testdata requires
+// this system; the converter must emit it rather than minting gold from itself.
+const ParticipantInformantSystem = "http://terminology.hl7.org/CodeSystem/provenance-participant-type"
+
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
-// It is a corpus converter scored against independently stored gold R5 in
-// testdata/corpus.json. It is not a complete HL7 version conversion map, and
-// the scorer does not generate expected R5 from this function.
+// It is scored against authored gold R5 in testdata/corpus.json (the oracle),
+// not used to produce that gold.
 func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []string, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(r4, &obj); err != nil {
@@ -31,8 +35,11 @@ func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []
 		if asserter, ok := obj["asserter"]; ok {
 			delete(obj, "asserter")
 			obj["participant"] = []any{map[string]any{
-				"function": map[string]any{"coding": []any{map[string]any{"code": "informant"}}},
-				"actor":    asserter,
+				"function": map[string]any{"coding": []any{map[string]any{
+					"system": ParticipantInformantSystem,
+					"code":   "informant",
+				}}},
+				"actor": asserter,
 			}}
 		}
 	case "MedicationRequest":

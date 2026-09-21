@@ -28,7 +28,7 @@ func TestLocalServiceTranslateUsesConceptMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(codings) != 1 || codings[0].Code != "female" {
+	if len(codings) != 1 || codings[0].Code != "female" || codings[0].Equivalence != "equivalent" {
 		t.Fatalf("unexpected translation: %#v", codings)
 	}
 }

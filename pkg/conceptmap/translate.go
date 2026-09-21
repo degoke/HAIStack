@@ -124,6 +124,10 @@ func targetCoding(group Group, target Target) map[string]any {
 	if target.Display != "" {
 		coding["display"] = target.Display
 	}
+	eq := firstNonEmpty(target.Equivalence, target.Relationship)
+	if eq != "" {
+		coding["equivalence"] = eq
+	}
 	return coding
 }
 

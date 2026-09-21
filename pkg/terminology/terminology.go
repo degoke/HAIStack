@@ -16,7 +16,9 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-type Coding struct{ System, Version, Code, Display string }
+type Coding struct {
+	System, Version, Code, Display, Equivalence string
+}
 type CodeableConcept struct {
 	Coding []Coding
 	Text   string

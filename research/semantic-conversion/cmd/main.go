@@ -10,7 +10,12 @@ import (
 )
 
 func main() {
-	report, err := semanticconversion.ScoreCorpus(semanticconversion.Corpus())
+	pairs, err := semanticconversion.LoadCorpus()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "research-semantic-conversion: %v\n", err)
+		os.Exit(1)
+	}
+	report, err := semanticconversion.ScoreCorpus(pairs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "research-semantic-conversion: %v\n", err)
 		os.Exit(1)

@@ -73,7 +73,11 @@ func runDeclarative(ctx context.Context, adapter *smart.AuthAdapter, sc Declarat
 	case "treat-only":
 		cfg.Policy = treatOnlyPolicy()
 	}
-	cfg = withWildcardRead(cfg)
+	if sc.Scopes != "" {
+		// Research-layer overlay so wildcard SMART scopes can satisfy
+		// RequiredPermissions. Not applied to policy-only scenarios.
+		cfg = withWildcardRead(cfg)
+	}
 	eng, err := auth.NewEngine(cfg)
 	if err != nil {
 		return err
@@ -146,6 +150,8 @@ func runDeclarative(ctx context.Context, adapter *smart.AuthAdapter, sc Declarat
 	return AssertDecision(sc.ID, sc.ExpectAllow, decision, nil)
 }
 
+// withWildcardRead adds *.read to the clinician role so wildcard SMART scopes
+// can satisfy RequiredPermissions. Callers must apply it only for SMART cases.
 func withWildcardRead(cfg auth.Config) auth.Config {
 	roles := make([]auth.Role, len(cfg.Roles))
 	copy(roles, cfg.Roles)

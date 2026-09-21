@@ -14,7 +14,7 @@ const (
 	CategoryCodeableConcept = "codeableconcept"
 )
 
-// Assertion is a FHIRPath check on R4 and/or R5 instances.
+// Assertion is a path check on R4 and/or R5 instances.
 // R4 expressions are evaluated with pkg/fhirpath when the R4 protobuf codec
 // can load the instance. R5 expressions always use the JSON-path subset
 // because HAIStack has no R5 codec yet.
@@ -25,8 +25,8 @@ type Assertion struct {
 	Want []string `json:"want,omitempty"`
 }
 
-// Pair is one R4 input and independently stored expected R5 output.
-// Expected R5 comes from testdata/corpus.json, not from ConvertR4ToR5.
+// Pair is one R4 input and authored expected R5 output.
+// Expected R5 is the published gold oracle in testdata/corpus.json.
 type Pair struct {
 	ID              string          `json:"id"`
 	ResourceType    string          `json:"resourceType"`
@@ -37,13 +37,9 @@ type Pair struct {
 	InformationLoss []string        `json:"informationLoss,omitempty"`
 }
 
-// Corpus returns the published gold pairs from testdata/corpus.json.
-func Corpus() []Pair {
-	pairs, err := ParseCorpus(corpusJSON)
-	if err != nil {
-		panic(err)
-	}
-	return pairs
+// LoadCorpus returns the published gold pairs from testdata/corpus.json.
+func LoadCorpus() ([]Pair, error) {
+	return ParseCorpus(corpusJSON)
 }
 
 // ParseCorpus unmarshals a published corpus file.

@@ -29,7 +29,6 @@ jobs:
   research-artefacts:
     name: Research artefacts
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,5 +39,5 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Reproducibility checks
-        run: make research
+      - name: Published artefact commands
+        run: make research-run

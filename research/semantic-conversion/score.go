@@ -42,14 +42,17 @@ type Report struct {
 }
 
 // ScoreCorpus converts each R4 instance with ConvertR4ToR5 and compares it to
-// the independently stored gold R5 in testdata (not produced by the converter
-// at score time).
+// the authored gold R5 oracle in testdata (the converter does not produce gold).
 //
 // Semantic R4 checks use pkg/fhirpath. Instances the R4 protobuf codec cannot
 // load (unknown fields such as Patient.animal, singleton JSON for 0..*
 // interpretation) fall back to the JSON-path subset. Semantic R5 checks always
 // use that JSON-path subset because no production R5 codec exists yet, and they
 // run against the converted payload rather than the gold file.
+//
+// Information-loss flags declared on a pair must appear in the loss list
+// returned by ConvertR4ToR5. Declared flags are not merged into that list
+// before the check.
 func ScoreCorpus(pairs []Pair) (Report, error) {
 	fp, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
@@ -98,7 +101,7 @@ func scorePair(env scoreEnv, pair Pair) PairScore {
 		score.Errors = append(score.Errors, err.Error())
 		return score
 	}
-	score.InformationLoss = mergeLoss(pair.InformationLoss, loss)
+	score.InformationLoss = sortedCopy(loss)
 	eq, err := jsonEqual(got, pair.R5)
 	if err != nil {
 		score.Errors = append(score.Errors, err.Error())
@@ -129,7 +132,9 @@ func scorePair(env scoreEnv, pair Pair) PairScore {
 			}
 		}
 	}
-	if !containsAll(score.InformationLoss, pair.InformationLoss) {
+	// Grade detected converter loss against the declared list. Do not union
+	// declared flags into the detected list first — that check cannot fail.
+	if !containsAll(loss, pair.InformationLoss) {
 		score.SemanticOK = false
 		score.Errors = append(score.Errors, "missing declared information-loss flags")
 	}
@@ -306,18 +311,12 @@ func jsonEqual(a, b []byte) (bool, error) {
 	return bytes.Equal(lb, rb), nil
 }
 
-func mergeLoss(declared, detected []string) []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, item := range append(append([]string{}, declared...), detected...) {
-		if item == "" {
-			continue
+func sortedCopy(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		if item != "" {
+			out = append(out, item)
 		}
-		if _, ok := seen[item]; ok {
-			continue
-		}
-		seen[item] = struct{}{}
-		out = append(out, item)
 	}
 	sort.Strings(out)
 	return out

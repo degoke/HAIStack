@@ -30,7 +30,7 @@ func TestTranslatorMapsSourceCoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(codings) != 1 || codings[0]["code"] != "male" {
+	if len(codings) != 1 || codings[0]["code"] != "male" || codings[0]["equivalence"] != "equivalent" {
 		t.Fatalf("unexpected translation: %#v", codings)
 	}
 }

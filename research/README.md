@@ -48,10 +48,9 @@ From the repository root (Go 1.26+):
 | `make research` | All of the above |
 
 CI workflow [`.github/workflows/research.yml`](../.github/workflows/research.yml)
-runs `go test ./research/...` as a **blocking** job (same tests as the main
-`go test ./...` job, isolated here so research regressions fail this workflow).
-The `make research` artefact job stays **non-blocking** (`continue-on-error:
-true`) until the published command outputs stabilize.
+runs `go test ./research/...` as a blocking job and `make research-run`
+(published `go run` commands only) as a second blocking job. Local
+`make research` still runs tests then commands per track.
 
 ## FAIR metadata
 
