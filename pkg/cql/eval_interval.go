@@ -682,7 +682,7 @@ func intervalExcept(a, b Interval, vcmp compareCtx) []any {
 	return out
 }
 
-func expandValues(v []any, per *Quantity) []any {
+func expandValues(v []any, per *Quantity, vcmp compareCtx) []any {
 	var out []any
 	expanded := false
 	for _, item := range v {
@@ -692,7 +692,7 @@ func expandValues(v []any, per *Quantity) []any {
 			continue
 		}
 		expanded = true
-		out = append(out, expandInterval(iv, per)...)
+		out = append(out, expandInterval(iv, per, vcmp)...)
 	}
 	if !expanded {
 		return v
@@ -700,7 +700,7 @@ func expandValues(v []any, per *Quantity) []any {
 	return out
 }
 
-func expandInterval(iv Interval, per *Quantity) []any {
+func expandInterval(iv Interval, per *Quantity, vcmp compareCtx) []any {
 	if iv.Low == nil || iv.High == nil {
 		return nil
 	}
@@ -733,7 +733,7 @@ func expandInterval(iv Interval, per *Quantity) []any {
 	}
 	if _, ok := asTime(iv.Low); ok {
 		if _, ok := asTime(iv.High); ok {
-			return expandTimeInterval(iv, per, compareCtx{})
+			return expandTimeInterval(iv, per, vcmp)
 		}
 	}
 	return []any{iv}

@@ -1110,7 +1110,15 @@ func ratioEqualWithUCUM(a, b Ratio, conv UCUMConverter) bool {
 }
 
 func ratioEquivalent(a, b Ratio) bool {
-	return cqlEquivalent(a.Numerator, b.Numerator) && cqlEquivalent(a.Denominator, b.Denominator)
+	return ratioEquivalentUCUM(a, b, defaultUCUM)
+}
+
+func ratioEquivalentUCUM(a, b Ratio, conv UCUMConverter) bool {
+	if ratioCrossEqual(a, b, conv) {
+		return true
+	}
+	return cqlEquivalentUCUM(a.Numerator, b.Numerator, conv) &&
+		cqlEquivalentUCUM(a.Denominator, b.Denominator, conv)
 }
 
 func ratioCrossEqual(a, b Ratio, conv UCUMConverter) bool {

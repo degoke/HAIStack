@@ -119,6 +119,9 @@ func cqlEquivalentUCUM(a, b any, conv UCUMConverter) bool {
 	}
 	if ra, ok := asRatio(a); ok {
 		if rb, ok := asRatio(b); ok {
+			if ratioCrossEqual(ra, rb, conv) {
+				return true
+			}
 			return cqlEquivalentUCUM(ra.Numerator, rb.Numerator, conv) &&
 				cqlEquivalentUCUM(ra.Denominator, rb.Denominator, conv)
 		}

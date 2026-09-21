@@ -1448,6 +1448,17 @@ func TestReviewNitsRound6(t *testing.T) {
 	}
 }
 
+func TestReviewNitsRound8(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 'mg' : 2 'mL' ~ 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ratio proportional equivalence: %#v", got)
+	}
+}
+
 func TestReviewNitsRound7(t *testing.T) {
 	eng := testEngine(t)
 	got, err := eng.Eval(context.Background(), "ConvertQuantity(500 'ml', 'L')", EvalContext{})

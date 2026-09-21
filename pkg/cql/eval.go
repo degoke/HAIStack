@@ -491,7 +491,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "collapse":
 		return collapseIntervals(v, nil, st.compareContext()), nil
 	case "expand":
-		return expandValues(v, nil), nil
+		return expandValues(v, nil, st.compareContext()), nil
 	case "successor", "predecessor":
 		if len(v) != 1 {
 			return nil, nil
@@ -1384,7 +1384,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 				per = &Quantity{Value: f}
 			}
 		}
-		return expandValues(args[0], per), nil
+		return expandValues(args[0], per, st.compareContext()), nil
 	case "toconcept":
 		if len(args) == 0 || args[0] == nil {
 			return nil, nil
