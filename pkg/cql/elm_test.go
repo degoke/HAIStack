@@ -397,3 +397,284 @@ func TestSDCContainedELMLibrary(t *testing.T) {
 		t.Fatalf("contained ELM: %#v", got)
 	}
 }
+
+func libraryContentEnvelope(t *testing.T, content []map[string]any) *types.ResourceEnvelope {
+	t.Helper()
+	obj := map[string]any{
+		"resourceType": "Library",
+		"id":           "demo",
+		"url":          "http://example.org/Library/Demo",
+		"name":         "Demo",
+		"version":      "1.0.0",
+		"status":       "active",
+		"content":      content,
+	}
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := types.NewJSONCodec().ParseJSON("Library", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func TestExplicitCQLWinsOverEarlierELM(t *testing.T) {
+	cqlSrc := "library Demo version '1.0.0'\ncontext Patient\ndefine \"X\": false\n"
+	env := libraryContentEnvelope(t, []map[string]any{
+		{"contentType": "application/elm+json", "data": base64.StdEncoding.EncodeToString([]byte(demoELMJSON()))},
+		{"contentType": "text/cql", "data": base64.StdEncoding.EncodeToString([]byte(cqlSrc))},
+	})
+	src, _, _, _, err := EnvelopeLibrary(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(src, `define "X": false`) {
+		t.Fatalf("expected explicit CQL, got %s", src)
+	}
+	eng := testEngine(t)
+	lib, err := eng.CompileLibrary(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "X", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("explicit CQL should win: %#v", got)
+	}
+}
+
+func TestRecoveredInvalidCQLFallsBackToELM(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"library": map[string]any{
+			"identifier": map[string]any{"id": "Demo", "version": "1.0.0"},
+			"cql":        "library Broken version '1.0.0'\ncontext Patient\ndefine \"X\": this is not valid cql\n",
+			"statements": map[string]any{
+				"def": []any{
+					map[string]any{
+						"name":    "X",
+						"context": "Patient",
+						"expression": map[string]any{
+							"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true",
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := elmLibraryEnvelope(t, string(payload))
+	eng := testEngine(t)
+	lib, err := eng.CompileLibrary(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "X", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ELM fallback: %#v", got)
+	}
+}
+
+func TestAnnotationRecoveryIgnoresStatementLocators(t *testing.T) {
+	payload := `{
+		"library": {
+			"identifier": {"id": "Ann", "version": "1.0.0"},
+			"annotation": [{
+				"type": "Annotation",
+				"s": {
+					"s": [
+						{"value": ["library Ann version '1.0.0'\n"]},
+						{"value": ["context Patient\n"]},
+						{"value": ["define \"X\": true\n"]}
+					]
+				}
+			}],
+			"statements": {
+				"def": [{
+					"name": "X",
+					"context": "Patient",
+					"annotation": [{
+						"type": "Annotation",
+						"s": {"s": [{"value": ["define \"Scrambled\": garbage\n"]}]}
+					}],
+					"expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"}
+				}]
+			}
+		}
+	}`
+	env := elmLibraryEnvelope(t, payload)
+	src, _, _, _, err := EnvelopeLibrary(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(src, "Scrambled") {
+		t.Fatalf("statement annotations leaked into recovered CQL: %s", src)
+	}
+	if !strings.Contains(src, `define "X": true`) {
+		t.Fatalf("library annotation source: %s", src)
+	}
+}
+
+func TestInvalidIntervalBoundFails(t *testing.T) {
+	_, err := parseELMExpr(map[string]any{
+		"type": "Interval",
+		"low":  "broken",
+		"high": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "10"},
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected invalid low bound error, got %v", err)
+	}
+	n, err := parseELMExpr(map[string]any{
+		"type": "Interval",
+		"high": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "10"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, ok := n.(*intervalNode)
+	if !ok || iv.low != nil || iv.high == nil {
+		t.Fatalf("missing low should be nil: %#v", n)
+	}
+}
+
+func TestInvalidIfElseFails(t *testing.T) {
+	_, err := parseELMExpr(map[string]any{
+		"type":      "If",
+		"condition": map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"},
+		"then":      map[string]any{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"},
+		"else":      "broken",
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("expected invalid else error, got %v", err)
+	}
+}
+
+func TestCalculateAgeUsesOperandUnlessPatientBirthDate(t *testing.T) {
+	src := `{
+		"library": {
+			"identifier": {"id": "AgeLib", "version": "1.0.0"},
+			"statements": {"def": [
+				{
+					"name": "FromBirth",
+					"context": "Patient",
+					"expression": {
+						"type": "CalculateAge",
+						"precision": "Year",
+						"operand": {"type": "Property", "path": "birthDate", "source": {"type": "ExpressionRef", "name": "Patient"}}
+					}
+				},
+				{
+					"name": "FromDate",
+					"context": "Patient",
+					"expression": {
+						"type": "CalculateAge",
+						"precision": "Year",
+						"operand": {"type": "Date", "year": 2010, "month": 1, "day": 1}
+					}
+				}
+			]}
+		}
+	}`
+	eng := testEngine(t)
+	lib, err := eng.ParseELM([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "FromBirth", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(26) {
+		t.Fatalf("Patient birthDate age: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "FromDate", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(16) {
+		t.Fatalf("CalculateAge of 2010-01-01: %#v", got)
+	}
+}
+
+func TestELMLibraryContextPrefersDeclaredThenPatient(t *testing.T) {
+	declared := `{
+		"library": {
+			"identifier": {"id": "Ctx", "version": "1.0.0"},
+			"contexts": {"def": [{"name": "Patient"}]},
+			"statements": {"def": [
+				{"name": "X", "context": "Patient", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"}},
+				{"name": "Y", "context": "Unfiltered", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}}
+			]}
+		}
+	}`
+	lib, err := parseELMLibrary([]byte(declared))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Context != "Patient" {
+		t.Fatalf("contexts.def should win, got %q", lib.Context)
+	}
+	mixed := `{
+		"library": {
+			"identifier": {"id": "Ctx", "version": "1.0.0"},
+			"statements": {"def": [
+				{"name": "X", "context": "Patient", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Boolean", "value": "true"}},
+				{"name": "Y", "context": "Unfiltered", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}}
+			]}
+		}
+	}`
+	lib, err = parseELMLibrary([]byte(mixed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Context != "Patient" {
+		t.Fatalf("any Patient statement should win, got %q", lib.Context)
+	}
+	unfiltered := `{
+		"library": {
+			"identifier": {"id": "Ctx", "version": "1.0.0"},
+			"statements": {"def": [
+				{"name": "Y", "context": "Unfiltered", "expression": {"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}}
+			]}
+		}
+	}`
+	lib, err = parseELMLibrary([]byte(unfiltered))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Context != "Unfiltered" {
+		t.Fatalf("unfiltered-only: got %q", lib.Context)
+	}
+}
+
+func TestELMRetrieveCodesList(t *testing.T) {
+	n, err := parseELMExpr(map[string]any{
+		"type":     "Retrieve",
+		"dataType": "{http://hl7.org/fhir}Observation",
+		"codes": map[string]any{
+			"type": "List",
+			"element": []any{
+				map[string]any{"type": "CodeRef", "name": "HeartRate"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := n.(*retrieveNode)
+	if !ok {
+		t.Fatalf("retrieve: %#v", n)
+	}
+	if r.terminology != "HeartRate" || r.comparator != "=" {
+		t.Fatalf("list codes: %+v", r)
+	}
+}

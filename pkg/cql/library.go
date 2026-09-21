@@ -69,24 +69,25 @@ func libraryCQLSource(lib fhirLibrary) (string, error) {
 }
 
 func loadLibraryPayload(lib fhirLibrary) (source string, elm []byte, err error) {
-	var elmOnly bool
-	var elmXML bool
 	for _, c := range lib.Content {
 		ct := strings.ToLower(strings.TrimSpace(c.ContentType))
-		if isCQLContentType(ct) {
-			if strings.TrimSpace(c.Data) == "" {
-				continue
-			}
-			raw, decErr := decodeLibraryData(c.Data)
-			if decErr != nil {
-				return "", nil, decErr
-			}
-			src := strings.TrimSpace(string(raw))
-			if src == "" {
-				continue
-			}
+		if !isCQLContentType(ct) || strings.TrimSpace(c.Data) == "" {
+			continue
+		}
+		raw, decErr := decodeLibraryData(c.Data)
+		if decErr != nil {
+			return "", nil, decErr
+		}
+		src := strings.TrimSpace(string(raw))
+		if src != "" {
 			return src, nil, nil
 		}
+	}
+	var elmOnly bool
+	var elmXML bool
+	var recovered string
+	for _, c := range lib.Content {
+		ct := strings.ToLower(strings.TrimSpace(c.ContentType))
 		if !isELMContentType(ct) {
 			continue
 		}
@@ -101,13 +102,16 @@ func loadLibraryPayload(lib fhirLibrary) (source string, elm []byte, err error) 
 		if decErr != nil {
 			return "", nil, decErr
 		}
-		if src := recoverCQLFromELM(raw); src != "" {
-			return src, raw, nil
+		if recovered == "" {
+			recovered = recoverCQLFromELM(raw)
 		}
 		if looksLikeJSONObject(raw) {
 			elm = raw
 			elmXML = false
 		}
+	}
+	if recovered != "" {
+		return recovered, elm, nil
 	}
 	if len(elm) > 0 {
 		return "", elm, nil
@@ -231,7 +235,13 @@ func compileLibraryJSON(engine *Engine, data []byte) (*Library, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(src) != "" {
-		return compileLibrarySource(engine, src, lib.URL, lib.Name, lib.Version)
+		compiled, cqlErr := compileLibrarySource(engine, src, lib.URL, lib.Name, lib.Version)
+		if cqlErr == nil {
+			return compiled, nil
+		}
+		if len(elm) == 0 {
+			return nil, cqlErr
+		}
 	}
 	if len(elm) > 0 {
 		compiled, err := engine.ParseELM(elm)

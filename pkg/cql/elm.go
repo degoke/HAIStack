@@ -116,15 +116,21 @@ func parseELMLibrary(data []byte) (*Library, error) {
 		}
 		lib.Parameters = append(lib.Parameters, param)
 	}
+	contextFromDecl := false
 	for _, ctx := range elmDefs(libObj["contexts"]) {
 		if name := elmString(ctx["name"]); name != "" {
 			lib.Context = name
+			contextFromDecl = true
 		}
 	}
-	for _, def := range elmDefs(libObj["statements"]) {
+	stmts := elmDefs(libObj["statements"])
+	for _, def := range stmts {
 		if err := appendELMStatement(lib, def); err != nil {
 			return nil, err
 		}
+	}
+	if !contextFromDecl {
+		lib.Context = elmLibraryContext(stmts)
 	}
 	if len(lib.Defines) == 0 && len(lib.Functions) == 0 {
 		return nil, errf("%w: ELM library has no statements", ErrUnsupported)
@@ -133,13 +139,29 @@ func parseELMLibrary(data []byte) (*Library, error) {
 	return lib, nil
 }
 
+func elmLibraryContext(stmts []map[string]any) string {
+	last := "Patient"
+	sawPatient := false
+	for _, def := range stmts {
+		ctx := elmString(def["context"])
+		if ctx == "" {
+			continue
+		}
+		last = ctx
+		if strings.EqualFold(ctx, "Patient") {
+			sawPatient = true
+		}
+	}
+	if sawPatient {
+		return "Patient"
+	}
+	return last
+}
+
 func appendELMStatement(lib *Library, def map[string]any) error {
 	name := elmString(def["name"])
 	if name == "" {
 		return nil
-	}
-	if ctx := elmString(def["context"]); ctx != "" {
-		lib.Context = ctx
 	}
 	if isELMContextPatientDef(def) {
 		return nil
@@ -258,7 +280,7 @@ func recoverCQLFromELM(raw []byte) string {
 	if looksLikeCQL(best) {
 		return strings.TrimSpace(best)
 	}
-	if src := flattenELMAnnotation(v); looksLikeCQL(src) {
+	if src := flattenLibraryAnnotation(v); looksLikeCQL(src) {
 		return strings.TrimSpace(src)
 	}
 	return ""
@@ -281,9 +303,17 @@ func walkCQLStrings(v any, found *[]string) {
 	}
 }
 
-func flattenELMAnnotation(v any) string {
+func flattenLibraryAnnotation(v any) string {
+	obj, ok := asObject(v)
+	if !ok {
+		return ""
+	}
+	libObj := obj
+	if inner, ok := asObject(obj["library"]); ok {
+		libObj = inner
+	}
 	var b strings.Builder
-	collectELMAnnotation(v, &b, false)
+	collectELMAnnotation(libObj["annotation"], &b, false)
 	return b.String()
 }
 
@@ -297,30 +327,18 @@ func collectELMAnnotation(v any, b *strings.Builder, inAnn bool) {
 		if t := elmString(x["type"]); strings.EqualFold(t, "Annotation") {
 			inAnn = true
 		}
-		if ann, ok := x["annotation"]; ok {
-			collectELMAnnotation(ann, b, true)
-		}
-		if inAnn {
-			if vals, ok := x["value"].([]any); ok {
-				for _, v := range vals {
-					if s, ok := v.(string); ok {
-						b.WriteString(s)
-					}
-				}
-			}
-			if s, ok := x["s"]; ok {
-				collectELMAnnotation(s, b, true)
-			}
+		if !inAnn {
 			return
 		}
-		if s, ok := x["s"]; ok {
-			collectELMAnnotation(s, b, false)
-		}
-		for k, child := range x {
-			if k == "annotation" || k == "s" {
-				continue
+		if vals, ok := x["value"].([]any); ok {
+			for _, v := range vals {
+				if s, ok := v.(string); ok {
+					b.WriteString(s)
+				}
 			}
-			collectELMAnnotation(child, b, false)
+		}
+		if s, ok := x["s"]; ok {
+			collectELMAnnotation(s, b, true)
 		}
 	}
 }

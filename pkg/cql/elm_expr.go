@@ -36,8 +36,14 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 	case "Date", "DateTime", "Time":
 		return parseELMTemporal(obj, typ)
 	case "Interval":
-		low, _ := parseELMChild(obj, "low")
-		high, _ := parseELMChild(obj, "high")
+		low, err := parseELMOptional(obj, "low")
+		if err != nil {
+			return nil, err
+		}
+		high, err := parseELMOptional(obj, "high")
+		if err != nil {
+			return nil, err
+		}
 		lowClosed, highClosed := true, true
 		if v, ok := obj["lowClosed"]; ok {
 			lowClosed = elmBool(v)
@@ -109,7 +115,10 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		elseN, _ := parseELMChild(obj, "else")
+		elseN, err := parseELMOptional(obj, "else")
+		if err != nil {
+			return nil, err
+		}
 		return &ifNode{cond: cond, thenN: thenN, elseN: elseN}, nil
 	case "Case":
 		return parseELMCase(obj)
@@ -434,26 +443,55 @@ func parseELMRetrieve(obj map[string]any) (Node, error) {
 	}
 	n.codePath = firstNonEmpty(elmString(obj["codeProperty"]), elmString(obj["codePath"]))
 	if codes, ok := asObject(obj["codes"]); ok {
-		switch elmType(codes) {
-		case "ValueSetRef":
-			n.terminology = firstNonEmpty(elmString(codes["name"]), elmString(codes["id"]))
-			if n.comparator == "" {
-				n.comparator = "in"
-			}
-		case "CodeRef", "ConceptRef":
-			n.terminology = firstNonEmpty(elmString(codes["name"]), elmString(codes["id"]))
-			if n.comparator == "in" {
-				n.comparator = "="
-			}
-		case "ToList":
-			if inner, ok := asObject(codes["operand"]); ok {
-				n.terminology = firstNonEmpty(elmString(inner["name"]), elmString(inner["id"]))
-			}
-		default:
-			n.terminology = firstNonEmpty(elmString(codes["name"]), elmString(codes["id"]))
-		}
+		term, cmp := elmRetrieveCodes(codes, n.comparator)
+		n.terminology = term
+		n.comparator = cmp
+	} else if list := elmList(obj["codes"]); len(list) > 0 {
+		term, cmp := elmRetrieveCodes(list[0], n.comparator)
+		n.terminology = term
+		n.comparator = cmp
 	}
 	return n, nil
+}
+
+func elmRetrieveCodes(codes map[string]any, cmp string) (string, string) {
+	if codes == nil {
+		return "", cmp
+	}
+	switch elmType(codes) {
+	case "ValueSetRef":
+		if cmp == "" {
+			cmp = "in"
+		}
+		return firstNonEmpty(elmString(codes["name"]), elmString(codes["id"])), cmp
+	case "CodeRef", "ConceptRef":
+		if cmp == "in" {
+			cmp = "="
+		}
+		return firstNonEmpty(elmString(codes["name"]), elmString(codes["id"])), cmp
+	case "ToList":
+		if inner, ok := asObject(codes["operand"]); ok {
+			return elmRetrieveCodes(inner, cmp)
+		}
+		ops := elmList(codes["operand"])
+		if len(ops) > 0 {
+			return elmRetrieveCodes(ops[0], cmp)
+		}
+	case "List":
+		elems := elmList(codes["element"])
+		if len(elems) > 0 {
+			return elmRetrieveCodes(elems[0], cmp)
+		}
+	default:
+		if name := firstNonEmpty(elmString(codes["name"]), elmString(codes["id"])); name != "" {
+			return name, cmp
+		}
+		elems := elmList(codes["element"])
+		if len(elems) > 0 {
+			return elmRetrieveCodes(elems[0], cmp)
+		}
+	}
+	return "", cmp
 }
 
 func parseELMQuery(obj map[string]any) (Node, error) {
@@ -554,7 +592,10 @@ func parseELMQuery(obj map[string]any) (Node, error) {
 		}
 		var starting Node
 		if _, ok := asObject(agg["starting"]); ok {
-			starting, _ = parseELMChild(agg, "starting")
+			starting, err = parseELMChild(agg, "starting")
+			if err != nil {
+				return nil, err
+			}
 		}
 		q.agg = &aggregateNode{
 			name:     firstNonEmpty(elmString(agg["identifier"]), elmString(agg["name"])),
@@ -616,16 +657,56 @@ func parseELMFunctionRef(obj map[string]any) (Node, error) {
 }
 
 func parseELMAge(obj map[string]any, typ string) (Node, error) {
-	if typ == "CalculateAgeAt" {
-		ops, err := parseELMOperands(obj)
-		if err != nil {
-			return nil, err
-		}
-		if len(ops) >= 2 {
-			return &callNode{callee: &identNode{name: "AgeInYearsAt"}, args: []Node{ops[1]}}, nil
-		}
+	precision := strings.ToLower(elmString(obj["precision"]))
+	if precision == "" {
+		precision = "year"
 	}
-	return &callNode{callee: &identNode{name: "AgeInYears"}, args: nil}, nil
+	ops, err := parseELMOperands(obj)
+	if err != nil {
+		return nil, err
+	}
+	var birth, at Node
+	if len(ops) > 0 {
+		birth = ops[0]
+	}
+	if typ == "CalculateAgeAt" && len(ops) >= 2 {
+		at = ops[1]
+	}
+	if birth == nil || isELMPatientBirthDate(birth) {
+		if at != nil {
+			return &callNode{callee: &identNode{name: "AgeInYearsAt"}, args: []Node{at}}, nil
+		}
+		return &callNode{callee: &identNode{name: "AgeInYears"}, args: nil}, nil
+	}
+	asOf := at
+	if asOf == nil {
+		asOf = &callNode{callee: &identNode{name: "Today"}, args: nil}
+	}
+	return &durationNode{unit: precision, left: birth, right: asOf}, nil
+}
+
+func isELMPatientBirthDate(n Node) bool {
+	var parts []string
+	cur := n
+	for {
+		mem, ok := cur.(*memberNode)
+		if !ok {
+			break
+		}
+		parts = append([]string{mem.name}, parts...)
+		cur = mem.x
+	}
+	id, ok := cur.(*identNode)
+	if !ok || !strings.EqualFold(id.name, "Patient") || len(parts) == 0 {
+		return false
+	}
+	if !strings.EqualFold(parts[0], "birthDate") {
+		return false
+	}
+	if len(parts) == 1 {
+		return true
+	}
+	return len(parts) == 2 && strings.EqualFold(parts[1], "value")
 }
 
 func parseELMCallFallback(obj map[string]any, typ string) (Node, error) {
@@ -648,6 +729,18 @@ func parseELMChild(obj map[string]any, key string) (Node, error) {
 	child, ok := asObject(obj[key])
 	if !ok {
 		return nil, errf("%w: ELM %s is missing", ErrUnsupported, key)
+	}
+	return parseELMExpr(child)
+}
+
+func parseELMOptional(obj map[string]any, key string) (Node, error) {
+	v, ok := obj[key]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	child, ok := asObject(v)
+	if !ok {
+		return nil, errf("%w: ELM %s is invalid", ErrUnsupported, key)
 	}
 	return parseELMExpr(child)
 }
