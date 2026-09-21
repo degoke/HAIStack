@@ -10,10 +10,11 @@
 //
 // v1 supports:
 //
-//   - Internal trigger registration (resource type + create/update/delete event,
-//     optional changed-field filters, optional FHIRPath predicates)
+//   - Internal trigger registration (resource type + create/update/delete/change
+//     event, optional changed-field filters, optional FHIRPath predicates)
 //   - A narrow adapter from a supported subset of FHIR Subscription resources
-//     (rest-hook channel only; Subscription.criteria is parsed with pkg/search)
+//     (rest-hook channel only; Subscription.criteria is parsed with pkg/search
+//     and notifies on create and update, not delete)
 //   - Webhook (HTTP) and local (in-process handler) delivery channels
 //   - Durable delivery logging and retries backed by pkg/jobs
 //   - Postgres-first and SQLite edge persistence without Kafka/NATS
@@ -23,7 +24,8 @@
 //   - WebSocket, email, SMS, or message channel types (FHIR adapter is rest-hook only)
 //   - Dead-letter queues or full delivery audit expansion
 //   - Tenant semantics in the core API (Postgres scoping is via TenantDB wiring)
-//   - Chained, _include, _revinclude, or full-text Subscription.criteria
+//   - Chained, _include, _revinclude, full-text, modifiers, or prefixes in
+//     Subscription.criteria
 //
 // # Public API
 //
@@ -55,15 +57,17 @@
 //	    Trigger{ResourceType: "Observation", Event: TriggerEventCreate,
 //	            FilterFHIRPath: "code.coding.code = '8867-4'"}
 //
-//	Observation.created matching search criteria:
-//	    Trigger{ResourceType: "Observation", Event: TriggerEventCreate,
+//	Observation matching search criteria (create and update):
+//	    Trigger{ResourceType: "Observation", Event: TriggerEventChange,
 //	            Criteria: "Observation?code=8867-4", FilterParams: parsed.Params}
 //
 // FilterFHIRPath is evaluated with pkg/fhirpath against the current resource on
 // create/update. FilterParams are parsed from Subscription.criteria with
-// search.ParseQuery and matched with search.MatchResourceParameter. Changed-field
-// matching compares top-level JSON fields between the previous history snapshot
-// and the current resource.
+// search.ParseQuery and matched with search.MatchResourceParameter. Matcher.Registry
+// must be set when FilterParams is used; a nil registry returns ErrNilRegistry.
+// Changed-field matching compares top-level JSON fields between the previous
+// history snapshot and the current resource. FHIR adapter criteria use
+// TriggerEventChange so matching resources notify on create and update, not delete.
 //
 // # Store contracts
 //
@@ -121,7 +125,7 @@
 //
 //  1. Processor.RunOnce/RunLoop reads EventStore.ReadSince using CursorStore.
 //  2. For each event, active subscriptions are loaded by resource type and event
-//     kind.
+//     kind (create/update also load TriggerEventChange FHIR criteria).
 //  3. Matcher evaluates changed fields (via history) and FHIRPath filters.
 //  4. On match, one delivery job is enqueued per subscription-event pair.
 //  5. DeliveryWorker resolves subscription context, dispatches via webhook or

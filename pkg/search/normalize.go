@@ -3,6 +3,7 @@ package search
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +132,9 @@ func normalizeStringValue(v fhirpath.Value) []string {
 func normalizeTokenValue(v fhirpath.Value) []string {
 	if tokens := enumTokenValue(v.Raw()); len(tokens) > 0 {
 		return tokens
+	}
+	if b, err := v.Bool(); err == nil {
+		return []string{strconv.FormatBool(b)}
 	}
 	switch val := v.Raw().(type) {
 	case *dtpb.Identifier:

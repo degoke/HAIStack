@@ -7,12 +7,13 @@ the existing event log — they do not hook into `pkg/core` writes.
 ## What it does
 
 - **Internal trigger model** — register subscriptions on resource type + event
-  (`create`, `update`, `delete`), optional changed-field filters, and optional
-  FHIRPath predicates
+  (`create`, `update`, `delete`, or `change` for create+update), optional
+  changed-field filters, and optional FHIRPath predicates
 - **FHIR adapter** — mapping from a supported subset of FHIR
   `Subscription` resources into the internal model (`RegisterFromFHIRSubscription`).
   Channel type is **rest-hook only**. `Subscription.criteria` is parsed with
-  `search.ParseQuery` (for example `Patient?active=true`).
+  `search.ParseQuery` (for example `Patient?active=true`) and notifies on
+  **create and update** of matching resources, not delete.
 - **Event processor** — reads `EventStore` since a `CursorStore` checkpoint,
   matches active subscriptions, and enqueues delivery jobs
 - **Durable delivery** — webhook (HTTP) and local (in-process handler) channels
@@ -25,7 +26,10 @@ It does **not** (v1):
 - Dead-letter queues or full delivery audit expansion
 - Kafka/NATS or a separate queue service
 - Tenant semantics in the core API (Postgres scoping is via `TenantDB` wiring)
-- Chained, `_include`, `_revinclude`, or full-text `Subscription.criteria`
+- Chained, `_include`, `_revinclude`, full-text, modifiers (`:not`, `:exact`),
+  or comparator prefixes in `Subscription.criteria`
+- Delete notifications from FHIR `Subscription.criteria` (use an internal
+  `TriggerEventDelete` subscription if you need deletes)
 
 ```
 pkg/core (write)  →  EventStore  →  subscriptions.Processor  →  JobStore
@@ -49,7 +53,7 @@ pkg/core (write)  →  EventStore  →  subscriptions.Processor  →  JobStore
 | Record | Fields |
 |--------|--------|
 | `SubscriptionRecord` | ID, name, status, trigger, channel, retry policy, timestamps |
-| `Trigger` | `ResourceType`, `Event`, optional `ChangedFields`, optional `FilterFHIRPath`, optional search `Criteria` / `FilterParams` |
+| `Trigger` | `ResourceType`, `Event` (`create`/`update`/`delete`/`change`), optional `ChangedFields`, optional `FilterFHIRPath`, optional search `Criteria` / `FilterParams` |
 | `Channel` | `webhook` or `local` with `WebhookConfig` / `LocalConfig` |
 | `DeliveryRecord` | Subscription ID, event sequence, attempt, status, response/error metadata |
 
@@ -106,6 +110,12 @@ subscriptions.Trigger{
 
 ### 2. Run the event processor
 
+Set `Matcher.Registry` to the search parameter registry whenever subscriptions
+use `FilterParams` / FHIR `Subscription.criteria`. A nil registry returns
+`ErrNilRegistry` instead of silently skipping matches. `pkg/runtime` does not
+wire the subscription processor; hosts that start it must pass both Engine and
+Registry.
+
 ```go
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
 
@@ -116,7 +126,7 @@ processor := &subscriptions.Processor{
     Jobs:          db.JobStore(),
     Resources:     db.ResourceStore(),
     History:       db.HistoryStore(),
-    Matcher:       &subscriptions.Matcher{Engine: engine},
+    Matcher:       &subscriptions.Matcher{Engine: engine, Registry: searchRegistry},
     Scope:         "default",
 }
 
@@ -155,10 +165,17 @@ go runner.RunOnce(ctx) // or wrap jobs.Runner in a loop
 
 ### 4. FHIR Subscription adapter (supported subset)
 
+FHIR R4 `Subscription.criteria` is rest-hook only and fires on **create and
+update** of matching resources (internal event `change`). Equality search
+parameters work — for example `Patient?active=true` matches a Patient whose
+`active` token is true. Hosts must set `Matcher.Registry` (and `Matcher.Engine`)
+when processing criteria subscriptions; a nil registry returns
+`subscriptions.ErrNilRegistry` instead of a silent miss.
+
 ```go
 rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
     Status:   "active",
-    Criteria: "Patient",                    // simple resource type only
+    Criteria: "Patient?active=true",
     Channel: subscriptions.FHIRSubscriptionChannel{
         Type:     "rest-hook",
         Endpoint: "https://example.test/hook",
@@ -168,7 +185,8 @@ rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscription
 ```
 
 Unsupported shapes return `subscriptions.ErrUnsupportedFHIR` — e.g.
-`Patient?active=true`, `websocket` channel type.
+`Patient?active:not=true`, `_include` / chained parameters, `websocket`
+channel type.
 
 Parse from FHIR JSON:
 

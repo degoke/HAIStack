@@ -14,6 +14,9 @@ const (
 	TriggerEventCreate TriggerEvent = "create"
 	TriggerEventUpdate TriggerEvent = "update"
 	TriggerEventDelete TriggerEvent = "delete"
+	// TriggerEventChange matches create and update (FHIR R4 Subscription.criteria),
+	// but not delete.
+	TriggerEventChange TriggerEvent = "change"
 )
 
 // Trigger defines when a subscription should fire.

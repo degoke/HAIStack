@@ -79,7 +79,7 @@ func triggerFromFHIR(criteria string, extensions []map[string]any) (Trigger, err
 	}
 	trigger := Trigger{
 		ResourceType: resourceType,
-		Event:        TriggerEventCreate,
+		Event:        TriggerEventChange,
 		Criteria:     criteria,
 	}
 	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
@@ -91,11 +91,8 @@ func triggerFromFHIR(criteria string, extensions []map[string]any) (Trigger, err
 		if err != nil {
 			return Trigger{}, fmt.Errorf("%w: parse criteria: %v", ErrUnsupportedFHIR, err)
 		}
-		if len(parsed.Includes) > 0 || len(parsed.RevIncludes) > 0 || len(parsed.Chains) > 0 {
-			return Trigger{}, fmt.Errorf("%w: criteria includes, revincludes, and chained parameters are not supported", ErrUnsupportedFHIR)
-		}
-		if parsed.FullText != "" {
-			return Trigger{}, fmt.Errorf("%w: full-text criteria are not supported", ErrUnsupportedFHIR)
+		if err := rejectUnsupportedCriteria(parsed); err != nil {
+			return Trigger{}, err
 		}
 		trigger.FilterParams = parsed.Params
 	}
@@ -103,6 +100,32 @@ func triggerFromFHIR(criteria string, extensions []map[string]any) (Trigger, err
 		trigger.FilterFHIRPath = filter
 	}
 	return trigger, nil
+}
+
+func rejectUnsupportedCriteria(parsed *search.Query) error {
+	if parsed == nil {
+		return nil
+	}
+	if len(parsed.Includes) > 0 || len(parsed.RevIncludes) > 0 || len(parsed.Chains) > 0 {
+		return fmt.Errorf("%w: criteria includes, revincludes, and chained parameters are not supported", ErrUnsupportedFHIR)
+	}
+	if parsed.FullText != "" {
+		return fmt.Errorf("%w: full-text criteria are not supported", ErrUnsupportedFHIR)
+	}
+	for _, clause := range parsed.Params {
+		if strings.TrimSpace(clause.Modifier) != "" {
+			return fmt.Errorf("%w: criteria modifiers are not supported", ErrUnsupportedFHIR)
+		}
+		for _, value := range clause.Values {
+			if strings.TrimSpace(value.Prefix) != "" {
+				return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
+			}
+			if value.Operator != "" && value.Operator != search.OpEqual {
+				return fmt.Errorf("%w: criteria operators other than eq are not supported", ErrUnsupportedFHIR)
+			}
+		}
+	}
+	return nil
 }
 
 func channelFromFHIR(ch FHIRSubscriptionChannel, payload string) (Channel, error) {

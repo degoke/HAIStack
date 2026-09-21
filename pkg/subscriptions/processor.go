@@ -95,11 +95,7 @@ func (p *Processor) RunLoop(ctx context.Context, idle time.Duration) error {
 }
 
 func (p *Processor) processEvent(ctx context.Context, event store.ResourceEvent) error {
-	subs, err := p.Subscriptions.List(ctx, store.SubscriptionListQuery{
-		Status:       store.SubscriptionStatusActive,
-		ResourceType: event.ResourceType,
-		EventKind:    string(event.Action),
-	})
+	subs, err := p.listMatchingSubscriptions(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -138,6 +134,29 @@ func (p *Processor) processEvent(ctx context.Context, event store.ResourceEvent)
 		}
 	}
 	return nil
+}
+
+func (p *Processor) listMatchingSubscriptions(ctx context.Context, event store.ResourceEvent) ([]store.SubscriptionRecord, error) {
+	subs, err := p.Subscriptions.List(ctx, store.SubscriptionListQuery{
+		Status:       store.SubscriptionStatusActive,
+		ResourceType: event.ResourceType,
+		EventKind:    string(event.Action),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if event.Action == store.EventActionCreate || event.Action == store.EventActionUpdate {
+		changeSubs, err := p.Subscriptions.List(ctx, store.SubscriptionListQuery{
+			Status:       store.SubscriptionStatusActive,
+			ResourceType: event.ResourceType,
+			EventKind:    string(TriggerEventChange),
+		})
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, changeSubs...)
+	}
+	return subs, nil
 }
 
 func (p *Processor) loadResources(ctx context.Context, event store.ResourceEvent) (*types.ResourceEnvelope, *types.ResourceEnvelope, error) {

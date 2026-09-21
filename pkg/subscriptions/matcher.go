@@ -21,6 +21,10 @@ type MatchContext struct {
 }
 
 // Matcher evaluates subscription triggers against resource events.
+//
+// Registry is required when a trigger has FilterParams (FHIR Subscription.criteria).
+// Hosts must set Matcher.Registry to a search parameter registry; a nil Registry
+// returns ErrNilRegistry instead of silently failing to match.
 type Matcher struct {
 	Engine   fhirpath.Engine
 	Registry search.Registry
@@ -54,6 +58,9 @@ func (m *Matcher) Matches(ctx context.Context, trigger Trigger, mc MatchContext)
 		if resource == nil {
 			return false, nil
 		}
+		if m.Engine == nil {
+			return false, ErrNilEngine
+		}
 		ok, err := m.Engine.EvalBool(ctx, trigger.FilterFHIRPath, resource)
 		if err != nil {
 			return false, err
@@ -66,7 +73,10 @@ func (m *Matcher) Matches(ctx context.Context, trigger Trigger, mc MatchContext)
 		if resource == nil {
 			return false, nil
 		}
-		ok := m.matchesSearchCriteria(ctx, trigger.ResourceType, trigger.FilterParams, resource)
+		ok, err := m.matchesSearchCriteria(ctx, trigger.ResourceType, trigger.FilterParams, resource)
+		if err != nil {
+			return false, err
+		}
 		if !ok {
 			return false, nil
 		}
@@ -74,9 +84,12 @@ func (m *Matcher) Matches(ctx context.Context, trigger Trigger, mc MatchContext)
 	return true, nil
 }
 
-func (m *Matcher) matchesSearchCriteria(ctx context.Context, resourceType string, clauses []search.ParamClause, resource *types.ResourceEnvelope) bool {
-	if m.Registry == nil || m.Engine == nil {
-		return false
+func (m *Matcher) matchesSearchCriteria(ctx context.Context, resourceType string, clauses []search.ParamClause, resource *types.ResourceEnvelope) (bool, error) {
+	if m.Registry == nil {
+		return false, ErrNilRegistry
+	}
+	if m.Engine == nil {
+		return false, ErrNilEngine
 	}
 	for _, clause := range clauses {
 		want := make([]string, 0, len(clause.Values))
@@ -88,10 +101,10 @@ func (m *Matcher) matchesSearchCriteria(ctx context.Context, resourceType string
 		}
 		matched, known := search.MatchResourceParameter(ctx, m.Registry, m.Engine, resourceType, resource, clause.Code, want)
 		if !known || !matched {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func changedTopLevelFields(previous, current *types.ResourceEnvelope) ([]string, error) {

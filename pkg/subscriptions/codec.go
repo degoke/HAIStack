@@ -85,7 +85,7 @@ func validateTrigger(t Trigger) error {
 		return fmt.Errorf("%w: resource type is required", ErrInvalidTrigger)
 	}
 	switch t.Event {
-	case TriggerEventCreate, TriggerEventUpdate, TriggerEventDelete:
+	case TriggerEventCreate, TriggerEventUpdate, TriggerEventDelete, TriggerEventChange:
 	default:
 		return fmt.Errorf("%w: unsupported event %q", ErrInvalidTrigger, t.Event)
 	}
@@ -110,6 +110,9 @@ func validateChannel(ch Channel) error {
 }
 
 func eventActionMatches(trigger TriggerEvent, action store.EventAction) bool {
+	if trigger == TriggerEventChange {
+		return action == store.EventActionCreate || action == store.EventActionUpdate
+	}
 	return string(trigger) == string(action)
 }
 
