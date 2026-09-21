@@ -85,6 +85,6 @@ clean: ## Remove build artifacts and test binaries
 	rm -f coverage.out coverage.html
 	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
-ci: fmt-check vet lint test-race build ## Run all Go CI checks locally
+ci: fmt-check vet lint test-race build research ## Run all Go CI checks locally
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

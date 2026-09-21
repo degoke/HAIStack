@@ -39,9 +39,11 @@ make research-benchmarks      # Track A
 ```
 
 Each target runs the track's tests and a deterministic CLI (`go run`). No
-network services, API keys, or PHI are required. The required **CI** workflow
-(`.github/workflows/ci.yml`) runs `make research` as a blocking step. The
-dedicated `.github/workflows/research.yml` workflow runs the same target.
+network services, API keys, or PHI are required. Pull request CI is the
+required **CI** workflow (`.github/workflows/ci.yml`), which runs
+`make research` inside the `ci` job. Merge blocking depends on that GitHub
+check remaining required in branch protection; that setting cannot be
+encoded in repository files. There is no separate research workflow.
 
 ## How to cite
 

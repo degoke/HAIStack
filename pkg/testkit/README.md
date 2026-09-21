@@ -242,7 +242,9 @@ func TestAuthzScenarios(t *testing.T) {
 conformance matrices. OAuth success is not tested — only authorization outcomes.
 
 Machine-readable YAML catalogues (used by `research/policy-semantics`) load
-through `ParseYAML` / `ScenariosFromYAML`. Those cases assert
+through `ParseYAML` / `ScenariosFromYAML` and run with `RunYAML` (no Go
+`BaseConfig` kit). Every YAML principal must declare `tenant`; omitting it
+is an error, not a fallback to `TenantA`. Those cases assert
 `SMART.ScopeImplies ∩ pkg/auth policy`.
 
 ## Migration

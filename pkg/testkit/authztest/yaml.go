@@ -22,6 +22,7 @@ type YAMLFile struct {
 }
 
 // YAMLPrincipal is a SMART identity declared in the catalogue (not a Go fixture).
+// Tenant is required; there is no fallback to authztest.TenantA.
 type YAMLPrincipal struct {
 	ID       string   `yaml:"id"`
 	Kind     string   `yaml:"kind"`
@@ -78,6 +79,11 @@ func ParseYAML(data []byte) (YAMLFile, error) {
 	}
 	if len(file.Principals) == 0 {
 		return YAMLFile{}, fmt.Errorf("authztest: yaml catalogue has no principals")
+	}
+	for name, p := range file.Principals {
+		if strings.TrimSpace(p.Tenant) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: principal %q missing tenant", name)
+		}
 	}
 	return file, nil
 }
@@ -229,6 +235,9 @@ func resolveYAMLPrincipal(file YAMLFile, spec YAMLScenario) (YAMLPrincipal, erro
 	if p.ID == "" {
 		return YAMLPrincipal{}, fmt.Errorf("principal %q missing id", name)
 	}
+	if _, err := requireYAMLPrincipalTenant(name, p); err != nil {
+		return YAMLPrincipal{}, err
+	}
 	return p, nil
 }
 
@@ -288,9 +297,9 @@ func principalsFromYAML(file YAMLFile) ([]auth.Principal, error) {
 		if err != nil {
 			return nil, fmt.Errorf("authztest: principal %q: %w", name, err)
 		}
-		tenant := p.Tenant
-		if tenant == "" {
-			tenant = TenantA
+		tenant, err := requireYAMLPrincipalTenant(name, p)
+		if err != nil {
+			return nil, fmt.Errorf("authztest: %w", err)
 		}
 		roles := append([]string(nil), p.Roles...)
 		if len(roles) == 0 {
@@ -306,6 +315,14 @@ func principalsFromYAML(file YAMLFile) ([]auth.Principal, error) {
 		})
 	}
 	return out, nil
+}
+
+func requireYAMLPrincipalTenant(label string, p YAMLPrincipal) (string, error) {
+	tenant := strings.TrimSpace(p.Tenant)
+	if tenant == "" {
+		return "", fmt.Errorf("principal %q missing tenant", label)
+	}
+	return tenant, nil
 }
 
 func parseYAMLPrincipalKind(kind string) (auth.PrincipalKind, error) {
@@ -342,9 +359,9 @@ func adapterForYAMLPrincipal(p YAMLPrincipal) (*smart.AuthAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	tenant := p.Tenant
-	if tenant == "" {
-		tenant = TenantA
+	tenant, err := requireYAMLPrincipalTenant(p.ID, p)
+	if err != nil {
+		return nil, err
 	}
 	roles := append([]string(nil), p.Roles...)
 	if len(roles) == 0 {
@@ -382,9 +399,9 @@ func bundleForYAML(spec YAMLScenario, byName map[string]YAMLPrincipal) (*smart.A
 	if err != nil {
 		return nil, smart.AuthBundle{}, err
 	}
-	tenant := p.Tenant
-	if tenant == "" {
-		tenant = TenantA
+	tenant, err := requireYAMLPrincipalTenant(p.ID, p)
+	if err != nil {
+		return nil, smart.AuthBundle{}, err
 	}
 	if kind == auth.KindService && clientID == "" {
 		clientID = subject

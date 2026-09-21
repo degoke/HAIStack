@@ -50,6 +50,8 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
-      # Blocking research artefact checks (same target as research.yml).
+      # Merge-blocking research artefact checks. GitHub branch protection
+      # cannot be set from repository files; this step lives in the required
+      # `ci` job so research failures fail the existing required check.
       - name: Research artefacts
         run: make research

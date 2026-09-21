@@ -36,10 +36,9 @@ func run() error {
 	if len(scenarios) < 10 {
 		return fmt.Errorf("need at least 10 policy examples, got %d", len(scenarios))
 	}
-	kit := authztest.NewDefaultKit(authztest.MustEngineFromConfig(authztest.BaseConfig()))
 	ctx := context.Background()
 	for _, sc := range scenarios {
-		if err := sc.Run(ctx, kit); err != nil {
+		if err := sc.Run(ctx, nil); err != nil {
 			return err
 		}
 		fmt.Printf("ok  %s\n", sc.Name)

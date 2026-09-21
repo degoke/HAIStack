@@ -30,8 +30,7 @@ func TestYAMLIntersectionCatalogue(t *testing.T) {
 	if _, ok := file.Principals["clinician"]; !ok {
 		t.Fatal("testdata catalogue missing clinician principal")
 	}
-	kit := NewDefaultKit(DefaultEngine(t))
-	Run(t, scenarios, kit)
+	RunYAML(t, scenarios)
 }
 
 func TestParseYAMLRequiresPrincipals(t *testing.T) {
@@ -92,6 +91,89 @@ scenarios:
 	_, err = ScenariosFromYAML(file)
 	if err == nil {
 		t.Fatal("expected unknown principal error")
+	}
+}
+
+func TestParseYAMLRequiresPrincipalTenant(t *testing.T) {
+	_, err := ParseYAML([]byte(`
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read]
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: allow
+        effect: allow
+        match:
+          actions: [read]
+scenarios:
+  - name: missing_tenant
+    principal: clinician
+    action: read
+    resourceType: Patient
+    expectAllow: true
+`))
+	if err == nil {
+		t.Fatal("expected error for principal without tenant")
+	}
+	if !strings.Contains(err.Error(), `principal "clinician" missing tenant`) {
+		t.Fatalf("err = %v, want missing tenant", err)
+	}
+}
+
+func TestParseYAMLRejectsWhitespaceTenant(t *testing.T) {
+	_, err := ParseYAML([]byte(`
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read]
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: "   "
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: allow
+        effect: allow
+        match:
+          actions: [read]
+scenarios:
+  - name: blank_tenant
+    principal: clinician
+    action: read
+    resourceType: Patient
+    expectAllow: true
+`))
+	if err == nil {
+		t.Fatal("expected error for whitespace-only tenant")
+	}
+	if !strings.Contains(err.Error(), "missing tenant") {
+		t.Fatalf("err = %v, want missing tenant", err)
+	}
+}
+
+func TestAdapterForYAMLPrincipalRequiresTenant(t *testing.T) {
+	_, err := adapterForYAMLPrincipal(YAMLPrincipal{
+		ID:    "user-clinician",
+		Kind:  "user",
+		Roles: []string{"clinician"},
+	})
+	if err == nil {
+		t.Fatal("expected error for principal without tenant")
+	}
+	if !strings.Contains(err.Error(), "missing tenant") {
+		t.Fatalf("err = %v, want missing tenant", err)
 	}
 }
 

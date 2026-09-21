@@ -74,7 +74,7 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // Tool execution does not require a model adapter; this helper is for callers that
 // want to combine tool output with model generation in the same session.
 // When a model is actually invoked, the call is audited as
-// audit.ActionInvokeModel through the same AuditLogger seam as ExecuteTool.
+// audit.ActionInvokeModel via AuditLogger.LogModelInvoke, not LogToolAccess.
 func (e *Executor) InvokeModel(ctx context.Context, req ToolRequest, prompt, context string) (*ModelResponse, error) {
 	if e.cfg.RequireConversationID {
 		if err := validateConversationID(req.ConversationID); err != nil {
@@ -730,6 +730,15 @@ func (e *Executor) logAuditRecord(ctx context.Context, req ToolRequest, rec Audi
 	}
 	if rec.ConversationID == "" {
 		rec.ConversationID = req.ConversationID
+	}
+	if rec.CanonicalAction() == audit.ActionInvokeModel {
+		if err := e.cfg.Audit.LogModelInvoke(ctx, rec); err != nil {
+			if e.cfg.AuditRequired {
+				return fmt.Errorf("%w: %v", ErrAuditFailed, err)
+			}
+			return err
+		}
+		return nil
 	}
 	if err := e.cfg.Audit.LogToolAccess(ctx, rec); err != nil {
 		if e.cfg.AuditRequired {

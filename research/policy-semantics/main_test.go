@@ -21,8 +21,7 @@ func TestPolicySemanticsCatalogue(t *testing.T) {
 	if err := authztest.ValidateCatalog(scenarios); err != nil {
 		t.Fatal(err)
 	}
-	kit := authztest.NewDefaultKit(authztest.DefaultEngine(t))
-	authztest.Run(t, scenarios, kit)
+	authztest.RunYAML(t, scenarios)
 }
 
 func TestPolicySemanticsCLI(t *testing.T) {

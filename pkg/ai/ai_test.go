@@ -798,18 +798,51 @@ func TestExecutor_InvokeModelAudits(t *testing.T) {
 func TestAuditStoreAdapter_InvokeModelAction(t *testing.T) {
 	mem := audit.NewMemoryStore()
 	adapter := &ai.AuditStoreAdapter{Store: mem}
-	if err := adapter.LogToolAccess(context.Background(), ai.AuditRecord{
-		Action:   audit.ActionInvokeModel,
+	if err := adapter.LogModelInvoke(context.Background(), ai.AuditRecord{
 		ToolName: "stub-v1",
 		Actor:    "user-clinician",
 		Outcome:  audit.OutcomeSuccess,
 	}); err != nil {
-		t.Fatalf("LogToolAccess: %v", err)
+		t.Fatalf("LogModelInvoke: %v", err)
 	}
 	recs := mem.Records()
 	if len(recs) != 1 || recs[0].Action != audit.ActionInvokeModel || recs[0].ToolName != "stub-v1" {
 		t.Fatalf("records = %#v", recs)
 	}
+}
+
+func TestExecutor_InvokeModelCallsLogModelInvoke(t *testing.T) {
+	logger := &splitAuditLogger{}
+	exec, err := ai.NewExecutor(ai.Config{
+		Policy: ai.NewAllowListPolicy(),
+		Audit:  logger,
+		ModelRouter: &ai.ModelRouter{
+			Local: &fakeModelAdapter{name: "stub-v1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.InvokeModel(context.Background(), ai.ToolRequest{ModelHint: "local"}, "p", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if logger.tools != 0 || logger.models != 1 {
+		t.Fatalf("tools=%d models=%d, want InvokeModel to call only LogModelInvoke", logger.tools, logger.models)
+	}
+}
+
+type splitAuditLogger struct {
+	tools, models int
+}
+
+func (s *splitAuditLogger) LogToolAccess(context.Context, ai.AuditRecord) error {
+	s.tools++
+	return nil
+}
+
+func (s *splitAuditLogger) LogModelInvoke(context.Context, ai.AuditRecord) error {
+	s.models++
+	return nil
 }
 
 func TestRegistry_DuplicateRegistration(t *testing.T) {

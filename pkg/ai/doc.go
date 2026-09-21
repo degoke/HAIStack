@@ -102,7 +102,8 @@
 //
 // PolicyEngine is required. AllowListPolicy denies by default until explicit
 // allow-list entries are configured. AuditLogger is optional for local/test use;
-// production deployments should set Config.AuditRequired so missing or failed
+// implement both LogToolAccess (ExecuteTool) and LogModelInvoke (InvokeModel).
+// Production deployments should set Config.AuditRequired so missing or failed
 // audit persistence fails closed.
 //
 // # Integration points

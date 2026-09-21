@@ -32,7 +32,8 @@ test suite). YAML cases fail unless **both** SMART `ScopeImplies` and the
 policy engine allow the action. Policy documents, the role catalog, and
 principals are declared in `scenarios.yaml` (portable `pkg/auth` DSL), not as
 Go-named enums or hardcoded fixture IDs. YAML principal `id` / `kind` /
-`tenant` / `roles` drive the SMART adapter (not `SmartAdapter()` Go defaults).
+`tenant` / `roles` drive the SMART adapter. Tenant is required on every
+principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
 `policyRoleGrants` overlays extra role permissions per named policy
 (clinician `*.read` only for `observation-only`). Per-scenario `roleGrants`
 do the same for deny-by-default and first-match examples so those cases

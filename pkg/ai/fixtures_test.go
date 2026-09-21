@@ -486,6 +486,10 @@ func (a *fakeAuditLogger) LogToolAccess(_ context.Context, rec ai.AuditRecord) e
 	return nil
 }
 
+func (a *fakeAuditLogger) LogModelInvoke(_ context.Context, rec ai.AuditRecord) error {
+	return a.LogToolAccess(context.Background(), rec)
+}
+
 func (a *fakeAuditLogger) Records() []ai.AuditRecord {
 	a.mu.Lock()
 	defer a.mu.Unlock()
