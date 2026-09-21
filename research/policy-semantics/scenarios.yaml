@@ -245,6 +245,9 @@ scenarios:
     principal: clinician
     scopes: user/*.read
     policy: base
+    # Pass SMART RequiredPermissions (*.read from user/*.read) so allow is policy.
+    roleGrants:
+      clinician: ["*.read"]
     action: execute-view
     resourceType: Patient
     viewName: patient_summary_view
@@ -255,6 +258,8 @@ scenarios:
     principal: clinician
     scopes: user/*.read
     policy: base
+    roleGrants:
+      clinician: ["*.read"]
     action: execute-ai-tool
     resourceType: Observation
     toolName: run_view

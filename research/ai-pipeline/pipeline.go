@@ -358,12 +358,13 @@ func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, e
 	}
 	igRel := "modules/core/ig"
 	pin := ValidationProvenance{
-		FHIRVersion: lock.FHIRVersion,
-		IGPackage:   lock.IGPackage.Name,
-		IGVersion:   lock.IGPackage.Version,
-		Canonical:   lock.IGPackage.Canonical,
-		GitCommit:   lock.GitCommit,
-		Mode:        "r4-base-and-declared-ig",
+		FHIRVersion:           lock.FHIRVersion,
+		IGPackage:             lock.IGPackage.Name,
+		IGVersion:             lock.IGPackage.Version,
+		Canonical:             lock.IGPackage.Canonical,
+		ConformanceLockCommit: lock.GitCommit,
+		CheckoutCommit:        researchutil.CheckoutCommit(root),
+		Mode:                  "r4-base-and-declared-ig",
 		Profiles: []string{
 			validate.BaseStructureDefinitionURL("Patient"),
 			validate.BaseStructureDefinitionURL("Observation"),

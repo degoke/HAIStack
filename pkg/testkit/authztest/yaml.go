@@ -39,7 +39,8 @@ type YAMLPrincipal struct {
 // Policy names a document in YAMLFile.Policies. PolicyDocument embeds a
 // portable pkg/auth policy inline. Named Go policy enums are not used.
 // Principal names YAMLFile.Principals. RoleGrants overlay extra permissions
-// for this scenario only (in addition to PolicyRoleGrants).
+// for this scenario only (in addition to PolicyRoleGrants). Principal, scopes,
+// and policy (or PolicyDocument) are required.
 type YAMLScenario struct {
 	Name           string                       `yaml:"name"`
 	Doc            string                       `yaml:"doc"`
@@ -83,6 +84,17 @@ func ParseYAML(data []byte) (YAMLFile, error) {
 	for name, p := range file.Principals {
 		if strings.TrimSpace(p.Tenant) == "" {
 			return YAMLFile{}, fmt.Errorf("authztest: principal %q missing tenant", name)
+		}
+	}
+	for i, spec := range file.Scenarios {
+		if strings.TrimSpace(spec.Principal) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing principal", i, spec.Name)
+		}
+		if strings.TrimSpace(spec.Scopes) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing scopes", i, spec.Name)
+		}
+		if spec.PolicyDocument == nil && strings.TrimSpace(spec.Policy) == "" {
+			return YAMLFile{}, fmt.Errorf("authztest: yaml scenario[%d] %q missing policy", i, spec.Name)
 		}
 	}
 	return file, nil
@@ -167,25 +179,22 @@ func evaluateYAMLIntersection(ctx context.Context, eng *auth.Engine, adapter *sm
 		return scopeOK, decision, err
 	case auth.ActionExecuteView:
 		scopeOK = adapter.ScopeImplies(bundle, spec.ResourceType, smart.VerbRead)
-		decision, err = eng.CanExecuteView(ctx, auth.ViewRequest{
-			Principal:    bundle.Principal,
-			Tenant:       overlayTenant(bundle.Tenant, spec),
-			ViewName:     spec.ViewName,
-			ResourceType: spec.ResourceType,
-		})
+		req := adapter.ToViewRequest(bundle, spec.ViewName, spec.ResourceType)
+		req.Tenant = overlayTenant(req.Tenant, spec)
+		decision, err = eng.CanExecuteView(ctx, req)
 		return scopeOK, decision, err
 	case auth.ActionExecuteAITool:
 		scopeOK = adapter.ScopeImplies(bundle, spec.ResourceType, smart.VerbRead)
-		decision, err = eng.CanExecuteAITool(ctx, auth.AIToolRequest{
-			Principal:    bundle.Principal,
-			Tenant:       overlayTenant(bundle.Tenant, spec),
-			ToolName:     spec.ToolName,
-			ResourceType: spec.ResourceType,
-			ViewName:     spec.ViewName,
-		})
+		req := adapter.ToAIToolRequest(bundle, spec.ToolName, spec.ResourceType, spec.ViewName)
+		req.Tenant = overlayTenant(req.Tenant, spec)
+		decision, err = eng.CanExecuteAITool(ctx, req)
 		return scopeOK, decision, err
 	case auth.ActionPatientAccess:
-		scopeOK = true
+		resourceType := spec.ResourceType
+		if resourceType == "" {
+			resourceType = "Patient"
+		}
+		scopeOK = adapter.ScopeImplies(bundle, resourceType, smart.VerbRead)
 		req := adapter.ToPatientScopeRequest(bundle, spec.PatientID)
 		req.Tenant = overlayTenant(req.Tenant, spec)
 		decision, err = eng.CheckPatientScope(ctx, req)
@@ -212,9 +221,9 @@ func resolveYAMLPolicy(file YAMLFile, spec YAMLScenario) (auth.PolicyDocument, e
 	if spec.PolicyDocument != nil {
 		return *spec.PolicyDocument, nil
 	}
-	name := spec.Policy
+	name := strings.TrimSpace(spec.Policy)
 	if name == "" {
-		name = "base"
+		return auth.PolicyDocument{}, fmt.Errorf("missing policy (declare policy or policyDocument)")
 	}
 	doc, ok := file.Policies[name]
 	if !ok {
@@ -224,9 +233,9 @@ func resolveYAMLPolicy(file YAMLFile, spec YAMLScenario) (auth.PolicyDocument, e
 }
 
 func resolveYAMLPrincipal(file YAMLFile, spec YAMLScenario) (YAMLPrincipal, error) {
-	name := spec.Principal
+	name := strings.TrimSpace(spec.Principal)
 	if name == "" {
-		name = "clinician"
+		return YAMLPrincipal{}, fmt.Errorf("missing principal")
 	}
 	p, ok := file.Principals[name]
 	if !ok {
@@ -243,11 +252,8 @@ func resolveYAMLPrincipal(file YAMLFile, spec YAMLScenario) (YAMLPrincipal, erro
 
 func resolveYAMLRoles(file YAMLFile, spec YAMLScenario) []auth.Role {
 	roles := cloneYAMLRoles(file.Roles)
-	policyName := spec.Policy
-	if spec.PolicyDocument == nil && policyName == "" {
-		policyName = "base"
-	}
-	if policyName != "" {
+	policyName := strings.TrimSpace(spec.Policy)
+	if spec.PolicyDocument == nil && policyName != "" {
 		if grants, ok := file.PolicyRoleGrants[policyName]; ok {
 			roles = applyRoleGrants(roles, grants)
 		}
@@ -385,9 +391,9 @@ func bundleForYAML(spec YAMLScenario, byName map[string]YAMLPrincipal) (*smart.A
 	if err != nil {
 		return nil, smart.AuthBundle{}, err
 	}
-	scopesRaw := spec.Scopes
+	scopesRaw := strings.TrimSpace(spec.Scopes)
 	if scopesRaw == "" {
-		scopesRaw = "user/*.read"
+		return nil, smart.AuthBundle{}, fmt.Errorf("missing scopes")
 	}
 	scopes, err := smart.ParseScopes(scopesRaw)
 	if err != nil {

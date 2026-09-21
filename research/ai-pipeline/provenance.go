@@ -32,17 +32,20 @@ type FAIRMetadata struct {
 }
 
 // ValidationProvenance pins the FHIR/IG versions and the profiles actually
-// applied to pipeline inputs. IGPackage/IGVersion come from conformance-lock.json;
+// applied to pipeline inputs. IGPackage/IGVersion and ConformanceLockCommit
+// come from conformance-lock.json (the lock rewrite, not this checkout).
+// CheckoutCommit is the git revision of the tree that ran the pipeline.
 // Mode and Profiles record what the validator ran, not only the lock citation.
 type ValidationProvenance struct {
-	FHIRVersion string   `json:"fhirVersion"`
-	IGPackage   string   `json:"igPackage"`
-	IGVersion   string   `json:"igVersion"`
-	Canonical   string   `json:"canonical,omitempty"`
-	GitCommit   string   `json:"conformanceLockCommit,omitempty"`
-	Mode        string   `json:"mode"`
-	Profiles    []string `json:"profiles,omitempty"`
-	IGResources string   `json:"igResources,omitempty"`
+	FHIRVersion           string   `json:"fhirVersion"`
+	IGPackage             string   `json:"igPackage"`
+	IGVersion             string   `json:"igVersion"`
+	Canonical             string   `json:"canonical,omitempty"`
+	ConformanceLockCommit string   `json:"conformanceLockCommit,omitempty"`
+	CheckoutCommit        string   `json:"checkoutCommit,omitempty"`
+	Mode                  string   `json:"mode"`
+	Profiles              []string `json:"profiles,omitempty"`
+	IGResources           string   `json:"igResources,omitempty"`
 }
 
 // InputRecord is one hashed FHIR resource that entered the pipeline.

@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -53,9 +54,35 @@ type BenchReport struct {
 }
 
 func main() {
+	dumpDir := ""
 	size := os.Getenv("HAISTACK_BENCH_SIZE")
+	flag.StringVar(&dumpDir, "dump", "", "write generated synthetic FHIR JSON to DIR and exit")
+	flag.StringVar(&size, "size", size, "dataset size: small, medium, or large")
+	flag.Parse()
 	if size == "" {
 		size = SizeSmall
+	}
+	if dumpDir != "" {
+		if err := Dump(dumpDir, size); err != nil {
+			fmt.Fprintf(os.Stderr, "benchmarks: %v\n", err)
+			os.Exit(1)
+		}
+		spec := sizeFor(size)
+		summary := map[string]any{
+			"track":        "A",
+			"dump":         dumpDir,
+			"size":         spec.Name,
+			"seed":         datasetSeed,
+			"patients":     spec.Patients,
+			"observations": spec.Observations,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(summary); err != nil {
+			fmt.Fprintf(os.Stderr, "benchmarks: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	report, err := Run(context.Background(), size)
 	if err != nil {

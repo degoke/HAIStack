@@ -13,7 +13,9 @@ go run ./research/benchmarks
 ```
 
 By default the runner uses the **small** seed dataset (fast enough for
-CI). Override with `HAISTACK_BENCH_SIZE=medium|large`.
+CI). Override with `HAISTACK_BENCH_SIZE=medium|large` or `-size`.
+Write the same synthetic JSON for an external adapter with
+`go run ./research/benchmarks -dump DIR`.
 
 ## Contents
 

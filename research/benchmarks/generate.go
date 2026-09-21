@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/research/internal/researchutil"
@@ -89,4 +92,39 @@ func Generate(size string) (patients, observations []*types.ResourceEnvelope, er
 		observations = append(observations, env)
 	}
 	return patients, observations, nil
+}
+
+// Dump writes the seeded synthetic Patient and Observation JSON into dir
+// (resourceType/id.json plus manifest.json) for external adapter comparisons.
+func Dump(dir, size string) error {
+	if dir == "" {
+		return fmt.Errorf("dump directory is required")
+	}
+	patients, observations, err := Generate(size)
+	if err != nil {
+		return err
+	}
+	spec := sizeFor(size)
+	for _, env := range append(append([]*types.ResourceEnvelope{}, patients...), observations...) {
+		sub := filepath.Join(dir, env.ResourceType)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			return err
+		}
+		path := filepath.Join(sub, env.ID+".json")
+		if err := os.WriteFile(path, env.JSON, 0o644); err != nil {
+			return err
+		}
+	}
+	manifest, err := json.MarshalIndent(map[string]any{
+		"seed":         datasetSeed,
+		"size":         spec.Name,
+		"patients":     len(patients),
+		"observations": len(observations),
+		"synthetic":    true,
+		"phi":          false,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "manifest.json"), append(manifest, '\n'), 0o644)
 }

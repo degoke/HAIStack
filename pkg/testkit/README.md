@@ -243,9 +243,10 @@ conformance matrices. OAuth success is not tested — only authorization outcome
 
 Machine-readable YAML catalogues (used by `research/policy-semantics`) load
 through `ParseYAML` / `ScenariosFromYAML` and run with `RunYAML` (no Go
-`BaseConfig` kit). Every YAML principal must declare `tenant`; omitting it
-is an error, not a fallback to `TenantA`. Those cases assert
-`SMART.ScopeImplies ∩ pkg/auth policy`.
+`BaseConfig` kit). Every YAML principal must declare `tenant`; every
+scenario must declare `principal`, `scopes`, and `policy`. Omitting them
+is an error, not a fallback to `TenantA` / `clinician` / `user/*.read` /
+`base`. Those cases assert `SMART.ScopeImplies ∩ pkg/auth policy`.
 
 ## Migration
 

@@ -33,3 +33,13 @@ func TestRepoRoot(t *testing.T) {
 		t.Fatalf("root %s: %v", root, err)
 	}
 }
+
+func TestCheckoutCommit(t *testing.T) {
+	root, err := RepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := CheckoutCommit(root); got == "" {
+		t.Fatal("expected git checkout commit")
+	}
+}

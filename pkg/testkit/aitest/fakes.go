@@ -17,21 +17,28 @@ var (
 	_ ai.ModelAdapter = (*FakeModelAdapter)(nil)
 )
 
-// FakeAuditLogger records tool and model audit events.
+// FakeAuditLogger records tool and model audit events on separate methods.
 type FakeAuditLogger struct {
 	mu      sync.Mutex
 	Records []ai.AuditRecord
+	Tools   int
+	Models  int
 }
 
 func (a *FakeAuditLogger) LogToolAccess(_ context.Context, rec ai.AuditRecord) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.Records = append(a.Records, rec)
+	a.Tools++
 	return nil
 }
 
 func (a *FakeAuditLogger) LogModelInvoke(_ context.Context, rec ai.AuditRecord) error {
-	return a.LogToolAccess(context.Background(), rec)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Records = append(a.Records, rec)
+	a.Models++
+	return nil
 }
 
 // FakeApprovalHook returns a configured approval result.

@@ -63,6 +63,12 @@ func TestAIPipelineProvenanceChain(t *testing.T) {
 	if bundle.Validation.FHIRVersion == "" || bundle.Validation.IGPackage == "" {
 		t.Fatalf("validation pin missing: %+v", bundle.Validation)
 	}
+	if bundle.Validation.ConformanceLockCommit == "" {
+		t.Fatal("conformance lock commit missing")
+	}
+	if bundle.Validation.CheckoutCommit == "" {
+		t.Fatal("checkout commit missing (lock rewrite is not this tree)")
+	}
 	if bundle.Validation.Mode != "r4-base-and-declared-ig" {
 		t.Fatalf("validation mode = %q, want r4-base-and-declared-ig (actual profiles, not lock citation only)", bundle.Validation.Mode)
 	}

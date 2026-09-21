@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -46,5 +49,25 @@ func TestLoadWorkloadsEmbedded(t *testing.T) {
 	}
 	if len(wls) != 3 {
 		t.Fatalf("workloads = %d", len(wls))
+	}
+}
+
+func TestDumpWritesJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := Dump(dir, SizeSmall); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Patient", "pat-0000.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Observation", "obs-0000.json")); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"seed": 11`)) && !bytes.Contains(raw, []byte(`"seed":11`)) {
+		t.Fatalf("manifest = %s", raw)
 	}
 }

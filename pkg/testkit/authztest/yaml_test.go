@@ -81,6 +81,8 @@ policies:
 scenarios:
   - name: unknown_actor
     principal: ghost
+    scopes: user/*.read
+    policy: base
     action: read
     resourceType: Patient
     expectAllow: true
@@ -174,6 +176,49 @@ func TestAdapterForYAMLPrincipalRequiresTenant(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing tenant") {
 		t.Fatalf("err = %v, want missing tenant", err)
+	}
+}
+
+func TestParseYAMLRequiresScenarioPrincipalScopesPolicy(t *testing.T) {
+	base := `
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read]
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: allow
+        effect: allow
+        match:
+          actions: [read]
+`
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"principal", "  - name: x\n    scopes: user/*.read\n    policy: base\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing principal"},
+		{"scopes", "  - name: x\n    principal: clinician\n    policy: base\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing scopes"},
+		{"policy", "  - name: x\n    principal: clinician\n    scopes: user/*.read\n    action: read\n    resourceType: Patient\n    expectAllow: true\n", "missing policy"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseYAML([]byte(base + "scenarios:\n" + tc.body))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %s", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -300,5 +345,135 @@ scenarios:
 	}
 	if strings.Contains(decision.Reason, "missing required permissions") {
 		t.Fatalf("denied at RequiredPermissions, want unmatched policy: %s", decision.Reason)
+	}
+}
+
+func TestYAMLViewRequiresSMARTPermissions(t *testing.T) {
+	file, err := ParseYAML([]byte(`
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read, read-patient-summary]
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: view
+        effect: allow
+        match:
+          actions: [execute-view]
+          viewNames: [patient_summary_view]
+scenarios:
+  - name: view_missing_star_read
+    principal: clinician
+    scopes: user/*.read
+    policy: base
+    action: execute-view
+    resourceType: Patient
+    viewName: patient_summary_view
+    expectAllow: false
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := file.Scenarios[0]
+	doc, err := resolveYAMLPolicy(file, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := resolveYAMLRoles(file, spec)
+	principals, err := principalsFromYAML(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := engineForYAMLPolicy(doc, roles, principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, bundle, err := bundleForYAML(spec, file.Principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeOK, decision, err := evaluateYAMLIntersection(context.Background(), eng, adapter, bundle, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scopeOK {
+		t.Fatal("user/*.read should imply Patient read")
+	}
+	if decision.Allowed {
+		t.Fatal("expected deny at RequiredPermissions without clinician *.read")
+	}
+	if !strings.Contains(decision.Reason, "required permission") {
+		t.Fatalf("want RequiredPermissions deny, got %s", decision.Reason)
+	}
+}
+
+func TestYAMLPatientAccessChecksScope(t *testing.T) {
+	file, err := ParseYAML([]byte(`
+version: "1"
+roles:
+  - name: clinician
+    permissions: [patient.read]
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+policies:
+  base:
+    version: "1"
+    rules:
+      - name: patient-access
+        effect: allow
+        match:
+          actions: [patient-access]
+scenarios:
+  - name: patient_access_without_patient_scope
+    principal: clinician
+    scopes: user/Appointment.read
+    policy: base
+    action: patient-access
+    resourceType: Patient
+    patientId: pat-1
+    expectAllow: false
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := file.Scenarios[0]
+	doc, err := resolveYAMLPolicy(file, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := resolveYAMLRoles(file, spec)
+	principals, err := principalsFromYAML(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := engineForYAMLPolicy(doc, roles, principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, bundle, err := bundleForYAML(spec, file.Principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeOK, decision, err := evaluateYAMLIntersection(context.Background(), eng, adapter, bundle, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scopeOK {
+		t.Fatal("Appointment.read must not imply Patient read for patient-access")
+	}
+	if !decision.Allowed {
+		t.Fatalf("policy should allow patient-access; got %s", decision.Reason)
 	}
 }

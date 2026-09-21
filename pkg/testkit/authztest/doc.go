@@ -16,7 +16,10 @@
 // (tenant is required; omitting it is an error, not a TenantA fallback).
 // policyRoleGrants / roleGrants overlay extra role permissions per named
 // policy or scenario. YAML catalogues run with RunYAML and do not construct
-// Go BaseConfig kits.
+// Go BaseConfig kits. Scenario principal, scopes, and policy are required
+// (no clinician / user/*.read / base fallbacks).
 //
-// This package is for tests only. Production code must not import authztest.
+// This package is for tests and the Track C research CLI
+// (research/policy-semantics), which issue #11 places in authztest. Other
+// production packages must not import authztest.
 package authztest

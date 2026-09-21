@@ -31,8 +31,9 @@ For resource read/write, view execution, and AI tools:
    patient-compartment resolver when one is configured
    (`CheckEnvelopePatientScope`). Mismatch is deny.
 4. **Required permissions** — SMART adapters set `RequiredPermissions` from
-   granted scopes (`resourceType.verb`, or `*.verb`). The principal must hold
-   those permissions via catalog roles. Missing permissions are deny.
+   granted scopes (`resourceType.verb`, or `*.verb`) on read, write, view,
+   and AI-tool requests. The principal must hold those permissions via
+   catalog roles. Missing permissions are deny.
 5. **Policy DSL** — `CompiledPolicy.Evaluate`:
    - Rules are evaluated **in document order**.
    - The **first matching rule wins**.
@@ -71,7 +72,7 @@ Permissions treat `appointment.read` and `read-appointment` as equivalent.
 - `Principal` (id, kind, tenant role bindings)
 - `TenantContext` (`PatientScope` from `launch/patient` / `patient` claim)
 - `Permissions` derived from resource scopes (`Observation.read`, `*.read`, …)
-- `RequiredPermissions` on read/write requests (`requiredFor`)
+- `RequiredPermissions` on read, write, view, and AI-tool requests (`requiredFor`)
 
 `ScopeImplies` is the scope-layer check used by the research YAML runner.
 The intersection is computed as:
@@ -83,7 +84,7 @@ allowed = ScopeImplies(resource, verb) && engine.Can*(...).Allowed
 ## Worked examples
 
 The machine-readable catalogue is [`scenarios.yaml`](scenarios.yaml).
-Narrative copies of the first twelve cases:
+Narrative copies of all fourteen cases:
 
 1. **Broad scope ∩ matching policy (allow).** `user/*.read` and a policy
    that allows Observation read → Observation/obs-1 is allowed.
@@ -111,10 +112,12 @@ Narrative copies of the first twelve cases:
     `patient_summary_view` → allow.
 12. **AI tool.** `user/*.read` ∩ base policy `execute-ai-tool` `run_view`
     → allow.
-13. **Backend system scope.** `system/*.read` on a service principal ∩
-    observation-only → Observation allow, Appointment deny.
-14. **Patient-access overlay.** Scoped tenant `pat-1` checking patient
-    `pat-1` → allow; `pat-2` would deny (see YAML).
+13. **Backend system scope allow.** `system/*.read` on a service principal ∩
+    observation-only → Observation allow.
+14. **Backend system scope deny.** Same token ∩ observation-only →
+    Appointment deny (policy narrowing). Patient-compartment overlay is
+    examples 6–7 (`action: read` plus `patientId`), not a separate
+    `patient-access` catalogue case.
 
 ## Consent overlay (not a second engine)
 

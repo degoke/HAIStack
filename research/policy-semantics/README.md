@@ -36,11 +36,12 @@ Go-named enums or hardcoded fixture IDs. YAML principal `id` / `kind` /
 principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
 `policyRoleGrants` overlays extra role permissions per named policy
 (clinician `*.read` only for `observation-only`). Per-scenario `roleGrants`
-do the same for deny-by-default and first-match examples so those cases
-fail at the policy gate after SMART `user/*.read` satisfies
-RequiredPermissions. Track C is the exception to “testkit is tests-only”:
-the YAML catalogue is the artefact. Tracks A and E do **not** import
-`pkg/testkit`.
+do the same for deny-by-default, first-match, view, and AI-tool examples so
+those cases pass SMART `RequiredPermissions` after `user/*.read` and then
+fail or allow at the policy gate. Every scenario must declare `principal`,
+`scopes`, and `policy` (or `policyDocument`). Track C is the exception to
+“testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
+do **not** import `pkg/testkit`.
 
 This catalogue is vendor-neutral: the YAML does not mention HAPI, Firely,
 or other servers. Adapters can replay the same principal/scope/request

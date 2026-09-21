@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -67,4 +70,24 @@ func RepoRoot() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// CheckoutCommit is the git revision of the running tree. It is not the
+// conformance-lock.json gitCommit, which records when the lock was rewritten.
+func CheckoutCommit(root string) string {
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" && strings.TrimSpace(s.Value) != "" {
+				return s.Value
+			}
+		}
+	}
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

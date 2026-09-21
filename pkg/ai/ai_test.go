@@ -793,6 +793,9 @@ func TestExecutor_InvokeModelAudits(t *testing.T) {
 	if recs[0].Actor != "user-clinician" || recs[0].ConversationID != "conv-1" {
 		t.Fatalf("audit identity = %#v", recs[0])
 	}
+	if h.audit.tools != 0 || h.audit.models != 1 {
+		t.Fatalf("tools=%d models=%d, want InvokeModel to call only LogModelInvoke", h.audit.tools, h.audit.models)
+	}
 }
 
 func TestAuditStoreAdapter_InvokeModelAction(t *testing.T) {

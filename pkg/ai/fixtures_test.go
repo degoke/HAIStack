@@ -477,17 +477,24 @@ func (s *memWriteSession) Rollback(context.Context) error     { return nil }
 type fakeAuditLogger struct {
 	mu      sync.Mutex
 	records []ai.AuditRecord
+	tools   int
+	models  int
 }
 
 func (a *fakeAuditLogger) LogToolAccess(_ context.Context, rec ai.AuditRecord) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.tools++
 	a.records = append(a.records, rec)
 	return nil
 }
 
 func (a *fakeAuditLogger) LogModelInvoke(_ context.Context, rec ai.AuditRecord) error {
-	return a.LogToolAccess(context.Background(), rec)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.models++
+	a.records = append(a.records, rec)
+	return nil
 }
 
 func (a *fakeAuditLogger) Records() []ai.AuditRecord {
