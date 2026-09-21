@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -143,5 +146,139 @@ func TestBulkExportReturnsNotImplementedWithoutService(t *testing.T) {
 	rec := doRequest(t, handler, http.MethodGet, "/fhir/$export", nil)
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+type importWriter struct {
+	resources map[string]*types.ResourceEnvelope
+}
+
+func (w *importWriter) key(resourceType, id string) string { return resourceType + "/" + id }
+
+func (w *importWriter) Create(_ context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	if w.resources == nil {
+		w.resources = map[string]*types.ResourceEnvelope{}
+	}
+	cp := *resource
+	w.resources[w.key(resource.ResourceType, resource.ID)] = &cp
+	return &cp, nil
+}
+
+func (w *importWriter) Update(ctx context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
+	return w.Create(ctx, resource)
+}
+
+func (w *importWriter) Read(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+	if env := w.resources[w.key(resourceType, id)]; env != nil {
+		return env, nil
+	}
+	return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "not found"}
+}
+
+func newBulkImportService(t *testing.T, writer *importWriter) hahttp.BulkImportService {
+	t.Helper()
+	files := bulkimport.NewInMemoryFileStore()
+	svc, err := bulkimport.NewService(bulkimport.Config{
+		Jobs:     bulkimport.NewInMemoryJobStore(),
+		Files:    files,
+		Executor: &bulkimport.Executor{Resources: writer, Files: files},
+		BasePath: "/fhir",
+		NewID:    func() string { return "import-job-1" },
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	return svc
+}
+
+func TestBulkImportKickoffPollManifest(t *testing.T) {
+	checker := &bulkAuthChecker{allow: true}
+	writer := &importWriter{}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, writer),
+		PrincipalResolver: func(_ context.Context, _ *http.Request) (auth.Principal, auth.TenantContext, error) {
+			return auth.Principal{ID: "svc-1", Kind: auth.KindService}, auth.TenantContext{TenantID: "tenant-a"}, nil
+		},
+		AuthChecker: checker,
+	})
+
+	body := `{"resourceType":"Parameters","parameter":[{"name":"inputFormat","valueCode":"application/fhir+ndjson"},{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{\"resourceType\":\"Patient\",\"id\":\"p1\"}"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(body))
+	req.Header.Set("Prefer", "respond-async")
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("kickoff status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	statusURL := rec.Header().Get("Content-Location")
+	if statusURL == "" {
+		t.Fatal("missing Content-Location")
+	}
+	if checker.calls == 0 {
+		t.Fatal("expected import authorization")
+	}
+
+	pollReq := httptest.NewRequest(http.MethodGet, statusURL, nil)
+	pollReq.Header.Set("Accept", "application/json")
+	pollRec := httptest.NewRecorder()
+	handler.ServeHTTP(pollRec, pollReq)
+	if pollRec.Code != http.StatusOK {
+		t.Fatalf("poll status = %d body = %s", pollRec.Code, pollRec.Body.String())
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(pollRec.Body.Bytes(), &manifest); err != nil {
+		t.Fatalf("manifest decode: %v", err)
+	}
+	output, ok := manifest["output"].([]any)
+	if !ok || len(output) != 1 {
+		t.Fatalf("manifest output = %#v", manifest["output"])
+	}
+	if _, err := writer.Read(context.Background(), "Patient", "p1"); err != nil {
+		t.Fatalf("imported patient: %v", err)
+	}
+}
+
+func TestBulkImportRequiresPreferAsync(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &bulkResourceService{},
+		BulkImportService: newBulkImportService(t, &importWriter{}),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(`{"resourceType":"Parameters","parameter":[{"name":"input","part":[{"name":"type","valueCode":"Patient"},{"name":"valueString","valueString":"{}"}]}]}`))
+	req.Header.Set("Content-Type", "application/fhir+json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBulkImportReturnsNotImplementedWithoutService(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{ResourceService: &fakeResourceService{}})
+	req := httptest.NewRequest(http.MethodPost, "/fhir/$import", strings.NewReader(`{}`))
+	req.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCapabilityStatementAdvertisesImportWhenConfigured(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:   &fakeResourceService{},
+		BulkImportService: newBulkImportService(t, &importWriter{}),
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources:   []registry.ResourceCapability{{ResourceType: "Patient"}},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"name":"import"`) {
+		t.Fatalf("expected $import advertised, got %s", rec.Body.String())
 	}
 }

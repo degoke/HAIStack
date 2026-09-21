@@ -132,6 +132,9 @@ type Config struct {
 	// BulkExportService handles FHIR Bulk Data export when configured.
 	BulkExportService BulkExportService
 
+	// BulkImportService handles FHIR Bulk Data import when configured.
+	BulkImportService BulkImportService
+
 	// ViewMaterializeService handles ViewDefinition/$materialize when configured.
 	ViewMaterializeService ViewMaterializeService
 

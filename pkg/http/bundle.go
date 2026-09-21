@@ -128,7 +128,7 @@ func augmentCapabilitySnapshot(snapshot registry.CapabilitySnapshot) (registry.C
 	return snapshot, injected
 }
 
-func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta ServerMetadata, searchEnabled bool) ([]byte, error) {
+func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta ServerMetadata, searchEnabled, importEnabled bool) ([]byte, error) {
 	snapshot, platformOnly := augmentCapabilitySnapshot(snapshot)
 	rest := make([]map[string]interface{}, 0, 1)
 	resourceEntries := make([]map[string]interface{}, 0, len(snapshot.Resources))
@@ -229,6 +229,12 @@ func marshalCapabilityStatement(snapshot registry.CapabilitySnapshot, meta Serve
 		"mode":     "server",
 		"resource": resourceEntries,
 	})
+	if importEnabled {
+		rest[0]["operation"] = []map[string]string{{
+			"name":       "import",
+			"definition": "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/import",
+		}}
+	}
 
 	software := map[string]interface{}{}
 	if meta.SoftwareName != "" {

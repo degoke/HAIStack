@@ -79,6 +79,9 @@
 //   - DELETE /fhir/{ResourceType}/{id}       — delete (204 No Content)
 //   - GET    /fhir/{ResourceType}/{id}/_history — history Bundle
 //   - GET    /fhir/$export                     — system bulk export kickoff (async; requires BulkExportService)
+//   - POST   /fhir/$import                     — system bulk import kickoff (async; requires BulkImportService)
+//   - GET    /fhir/$import/status/{jobId}      — import status polling / manifest
+//   - DELETE /fhir/$import/status/{jobId}      — cancel import
 //   - GET    /fhir/Group/{id}/$export          — group bulk export kickoff (async)
 //   - GET    /fhir/$export/status/{jobId}      — export status polling / manifest
 //   - DELETE /fhir/$export/status/{jobId}      — cancel export
@@ -141,6 +144,7 @@
 // # Out of scope (MVP)
 //
 //   - BulkExportService — when nil, $export routes return 501
+//   - BulkImportService — when nil, $import routes return 501
 //   - Full CapabilityStatement conformance testing
 //   - SMART metadata, built-in OAuth2/SMART token runtime
 //   - gRPC or non-FHIR content types

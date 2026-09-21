@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
@@ -603,6 +604,26 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return fmt.Errorf("runtime: register bulk export handler: %w", err)
 		}
 		state.services.BulkExportService = exportSvc
+		importFiles := bulkimport.NewInMemoryFileStore()
+		importJobs := bulkimport.NewInMemoryJobStore()
+		importExecutor := &bulkimport.Executor{
+			Resources: state.services.ResourceService,
+			Files:     importFiles,
+		}
+		importSvc, err := bulkimport.NewService(bulkimport.Config{
+			Jobs:     importJobs,
+			Files:    importFiles,
+			Executor: importExecutor,
+			JobQueue: pc.jobStore,
+			BasePath: "/fhir",
+		})
+		if err != nil {
+			return fmt.Errorf("runtime: bulk import service: %w", err)
+		}
+		if err := runner.Register(jobs.TypeImportBulk, importSvc.JobHandler()); err != nil {
+			return fmt.Errorf("runtime: register bulk import handler: %w", err)
+		}
+		state.services.BulkImportService = importSvc
 		moduleWorker := &modules.InstallWorker{
 			Manager:                    modManager,
 			Store:                      pc.jobStore,
@@ -741,6 +762,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		PrincipalResolver:        b.httpPrincipalResolver,
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
+		BulkImportService:        state.services.BulkImportService,
 		ViewMaterializeService:   state.services.MaterializeService,
 		ViewRunService:           state.services.ViewRunService,
 		SQLQueryService:          state.services.SQLQueryService,
