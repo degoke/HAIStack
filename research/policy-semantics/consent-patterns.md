@@ -68,19 +68,20 @@ v1; a host can model break-glass as a later allow rule with
 ## Future R5/R6 Permission
 
 R5 `Permission` (and R6 refinements) replace some Consent.provision
-nesting with explicit `combining` and `rule`. The research catalogue treats
-them as the same decision tuple:
-
-```
-principal + consent/permission state + request → expected decision
-```
+nesting with explicit `combining` and `rule`. Issue #11 sketched a host
+tuple of `principal + consent/permission state + request`. This catalogue
+does **not** store consent state. Compile Consent or Permission into the
+policy DSL and/or patient-scope overlay, then assert the compiled YAML
+(`principal + scopes + policy + request` in [`scenarios.yaml`](scenarios.yaml)).
 
 Until `pkg/auth` grows a Consent compiler, tests should keep compiling to
-YAML scenarios in this directory rather than interpreting Permission JSON
+those YAML scenarios rather than interpreting Consent or Permission JSON
 inside the engine.
 
 ## Cross-vendor note
 
 These JSON examples are FHIR resources, not HAIStack-specific. A HAPI or
-Firely authorization layer can ingest the same Consent instances and
-assert the same allow/deny outcomes listed in `scenarios.yaml`.
+Firely authorization layer can compile the same Consent instances into its
+own policy or overlay and replay the **compiled** tuples in
+`scenarios.yaml` (SMART scopes ∩ policy). It cannot ingest the Consent
+JSON into `scenarios.yaml` as-is: that file has no consent-state field.

@@ -21,8 +21,8 @@ The CLI loads `scenarios.yaml` (≥10 cases) and executes them against
 | File | Contents |
 |------|----------|
 | [SEMANTICS.md](SEMANTICS.md) | Decision algorithm, first-match, deny-by-default, patient overlay, scope ∩ policy |
-| [scenarios.yaml](scenarios.yaml) | Machine-readable cases: principal + scopes + policy + request → expected decision |
-| [consent-patterns.md](consent-patterns.md) | R4 Consent patterns and a sketch of R5/R6 Permission |
+| [scenarios.yaml](scenarios.yaml) | Machine-readable cases: principal + scopes + policy + request → expected decision (no consent-state field) |
+| [consent-patterns.md](consent-patterns.md) | R4 Consent / R5 Permission compile sketches; not an in-engine Consent suite |
 
 ## Runner
 

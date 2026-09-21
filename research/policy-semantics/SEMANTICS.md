@@ -136,7 +136,8 @@ permission (`policyRoleGrants` on `observation-only`, or per-scenario
 R4 `Consent` (and future R5/R6 `Permission`) are **inputs** that a host
 application can compile into the same policy DSL and/or patient-scope
 overlay. HAIStack v1 does not interpret Consent resources automatically.
-See [consent-patterns.md](consent-patterns.md).
+`scenarios.yaml` has no consent-state field; it is SMART scopes ∩ policy
+only. See [consent-patterns.md](consent-patterns.md).
 
 ## Conformance target
 
