@@ -138,6 +138,18 @@ func TestAsStorePutStream(t *testing.T) {
 	if string(got.Data) != "stream-me" {
 		t.Fatalf("data = %q", got.Data)
 	}
+	rc, head, err := store.OpenBlob(ctx, blobs, "k")
+	if err != nil {
+		t.Fatalf("OpenBlob: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("OpenBlob read: %v", err)
+	}
+	if string(openData) != "stream-me" || head.Data != nil {
+		t.Fatalf("open %q head.Data=%v", openData, head.Data)
+	}
 }
 
 func TestFileObjectKey(t *testing.T) {
@@ -207,6 +219,28 @@ func TestPrefixedFileStorePayloads(t *testing.T) {
 	if err := files.Put(ctx, "job/Patient..ndjson", []byte("{}"), ""); err != nil {
 		t.Fatalf("Put Patient..ndjson: %v", err)
 	}
+	if err := files.PutStream(ctx, "job/stream.ndjson", bytes.NewReader([]byte("streamed")), 8, "application/fhir+ndjson"); err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	gotStream, _, err := files.Get(ctx, "job/stream.ndjson")
+	if err != nil {
+		t.Fatalf("Get stream: %v", err)
+	}
+	if string(gotStream) != "streamed" {
+		t.Fatalf("stream = %q", gotStream)
+	}
+	rc, ct, err := files.Open(ctx, "job/stream.ndjson")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	if ct != "application/fhir+ndjson" || string(openData) != "streamed" {
+		t.Fatalf("open %q %q", ct, openData)
+	}
 }
 
 type memStoreBlobs struct {
@@ -222,6 +256,22 @@ func (s *memStoreBlobs) Put(_ context.Context, obj store.BlobObject) error {
 	}
 	s.data[obj.Key] = obj
 	return nil
+}
+
+func (s *memStoreBlobs) PutStream(_ context.Context, key, contentType string, size int64, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return s.Put(context.Background(), store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
 }
 
 func (s *memStoreBlobs) Get(_ context.Context, key string) (*store.BlobObject, error) {

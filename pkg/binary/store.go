@@ -28,6 +28,12 @@ type BlobStoreWithStream interface {
 	PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error)
 }
 
+// BlobStoreWithOpen streams a blob payload without assembling a full []byte.
+type BlobStoreWithOpen interface {
+	BlobStore
+	Open(ctx context.Context, blobID string) (io.ReadCloser, *BlobDescriptor, error)
+}
+
 // ChunkStore supports chunked append/read and finalization for resumable transfer.
 type ChunkStore interface {
 	AppendChunk(ctx context.Context, key string, index int, data []byte) error

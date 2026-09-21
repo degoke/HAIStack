@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -36,6 +37,13 @@ type BlobStore interface {
 type BlobStoreWithStream interface {
 	BlobStore
 	PutStream(ctx context.Context, key, contentType string, size int64, r io.Reader) error
+}
+
+// BlobStoreWithOpen optionally streams a blob payload. Head metadata is returned
+// with Data omitted. Postgres hai_binary_object BYTEA still materializes in Open.
+type BlobStoreWithOpen interface {
+	BlobStore
+	Open(ctx context.Context, key string) (io.ReadCloser, *BlobObject, error)
 }
 
 // PutBlob writes a blob. When blobs implements BlobStoreWithStream, the payload
@@ -79,4 +87,26 @@ func PutBlobFromPath(ctx context.Context, blobs BlobStore, key, contentType, pat
 		return err
 	}
 	return PutBlob(ctx, blobs, key, contentType, info.Size(), f)
+}
+
+// OpenBlob opens a blob for reading. When blobs implements BlobStoreWithOpen,
+// the payload is streamed; otherwise OpenBlob calls Get and wraps Data.
+func OpenBlob(ctx context.Context, blobs BlobStore, key string) (io.ReadCloser, *BlobObject, error) {
+	if blobs == nil {
+		return nil, nil, fmt.Errorf("blob store is required")
+	}
+	if opener, ok := blobs.(BlobStoreWithOpen); ok {
+		return opener.Open(ctx, key)
+	}
+	obj, err := blobs.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if obj == nil {
+		return nil, nil, fmt.Errorf("blob not found: %s", key)
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	return io.NopCloser(bytes.NewReader(data)), &head, nil
 }

@@ -10,6 +10,7 @@
 - HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
 - HTTP `$viewdefinition-run` support for the same operation context fields.
 - `store.BlobStoreWithStream` and `binary.BlobStoreWithStream` (`PutStream`) so parquet lakehouse and `$viewdefinition-export` uploads stream from the temp file without `os.ReadFile`. Helpers: `store.PutBlob`, `store.PutBlobFromPath`, `binary.CopyChunks`, `binary.PutBlobStream`.
+- `store.BlobStoreWithOpen` / `binary.BlobStoreWithOpen` (`Open`) so downloads stream without assembling a full `[]byte`. Helpers: `store.OpenBlob`, `binary.ChunkReader`.
 
 ### Changed
 

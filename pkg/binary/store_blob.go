@@ -1,6 +1,7 @@
 package binary
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -54,10 +55,34 @@ func (a *storeAdapter) Get(ctx context.Context, key string) (*store.BlobObject, 
 	if err != nil {
 		return nil, mapStoreBlobError(key, err)
 	}
-	obj := &store.BlobObject{
-		Key:  key,
-		Data: append([]byte{}, data...),
-		Size: int64(len(data)),
+	obj := blobObjectFromDesc(key, data, desc)
+	return obj, nil
+}
+
+func (a *storeAdapter) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	if opener, ok := a.inner.(BlobStoreWithOpen); ok {
+		rc, desc, err := opener.Open(ctx, key)
+		if err != nil {
+			return nil, nil, mapStoreBlobError(key, err)
+		}
+		obj := blobObjectFromDesc(key, nil, desc)
+		return rc, obj, nil
+	}
+	obj, err := a.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	data := obj.Data
+	head := *obj
+	head.Data = nil
+	return io.NopCloser(bytes.NewReader(data)), &head, nil
+}
+
+func blobObjectFromDesc(key string, data []byte, desc *BlobDescriptor) *store.BlobObject {
+	obj := &store.BlobObject{Key: key}
+	if data != nil {
+		obj.Data = append([]byte{}, data...)
+		obj.Size = int64(len(data))
 	}
 	if desc != nil {
 		obj.ContentType = desc.ContentType
@@ -67,7 +92,7 @@ func (a *storeAdapter) Get(ctx context.Context, key string) (*store.BlobObject, 
 			obj.Size = desc.Size
 		}
 	}
-	return obj, nil
+	return obj
 }
 
 func (a *storeAdapter) Head(ctx context.Context, key string) (*store.BlobObject, error) {
@@ -92,7 +117,10 @@ func (a *storeAdapter) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-var _ store.BlobStoreWithStream = (*storeAdapter)(nil)
+var (
+	_ store.BlobStoreWithStream = (*storeAdapter)(nil)
+	_ store.BlobStoreWithOpen   = (*storeAdapter)(nil)
+)
 
 func mapStoreBlobError(key string, err error) error {
 	if errors.Is(err, ErrNotFound) {

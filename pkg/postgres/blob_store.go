@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -92,6 +93,19 @@ func (s *BlobStore) Get(ctx context.Context, key string) (*store.BlobObject, err
 	}
 	obj.CreatedAt = createdAt
 	return &obj, nil
+}
+
+// Open streams a blob. The BYTEA column is loaded in full, then wrapped in a
+// reader; use an object-store adapter for multi-GB objects.
+func (s *BlobStore) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	return io.NopCloser(bytes.NewReader(data)), &head, nil
 }
 
 func (s *BlobStore) Head(ctx context.Context, key string) (*store.BlobObject, error) {

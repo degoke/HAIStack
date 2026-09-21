@@ -132,6 +132,8 @@
 //   - BlobStoreWithStream.PutStream(ctx, key, contentType, size, r) uploads from an
 //     io.Reader without requiring the caller to materialize []byte. PutBlob and
 //     PutBlobFromPath use PutStream when available and otherwise fall back to Put.
+//   - BlobStoreWithOpen.Open(ctx, key) streams a payload. OpenBlob uses Open when
+//     available and otherwise wraps Get. Postgres BYTEA Open still materializes.
 //   - BlobObject adds Location for an opaque backend locator without exposing object-storage
 //     SDK types. Head returns metadata without payload bytes when the backend supports it.
 //
@@ -276,7 +278,7 @@
 //   - write_session.go — WriteSession, WriteSessionProvider.
 //   - id_registry.go — IDRegistryStore, IDRegistryEntry, IDRegistryResult.
 //   - binary.go — BinaryStore, BinaryObject.
-//   - blob.go — BlobStore, BlobObject, BlobStoreWithStream, PutBlob, PutBlobFromPath.
+//   - blob.go — BlobStore, BlobObject, BlobStoreWithStream, BlobStoreWithOpen, PutBlob, PutBlobFromPath, OpenBlob.
 //   - cursor.go — CursorStore, Cursor.
 //   - inbox.go — InboxStore for sync idempotency.
 //   - conflict.go — ConflictStore, ConflictRecord.

@@ -337,7 +337,7 @@ func (s *LocalFileBlobStore) OpenBlob(sha256 string) (io.ReadCloser, error) {
 var (
 	_ BlobStore           = (*localFileBlobStoreAdapter)(nil)
 	_ BlobStoreWithStream = (*localFileBlobStoreAdapter)(nil)
-	_ BlobStoreWithStream = (*S3BlobStore)(nil)
+	_ BlobStoreWithOpen   = (*localFileBlobStoreAdapter)(nil)
 	_ ChunkStore          = (*LocalFileBlobStore)(nil)
 )
 
@@ -375,15 +375,29 @@ func (a *localFileBlobStoreAdapter) PutStream(ctx context.Context, blobID string
 }
 
 func (a *localFileBlobStoreAdapter) Get(ctx context.Context, blobID string) ([]byte, *BlobDescriptor, error) {
+	rc, desc, err := a.Open(ctx, blobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, desc, nil
+}
+
+func (a *localFileBlobStoreAdapter) Open(ctx context.Context, blobID string) (io.ReadCloser, *BlobDescriptor, error) {
 	m, err := a.manifest.GetManifest(ctx, blobID)
 	if err != nil {
 		return nil, nil, err
 	}
-	data, err := a.files.GetByHash(ctx, m.Descriptor.SHA256)
+	f, err := a.files.OpenBlob(m.Descriptor.SHA256)
 	if err != nil {
 		return nil, nil, err
 	}
-	return data, &m.Descriptor, nil
+	desc := m.Descriptor
+	return f, &desc, nil
 }
 
 func (a *localFileBlobStoreAdapter) Head(ctx context.Context, blobID string) (*BlobDescriptor, error) {

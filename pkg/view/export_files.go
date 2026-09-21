@@ -18,11 +18,12 @@ type ExportFileStore interface {
 	DeleteJob(ctx context.Context, jobID string) error
 }
 
-// ExportFileStoreWithStream optionally writes artifacts from an io.Reader without
-// requiring the caller to materialize the full payload as []byte.
+// ExportFileStoreWithStream optionally writes artifacts from an io.Reader and
+// opens them without requiring the caller to materialize the full payload as []byte.
 type ExportFileStoreWithStream interface {
 	ExportFileStore
 	PutStream(ctx context.Context, jobID, filename string, r io.Reader, size int64, contentType string) error
+	Open(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error)
 }
 
 var (
@@ -44,8 +45,8 @@ func exportFileKey(jobID, filename string) string {
 	return jobID + "/" + filename
 }
 
-// NewInMemoryExportFileStore returns an in-memory ExportFileStore.
-func NewInMemoryExportFileStore() ExportFileStore {
+// NewInMemoryExportFileStore returns an in-memory ExportFileStoreWithStream.
+func NewInMemoryExportFileStore() ExportFileStoreWithStream {
 	return &inMemoryExportFileStore{files: make(map[string]storedExportFile)}
 }
 
@@ -61,13 +62,21 @@ func (s *inMemoryExportFileStore) Put(_ context.Context, jobID, filename string,
 
 // PutStream buffers r in memory. In-memory artifact stores are for tests and
 // small payloads; LocalExportFileStore streams to disk without a full []byte.
-func (s *inMemoryExportFileStore) PutStream(_ context.Context, jobID, filename string, r io.Reader, size int64, contentType string) error {
+func (s *inMemoryExportFileStore) PutStream(ctx context.Context, jobID, filename string, r io.Reader, size int64, contentType string) error {
 	_ = size
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
-	return s.Put(context.Background(), jobID, filename, data, contentType)
+	return s.Put(ctx, jobID, filename, data, contentType)
+}
+
+func (s *inMemoryExportFileStore) Open(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	data, ct, err := s.Get(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
 }
 
 func (s *inMemoryExportFileStore) Get(_ context.Context, jobID, filename string) ([]byte, string, error) {
@@ -173,6 +182,27 @@ func (s *LocalExportFileStore) PutStream(_ context.Context, jobID, filename stri
 	return os.WriteFile(meta, []byte(contentType), 0o644)
 }
 
+func (s *LocalExportFileStore) Open(_ context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	full, err := s.filePath(jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return nil, "", fmt.Errorf("view export file not found: %s/%s", jobID, filename)
+	}
+	contentType := "application/octet-stream"
+	meta, err := s.metaPath(jobID, filename)
+	if err != nil {
+		_ = f.Close()
+		return nil, "", err
+	}
+	if metaBytes, err := os.ReadFile(meta); err == nil {
+		contentType = strings.TrimSpace(string(metaBytes))
+	}
+	return f, contentType, nil
+}
+
 func putExportFileFromPath(ctx context.Context, files ExportFileStore, jobID, filename, path, contentType string) error {
 	if files == nil {
 		return fmt.Errorf("view: export file store is required")
@@ -196,24 +226,17 @@ func putExportFileFromPath(ctx context.Context, files ExportFileStore, jobID, fi
 	return files.Put(ctx, jobID, filename, data, contentType)
 }
 
-func (s *LocalExportFileStore) Get(_ context.Context, jobID, filename string) ([]byte, string, error) {
-	full, err := s.filePath(jobID, filename)
+func (s *LocalExportFileStore) Get(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	rc, ct, err := s.Open(ctx, jobID, filename)
 	if err != nil {
 		return nil, "", err
 	}
-	data, err := os.ReadFile(full)
-	if err != nil {
-		return nil, "", fmt.Errorf("view export file not found: %s/%s", jobID, filename)
-	}
-	contentType := "application/octet-stream"
-	meta, err := s.metaPath(jobID, filename)
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, "", err
 	}
-	if metaBytes, err := os.ReadFile(meta); err == nil {
-		contentType = strings.TrimSpace(string(metaBytes))
-	}
-	return data, contentType, nil
+	return data, ct, nil
 }
 
 func (s *LocalExportFileStore) DeleteJob(_ context.Context, jobID string) error {

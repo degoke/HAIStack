@@ -63,6 +63,43 @@ func TestCopyChunksStreamsWithoutFullFileBuffer(t *testing.T) {
 	}
 }
 
+func TestCopyChunksWriteMayRetainChunk(t *testing.T) {
+	t.Parallel()
+	payload := []byte("abcdefghij")
+	var got [][]byte
+	_, _, _, err := binary.CopyChunks(bytes.NewReader(payload), 4, func(_ int, chunk []byte) error {
+		got = append(got, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("CopyChunks: %v", err)
+	}
+	if string(got[0]) != "abcd" || string(got[1]) != "efgh" || string(got[2]) != "ij" {
+		t.Fatalf("retained chunks overwritten: %#v", got)
+	}
+}
+
+func TestChunkReaderStreamsChunks(t *testing.T) {
+	t.Parallel()
+	chunks := [][]byte{[]byte("abcd"), []byte("efgh"), []byte("ij")}
+	r := binary.NewChunkReader(context.Background(), len(chunks), func(_ context.Context, index int) ([]byte, error) {
+		return chunks[index], nil
+	})
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(got) != "abcdefghij" {
+		t.Fatalf("got %q", got)
+	}
+	empty, err := io.ReadAll(binary.NewChunkReader(context.Background(), 1, func(context.Context, int) ([]byte, error) {
+		return []byte{}, nil
+	}))
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty: %q %v", empty, err)
+	}
+}
+
 type copyChunksProbe struct {
 	r       io.Reader
 	maxRead int

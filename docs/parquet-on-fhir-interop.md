@@ -48,5 +48,6 @@ Watermarks are stored at the exported `maxLastUpdated` (inclusive). Search prefi
 | Resource scan + spill | One resource JSON + NDJSON encoder buffer |
 | Parquet encode | One row group of prepared rows (default 1000) |
 | Blob / export artifact upload | Copy buffer or chunk size on streaming backends; full file only for BYTEA/`[]byte` stores |
+| Blob / export artifact download | Copy buffer or chunk size via `Open`; full file only for BYTEA/`Get([]byte)` callers |
 
-Streaming backends (S3, local files, SQLite/Postgres chunk stores, filesystem export artifacts) keep upload RAM bounded by the copy buffer (typically 32 KiB) or `binary.DefaultChunkSize` (1 MiB). Postgres `store.BlobStore` still materializes into `hai_binary_object.data` BYTEA; use `binary.AsStore` over S3/local/chunk backends or `LakehouseConfig.RootDir` for multi-GB objects. `CollectMatchingResources` is deprecated for large exports because it retains every matching resource in RAM.
+Streaming backends (S3, local files, SQLite/Postgres chunk stores, filesystem export artifacts) keep upload RAM bounded by the copy buffer (typically 32 KiB) or `binary.DefaultChunkSize` (1 MiB). The same backends stream downloads via `Open` without assembling a full `[]byte`. Postgres `store.BlobStore` still materializes into `hai_binary_object.data` BYTEA; use `binary.AsStore` over S3/local/chunk backends or `LakehouseConfig.RootDir` for multi-GB objects. `CollectMatchingResources` is deprecated for large exports because it retains every matching resource in RAM.

@@ -64,6 +64,8 @@ func NewBlobFileStore(blobs store.BlobStore) FileStore {
 	return binary.NewPrefixedFileStore(blobs, blobKeyPrefix, "export", "application/fhir+ndjson")
 }
 
+var _ FileStoreWithStream = (*binary.PrefixedFileStore)(nil)
+
 func recordStatus(status JobStatus) store.JobStatus {
 	return jobs.MapBulkRecordStatus(string(status))
 }

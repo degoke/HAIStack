@@ -207,7 +207,7 @@ Parquet-on-FHIR export streams resources through a temp NDJSON spill and encodes
 
 Practical guidance:
 
-- Streaming backends (S3, local files, SQLite/Postgres chunk stores, filesystem export artifacts) keep peak upload RAM at the copy buffer or chunk size (32 KiB–1 MiB), not the full parquet size.
+- Streaming backends (S3, local files, SQLite/Postgres chunk stores, filesystem export artifacts) keep peak upload RAM at the copy buffer or chunk size (32 KiB–1 MiB), not the full parquet size. The same backends stream downloads via `Open` without assembling a full `[]byte`.
 - Postgres `store.BlobStore` (`hai_binary_object.data` BYTEA) still materializes the reader for INSERT. Use an object-store adapter (`binary.AsStore`) or `LakehouseConfig.RootDir` for multi-GB blobs. In-memory test stores buffer by design.
 - Prefer `WriteParquetFHIRExport` over `CollectMatchingResources` for large datasets; the latter materializes every match in memory.
 

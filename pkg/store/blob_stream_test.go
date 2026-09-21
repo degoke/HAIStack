@@ -105,6 +105,17 @@ func (s *streamOnlyBlobStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+func (s *streamOnlyBlobStore) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	return io.NopCloser(bytes.NewReader(data)), &head, nil
+}
+
 type putOnlyBlobStore struct {
 	obj store.BlobObject
 }
@@ -185,5 +196,29 @@ func TestPutBlobFromPathDoesNotCallBufferedPut(t *testing.T) {
 	}
 	if !bytes.Equal(got.Data, payload) {
 		t.Fatalf("payload mismatch")
+	}
+}
+
+func TestOpenBlobOmitsDataAndStreams(t *testing.T) {
+	ctx := context.Background()
+	blobs := newStreamOnlyBlobStore()
+	payload := []byte("open-me")
+	if err := store.PutBlob(ctx, blobs, "k", "text/plain", int64(len(payload)), bytes.NewReader(payload)); err != nil {
+		t.Fatalf("PutBlob: %v", err)
+	}
+	rc, head, err := store.OpenBlob(ctx, blobs, "k")
+	if err != nil {
+		t.Fatalf("OpenBlob: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+	if head.Data != nil {
+		t.Fatalf("head included payload")
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(got) != "open-me" {
+		t.Fatalf("got %q", got)
 	}
 }

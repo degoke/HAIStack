@@ -79,15 +79,29 @@ func (s *PostgresBlobStore) PutStream(ctx context.Context, blobID string, r io.R
 
 // Get reads a finalized blob by assembling stored chunks.
 func (s *PostgresBlobStore) Get(ctx context.Context, blobID string) ([]byte, *binary.BlobDescriptor, error) {
+	rc, desc, err := s.Open(ctx, blobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, desc, nil
+}
+
+// Open streams a finalized blob one chunk at a time.
+func (s *PostgresBlobStore) Open(ctx context.Context, blobID string) (io.ReadCloser, *binary.BlobDescriptor, error) {
 	manifest, err := s.metadata.GetManifest(ctx, blobID)
 	if err != nil {
 		return nil, nil, err
 	}
-	data, err := s.assembleChunks(ctx, blobID, manifest.ChunkCount)
-	if err != nil {
-		return nil, nil, err
-	}
-	return data, &manifest.Descriptor, nil
+	desc := manifest.Descriptor
+	r := binary.NewChunkReader(ctx, manifest.ChunkCount, func(ctx context.Context, index int) ([]byte, error) {
+		return s.ReadChunk(ctx, blobID, index)
+	})
+	return r, &desc, nil
 }
 
 // Head returns blob metadata without reading payload bytes.
@@ -195,24 +209,4 @@ func (s *PostgresBlobStore) deleteChunks(ctx context.Context, key string) error 
 		return fmt.Errorf("delete chunks: %w", err)
 	}
 	return nil
-}
-
-func (s *PostgresBlobStore) assembleChunks(ctx context.Context, key string, count int) ([]byte, error) {
-	if count <= 0 {
-		count, _ = s.ListChunkCount(ctx, key)
-	}
-	if count == 0 {
-		return nil, binary.ErrNotFound
-	}
-	var buf bytes.Buffer
-	for i := 0; i < count; i++ {
-		chunk, err := s.ReadChunk(ctx, key, i)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(chunk); err != nil {
-			return nil, err
-		}
-	}
-	return buf.Bytes(), nil
 }

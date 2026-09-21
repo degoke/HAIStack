@@ -546,6 +546,10 @@ func (s *streamOnlyExportFiles) Get(ctx context.Context, jobID, filename string)
 	return s.inner.Get(ctx, jobID, filename)
 }
 
+func (s *streamOnlyExportFiles) Open(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	return s.inner.Open(ctx, jobID, filename)
+}
+
 func (s *streamOnlyExportFiles) DeleteJob(ctx context.Context, jobID string) error {
 	return s.inner.DeleteJob(ctx, jobID)
 }

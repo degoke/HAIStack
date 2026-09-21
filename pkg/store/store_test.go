@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ var (
 	_ store.BinaryStore           = (*memBinaryStore)(nil)
 	_ store.BlobStore             = (*memBlobStore)(nil)
 	_ store.BlobStoreWithStream   = (*memBlobStore)(nil)
+	_ store.BlobStoreWithOpen     = (*memBlobStore)(nil)
 	_ store.CursorStore           = (*memCursorStore)(nil)
 	_ store.InboxStore            = (*memInboxStore)(nil)
 	_ store.ConflictStore         = (*memConflictStore)(nil)
@@ -659,6 +661,17 @@ func (s *memBlobStore) PutStream(_ context.Context, key, contentType string, siz
 		Size:        size,
 		Data:        data,
 	})
+}
+
+func (s *memBlobStore) Open(_ context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(context.Background(), key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	return io.NopCloser(bytes.NewReader(data)), &head, nil
 }
 
 func (s *memBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {
