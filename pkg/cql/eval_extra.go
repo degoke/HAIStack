@@ -936,6 +936,9 @@ func evalToList(args [][]any) ([]any, error) {
 	if len(args) == 0 || args[0] == nil {
 		return []any{}, nil
 	}
+	if len(args[0]) == 0 {
+		return []any{[]any{}}, nil
+	}
 	if len(args[0]) > 1 {
 		return []any{args[0]}, nil
 	}
@@ -1019,6 +1022,8 @@ func quantitySIFactor(unit string) (float64, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "[in_i]", "[in_us]", "in", "inch", "inches":
 		return 0.0254, "length", true
+	case "[lb_av]", "lb", "lbs", "pound", "pounds":
+		return 453.59237, "mass", true
 	case "g", "gm", "gram", "grams":
 		return 1, "mass", true
 	case "mg":
@@ -1076,11 +1081,130 @@ func asRatio(v any) (Ratio, bool) {
 }
 
 func ratioEqual(a, b Ratio) bool {
-	return cqlEqual(a.Numerator, b.Numerator) && cqlEqual(a.Denominator, b.Denominator)
+	if cqlEqual(a.Numerator, b.Numerator) && cqlEqual(a.Denominator, b.Denominator) {
+		return true
+	}
+	return ratioCrossEqual(a, b)
 }
 
 func ratioEquivalent(a, b Ratio) bool {
 	return cqlEquivalent(a.Numerator, b.Numerator) && cqlEquivalent(a.Denominator, b.Denominator)
+}
+
+func ratioCrossEqual(a, b Ratio) bool {
+	left, right, ok := ratioCrossSI(a, b)
+	if !ok {
+		return false
+	}
+	return ratioFloatEqual(left, right)
+}
+
+func ratioCompare(a, b Ratio) (int, bool) {
+	left, right, ok := ratioCrossSI(a, b)
+	if !ok {
+		return 0, false
+	}
+	if ratioFloatEqual(left, right) {
+		return 0, true
+	}
+	if left < right {
+		return -1, true
+	}
+	return 1, true
+}
+
+func ratioFloatEqual(a, b float64) bool {
+	if a == b {
+		return true
+	}
+	scale := math.Max(math.Abs(a), math.Abs(b))
+	if scale == 0 {
+		return true
+	}
+	return math.Abs(a-b) <= scale*1e-9
+}
+
+func ratioCrossSI(a, b Ratio) (float64, float64, bool) {
+	if a.Denominator.Value == 0 || b.Denominator.Value == 0 {
+		return 0, 0, false
+	}
+	left, okL := quantityProductSI(a.Numerator, b.Denominator)
+	right, okR := quantityProductSI(b.Numerator, a.Denominator)
+	return left, right, okL && okR
+}
+
+func quantityProductSI(q1, q2 Quantity) (float64, bool) {
+	if isDimensionlessUnit(q1.Unit) {
+		return q1.Value * scalarQuantitySI(q2), true
+	}
+	if isDimensionlessUnit(q2.Unit) {
+		return scalarQuantitySI(q1) * q2.Value, true
+	}
+	f1, _, ok1 := quantitySIFactor(q1.Unit)
+	f2, _, ok2 := quantitySIFactor(q2.Unit)
+	if !ok1 || !ok2 {
+		return 0, false
+	}
+	return q1.Value * f1 * q2.Value * f2, true
+}
+
+func scalarQuantitySI(q Quantity) float64 {
+	if isDimensionlessUnit(q.Unit) {
+		return q.Value
+	}
+	f, _, ok := quantitySIFactor(q.Unit)
+	if !ok {
+		return q.Value
+	}
+	return q.Value * f
+}
+
+func isDimensionlessUnit(unit string) bool {
+	u := strings.TrimSpace(unit)
+	return u == "" || u == "1"
+}
+
+func evalRatioArith(op string, a, b Ratio) ([]any, error) {
+	switch op {
+	case "+", "-":
+		if !cqlEquivalent(a.Denominator, b.Denominator) {
+			return nil, nil
+		}
+		num, err := evalQuantityArith(op, a.Numerator, b.Numerator)
+		if err != nil || len(num) == 0 {
+			return nil, err
+		}
+		nq, ok := asQuantity(num[0])
+		if !ok {
+			return nil, nil
+		}
+		return []any{Ratio{Numerator: nq, Denominator: a.Denominator}}, nil
+	case "*":
+		num := Quantity{Value: a.Numerator.Value * b.Numerator.Value, Unit: a.Numerator.Unit}
+		den := Quantity{Value: a.Denominator.Value * b.Denominator.Value, Unit: a.Denominator.Unit}
+		if isDimensionlessUnit(num.Unit) {
+			num.Unit = b.Numerator.Unit
+		}
+		if isDimensionlessUnit(den.Unit) {
+			den.Unit = b.Denominator.Unit
+		}
+		return []any{Ratio{Numerator: num, Denominator: den}}, nil
+	case "/":
+		if b.Numerator.Value == 0 {
+			return nil, nil
+		}
+		num := Quantity{Value: a.Numerator.Value * b.Denominator.Value, Unit: a.Numerator.Unit}
+		den := Quantity{Value: a.Denominator.Value * b.Numerator.Value, Unit: a.Denominator.Unit}
+		if isDimensionlessUnit(num.Unit) {
+			num.Unit = a.Numerator.Unit
+		}
+		if isDimensionlessUnit(den.Unit) {
+			den.Unit = a.Denominator.Unit
+		}
+		return []any{Ratio{Numerator: num, Denominator: den}}, nil
+	default:
+		return nil, nil
+	}
 }
 
 func listRepeat(args [][]any) ([]any, error) {
@@ -1162,12 +1286,14 @@ func truncateQuantity(args [][]any) ([]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	q, ok := asQuantity(item)
-	if !ok {
-		return nil, nil
+	if q, ok := asQuantity(item); ok {
+		q.Value = math.Trunc(q.Value)
+		return []any{q}, nil
 	}
-	q.Value = math.Trunc(q.Value)
-	return []any{q}, nil
+	if f, ok := asFloat(item); ok {
+		return []any{math.Trunc(f)}, nil
+	}
+	return nil, nil
 }
 
 func convertsToRatio(args [][]any) ([]any, error) {

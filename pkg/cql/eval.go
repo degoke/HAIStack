@@ -2487,6 +2487,11 @@ func cqlEquivalentValues(left, right []any) bool {
 }
 
 func evalArithmetic(op string, lv, rv any) ([]any, error) {
+	if r1, ok := asRatio(lv); ok {
+		if r2, ok := asRatio(rv); ok {
+			return evalRatioArith(op, r1, r2)
+		}
+	}
 	if q1, ok := asQuantity(lv); ok {
 		if q2, ok := asQuantity(rv); ok {
 			return evalQuantityArith(op, q1, q2)
@@ -2818,6 +2823,11 @@ func clockInZone(t time.Time) time.Time {
 
 func cqlCompare(a, b any) (int, bool) {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if ra, ok := asRatio(a); ok {
+		if rb, ok := asRatio(b); ok {
+			return ratioCompare(ra, rb)
+		}
+	}
 	if qa, ok := asQuantity(a); ok {
 		if qb, ok := asQuantity(b); ok {
 			va, vb, ok := quantityValuesComparable(qa, qb)

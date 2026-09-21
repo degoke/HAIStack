@@ -1247,3 +1247,52 @@ define "X": "Both"
 		t.Fatalf("ConceptRef retrieve request: %+v", req)
 	}
 }
+
+func TestReviewNitsRound3(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ToList({})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := got[0].([]any)
+	if !ok || len(list) != 0 {
+		t.Fatalf("ToList empty list: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' < 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("ratio compare: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' = 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ratio proportional equal: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1 'mg' : 2 'mL' + 1 'mg' : 2 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := got[0].(Ratio)
+	if !ok || r.Numerator.Value != 2 || r.Denominator.Value != 2 {
+		t.Fatalf("ratio add: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "TruncateQuantity(1.9)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != 1.0 {
+		t.Fatalf("TruncateQuantity decimal: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[lb_av]', 'kg')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "kg" || q.Value < 0.45 || q.Value > 0.46 {
+		t.Fatalf("UCUM pound: %#v", got)
+	}
+}
