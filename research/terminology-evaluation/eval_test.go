@@ -2,6 +2,7 @@ package terminologyeval_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,6 +247,60 @@ func TestGoldFileOmitsMapIdentity(t *testing.T) {
 		if strings.Contains(s, key) {
 			t.Fatalf("cases.json must not publish %s", key)
 		}
+	}
+}
+
+func TestPublishedJSONOmitsPassRateFloats(t *testing.T) {
+	mapPath, casesPath := terminologyeval.TestdataPaths()
+	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(terminologyeval.Publish(metrics))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"accuracy", "consistency", "mapAgreement", "provenance"} {
+		if _, ok := obj[key]; ok {
+			t.Errorf("published JSON must not include %s", key)
+		}
+	}
+	if obj["implementsMap"] != true {
+		t.Fatalf("implementsMap = %v, want true (cases restate conceptmap.json)", obj["implementsMap"])
+	}
+	if obj["provenanceComplete"] != true {
+		t.Fatalf("provenanceComplete = %v, want true (gold ConceptMap has url/version/sourceUri)", obj["provenanceComplete"])
+	}
+}
+
+func TestMetricsJSONOmitsAccuracyAndProvenanceRates(t *testing.T) {
+	raw, err := json.Marshal(terminologyeval.Metrics{Accuracy: 1, Provenance: 1, Passed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"accuracy", "consistency", "mapAgreement", "provenance"} {
+		if _, ok := obj[key]; ok {
+			t.Errorf("Metrics JSON must omit %s", key)
+		}
+	}
+}
+
+func TestPublishBooleansFollowFailedAndProvenance(t *testing.T) {
+	ok := terminologyeval.Publish(terminologyeval.Metrics{Failed: 0, Provenance: 1})
+	if !ok.ImplementsMap || !ok.ProvenanceComplete {
+		t.Fatalf("gold pass must publish true booleans: %+v", ok)
+	}
+	bad := terminologyeval.Publish(terminologyeval.Metrics{Failed: 1, Provenance: 0.5})
+	if bad.ImplementsMap || bad.ProvenanceComplete {
+		t.Fatalf("failed / incomplete must publish false: %+v", bad)
 	}
 }
 

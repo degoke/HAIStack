@@ -39,8 +39,10 @@ evaluation of the translator or of an external mapping.
 ## Metrics
 
 The published command prints **gold consistency** only: gold map ×
-`cases.json`. **1.0 is expected** (`$translate` implements this map). That
-is not translator quality and not an external mapping.
+`cases.json`. `implementsMap` is true when every case matches `$translate`
+(`failed` is 0). That is expected when cases restate this map. It is not
+translator quality and not an external mapping. There is no published
+`accuracy` or `consistency` ratio.
 
 Exact / narrow / broad / unmatched counts are `$translate` observed
 classes from ConceptMap `equivalence` on the returned coding.
@@ -48,22 +50,18 @@ classes from ConceptMap `equivalence` on the returned coding.
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
 
-**Consistency** is the pass rate (`class` and `target` both match). The
-published JSON key is `consistency`, not `accuracy`. **1.0 is expected.**
-
 **Precision** and **recall** are computed by `Evaluate` as one-vs-rest on
 class labels (omitted when predicted or support is 0). A right class with
-a wrong target fails consistency and is not a class false positive. Those
+a wrong target fails the case and is not a class false positive. Those
 scores are asserted in tests, not printed as a published artefact.
 
-**Provenance completeness** is the share of translations whose
-`terminology.translate` audit event was **emitted by
-`pkg/terminology.Translate`**. The harness stores the ConceptMap at its FHIR
-`url` and calls `$translate` with that url (no version parameter). Audit
-`conceptMapUrl` / `version` / `sourceUri` version come from the resolved
-ConceptMap body. Published provenance 1.0 means `conceptmap.json` includes
-those fields; that is the metric working. A body missing them scores 0. A
-failed audit emit aborts the run.
+**Provenance** is complete when each `terminology.translate` audit event
+was **emitted by `pkg/terminology.Translate`** and the resolved ConceptMap
+body has `url`, `version`, and `sourceUri`. The published flag
+`provenanceComplete` is that boolean (true when `conceptmap.json` includes
+those fields). A body missing them is false. A failed audit emit aborts
+the run. The harness stores the ConceptMap at its FHIR `url` and calls
+`$translate` with that url (no version parameter).
 
 ## Finite ValueSet expansion
 

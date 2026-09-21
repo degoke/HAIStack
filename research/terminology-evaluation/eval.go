@@ -49,11 +49,10 @@ type ClassScore struct {
 }
 
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
-// Accuracy is the in-memory pass rate (class and target); JSON encodes it as
-// consistency. ByClass is one-vs-rest on class labels only. Gold
-// conceptmap.json vs cases.json checks that $translate implements that map
-// (published artefact). Divergent conceptmap vs the same cases is a unit-test
-// fixture for those class metrics, not a published score.
+// Accuracy and Provenance are in-memory pass rates used by tests; they are not
+// JSON fields. The published command prints implementsMap / provenanceComplete
+// booleans instead of 0–1 scores. ByClass is one-vs-rest on class labels only
+// and is a unit-test fixture, not a published artefact.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -61,10 +60,47 @@ type Metrics struct {
 	Unmatched  int                   `json:"unmatched"`
 	Passed     int                   `json:"passed"`
 	Failed     int                   `json:"failed"`
-	Accuracy   float64               `json:"consistency"`
+	Accuracy   float64               `json:"-"`
 	ByClass    map[string]ClassScore `json:"byClass,omitempty"`
-	Provenance float64               `json:"provenanceCompleteness"`
+	Provenance float64               `json:"-"`
 	Results    []CaseResult          `json:"results"`
+}
+
+// PublishedNote is the command JSON note. It is not a quality claim.
+const PublishedNote = "implementsMap true means $translate implements conceptmap.json; not translator quality and not an external mapping. provenanceComplete true means the ConceptMap body has url, version, and sourceUri."
+
+// PublishedReport is the command JSON. Pass-rate floats (accuracy,
+// consistency, mapAgreement, provenance) are omitted on purpose: gold cases
+// restate conceptmap.json, and provenance fields are copied from that file.
+type PublishedReport struct {
+	Exact              int          `json:"exact"`
+	Narrow             int          `json:"narrow"`
+	Broad              int          `json:"broad"`
+	Unmatched          int          `json:"unmatched"`
+	Passed             int          `json:"passed"`
+	Failed             int          `json:"failed"`
+	ImplementsMap      bool         `json:"implementsMap"`
+	ProvenanceComplete bool         `json:"provenanceComplete"`
+	Results            []CaseResult `json:"results"`
+	Note               string       `json:"note"`
+}
+
+// Publish is the artefact the command prints. implementsMap is failed==0;
+// provenanceComplete is every case's Translate-resolved ConceptMap body
+// carrying url, version, and sourceUri.
+func Publish(m Metrics) PublishedReport {
+	return PublishedReport{
+		Exact:              m.Exact,
+		Narrow:             m.Narrow,
+		Broad:              m.Broad,
+		Unmatched:          m.Unmatched,
+		Passed:             m.Passed,
+		Failed:             m.Failed,
+		ImplementsMap:      m.Failed == 0,
+		ProvenanceComplete: m.Provenance == 1,
+		Results:            m.Results,
+		Note:               PublishedNote,
+	}
 }
 
 type conceptMapHeader struct {
