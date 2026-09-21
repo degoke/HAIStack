@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
@@ -51,34 +53,74 @@ func (o *jsonPatchOp) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Patch applies a JSON Patch (RFC 6902) to an existing resource.
+// Patch applies a JSON Patch (RFC 6902) or FHIR Patch Parameters document
+// to an existing resource. JSON Patch bodies are arrays; FHIR Patch bodies
+// are Parameters resources.
 func (s *ResourceService) Patch(ctx context.Context, resourceType, id string, patchJSON []byte) (*types.ResourceEnvelope, error) {
+	return s.patchAndCommit(ctx, resourceType, id, patchJSON, "")
+}
+
+func (s *ResourceService) patchAndCommit(ctx context.Context, resourceType, id string, patchJSON []byte, expectedVersion string) (*types.ResourceEnvelope, error) {
 	if resourceType == "" || id == "" {
 		return nil, invalidErr("resourceType and id are required", nil)
 	}
 	if len(patchJSON) == 0 {
 		return nil, invalidErr("patch body is required", nil)
 	}
-
-	current, err := s.Read(ctx, resourceType, id)
-	if err != nil {
-		return nil, err
+	if err := s.idPolicy.Validate(resourceType, id); err != nil {
+		return nil, invalidErr("invalid resource id", err, "Resource.id")
 	}
 
-	patchedJSON, err := applyJSONPatch(current.JSON, patchJSON)
+	session, err := s.sessions.BeginWrite(ctx)
 	if err != nil {
-		return nil, invalidErr("apply JSON Patch", err)
+		return nil, exceptionErr("begin write session", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = session.Rollback(ctx)
+		}
+	}()
+	current, err := session.ResourceStore().Read(ctx, resourceType, id)
+	if err != nil {
+		if isStoreNotFound(err) {
+			return nil, notFoundErr(fmt.Sprintf("resource not found: %s/%s", resourceType, id), err)
+		}
+		return nil, exceptionErr("read resource for patch", err)
+	}
+	patchedJSON, err := applyPatchDocument(current.JSON, patchJSON)
+	if err != nil {
+		return nil, invalidErr("apply patch", err)
 	}
 	if err := validatePatchedIdentity(patchedJSON, resourceType, id); err != nil {
 		return nil, err
 	}
-
-	envelope := &types.ResourceEnvelope{
-		ResourceType: resourceType,
-		ID:           id,
-		JSON:         patchedJSON,
+	envelope := &types.ResourceEnvelope{ResourceType: resourceType, ID: id, JSON: patchedJSON}
+	envelope, err = s.normalizeEnvelope(envelope)
+	if err != nil {
+		return nil, err
 	}
-	return s.Update(ctx, envelope)
+	if s.validator != nil {
+		if err := s.validator.ValidateResource(ctx, envelope); err != nil {
+			return nil, invalidErr("resource validation failed", err)
+		}
+	}
+	written, err := s.applyWriteExpectedVersion(ctx, session, envelope, store.VersionActionUpdate, expectedVersion, hooks.ActionPatch, current)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.removePreviousTerminology(ctx, session, current, written); err != nil {
+		return nil, exceptionErr("replace previous terminology projection", err)
+	}
+	if err := session.Commit(ctx); err != nil {
+		return nil, exceptionErr("commit write session", err)
+	}
+	committed = true
+	s.runPostCommit(ctx, hooks.ActionPatch, written, current)
+	if err := s.ingestDefinitionResource(ctx, written); err != nil {
+		return written, exceptionErr("ingest definition into registry catalog", err)
+	}
+	return written, nil
 }
 
 func validatePatchedIdentity(data []byte, resourceType, id string) error {

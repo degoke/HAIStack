@@ -3,11 +3,13 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 )
@@ -34,7 +36,7 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 			writeError(w, err)
 			return
 		}
-		if strings.ToLower(r.Header.Get("Prefer")) != "respond-async" {
+		if !prefersRespondAsync(r.Header.Get("Prefer")) {
 			writeError(w, invalidRequest("Prefer: respond-async is required for bulk export kickoff", nil))
 			return
 		}
@@ -55,6 +57,13 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 		}
 		if route.resourceType == "Group" && route.id != "" {
 			req.GroupID = route.id
+		}
+		if route.resourceType == "Patient" {
+			if route.id != "" {
+				req.PatientID = route.id
+			} else {
+				req.PatientExport = true
+			}
 		}
 		if principal, tenant, ok := identityFromContext(r.Context()); ok {
 			req.TenantID = tenant.TenantID
@@ -134,7 +143,7 @@ func (h *handler) handleBulkExportFile(w http.ResponseWriter, r *http.Request, j
 	}
 	data, contentType, err := h.cfg.BulkExportService.GetFile(r.Context(), jobID, filename)
 	if err != nil {
-		writeError(w, notFound("export file not found"))
+		writeFileError(w, err, "export file not found")
 		return
 	}
 	if contentType == "" {
@@ -160,9 +169,37 @@ func parseCSVParam(raw string) []string {
 	return out
 }
 
+// prefersRespondAsync reports whether a Prefer header requests async processing.
+// It accepts the FHIR Bulk Data token by itself or as one comma-separated
+// preference, for example "respond-async, wait=10".
+func prefersRespondAsync(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		token := strings.TrimSpace(part)
+		if i := strings.IndexAny(token, "; "); i >= 0 {
+			token = token[:i]
+		}
+		if strings.EqualFold(token, "respond-async") {
+			return true
+		}
+	}
+	return false
+}
+
 func notFound(message string, args ...any) error {
 	return &core.ServiceError{
 		Kind:    core.ErrorKindNotFound,
 		Message: fmt.Sprintf(message, args...),
 	}
+}
+
+func writeFileError(w http.ResponseWriter, err error, missing string) {
+	if errors.Is(err, binary.ErrNotFound) {
+		writeError(w, notFound("%s", missing))
+		return
+	}
+	if errors.Is(err, binary.ErrInvalidArgument) {
+		writeError(w, invalidRequest(err.Error(), err))
+		return
+	}
+	writeError(w, err)
 }

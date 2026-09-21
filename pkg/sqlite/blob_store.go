@@ -33,9 +33,14 @@ func (s *SQLiteBlobStore) Put(ctx context.Context, blobID string, data []byte, c
 	}
 	hash := binary.HashSHA256(data)
 	now := time.Now().UTC()
-
-	if err := s.putChunk(ctx, blobID, 0, data, now); err != nil {
+	if err := s.deleteChunks(ctx, blobID); err != nil {
 		return nil, err
+	}
+	chunks := binary.ChunkBytes(data, binary.DefaultChunkSize)
+	for i, chunk := range chunks {
+		if err := s.putChunk(ctx, blobID, i, chunk, now); err != nil {
+			return nil, err
+		}
 	}
 
 	desc := &binary.BlobDescriptor{
@@ -51,7 +56,8 @@ func (s *SQLiteBlobStore) Put(ctx context.Context, blobID string, data []byte, c
 	}
 	manifest := binary.BlobManifest{
 		Descriptor:  *desc,
-		ChunkCount:  1,
+		ChunkSize:   int64(binary.DefaultChunkSize),
+		ChunkCount:  len(chunks),
 		CreatedAt:   now,
 		FinalizedAt: &now,
 	}

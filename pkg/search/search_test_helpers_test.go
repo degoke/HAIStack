@@ -189,6 +189,24 @@ func patientResource(t *testing.T, id, family, phone string) *types.ResourceEnve
 	return env
 }
 
+func encounterResource(t *testing.T) *types.ResourceEnvelope {
+	t.Helper()
+	data := []byte(`{
+		"resourceType":"Encounter",
+		"id":"enc-1",
+		"status":"finished",
+		"class":{"system":"http://terminology.hl7.org/CodeSystem/v3-ActCode","code":"AMB"},
+		"subject":{"reference":"Patient/pat-1"}
+	}`)
+	codec := types.NewJSONCodec()
+	env, err := codec.ParseJSON("Encounter", data)
+	if err != nil {
+		t.Fatalf("ParseJSON: %v", err)
+	}
+	env.LastUpdated = time.Date(2024, 6, 1, 9, 0, 0, 0, time.UTC)
+	return env
+}
+
 func observationResource(t *testing.T) *types.ResourceEnvelope {
 	t.Helper()
 	data := []byte(`{

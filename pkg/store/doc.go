@@ -67,6 +67,8 @@
 //
 //   - AppendVersion(ctx, version) appends one ResourceVersion entry.
 //   - GetHistory(ctx, resourceType, id) returns ordered history for one resource.
+//   - GetVersion(ctx, resourceType, id, versionID) returns one history entry or
+//     an error containing "resource not found".
 //
 // ResourceVersion fields:
 //
@@ -166,6 +168,8 @@
 // JobStore — durable background job queue:
 //
 //   - Enqueue(ctx, job), ClaimNext(ctx, jobType), Update(ctx, job), Get(ctx, id).
+//   - Optional JobCASStore.UpdateIf compare-and-swaps using UpdatedAt.
+//   - Optional JobDeleter.Delete removes a row (used to abandon a failed kickoff).
 //   - JobRecord tracks Type, Payload, Status (pending/running/completed/failed), Attempts,
 //     CreatedAt, UpdatedAt, RunAfter, and LastError.
 //   - Retry and scheduling policy remain outside this package.

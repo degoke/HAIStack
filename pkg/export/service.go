@@ -92,7 +92,7 @@ func (s *Service) Kickoff(ctx context.Context, req KickoffRequest) (*Job, error)
 			Now: s.now,
 		})
 		if err != nil {
-			return nil, err
+			return nil, s.abortKickoff(ctx, &job, err)
 		}
 	} else if err := s.RunJob(ctx, id); err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 		return nil
 	}
 
-	patientIDs, err := s.resolveGroupPatients(ctx, job.Request.GroupID)
+	patientIDs, err := s.resolveExportPatients(ctx, job.Request)
 	if err != nil {
 		return s.failJob(ctx, job, err)
 	}
@@ -218,6 +218,38 @@ func (s *Service) RunJob(ctx context.Context, jobID string) error {
 	return s.jobs.Update(ctx, *job)
 }
 
+func (s *Service) resolveExportPatients(ctx context.Context, req KickoffRequest) ([]string, error) {
+	if req.PatientID != "" {
+		return []string{req.PatientID}, nil
+	}
+	if req.PatientExport {
+		return s.listPatientIDs(ctx)
+	}
+	return s.resolveGroupPatients(ctx, req.GroupID)
+}
+
+func (s *Service) listPatientIDs(ctx context.Context) ([]string, error) {
+	if s.executor == nil || s.executor.Resources == nil {
+		return nil, nil
+	}
+	var all []string
+	pageSize := 100
+	for {
+		ids, err := s.executor.Resources.ListIDs(ctx, "Patient", pageSize, len(all))
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		all = append(all, ids...)
+		if len(ids) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (s *Service) resolveGroupPatients(ctx context.Context, groupID string) ([]string, error) {
 	if groupID == "" || s.executor == nil || s.executor.Resources == nil {
 		return nil, nil
@@ -234,6 +266,23 @@ func (s *Service) failJob(ctx context.Context, job *Job, cause error) error {
 	job.LastError = cause.Error()
 	job.CompletedAt = nowUTC(s.now)
 	return s.jobs.Update(ctx, *job)
+}
+
+type jobDeleter interface {
+	Delete(ctx context.Context, id string) error
+}
+
+func (s *Service) abortKickoff(ctx context.Context, job *Job, cause error) error {
+	if deleter, ok := s.jobs.(jobDeleter); ok {
+		if err := deleter.Delete(ctx, job.ID); err != nil {
+			return fmt.Errorf("export: enqueue: %w (delete status: %v)", cause, err)
+		}
+		return cause
+	}
+	if markErr := s.failJob(ctx, job, cause); markErr != nil {
+		return fmt.Errorf("export: enqueue: %w (mark failed: %v)", cause, markErr)
+	}
+	return cause
 }
 
 // JobHandler returns a jobs.Handler that executes bulk export jobs.

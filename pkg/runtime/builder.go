@@ -7,6 +7,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
 	"github.com/degoke/health-ai-stack/pkg/modules"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
@@ -44,6 +45,7 @@ type Builder struct {
 	httpAuthBundleResolver     hahttp.AuthBundleResolver
 	httpAuthChecker            hahttp.AuthChecker
 	httpRateLimit              hahttp.RateLimitConfig
+	hooks                      hooks.Hooks
 	moduleAuthorizer           modules.InstallAuthorizer
 	moduleVerifier             modules.ModuleVerifier
 
@@ -241,6 +243,14 @@ func (b *Builder) WithHTTPMiddleware(middleware func(http.Handler) http.Handler)
 func (b *Builder) WithHTTPAuth(resolver hahttp.PrincipalResolver, checker hahttp.AuthChecker) *Builder {
 	b.httpPrincipalResolver = resolver
 	b.httpAuthChecker = checker
+	return b
+}
+
+// WithHooks registers the four-point intercept SPI on both core writes and
+// the FHIR HTTP handler. The same registry should be used for incoming,
+// pre-storage, post-commit, and outgoing callbacks.
+func (b *Builder) WithHooks(h hooks.Hooks) *Builder {
+	b.hooks = h
 	return b
 }
 

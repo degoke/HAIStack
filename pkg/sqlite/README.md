@@ -124,6 +124,7 @@ err = session.Commit(ctx)
 | `date.<name>` | `search_date` |
 | `number.<name>` | `search_number` |
 | `reference.<name>` or `ref.<name>` | `search_reference` |
+| `uri.<name>` | `search_string` |
 
 Keys without a prefix (for example `family`) default to `search_string`. FHIR search parsing stays in `pkg/search`; this package only stores prepared entries.
 

@@ -3,6 +3,7 @@ package sync_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -350,6 +351,17 @@ func (s *memHistoryStore) GetHistory(_ context.Context, resourceType, id string)
 	out := make([]store.ResourceVersion, len(history))
 	copy(out, history)
 	return out, nil
+}
+
+func (s *memHistoryStore) GetVersion(_ context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, version := range s.data[resourceKey(resourceType, id)] {
+		if version.VersionID == versionID {
+			return version, nil
+		}
+	}
+	return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
 }
 
 type memConflictStore struct {

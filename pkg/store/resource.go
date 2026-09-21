@@ -2,9 +2,13 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
+
+// ErrNotFound indicates a resource does not exist in the current store.
+var ErrNotFound = errors.New("resource not found")
 
 // ResourceStore persists the current state of FHIR resources.
 // Delete removes the current record; historical tombstones are recorded through HistoryStore.

@@ -136,10 +136,11 @@ Postgres-first advanced FHIR search:
 | Registry-backed parameters | All installed SearchParameters for enabled resource types |
 | `_count` / `_offset` | Paging with max `_count` of 100 |
 | `_sort` | Registry-backed fields plus `_id` and `_lastUpdated` |
-| Modifiers | `string:exact`, `string:contains`; token/reference modifiers per type |
+| Modifiers | `string:exact`, `string:contains`; `uri:below`, `uri:above`; token/reference modifiers per type |
 | Prefixes | Date/number comparators: `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `sa`, `eb`, `ap` |
-| Chained search | Single-hop only (e.g. `subject.name`) |
-| `_include` / `_revinclude` | Direct includes; wildcards deferred |
+| Chained search | Up to two hops (e.g. `subject.name`, `subject.organization.name`) |
+| Reverse chaining | `_has:Type:ref:param` (one extra nested `_has`) |
+| `_include` / `_revinclude` | Direct includes plus `ResourceType:*` and `*:*` wildcards |
 | Composite search | Declared composite SearchParameters from registry |
 | `_summary` / `_elements` | Response projection at assembly time |
 | Full text | Postgres native FTS via indexed text documents |
@@ -153,7 +154,7 @@ Unsupported semantics return explicit errors (`ErrUnsupportedFeature`, `ErrInval
 - Comma-separated values **OR** within one occurrence (`?name=Smith,Jones`)
 - `_count` and `_offset` apply to primary matches only (not included resources)
 - `_sort` uses registry metadata; tiebreak on resource id
-- Chain depth limited to 1; wildcard includes and recursive includes are rejected
+- Chain depth is limited to 2 hops; `_include:iterate` remains unsupported
 
 ## Index field keys
 
@@ -165,6 +166,7 @@ Unsupported semantics return explicit errors (`ErrUnsupportedFeature`, `ErrInval
 | `string.*` | `string.family` | Normalized strings |
 | `date.*` | `date.birthdate` | Comparable date strings |
 | `reference.*` | `reference.patient` | Reference targets (typed/id/canonical forms) |
+| `uri.*` | `uri.url` | Canonical/URI strings (stored with string indexes) |
 | `composite.*` | `composite.context-type-value` | Composite component values |
 | `text.*` | `text.document` | Postgres full-text document |
 
@@ -209,7 +211,7 @@ url.Values  →  ParseQuery  →  ResolveQuery  →  BuildPlan  →  StoreExecut
 ## Current limits
 
 - Postgres is the primary complete execution backend; SQLite stores indexes and supports basic lookups but not advanced execution
-- Chain depth is limited to 1; wildcard/recursive includes are deferred
+- Chain depth is limited to 2; recursive `_include:iterate` is deferred
 - OpenSearch adapter seam is preserved via `SearchAdvancedExecutor`; not implemented yet
 - No HTTP `_search` endpoint in this package
 - Custom SearchParameters become searchable after snapshot rebuild and reindex completion

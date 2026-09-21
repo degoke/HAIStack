@@ -23,7 +23,11 @@ func NewInMemoryJobStore() *InMemoryJobStore {
 	return &InMemoryJobStore{jobs: make(map[string]store.JobRecord)}
 }
 
-var _ store.JobStore = (*InMemoryJobStore)(nil)
+var (
+	_ store.JobStore    = (*InMemoryJobStore)(nil)
+	_ store.JobCASStore = (*InMemoryJobStore)(nil)
+	_ store.JobDeleter  = (*InMemoryJobStore)(nil)
+)
 
 // Enqueue implements store.JobStore.
 func (s *InMemoryJobStore) Enqueue(_ context.Context, job store.JobRecord) error {
@@ -90,6 +94,32 @@ func (s *InMemoryJobStore) Update(_ context.Context, job store.JobRecord) error 
 		return ErrJobNotFound
 	}
 	s.jobs[job.ID] = job
+	return nil
+}
+
+// UpdateIf implements store.JobCASStore.
+func (s *InMemoryJobStore) UpdateIf(_ context.Context, job store.JobRecord, expectedUpdatedAt time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.jobs[job.ID]
+	if !ok {
+		return false, ErrJobNotFound
+	}
+	if !existing.UpdatedAt.Equal(expectedUpdatedAt) {
+		return false, nil
+	}
+	s.jobs[job.ID] = job
+	return true, nil
+}
+
+// Delete implements store.JobDeleter.
+func (s *InMemoryJobStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[id]; !ok {
+		return ErrJobNotFound
+	}
+	delete(s.jobs, id)
 	return nil
 }
 

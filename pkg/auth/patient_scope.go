@@ -47,8 +47,9 @@ func (r OverridePatientSearchParamResolver) PatientSearchParameterCode(resourceT
 }
 
 // ApplyPatientSearchScopeToParams injects query-time patient filters into FHIR
-// search parameters. Patient searches are narrowed to _id. Other resource types
-// use the resolved relationship parameter (for example subject=Patient/{id}).
+// search parameters so the store never returns out-of-compartment primary
+// matches. Patient searches are narrowed to _id. Other resource types use the
+// resolved relationship parameter (for example subject=Patient/{id}).
 func ApplyPatientSearchScopeToParams(params url.Values, resourceType, patientID string, resolver PatientSearchParamResolver) (url.Values, error) {
 	if patientID == "" {
 		return params, nil

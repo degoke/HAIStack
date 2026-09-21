@@ -18,8 +18,10 @@
 //
 // Postgres-first execution supports:
 //
-//   - _include and _revinclude (direct, non-wildcard)
-//   - single-hop chained search (e.g. subject.name)
+//   - _include and _revinclude, including ResourceType:* and *:* wildcards
+//   - chained search up to two hops (e.g. subject.name, subject.organization.name)
+//   - reverse chaining via _has:Type:ref:param
+//   - uri SearchParameters with :below / :above
 //   - composite SearchParameters from the registry
 //   - modifiers (:exact, :contains on string; date/number prefixes)
 //   - _sort on registry-backed parameters plus _id / _lastUpdated
@@ -33,7 +35,7 @@
 //
 // RegistryIndexer evaluates each installed SearchParameter expression with pkg/fhirpath,
 // normalizes extracted values into typed field keys (token.*, string.*, date.*,
-// reference.*, composite.*, text.*), and emits store.SearchIndexEntry rows consumed
+// reference.*, uri.*, composite.*, text.*), and emits store.SearchIndexEntry rows consumed
 // by store.SearchStore.
 //
 // # Query semantics

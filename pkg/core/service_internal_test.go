@@ -1,13 +1,60 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
+
+func TestPrepareWriteRunsPreStorageBeforeIntegrity(t *testing.T) {
+	ctx := context.Background()
+	reg := hooks.NewRegistry()
+	if err := reg.On(hooks.PreStorage, func(_ context.Context, event *hooks.Event) error {
+		if event == nil || event.Resource == nil {
+			return nil
+		}
+		event.Resource.JSON = bytes.ReplaceAll(event.Resource.JSON, []byte("Patient/pat-missing"), []byte("https://example.org/fhir/Patient/ext"))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := NewResourceService(ResourceServiceConfig{
+		Resources: stubResourceStore{},
+		History:   stubHistoryStore{},
+		Sessions:  stubSessionProvider{session: stubWriteSession{}},
+		Hooks:     reg,
+	})
+	if err != nil {
+		t.Fatalf("NewResourceService: %v", err)
+	}
+
+	created, err := svc.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Observation",
+		ID:           "obs-1",
+		JSON:         []byte(`{"resourceType":"Observation","id":"obs-1","status":"final","code":{"text":"hr"},"subject":{"reference":"Patient/pat-missing"}}`),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v (pre-storage must run before referential integrity)", err)
+	}
+	if created == nil || !bytes.Contains(created.JSON, []byte("https://example.org/fhir/Patient/ext")) {
+		t.Fatalf("stored JSON = %s, want rewritten external reference", createdJSON(created))
+	}
+	if bytes.Contains(created.JSON, []byte("Patient/pat-missing")) {
+		t.Fatalf("stored JSON still has local missing reference: %s", created.JSON)
+	}
+}
+
+func createdJSON(env *types.ResourceEnvelope) string {
+	if env == nil {
+		return "<nil>"
+	}
+	return string(env.JSON)
+}
 
 func TestNewResourceServiceSetsOutbox(t *testing.T) {
 	ctx := context.Background()
@@ -92,6 +139,9 @@ type stubHistoryStore struct{}
 func (stubHistoryStore) AppendVersion(context.Context, store.ResourceVersion) error { return nil }
 func (stubHistoryStore) GetHistory(context.Context, string, string) ([]store.ResourceVersion, error) {
 	return nil, nil
+}
+func (stubHistoryStore) GetVersion(context.Context, string, string, string) (store.ResourceVersion, error) {
+	return store.ResourceVersion{}, nil
 }
 
 type stubSearchStore struct{}

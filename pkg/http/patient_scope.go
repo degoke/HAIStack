@@ -33,7 +33,13 @@ func (h *handler) filterSearchBundlePatientScope(ctx context.Context, bundle *se
 	if !ok || tenant.PatientScope == "" {
 		return nil
 	}
+	// Primary matches are narrowed by rewriting the search query
+	// (SearchBundleForPatient). This post-filter is a safety net if a backend
+	// ignores rewrite. Included, revincluded, and empty-mode ($everything)
+	// entries are also compartment-checked. Total is left as the query-time
+	// match count; Count follows remaining match rows.
 	kept := make([]search.BundleEntry, 0, len(bundle.Entries))
+	matchCount := 0
 	for _, entry := range bundle.Entries {
 		if entry.Resource == nil {
 			continue
@@ -45,12 +51,11 @@ func (h *handler) filterSearchBundlePatientScope(ctx context.Context, bundle *se
 			return err
 		}
 		kept = append(kept, entry)
+		if entry.Mode == "match" {
+			matchCount++
+		}
 	}
 	bundle.Entries = kept
-	bundle.Count = len(kept)
-	if bundle.Total != nil {
-		total := len(kept)
-		bundle.Total = &total
-	}
+	bundle.Count = matchCount
 	return nil
 }

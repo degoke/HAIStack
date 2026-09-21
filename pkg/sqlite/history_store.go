@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -118,4 +119,54 @@ func (s *HistoryStore) GetHistory(ctx context.Context, resourceType, id string) 
 		return nil, fmt.Errorf("iterate history: %w", err)
 	}
 	return out, nil
+}
+
+func (s *HistoryStore) GetVersion(ctx context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	row := s.exec.QueryRowContext(ctx, `
+		SELECT action, timestamp, hash, deleted, json
+		FROM hai_resource_history
+		WHERE resource_type = ? AND resource_id = ? AND version_id = ?`,
+		resourceType, id, versionID,
+	)
+	var (
+		action    string
+		timestamp string
+		hash      sql.NullString
+		deleted   int
+		jsonData  []byte
+	)
+	if err := row.Scan(&action, &timestamp, &hash, &deleted, &jsonData); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
+		}
+		return store.ResourceVersion{}, fmt.Errorf("get history version: %w", err)
+	}
+	ts, err := parseTime(timestamp)
+	if err != nil {
+		return store.ResourceVersion{}, err
+	}
+	version := store.ResourceVersion{
+		ResourceType: resourceType,
+		ID:           id,
+		VersionID:    versionID,
+		Action:       store.VersionAction(action),
+		Timestamp:    ts,
+		Deleted:      deleted != 0,
+	}
+	if hash.Valid {
+		version.Hash = hash.String
+	}
+	if len(jsonData) > 0 {
+		version.Resource = &types.ResourceEnvelope{
+			ResourceType: resourceType,
+			ID:           id,
+			VersionID:    versionID,
+			LastUpdated:  ts,
+			JSON:         jsonData,
+		}
+		if hash.Valid {
+			version.Resource.Hash = hash.String
+		}
+	}
+	return version, nil
 }

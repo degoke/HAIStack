@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
@@ -9,6 +10,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/registry"
 	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/health-ai-stack/pkg/subscriptions"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/view"
@@ -36,6 +38,8 @@ type ServiceContainer struct {
 
 	// BulkExportService handles FHIR Bulk Data export when job infrastructure is wired.
 	BulkExportService *export.Service
+	// BulkImportService handles FHIR Bulk Data import when job infrastructure is wired.
+	BulkImportService *bulkimport.Service
 
 	// AnalyticsRunner executes ViewDefinitions when analytics is enabled.
 	AnalyticsRunner *analytics.Runner
@@ -53,4 +57,13 @@ type ServiceContainer struct {
 	ViewExportService *view.ExportService
 	// AnalyticsCDC consumes outbox events and schedules refresh jobs.
 	AnalyticsCDC *analytics.CDCProcessor
+
+	// SubscriptionManager registers and updates subscription records.
+	SubscriptionManager *subscriptions.Manager
+	// SubscriptionProcessor consumes resource events and enqueues deliveries.
+	SubscriptionProcessor *subscriptions.Processor
+	// SubscriptionMatcher evaluates triggers; Engine and Registry are always set.
+	SubscriptionMatcher *subscriptions.Matcher
+	// SubscriptionHandlers is the in-process local delivery handler registry.
+	SubscriptionHandlers *subscriptions.HandlerRegistry
 }

@@ -52,14 +52,22 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `DELETE` | `/fhir/{ResourceType}?...` | Conditional delete | 204 No Content |
 | `GET` | `/fhir/{ResourceType}/{id}` | Read resource | 200 + resource, `ETag`, `Last-Modified` |
 | `PUT` | `/fhir/{ResourceType}/{id}` | Update resource | 200 + resource |
-| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch update | 200 + resource |
+| `PATCH` | `/fhir/{ResourceType}/{id}` | JSON Patch or FHIR Patch | 200 + resource |
 | `DELETE` | `/fhir/{ResourceType}/{id}` | Delete resource | 204 No Content |
-| `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history | 200 + history Bundle |
+| `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history (`_since`, `_at`) | 200 + history Bundle |
+| `GET` | `/fhir/{ResourceType}/{id}/_history/{vid}` | vread | 200 + resource, 410 if deleted |
+| `GET` | `/fhir/Patient/{id}/$everything` | Patient compartment bundle | 200 + searchset Bundle |
 | `GET` | `/fhir/$export` | System bulk export kickoff (`Prefer: respond-async`) | 202 + `Content-Location` when `BulkExportService` configured |
+| `GET` | `/fhir/Patient/$export` | All-patient bulk export kickoff | 202 when configured |
+| `GET` | `/fhir/Patient/{id}/$export` | Patient compartment bulk export | 202 when configured |
 | `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 202 + `Content-Location` when configured |
 | `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
 | `GET` | `/fhir/$export/files/{jobId}/{file}` | Download NDJSON artifact | 200 |
+| `POST` | `/fhir/$import` | System bulk import kickoff (`Prefer: respond-async`, Parameters + NDJSON) | 202 + `Content-Location` when `BulkImportService` configured |
+| `GET` | `/fhir/$import/status/{jobId}` | Poll import status or fetch manifest | 202 in progress, 200 complete |
+| `DELETE` | `/fhir/$import/status/{jobId}` | Cancel import | 202 |
+| `GET` | `/fhir/$import/files/{jobId}/{file}` | Download import error NDJSON artifact | 200 |
 | `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
 | `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
 | `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
@@ -83,6 +91,7 @@ SDC operations (`$populate`, `$assemble`, `$validate`, `$extract`, adaptive ques
 ### Deferred
 
 - Configure `BulkExportService` (typically `pkg/export.Service` wired by `pkg/runtime`) to enable Bulk Data export
+- Configure `BulkImportService` (typically `pkg/bulkimport.Service` wired by `pkg/runtime`) to enable Bulk Data import
 - Full CapabilityStatement conformance coverage
 - SMART metadata and built-in token runtime
 
