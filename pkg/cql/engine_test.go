@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,6 +205,20 @@ func TestResourceMatchesPatientRequiresSubject(t *testing.T) {
 	if !resourceMatchesPatient(mine, "Patient/ada") {
 		t.Fatal("expected matching observation")
 	}
+	suffix, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"s","subject":{"reference":"Patient/not-ada"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resourceMatchesPatient(suffix, "Patient/ada") {
+		t.Fatal("Patient/not-ada must not match Patient/ada")
+	}
+	canada, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"c","subject":{"reference":"Patient/canada"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resourceMatchesPatient(canada, "Patient/ada") {
+		t.Fatal("Patient/canada must not match Patient/ada")
+	}
 }
 
 func TestParseLibraryResource(t *testing.T) {
@@ -390,6 +406,42 @@ func (t *nestedNameFHIRPath) EvalBool(ctx context.Context, expr string, resource
 }
 func (t *nestedNameFHIRPath) EvalString(ctx context.Context, expr string, resource any) (string, error) {
 	return t.inner.EvalString(ctx, expr, resource)
+}
+
+func TestEvalFHIRPathNestedNameConcurrent(t *testing.T) {
+	fp, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		FHIRPath: fp,
+		Now:      func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pat := adaPatient(t)
+	errCh := make(chan error, 16)
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := eng.Eval(context.Background(), "First(Patient.name.given)", EvalContext{Patient: pat})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if len(got) != 1 || got[0] != "Ada" {
+				errCh <- fmt.Errorf("given: %#v", got)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
 }
 
 func TestRetrieveMatchesStructuredCodesNotJSONSubstring(t *testing.T) {

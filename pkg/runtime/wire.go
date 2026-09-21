@@ -350,9 +350,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 	state.services.FHIRPathEngine = engine
+	retriever := cql.StoreRetriever{Resources: pc.resources}
+	if adv, ok := pc.searchStore.(store.SearchAdvancedExecutor); ok {
+		retriever.References = adv
+	}
 	cqlEngine, err := cql.NewEngine(cql.Config{
 		FHIRPath:    engine,
-		Retriever:   cql.StoreRetriever{Resources: pc.resources},
+		Retriever:   retriever,
 		Terminology: term,
 	})
 	if err != nil {
@@ -365,7 +369,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Registry:  pc.definitions,
 			Engine:    cqlEngine,
 		},
-		Retriever: cql.StoreRetriever{Resources: pc.resources},
+		Retriever: retriever,
 	}
 	viewRegistry := view.NewRegistry()
 

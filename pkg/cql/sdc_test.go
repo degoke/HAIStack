@@ -201,6 +201,28 @@ func TestProviderDoesNotTreatResponseAsPatient(t *testing.T) {
 	}
 }
 
+func TestExpressionNeedsPatientUsesIdentifiers(t *testing.T) {
+	if !expressionNeedsPatient("Patient.gender", sdc.CQLLanguage, nil) {
+		t.Fatal("Patient.gender requires Patient context")
+	}
+	if !expressionNeedsPatient("AgeInYears() >= 18", sdc.CQLLanguage, nil) {
+		t.Fatal("AgeInYears requires Patient context")
+	}
+	if expressionNeedsPatient("true", sdc.CQLLanguage, nil) {
+		t.Fatal("literal true does not require Patient context")
+	}
+	if expressionNeedsPatient("outpatient = true", sdc.CQLLanguage, nil) {
+		t.Fatal("outpatient must not force Patient context")
+	}
+	if expressionNeedsPatient("// patient in a comment\n1 + 1", sdc.CQLLanguage, nil) {
+		t.Fatal("comment must not force Patient context")
+	}
+	lib := &Library{Context: "Patient", Name: "L"}
+	if !expressionNeedsPatient("Is Adult", sdc.CQLIdentifierLanguage, []*Library{lib}) {
+		t.Fatal("identifier language in Patient-context library requires Patient")
+	}
+}
+
 func sdcFind(items []sdc.ResponseItem, id string) *sdc.ResponseItem {
 	for i := range items {
 		if items[i].LinkID == id {

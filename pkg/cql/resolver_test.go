@@ -186,9 +186,9 @@ func TestStoreLibraryResolverPicksSemverLatest(t *testing.T) {
 	}
 }
 
-func TestStoreLibraryResolverDoesNotRereadCatalog(t *testing.T) {
+func TestStoreLibraryResolverSeesRetargetedURL(t *testing.T) {
 	good := libraryEnvelope(t, "good", "http://example.org/Library/Good", "Good", "1.0.0",
-		"library Good version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": true\n")
+		"library Good version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": 1\n")
 	other := libraryEnvelope(t, "other", "http://example.org/Library/Other", "Other", "1.0.0",
 		"library Other version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"Y\": 1\n")
 	store := &testResourceStore{byType: map[string]map[string]*types.ResourceEnvelope{
@@ -198,16 +198,15 @@ func TestStoreLibraryResolverDoesNotRereadCatalog(t *testing.T) {
 	if _, err := r.Resolve(context.Background(), "http://example.org/Library/Good"); err != nil {
 		t.Fatal(err)
 	}
-	first := store.reads
-	if first < 2 {
-		t.Fatalf("expected initial catalog peek, reads=%d", first)
-	}
-	if _, err := r.Resolve(context.Background(), "http://example.org/Library/Good"); err != nil {
+	retargeted := libraryEnvelope(t, "other", "http://example.org/Library/Good", "Good", "2.0.0",
+		"library Good version '2.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": 2\n")
+	store.byType["Library"]["other"] = retargeted
+	lib, err := r.Resolve(context.Background(), "http://example.org/Library/Good")
+	if err != nil {
 		t.Fatal(err)
 	}
-	delta := store.reads - first
-	if delta != 1 {
-		t.Fatalf("second resolve should read only the matching library, got %d extra reads", delta)
+	if lib.Version != "2.0.0" {
+		t.Fatalf("expected retargeted 2.0.0, got %s", lib.Version)
 	}
 }
 

@@ -12,9 +12,16 @@ import (
 )
 
 // StoreRetriever retrieves FHIR resources from a ResourceStore, filtered by
-// the Patient subject when present.
+// the Patient subject when present. When References is set, retrieve uses
+// subject/patient reference lookups instead of listing every resource of the type.
 type StoreRetriever struct {
-	Resources store.ResourceStore
+	Resources  store.ResourceStore
+	References ReferenceLookup
+}
+
+// ReferenceLookup finds resources that reference a given target (optional search index).
+type ReferenceLookup interface {
+	LookupReferencing(ctx context.Context, sourceType, fieldKey, targetType, targetID string) ([]string, error)
 }
 
 func (r StoreRetriever) Retrieve(ctx context.Context, req RetrieveRequest, patient any) ([]any, error) {
@@ -24,11 +31,11 @@ func (r StoreRetriever) Retrieve(ctx context.Context, req RetrieveRequest, patie
 	if req.ResourceType == "" {
 		return nil, errf("CQL retrieve is missing a resource type")
 	}
-	ids, err := r.Resources.ListIDs(ctx, req.ResourceType, 10000, 0)
+	wantRef := patientReference(patient)
+	ids, err := r.candidateIDs(ctx, req, wantRef)
 	if err != nil {
 		return nil, err
 	}
-	wantRef := patientReference(patient)
 	var out []any
 	for _, id := range ids {
 		env, err := r.Resources.Read(ctx, req.ResourceType, id)
@@ -41,6 +48,36 @@ func (r StoreRetriever) Retrieve(ctx context.Context, req RetrieveRequest, patie
 		out = append(out, env)
 	}
 	return out, nil
+}
+
+func (r StoreRetriever) candidateIDs(ctx context.Context, req RetrieveRequest, wantRef string) ([]string, error) {
+	if strings.EqualFold(req.ResourceType, "Patient") && wantRef != "" {
+		if id := referenceID(wantRef); id != "" {
+			return []string{id}, nil
+		}
+	}
+	if r.References != nil && wantRef != "" {
+		targetType, targetID := splitReference(wantRef)
+		if targetID != "" {
+			if targetType == "" {
+				targetType = "Patient"
+			}
+			var ids []string
+			lookedUp := false
+			for _, field := range []string{"reference.subject", "reference.patient"} {
+				found, err := r.References.LookupReferencing(ctx, req.ResourceType, field, targetType, targetID)
+				if err != nil {
+					continue
+				}
+				lookedUp = true
+				ids = append(ids, found...)
+			}
+			if lookedUp {
+				return uniqueIDs(ids), nil
+			}
+		}
+	}
+	return r.Resources.ListIDs(ctx, req.ResourceType, 10000, 0)
 }
 
 // StaticRetriever returns a fixed collection, optionally filtered by resource type.
@@ -88,8 +125,7 @@ func resourceMatchesPatient(env *types.ResourceEnvelope, wantRef string) bool {
 		return false
 	}
 	if env.ResourceType == "Patient" {
-		got := env.ResourceType + "/" + env.ID
-		return strings.EqualFold(got, wantRef) || env.ID == strings.TrimPrefix(wantRef, "Patient/")
+		return referenceMatches(env.ResourceType+"/"+env.ID, wantRef)
 	}
 	obj, ok := asObject(env)
 	if !ok {
@@ -103,10 +139,70 @@ func resourceMatchesPatient(env *types.ResourceEnvelope, wantRef string) bool {
 		return false
 	}
 	ref, _ := subj["reference"].(string)
-	if ref == "" {
+	return referenceMatches(ref, wantRef)
+}
+
+func referenceMatches(ref, wantRef string) bool {
+	ref = strings.TrimSpace(ref)
+	wantRef = strings.TrimSpace(wantRef)
+	if ref == "" || wantRef == "" {
 		return false
 	}
-	return strings.EqualFold(ref, wantRef) || strings.HasSuffix(ref, "/"+strings.TrimPrefix(wantRef, "Patient/"))
+	if strings.EqualFold(ref, wantRef) {
+		return true
+	}
+	gotType, gotID := splitReference(ref)
+	wantType, wantID := splitReference(wantRef)
+	if gotID == "" || wantID == "" || !strings.EqualFold(gotID, wantID) {
+		return false
+	}
+	if gotType != "" && wantType != "" && !strings.EqualFold(gotType, wantType) {
+		return false
+	}
+	return true
+}
+
+func splitReference(ref string) (resourceType, id string) {
+	ref = strings.TrimSpace(ref)
+	if i := strings.IndexAny(ref, "?#"); i >= 0 {
+		ref = ref[:i]
+	}
+	ref = strings.TrimSuffix(ref, "/")
+	if ref == "" {
+		return "", ""
+	}
+	i := strings.LastIndex(ref, "/")
+	if i < 0 {
+		return "", ref
+	}
+	id = ref[i+1:]
+	rest := ref[:i]
+	j := strings.LastIndex(rest, "/")
+	if j >= 0 {
+		return rest[j+1:], id
+	}
+	return rest, id
+}
+
+func referenceID(ref string) string {
+	_, id := splitReference(ref)
+	return id
+}
+
+func uniqueIDs(ids []string) []string {
+	if len(ids) < 2 {
+		return ids
+	}
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 func matchResourceTerminology(ctx context.Context, item any, req RetrieveRequest, term fhirpath.TerminologyValidator) (bool, error) {

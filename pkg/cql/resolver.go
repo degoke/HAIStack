@@ -15,10 +15,9 @@ import (
 // StoreLibraryResolver loads FHIR Library resources from a ResourceStore and
 // optionally a DefinitionStore, then compiles their CQL content.
 //
-// Resolve peeks url/name/version, compiles only matching candidates, and caches
-// compiled libraries by resource ID and envelope Hash. After the first catalog
-// scan, subsequent resolves read only matching (and newly listed) Library
-// resources instead of the full catalog.
+// Resolve peeks url/name/version on listed Library resources so in-place URL
+// retargets are visible, compiles only matching candidates, and caches compiled
+// libraries by resource ID and envelope Hash.
 type StoreLibraryResolver struct {
 	Resources store.ResourceStore
 	Registry  store.DefinitionStore
@@ -86,72 +85,32 @@ func (r *StoreLibraryResolver) resolveFromStore(ctx context.Context, canonical s
 	for _, id := range ids {
 		idSet[id] = true
 	}
-
 	r.mu.Lock()
-	if r.meta == nil {
-		r.meta = map[string]libraryMeta{}
-	}
-	if r.compiled == nil {
-		r.compiled = map[string]cachedLibrary{}
-	}
 	for id := range r.meta {
 		if !idSet[id] {
 			delete(r.meta, id)
 			delete(r.compiled, id)
 		}
 	}
-	readIDs := make([]string, 0, len(ids))
-	seen := map[string]bool{}
-	add := func(id string) {
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-		readIDs = append(readIDs, id)
-	}
-	for _, id := range ids {
-		m, ok := r.meta[id]
-		if !ok || matchesLibraryMeta(m.url, m.name, m.version, canonical) {
-			add(id)
-		}
-	}
 	r.mu.Unlock()
 
 	var out []*Library
 	var lastErr error
-	matched := false
-	process := func(env *types.ResourceEnvelope, meta libraryMeta) {
-		if env == nil || !matchesLibraryMeta(meta.url, meta.name, meta.version, canonical) {
-			return
-		}
-		matched = true
-		lib, err := r.compileCached(env)
-		if err != nil {
-			lastErr = err
-			return
-		}
-		if lib != nil {
-			out = append(out, lib)
-		}
-	}
-
-	for _, id := range readIDs {
+	for _, id := range ids {
 		env, meta, err := r.readMeta(ctx, id)
 		if err != nil || env == nil {
 			continue
 		}
-		process(env, meta)
-	}
-	if !matched {
-		for _, id := range ids {
-			if seen[id] {
-				continue
-			}
-			env, meta, err := r.readMeta(ctx, id)
-			if err != nil || env == nil {
-				continue
-			}
-			process(env, meta)
+		if !matchesLibraryMeta(meta.url, meta.name, meta.version, canonical) {
+			continue
+		}
+		lib, err := r.compileCached(env)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if lib != nil {
+			out = append(out, lib)
 		}
 	}
 	if len(out) == 0 && lastErr != nil {

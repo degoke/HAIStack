@@ -47,10 +47,6 @@ func (p Provider) EvaluateCQL(ctx context.Context, expr string, input any) ([]an
 }
 
 func expressionNeedsPatient(expr, language string, libs []*Library) bool {
-	src := strings.ToLower(expr)
-	if strings.Contains(src, "patient") || strings.Contains(src, "ageinyears") {
-		return true
-	}
 	if isIdentifierLanguage(language) {
 		for _, lib := range libs {
 			if lib != nil && strings.EqualFold(lib.Context, "Patient") {
@@ -58,7 +54,20 @@ func expressionNeedsPatient(expr, language string, libs []*Library) bool {
 			}
 		}
 	}
-	return false
+	lx := newLexer(expr)
+	for {
+		t := lx.next()
+		if t.kind == tEOF {
+			return false
+		}
+		if t.kind != tIdent && t.kind != tQuotedIdent {
+			continue
+		}
+		switch strings.ToLower(t.text) {
+		case "patient", "unfiltered", "ageinyears", "ageinyearsat":
+			return true
+		}
+	}
 }
 
 func (p Provider) loadLibraries(ctx context.Context, env EvalContext) ([]*Library, error) {

@@ -879,6 +879,7 @@ func convertFHIRPathValue(v fhirpath.Value) (any, bool) {
 var (
 	elementMarshalerOnce sync.Once
 	elementMarshaler     *jsonformat.Marshaller
+	elementMarshalerMu   sync.Mutex
 )
 
 func protoElementToValue(msg gproto.Message) (any, bool) {
@@ -892,6 +893,8 @@ func protoElementToValue(msg gproto.Message) (any, bool) {
 	if elementMarshaler == nil {
 		return nil, false
 	}
+	elementMarshalerMu.Lock()
+	defer elementMarshalerMu.Unlock()
 	raw, err := elementMarshaler.MarshalElement(msg)
 	if err != nil {
 		raw, err = elementMarshaler.MarshalResource(msg)
