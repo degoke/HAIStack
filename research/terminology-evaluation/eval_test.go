@@ -244,7 +244,7 @@ func TestGoldFileOmitsMapIdentity(t *testing.T) {
 	}
 }
 
-func TestPublishedJSONOmitsPassRateFloats(t *testing.T) {
+func TestPublishedJSONIsTranslateDumpNotAScore(t *testing.T) {
 	mapPath, casesPath := terminologyeval.TestdataPaths()
 	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
 	if err != nil {
@@ -258,16 +258,30 @@ func TestPublishedJSONOmitsPassRateFloats(t *testing.T) {
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"accuracy", "consistency", "mapAgreement", "provenance", "passed", "failed", "results"} {
+	for _, key := range []string{
+		"accuracy", "consistency", "mapAgreement", "provenance", "provenanceComplete",
+		"passed", "failed", "results", "implementsMap", "exact", "narrow", "broad", "unmatched",
+	} {
 		if _, ok := obj[key]; ok {
 			t.Errorf("published JSON must not include %s", key)
 		}
 	}
-	if obj["implementsMap"] != true {
-		t.Fatalf("implementsMap = %v, want true (cases restate conceptmap.json)", obj["implementsMap"])
+	if obj["conceptMapUrl"] != "http://haistack.dev/research/ConceptMap/lab-to-panel" {
+		t.Fatalf("conceptMapUrl = %v", obj["conceptMapUrl"])
 	}
-	if obj["provenanceComplete"] != true {
-		t.Fatalf("provenanceComplete = %v, want true (gold ConceptMap has url/version/sourceUri)", obj["provenanceComplete"])
+	if obj["conceptMapVersion"] != "1.0.0" || obj["sourceSystemVersion"] != "1.0.0" {
+		t.Fatalf("resolved identity version=%v source=%v", obj["conceptMapVersion"], obj["sourceSystemVersion"])
+	}
+	rows, _ := obj["translations"].([]any)
+	if len(rows) != len(metrics.Results) || len(rows) == 0 {
+		t.Fatalf("translations = %d, results = %d", len(rows), len(metrics.Results))
+	}
+	first, _ := rows[0].(map[string]any)
+	if _, ok := first["pass"]; ok {
+		t.Fatal("translation rows must not include pass")
+	}
+	if first["code"] != "HB" || first["class"] != "exact" {
+		t.Fatalf("first translation = %#v", first)
 	}
 }
 
@@ -287,14 +301,20 @@ func TestMetricsJSONOmitsAccuracyAndProvenanceRates(t *testing.T) {
 	}
 }
 
-func TestPublishBooleansFollowFailedAndProvenance(t *testing.T) {
-	ok := terminologyeval.Publish(terminologyeval.Metrics{Failed: 0, Provenance: 1})
-	if !ok.ImplementsMap || !ok.ProvenanceComplete {
-		t.Fatalf("gold pass must publish true booleans: %+v", ok)
+func TestPublishCopiesResolveIdentityAndGotClass(t *testing.T) {
+	got := terminologyeval.Publish(terminologyeval.Metrics{
+		ConceptMapURL:       "http://example.org/map",
+		ConceptMapVersion:   "9",
+		SourceSystemVersion: "8",
+		Results: []terminologyeval.CaseResult{{
+			Code: "HB", WantClass: "narrow", GotClass: "exact", Target: "PANEL-HB", Pass: true,
+		}},
+	})
+	if got.ConceptMapURL != "http://example.org/map" || got.ConceptMapVersion != "9" || got.SourceSystemVersion != "8" {
+		t.Fatalf("identity = %+v", got)
 	}
-	bad := terminologyeval.Publish(terminologyeval.Metrics{Failed: 1, Provenance: 0.5})
-	if bad.ImplementsMap || bad.ProvenanceComplete {
-		t.Fatalf("failed / incomplete must publish false: %+v", bad)
+	if len(got.Translations) != 1 || got.Translations[0].Class != "exact" || got.Translations[0].Code != "HB" {
+		t.Fatalf("translations must use gotClass, got %+v", got.Translations)
 	}
 }
 

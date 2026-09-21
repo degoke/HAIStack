@@ -1,6 +1,5 @@
-// Command research-terminology-evaluation prints gold-map consistency:
-// does $translate implement testdata/conceptmap.json against authored cases.
-// Output is implementsMap / provenanceComplete booleans, not 0–1 scores.
+// Command research-terminology-evaluation prints $translate output for the
+// gold ConceptMap plus resolved map identity fields. It is not a quality score.
 package main
 
 import (

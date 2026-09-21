@@ -388,6 +388,18 @@ func (e *Engine) checkTenantBinding(p Principal, tenant TenantContext) Decision 
 	return Deny(fmt.Sprintf("principal %q is not bound to tenant %q", p.ID, tenant.TenantID))
 }
 
+// CheckTenantBinding is identity: the principal must exist and be bound to the
+// request tenant (SEMANTICS gate 1).
+func (e *Engine) CheckTenantBinding(p Principal, tenant TenantContext) Decision {
+	return e.checkTenantBinding(p, tenant)
+}
+
+// CheckPatientOverlay is patient-compartment overlay for one resource id
+// (SEMANTICS gate 2). Empty PatientScope is unrestricted.
+func (e *Engine) CheckPatientOverlay(tenant TenantContext, resourceType, resourceID string) Decision {
+	return e.checkPatientScopeConstraint(tenant, patientIDFromSubject(resourceID, resourceType))
+}
+
 func (e *Engine) checkPatientScopeConstraint(tenant TenantContext, patientID string) Decision {
 	if patientID == "" || tenant.PatientScope == "" {
 		return Allow("patient scope not constrained")

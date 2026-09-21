@@ -96,8 +96,11 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			unchanged++
 		case semanticconversion.CategoryRemoved:
 			assertCopyThrough(t, p.ID, r4obj, r5obj, "gender")
-			if !bytes.Contains(p.R4, []byte(`"animal"`)) || bytes.Contains(p.R5, []byte(`"animal"`)) {
-				t.Errorf("%s: removed gold must drop Patient.animal on R5 only", p.ID)
+			if _, ok := r4obj["animal"]; !ok {
+				t.Errorf("%s: removed gold R4 must keep Patient.animal", p.ID)
+			}
+			if _, ok := r5obj["animal"]; ok {
+				t.Errorf("%s: removed gold R5 must drop Patient.animal", p.ID)
 			}
 			if p.Spec != goldPatientDiff {
 				t.Errorf("%s: spec = %q, want Patient R5 diff", p.ID, p.Spec)
@@ -142,7 +145,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			t.Errorf("%s: unknown category %s", p.ID, p.Category)
 		}
 		if p.Spec != "" {
-			if strings.Contains(string(p.R4), `"source":"`+p.Spec) || strings.Contains(string(p.R4), `"source": "`+p.Spec) {
+			if goldHasMetaSource(p.R4, p.Spec) {
 				t.Errorf("%s: R4 must not contain authored meta.source", p.ID)
 			}
 			if !goldHasMetaSource(p.R5, p.Spec) {
@@ -197,11 +200,15 @@ func TestInformationLossUsesDetectedFlags(t *testing.T) {
 	}
 	var pair semanticconversion.Pair
 	for _, p := range pairs {
-		if p.ResourceType == "Patient" && p.Category == semanticconversion.CategoryUnchanged &&
-			!bytes.Contains(p.R4, []byte("animal")) {
-			pair = p
-			break
+		if p.ResourceType != "Patient" || p.Category != semanticconversion.CategoryUnchanged {
+			continue
 		}
+		obj := jsonObj(t, p.R4)
+		if _, ok := obj["animal"]; ok {
+			continue
+		}
+		pair = p
+		break
 	}
 	if pair.ID == "" {
 		t.Fatal("missing Patient pair without animal")

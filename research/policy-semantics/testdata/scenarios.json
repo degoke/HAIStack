@@ -90,6 +90,18 @@
       "expectAllow": false
     },
     {
+      "id": "smart_scope_denies_write",
+      "doc": "Appointment.read SMART scope cannot write Appointment even when policy allows write.",
+      "principal": "clinician",
+      "policy": "base",
+      "scopes": "patient/Appointment.read",
+      "launchPatient": "pat-1",
+      "action": "write",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "expectAllow": false
+    },
+    {
       "id": "cross_tenant_denied",
       "doc": "Principal bound to tenant-a cannot act in tenant-b.",
       "principal": "clinician",

@@ -101,8 +101,16 @@ func runOne(ctx context.Context, adapter *smart.AuthAdapter, sc Scenario) (Outco
 		}
 	}
 
-	if haveSMART && sc.Action == auth.ActionRead && !adapter.ScopeImplies(bundle, sc.ResourceType, smart.VerbRead) {
-		return outcomeFrom(sc, auth.Deny(fmt.Sprintf("SMART scope does not grant %s.read", sc.ResourceType))), nil
+	if d := eng.CheckTenantBinding(principal, tenant); !d.Allowed {
+		return outcomeFrom(sc, d), nil
+	}
+	if d := eng.CheckPatientOverlay(tenant, sc.ResourceType, sc.ResourceID); !d.Allowed {
+		return outcomeFrom(sc, d), nil
+	}
+	if haveSMART {
+		if verb, ok := smartVerb(sc.Action); ok && !adapter.ScopeImplies(bundle, sc.ResourceType, verb) {
+			return outcomeFrom(sc, auth.Deny(fmt.Sprintf("SMART scope does not grant %s.%s", sc.ResourceType, verb))), nil
+		}
 	}
 	if ok, reason := consentAllows(sc.Consent, sc); !ok {
 		return outcomeFrom(sc, auth.Deny(reason)), nil
@@ -163,6 +171,17 @@ func outcomeFrom(sc Scenario, decision auth.Decision) Outcome {
 		ExpectAllow: sc.ExpectAllow,
 		Reason:      decision.Reason,
 		Pass:        decision.Allowed == sc.ExpectAllow,
+	}
+}
+
+func smartVerb(action string) (smart.AccessVerb, bool) {
+	switch action {
+	case auth.ActionRead:
+		return smart.VerbRead, true
+	case auth.ActionWrite:
+		return smart.VerbWrite, true
+	default:
+		return "", false
 	}
 }
 

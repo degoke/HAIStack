@@ -139,6 +139,15 @@ func runDeclarative(ctx context.Context, adapter *smart.AuthAdapter, sc Declarat
 			req.Principal = principal
 		}
 		decision, err = eng.CanReadResource(ctx, req)
+	case auth.ActionWrite:
+		if haveSMART && !adapter.ScopeImplies(bundle, sc.ResourceType, smart.VerbWrite) {
+			decision = auth.Deny("SMART scope does not grant " + sc.ResourceType + ".write")
+			break
+		}
+		decision, err = eng.CanWriteResource(ctx, auth.WriteRequest{
+			Principal: principal, Tenant: tenant, Operation: "update",
+			ResourceType: sc.ResourceType, ID: sc.ResourceID,
+		})
 	case auth.ActionExecuteAITool:
 		decision, err = eng.CanExecuteAITool(ctx, auth.AIToolRequest{Principal: principal, Tenant: tenant, ToolName: sc.ToolName})
 	default:

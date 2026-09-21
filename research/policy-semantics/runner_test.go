@@ -90,3 +90,89 @@ func TestConsentDenyRunsBeforePolicy(t *testing.T) {
 		t.Fatalf("consent must deny before policy, got %q", report.Results[0].Reason)
 	}
 }
+
+func TestIdentityDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
+	sc := policysemantics.Scenario{
+		ID:           "identity-before-consent",
+		Principal:    "clinician",
+		Policy:       "base",
+		Tenant:       "tenant-b",
+		Action:       "read",
+		ResourceType: "Observation",
+		ResourceID:   "obs-1",
+		Consent: &policysemantics.ConsentState{
+			Status:        "active",
+			ProvisionType: "deny",
+			ResourceTypes: []string{"Observation"},
+			Actions:       []string{"read"},
+		},
+		ExpectAllow: false,
+	}
+	report, err := policysemantics.RunCatalog(context.Background(), []policysemantics.Scenario{sc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed != 0 || len(report.Results) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	want := `principal "user-clinician" is not bound to tenant "tenant-b"`
+	if report.Results[0].Reason != want {
+		t.Fatalf("identity must fail before consent, got %q", report.Results[0].Reason)
+	}
+}
+
+func TestPatientOverlayDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
+	sc := policysemantics.Scenario{
+		ID:           "patient-before-consent",
+		Principal:    "clinician",
+		Policy:       "base",
+		PatientScope: "pat-1",
+		Action:       "read",
+		ResourceType: "Patient",
+		ResourceID:   "pat-2",
+		Consent: &policysemantics.ConsentState{
+			Status:        "active",
+			PatientID:     "pat-2",
+			ProvisionType: "deny",
+			ResourceTypes: []string{"Patient"},
+			Actions:       []string{"read"},
+		},
+		ExpectAllow: false,
+	}
+	report, err := policysemantics.RunCatalog(context.Background(), []policysemantics.Scenario{sc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed != 0 || len(report.Results) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	want := `principal scoped to patient "pat-1" cannot access "pat-2"`
+	if report.Results[0].Reason != want {
+		t.Fatalf("patient overlay must fail before consent, got %q", report.Results[0].Reason)
+	}
+}
+
+func TestSMARTWriteDeny(t *testing.T) {
+	sc := policysemantics.Scenario{
+		ID:            "smart-write-deny",
+		Principal:     "clinician",
+		Policy:        "base",
+		Scopes:        "patient/Appointment.read",
+		LaunchPatient: "pat-1",
+		Action:        "write",
+		ResourceType:  "Appointment",
+		ResourceID:    "a1",
+		ExpectAllow:   false,
+	}
+	report, err := policysemantics.RunCatalog(context.Background(), []policysemantics.Scenario{sc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed != 0 || len(report.Results) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	got := report.Results[0].Reason
+	if got != "SMART scope does not grant Appointment.write" {
+		t.Fatalf("SMART write must be checked, got %q", got)
+	}
+}

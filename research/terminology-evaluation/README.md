@@ -38,15 +38,14 @@ evaluation of the translator or of an external mapping.
 
 ## Metrics
 
-The published command prints **gold consistency** only: gold map ×
-`cases.json`. `implementsMap` is true when every case matches `$translate`
-(`failed` is 0). That is expected when cases restate this map. It is not
-translator quality and not an external mapping. There is no published
-`accuracy` or `consistency` ratio, and the command does not print
-`passed`/`failed` counts or per-case `pass` rows.
-
-Exact / narrow / broad / unmatched counts are `$translate` observed
-classes from ConceptMap `equivalence` on the returned coding.
+The published command dumps **`$translate` output** and the resolved
+ConceptMap identity fields (`conceptMapUrl`, `conceptMapVersion`,
+`sourceSystemVersion`). `cases.json` restates `conceptmap.json`, so that
+dump is not translator quality and not an external mapping. There is no
+published `implementsMap`, class-total, `accuracy`, or `consistency`
+ratio, and no per-case `pass` rows. Tests still assert that `$translate`
+matches authored cases (gold consistency) and class P/R on the known-error
+map.
 
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
@@ -56,13 +55,11 @@ class labels (omitted when predicted or support is 0). A right class with
 a wrong target fails the case and is not a class false positive. Those
 scores are asserted in tests, not printed as a published artefact.
 
-**Provenance** is complete when each `terminology.translate` audit event
-was **emitted by `pkg/terminology.Translate`** and the resolved ConceptMap
-body has `url`, `version`, and `sourceUri`. The published flag
-`provenanceComplete` is that boolean (true when `conceptmap.json` includes
-those fields). A body missing them is false. A failed audit emit aborts
-the run. The harness stores the ConceptMap at its FHIR `url` and calls
-`$translate` with that url (no version parameter).
+**Provenance** fields in the dump come from the `terminology.translate`
+audit event **emitted by `pkg/terminology.Translate`**. They are copied
+from the resolved ConceptMap body (`url`, `version`, `sourceUri` version).
+A failed audit emit aborts the run. The harness stores the ConceptMap at
+its FHIR `url` and calls `$translate` with that url (no version parameter).
 
 ## Finite ValueSet expansion
 

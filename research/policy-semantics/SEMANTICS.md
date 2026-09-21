@@ -27,12 +27,13 @@ for an allow.
                    Inactive / unmatched Consent is ignored.
                    Production engines that do not implement Consent skip this
                    gate; research scenarios that declare consent require it.
-                   The research runner applies SMART, then this overlay, then
-                   the policy DSL, matching this order.
 5. Policy DSL      Compile PolicyDocument. Walk rules in document order.
                    First matching rule wins (allow or deny).
                    If no rule matches, DefaultEffect applies (deny).
 ```
+
+The research runner applies gates 1–5 in that order (identity, patient overlay,
+SMART, consent, policy).
 
 The compact form used in SMART discussions:
 
@@ -142,33 +143,40 @@ Appointment. Request: `read Appointment/a1`.
 **Result: deny.** `RequiredPermissions` includes `Appointment.read`, which
 the scope-derived permission set does not contain. Scopes ∩ policy.
 
-### 9. `cross_tenant_denied`
+### 9. `smart_scope_denies_write`
+
+SMART `patient/Appointment.read` + base policy that allows Appointment write.
+Request: `write Appointment/a1`.
+
+**Result: deny.** SMART write gate (Appointment.read does not grant write).
+
+### 10. `cross_tenant_denied`
 
 Clinician bound to `tenant-a`. Request tenant `tenant-b`.
 
 **Result: deny.** Tenant-binding gate.
 
-### 10. `purpose_of_use_mismatch`
+### 11. `purpose_of_use_mismatch`
 
 Allow rule requires `purposeOfUse: TREAT`. Request purpose `ETREAT`.
 
 **Result: deny.** Rule does not match; default deny.
 
-### 11. `consent_permit_observation`
+### 12. `consent_permit_observation`
 
 Active R4 Consent, provision `permit` on Observation/read for `pat-1`.
 SMART `patient/*.read` + Observation-only policy. Request: read Observation.
 
 **Result: allow.** Consent permit applies and does not block.
 
-### 12. `consent_deny_observation`
+### 13. `consent_deny_observation`
 
-Same as (11) but provision `type: deny` on Observation.
+Same as (12) but provision `type: deny` on Observation.
 
 **Result: deny.** Consent overlay fails even though scopes and policy allow.
 This is the research Consent pattern (R5/R6 Permission is future work).
 
-### 13. `ai_tool_run_view_allowed`
+### 14. `ai_tool_run_view_allowed`
 
 Base policy allows `execute-ai-tool` for `run_view`.
 
