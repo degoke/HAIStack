@@ -628,7 +628,10 @@
     "r5": {
       "resourceType": "Patient",
       "id": "pat-animal-01",
-      "gender": "female"
+      "gender": "female",
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/patient.html#diff"
+      }
     },
     "assertions": [
       {
@@ -662,7 +665,10 @@
     "r5": {
       "resourceType": "Patient",
       "id": "pat-animal-02",
-      "gender": "female"
+      "gender": "female",
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/patient.html#diff"
+      }
     },
     "assertions": [
       {
@@ -696,7 +702,10 @@
     "r5": {
       "resourceType": "Patient",
       "id": "pat-animal-03",
-      "gender": "female"
+      "gender": "female",
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/patient.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1513,7 +1522,10 @@
             }
           ]
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/observation.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1571,7 +1583,10 @@
             }
           ]
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/observation.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1629,7 +1644,10 @@
             }
           ]
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/observation.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1687,7 +1705,10 @@
             }
           ]
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/observation.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1764,7 +1785,10 @@
             "reference": "Practitioner/prac-01"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1849,7 +1873,10 @@
             "reference": "Practitioner/prac-02"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -1934,7 +1961,10 @@
             "reference": "Practitioner/prac-03"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2019,7 +2049,10 @@
             "reference": "Practitioner/prac-04"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2104,7 +2137,10 @@
             "reference": "Practitioner/prac-01"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2189,7 +2225,10 @@
             "reference": "Practitioner/prac-02"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2274,7 +2313,10 @@
             "reference": "Practitioner/prac-03"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2359,7 +2401,10 @@
             "reference": "Practitioner/prac-04"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2444,7 +2489,10 @@
             "reference": "Practitioner/prac-01"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2529,7 +2577,10 @@
             "reference": "Practitioner/prac-02"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2614,7 +2665,10 @@
             "reference": "Practitioner/prac-03"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2699,7 +2753,10 @@
             "reference": "Practitioner/prac-04"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/condition.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2790,7 +2847,10 @@
             "reference": "Condition/cond-01"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2873,7 +2933,10 @@
             "reference": "Condition/cond-02"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -2956,7 +3019,10 @@
             "reference": "Condition/cond-03"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3039,7 +3105,10 @@
             "reference": "Condition/cond-04"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3122,7 +3191,10 @@
             "reference": "Condition/cond-01"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3205,7 +3277,10 @@
             "reference": "Condition/cond-02"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3288,7 +3363,10 @@
             "reference": "Condition/cond-03"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3371,7 +3449,10 @@
             "reference": "Condition/cond-04"
           }
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3424,7 +3505,10 @@
         {
           "reference": "RelatedPerson/rp-1"
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3480,7 +3564,10 @@
         {
           "reference": "RelatedPerson/rp-1"
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3536,7 +3623,10 @@
         {
           "reference": "RelatedPerson/rp-1"
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {
@@ -3592,7 +3682,10 @@
         {
           "reference": "RelatedPerson/rp-1"
         }
-      ]
+      ],
+      "meta": {
+        "source": "http://hl7.org/fhir/R5/medicationrequest.html#diff"
+      }
     },
     "assertions": [
       {

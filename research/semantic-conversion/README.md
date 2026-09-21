@@ -40,10 +40,11 @@ fields that are not on the R4 instance:
 | `cardinality` | `Observation.interpretation` list plus v3 interpretation system/display |
 | `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; toy-med system on coded medication |
 
-`ConvertR4ToR5` is an implementation scored against that oracle. Structural
-equality (`Convert(r4) == gold R5`) proves the converter follows gold; it
-does not prove gold was produced by an external mapper. Authorship tests
-inspect testdata only and do not call `ConvertR4ToR5`.
+`ConvertR4ToR5` is an implementation scored against that oracle. Transformed
+gold R5 documents include `meta.source` (the spec URL) that the converter
+does **not** emit, so gold is not a byte dump of Convert. Structural scoring
+ignores that field. Authorship tests inspect testdata only and do not call
+`ConvertR4ToR5`.
 
 For each pair:
 

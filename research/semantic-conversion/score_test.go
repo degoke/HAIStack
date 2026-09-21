@@ -148,6 +148,14 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 		default:
 			t.Errorf("%s: unknown category %s", p.ID, p.Category)
 		}
+		if p.Spec != "" {
+			if strings.Contains(string(p.R4), `"source":"`+p.Spec) || strings.Contains(string(p.R4), `"source": "`+p.Spec) {
+				t.Errorf("%s: R4 must not contain authored meta.source", p.ID)
+			}
+			if !goldHasMetaSource(p.R5, p.Spec) {
+				t.Errorf("%s: gold R5 must author meta.source = spec (not produced by Convert)", p.ID)
+			}
+		}
 	}
 	if unchanged == 0 || transformed < 20 {
 		t.Fatalf("authorship coverage unchanged=%d transformed=%d", unchanged, transformed)
@@ -159,15 +167,33 @@ func TestConverterImplementsAuthoredGold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	report, err := semanticconversion.ScoreCorpus(pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed > 0 {
+		t.Fatalf("converter must satisfy gold remaps (ignoring authored meta.source): %+v", report.Scores)
+	}
+	var distinguished int
 	for _, pair := range pairs {
+		if pair.Spec == "" {
+			continue
+		}
 		got, _, err := semanticconversion.ConvertR4ToR5(pair.ResourceType, pair.R4)
 		if err != nil {
 			t.Errorf("%s: convert: %v", pair.ID, err)
 			continue
 		}
-		if !bytesEqualCanonical(got, pair.R5) {
-			t.Errorf("%s: converter must implement authored gold\ngot  %s\ngold %s", pair.ID, got, pair.R5)
+		if bytesEqualCanonical(got, pair.R5) {
+			t.Errorf("%s: gold R5 must not equal Convert output (authored meta.source)", pair.ID)
 		}
+		if goldHasMetaSource(got, pair.Spec) {
+			t.Errorf("%s: Convert must not emit authored meta.source", pair.ID)
+		}
+		distinguished++
+	}
+	if distinguished == 0 {
+		t.Fatal("expected transformed pairs with spec")
 	}
 }
 
@@ -240,4 +266,14 @@ func containsError(errs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func goldHasMetaSource(raw []byte, spec string) bool {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	meta, _ := obj["meta"].(map[string]any)
+	src, _ := meta["source"].(string)
+	return src == spec
 }

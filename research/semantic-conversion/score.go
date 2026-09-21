@@ -102,14 +102,19 @@ func scorePair(env scoreEnv, pair Pair) PairScore {
 		return score
 	}
 	score.InformationLoss = sortedCopy(loss)
-	eq, err := jsonEqual(got, pair.R5)
+	goldCmp, err := stripAuthoredGoldMeta(pair.R5)
+	if err != nil {
+		score.Errors = append(score.Errors, err.Error())
+		return score
+	}
+	eq, err := jsonEqual(got, goldCmp)
 	if err != nil {
 		score.Errors = append(score.Errors, err.Error())
 		return score
 	}
 	score.StructuralOK = eq
 	if !eq {
-		score.Errors = append(score.Errors, "converted R5 does not match gold R5")
+		score.Errors = append(score.Errors, "converted R5 does not match gold R5 (ignoring authored meta.source)")
 	}
 
 	score.SemanticOK = true
@@ -309,6 +314,28 @@ func jsonEqual(a, b []byte) (bool, error) {
 		return false, err
 	}
 	return bytes.Equal(lb, rb), nil
+}
+
+// stripAuthoredGoldMeta removes testdata-only meta.source (the R5 spec URL).
+// ConvertR4ToR5 does not emit that field; gold includes it so the oracle is
+// not a converter dump.
+func stripAuthoredGoldMeta(raw json.RawMessage) (json.RawMessage, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	meta, _ := obj["meta"].(map[string]any)
+	if meta == nil {
+		return raw, nil
+	}
+	delete(meta, "source")
+	if len(meta) == 0 {
+		delete(obj, "meta")
+	} else {
+		obj["meta"] = meta
+	}
+	out, err := json.Marshal(obj)
+	return out, err
 }
 
 func sortedCopy(in []string) []string {

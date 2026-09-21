@@ -14,6 +14,10 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 )
 
+// EvalStoreCanonical is the local store key Evaluate uses for $translate
+// lookup. It is not the ConceptMap.url written into audit events.
+const EvalStoreCanonical = "urn:haistack:research:eval-conceptmap"
+
 // Case is one gold translation expectation.
 type Case struct {
 	Code   string `json:"code"`
@@ -40,25 +44,20 @@ type CaseResult struct {
 }
 
 // ClassScore is one-vs-rest precision/recall for an equivalence class.
+// Precision is omitted when Predicted is 0; recall is omitted when Support is 0.
 type ClassScore struct {
-	Precision float64 `json:"precision"`
-	Recall    float64 `json:"recall"`
-	Support   int     `json:"support"`
-	Predicted int     `json:"predicted"`
+	Precision *float64 `json:"precision,omitempty"`
+	Recall    *float64 `json:"recall,omitempty"`
+	Support   int      `json:"support"`
+	Predicted int      `json:"predicted"`
 }
 
-// Metrics grade the translator against a case list.
-// Exact/Narrow/Broad/Unmatched count observed classes from $translate
-// equivalence on the returned coding.
+// Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
 // Accuracy is the pass rate (class and target). ByClass is one-vs-rest on
 // class labels only; a right class with a wrong target fails accuracy and
 // does not count as a class false positive.
-// On the published gold file, accuracy and byClass are 1.0 because the
-// translator implements that map — a consistency check, not an independent
-// quality signal. Multi-class numbers that can move are scored from
-// testdata/mismatch-cases.json.
-// ProvenanceCompleteness is the share of translations whose audit event was
-// emitted by pkg/terminology.Translate from the resolved ConceptMap body.
+// Gold conceptmap.json vs cases.json is a consistency check (expected 1.0).
+// Held-out conceptmap vs the same cases is the class-quality evaluation.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -72,13 +71,24 @@ type Metrics struct {
 	Results    []CaseResult          `json:"results"`
 }
 
-type conceptMapHeader struct {
-	URL string `json:"url"`
+type lastEventLogger struct {
+	inner audit.Logger
+	last  audit.Event
+	n     int
 }
 
-// Evaluate loads the ConceptMap JSON into pkg/terminology, translates each
-// case with the map URL only (no harness-parsed version), and scores
-// $translate output. Provenance events are emitted inside Translate.
+func (l *lastEventLogger) Log(ctx context.Context, event audit.Event) error {
+	if err := l.inner.Log(ctx, event); err != nil {
+		return err
+	}
+	l.last = event
+	l.n++
+	return nil
+}
+
+// Evaluate stores the ConceptMap JSON under EvalStoreCanonical (not the
+// resource url), calls $translate with that store key, and scores output
+// against authored cases. Audit url/version come from the ConceptMap body.
 func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Metrics, error) {
 	mapJSON, err := os.ReadFile(mapPath)
 	if err != nil {
@@ -96,20 +106,12 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		return Metrics{}, fmt.Errorf("terminology-evaluation: no gold cases")
 	}
 
-	var header conceptMapHeader
-	if err := json.Unmarshal(mapJSON, &header); err != nil {
-		return Metrics{}, err
-	}
-	if header.URL == "" {
-		return Metrics{}, fmt.Errorf("terminology-evaluation: ConceptMap missing url")
-	}
-
 	mem := terminology.NewMemoryStore()
 	if err := mem.PutResource(ctx, store.TerminologyResourceRecord{
 		ScopeID:      "research",
 		ResourceType: "ConceptMap",
-		ResourceID:   "lab-to-panel",
-		CanonicalURL: header.URL,
+		ResourceID:   "eval-map",
+		CanonicalURL: EvalStoreCanonical,
 		Status:       "active",
 		ResourceJSON: mapJSON,
 	}); err != nil {
@@ -117,7 +119,8 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	}
 
 	auditStore := audit.NewMemoryStore()
-	logger := &audit.StoreAdapter{Store: auditStore, Now: func() time.Time { return now }}
+	inner := &audit.StoreAdapter{Store: auditStore, Now: func() time.Time { return now }}
+	logger := &lastEventLogger{inner: inner}
 	svc := terminology.NewLocalService(mem, "research",
 		terminology.WithTranslateAudit(logger, "research-terminology", "research", func() time.Time { return now }),
 	)
@@ -128,7 +131,11 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 	classFP := map[string]int{}
 	classSupport := map[string]int{}
 	for _, c := range gold.Cases {
-		gotClass, target, _ := translateClass(ctx, svc, header.URL, gold.SourceSystem, c.Code)
+		before := logger.n
+		gotClass, target, _ := translateClass(ctx, svc, gold.SourceSystem, c.Code)
+		if logger.n != before+1 {
+			return Metrics{}, fmt.Errorf("terminology-evaluation: Translate did not emit audit for %s", c.Code)
+		}
 		classOK := gotClass == c.Class
 		targetOK := c.Target == "" || c.Target == target
 		pass := classOK && targetOK
@@ -145,17 +152,7 @@ func Evaluate(ctx context.Context, mapPath, casesPath string, now time.Time) (Me
 		classSupport[c.Class]++
 		incrementObservedClass(&metrics, gotClass)
 
-		events, err := logger.ListEvents(ctx, audit.Query{
-			Action: audit.ActionTerminologyTranslate,
-			Limit:  len(gold.Cases) + 1,
-		})
-		if err != nil {
-			return Metrics{}, err
-		}
-		if len(events) == 0 {
-			return Metrics{}, fmt.Errorf("terminology-evaluation: Translate did not emit audit for %s", c.Code)
-		}
-		prov := provenanceComplete(events[len(events)-1])
+		prov := provenanceComplete(logger.last)
 		if prov {
 			complete++
 		}
@@ -187,10 +184,12 @@ func classScores(tp, fp, support map[string]int) map[string]ClassScore {
 			Predicted: tp[class] + fp[class],
 		}
 		if s.Predicted > 0 {
-			s.Precision = float64(tp[class]) / float64(s.Predicted)
+			p := float64(tp[class]) / float64(s.Predicted)
+			s.Precision = &p
 		}
 		if s.Support > 0 {
-			s.Recall = float64(tp[class]) / float64(s.Support)
+			r := float64(tp[class]) / float64(s.Support)
+			s.Recall = &r
 		}
 		if s.Support > 0 || s.Predicted > 0 {
 			out[class] = s
@@ -216,14 +215,16 @@ func provenanceComplete(ev audit.Event) bool {
 	if ev.Timestamp.IsZero() {
 		return false
 	}
-	return ev.Details["conceptMapUrl"] != "" &&
-		ev.Details["conceptMapVersion"] != "" &&
+	if ev.Details["conceptMapUrl"] == "" || ev.Details["conceptMapUrl"] == EvalStoreCanonical {
+		return false
+	}
+	return ev.Details["conceptMapVersion"] != "" &&
 		ev.Details["sourceSystemVersion"] != ""
 }
 
-func translateClass(ctx context.Context, svc *terminology.LocalService, mapURL, sourceSystem, code string) (class, target string, err error) {
+func translateClass(ctx context.Context, svc *terminology.LocalService, sourceSystem, code string) (class, target string, err error) {
 	codings, err := svc.Translate(ctx, terminology.ConceptMapTranslateRequest{
-		URL:    mapURL,
+		URL:    EvalStoreCanonical,
 		Coding: terminology.Coding{System: sourceSystem, Code: code},
 	})
 	if err != nil || len(codings) == 0 {
@@ -254,20 +255,19 @@ func testdataDir() string {
 	return filepath.Join(filepath.Dir(file), "testdata")
 }
 
-// TestdataPaths returns the published gold ConceptMap and case list.
+// TestdataPaths returns the gold ConceptMap and authored case list.
 func TestdataPaths() (mapPath, casesPath string) {
 	dir := testdataDir()
 	return filepath.Join(dir, "conceptmap.json"), filepath.Join(dir, "cases.json")
 }
 
-// MismatchCasesPath is the published case list with wrong labels, used to
-// demonstrate byClass when gold consistency is 1.0.
-func MismatchCasesPath() string {
-	return filepath.Join(testdataDir(), "mismatch-cases.json")
+// HeldOutMapPath is a ConceptMap that disagrees with authored cases.json
+// (WBC is equivalent instead of wider).
+func HeldOutMapPath() string {
+	return filepath.Join(testdataDir(), "heldout-conceptmap.json")
 }
 
-// SourceFile is the evaluation harness source (for tests that the harness
-// does not write terminology.translate events).
+// SourceFile is the evaluation harness source.
 func SourceFile() string {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

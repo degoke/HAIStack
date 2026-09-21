@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -26,32 +25,44 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	}
 	assertObservedBuckets(t, metrics)
 	if metrics.Provenance != 1 {
-		t.Fatalf("provenance completeness = %v, want 1 from ConceptMap body (request version is empty)", metrics.Provenance)
+		t.Fatalf("provenance completeness = %v, want 1 from ConceptMap body (store key is %s)", metrics.Provenance, terminologyeval.EvalStoreCanonical)
 	}
 	if metrics.Accuracy != 1 {
 		t.Fatalf("accuracy=%v, want 1 (gold consistency, not a quality headline)", metrics.Accuracy)
 	}
 }
 
-func TestMismatchCasesShowByClassNotPassRate(t *testing.T) {
-	mapPath, _ := terminologyeval.TestdataPaths()
-	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, terminologyeval.MismatchCasesPath(), terminologyeval.FixedNow())
+func TestHeldOutMapGradedAgainstAuthoredCases(t *testing.T) {
+	_, casesPath := terminologyeval.TestdataPaths()
+	metrics, err := terminologyeval.Evaluate(context.Background(), terminologyeval.HeldOutMapPath(), casesPath, terminologyeval.FixedNow())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Accuracy != 0.75 {
-		t.Fatalf("mismatch accuracy = %v, want 0.75", metrics.Accuracy)
+	if metrics.Accuracy != 0.875 {
+		t.Fatalf("held-out accuracy = %v, want 0.875 (WBC exact vs authored broad)", metrics.Accuracy)
 	}
 	exact := metrics.ByClass["exact"]
-	if exact.Precision != 1 || exact.Recall != 0.75 || exact.Support != 4 || exact.Predicted != 3 {
-		t.Fatalf("exact byClass = %+v, want P=1 R=0.75 support=4 predicted=3", exact)
+	if ptrVal(exact.Precision) != 0.75 || ptrVal(exact.Recall) != 1 || exact.Support != 3 || exact.Predicted != 4 {
+		t.Fatalf("exact byClass = %+v, want P=0.75 R=1 support=3 predicted=4", exact)
 	}
 	broad := metrics.ByClass["broad"]
-	if broad.Precision != 0 || broad.Predicted != 1 {
-		t.Fatalf("broad byClass = %+v, want P=0 predicted=1", broad)
+	if broad.Precision != nil {
+		t.Fatalf("broad precision must be omitted when predicted=0, got %v", *broad.Precision)
 	}
-	if exact.Precision == metrics.Accuracy {
-		t.Fatalf("exact precision %v must not be used as overall accuracy %v", exact.Precision, metrics.Accuracy)
+	if ptrVal(broad.Recall) != 0 || broad.Support != 1 || broad.Predicted != 0 {
+		t.Fatalf("broad byClass = %+v, want R=0 support=1 predicted=0", broad)
+	}
+	if ptrVal(exact.Precision) == metrics.Accuracy {
+		t.Fatalf("class precision %v must not equal accuracy %v", ptrVal(exact.Precision), metrics.Accuracy)
+	}
+	var wbc terminologyeval.CaseResult
+	for _, r := range metrics.Results {
+		if r.Code == "WBC" {
+			wbc = r
+		}
+	}
+	if wbc.GotClass != "exact" || wbc.WantClass != "broad" || wbc.Pass {
+		t.Fatalf("WBC held-out result = %+v", wbc)
 	}
 }
 
@@ -79,10 +90,10 @@ func TestMetricsGradeTranslatorNotGold(t *testing.T) {
 	if metrics.Accuracy != 0.5 {
 		t.Fatalf("accuracy = %v, want 0.5", metrics.Accuracy)
 	}
-	if metrics.ByClass["narrow"].Recall != 0 || metrics.ByClass["narrow"].Support != 1 {
+	if ptrVal(metrics.ByClass["narrow"].Recall) != 0 || metrics.ByClass["narrow"].Support != 1 {
 		t.Fatalf("narrow class score = %+v", metrics.ByClass["narrow"])
 	}
-	if metrics.ByClass["unmatched"].Precision != 1 || metrics.ByClass["unmatched"].Recall != 1 {
+	if ptrVal(metrics.ByClass["unmatched"].Precision) != 1 || ptrVal(metrics.ByClass["unmatched"].Recall) != 1 {
 		t.Fatalf("unmatched class score = %+v", metrics.ByClass["unmatched"])
 	}
 	assertObservedBuckets(t, metrics)
@@ -109,7 +120,7 @@ func TestWrongTargetDoesNotCountClassFalsePositive(t *testing.T) {
 		t.Fatalf("wrong target must fail accuracy, got accuracy=%v failed=%d", metrics.Accuracy, metrics.Failed)
 	}
 	exact := metrics.ByClass["exact"]
-	if exact.Precision != 1 || exact.Recall != 1 || exact.Predicted != 1 {
+	if ptrVal(exact.Precision) != 1 || ptrVal(exact.Recall) != 1 || exact.Predicted != 1 {
 		t.Fatalf("right class with wrong target must not be a class FP: %+v", exact)
 	}
 }
@@ -192,7 +203,7 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 	}
 }
 
-func TestEvaluateRequiresConceptMapURL(t *testing.T) {
+func TestMissingMapURLStillTranslatesButProvenanceZero(t *testing.T) {
 	dir := t.TempDir()
 	mapPath := filepath.Join(dir, "conceptmap.json")
 	casesPath := filepath.Join(dir, "cases.json")
@@ -205,9 +216,15 @@ func TestEvaluateRequiresConceptMapURL(t *testing.T) {
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
-	if err == nil || !strings.Contains(err.Error(), "missing url") {
-		t.Fatalf("err = %v, want ConceptMap missing url", err)
+	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Provenance != 0 {
+		t.Fatalf("provenance = %v, want 0 when ConceptMap body has no url", metrics.Provenance)
+	}
+	if metrics.Results[0].GotClass != "unmatched" {
+		t.Fatalf("result = %+v", metrics.Results[0])
 	}
 }
 
@@ -218,6 +235,9 @@ func TestEvaluateSourceDoesNotWriteAudit(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "audit.LogTerminologyTranslate") {
 		t.Fatal("Evaluate must not write terminology.translate events; provenance is emitted inside pkg/terminology.Translate")
+	}
+	if !strings.Contains(string(raw), terminologyeval.EvalStoreCanonical) {
+		t.Fatal("Evaluate must look up the map by EvalStoreCanonical, not ConceptMap.url")
 	}
 }
 
@@ -234,17 +254,11 @@ func TestGoldFileOmitsMapIdentity(t *testing.T) {
 	}
 }
 
-func TestMismatchCasesArePublished(t *testing.T) {
-	if _, err := os.Stat(terminologyeval.MismatchCasesPath()); err != nil {
-		t.Fatal(err)
+func ptrVal(p *float64) float64 {
+	if p == nil {
+		return -1
 	}
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	if filepath.Dir(thisFile) == "" {
-		t.Fatal("empty test dir")
-	}
+	return *p
 }
 
 func assertObservedBuckets(t *testing.T, metrics terminologyeval.Metrics) {

@@ -26,7 +26,8 @@ const MedicationToySystem = "http://haistack.dev/research/CodeSystem/toy-med"
 
 // ConvertR4ToR5 applies the documented research remaps for corpus resource types.
 // It is scored against authored gold R5 in testdata/corpus.json (the in-repo
-// oracle, not a third-party mapping such as hl7.fhir.uv.xver).
+// oracle, not a third-party mapping such as hl7.fhir.uv.xver). Transformed gold
+// documents include meta.source (the spec URL) that this function does not emit.
 func ConvertR4ToR5(resourceType string, r4 json.RawMessage) (json.RawMessage, []string, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(r4, &obj); err != nil {

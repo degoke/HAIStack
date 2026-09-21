@@ -1,5 +1,5 @@
-// Command research-terminology-evaluation scores the gold ConceptMap
-// (consistency) and a mismatched-label fixture (class metrics).
+// Command research-terminology-evaluation scores gold map consistency and
+// a held-out ConceptMap against the same authored cases.
 package main
 
 import (
@@ -11,6 +11,32 @@ import (
 	terminologyeval "github.com/degoke/health-ai-stack/research/terminology-evaluation"
 )
 
+type goldBlock struct {
+	Exact                  int                          `json:"exact"`
+	Narrow                 int                          `json:"narrow"`
+	Broad                  int                          `json:"broad"`
+	Unmatched              int                          `json:"unmatched"`
+	Passed                 int                          `json:"passed"`
+	Failed                 int                          `json:"failed"`
+	Accuracy               float64                      `json:"accuracy"`
+	ProvenanceCompleteness float64                      `json:"provenanceCompleteness"`
+	Results                []terminologyeval.CaseResult `json:"results"`
+	Note                   string                       `json:"note"`
+}
+
+type classBlock struct {
+	Accuracy float64                               `json:"accuracy"`
+	Passed   int                                   `json:"passed"`
+	Failed   int                                   `json:"failed"`
+	ByClass  map[string]terminologyeval.ClassScore `json:"byClass"`
+	Note     string                                `json:"note"`
+}
+
+type publishedReport struct {
+	GoldConsistency goldBlock  `json:"goldConsistency"`
+	ClassMetrics    classBlock `json:"classMetrics"`
+}
+
 func main() {
 	mapPath, casesPath := terminologyeval.TestdataPaths()
 	gold, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
@@ -18,30 +44,30 @@ func main() {
 		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: %v\n", err)
 		os.Exit(1)
 	}
-	classMetrics, err := terminologyeval.Evaluate(context.Background(), mapPath, terminologyeval.MismatchCasesPath(), terminologyeval.FixedNow())
+	held, err := terminologyeval.Evaluate(context.Background(), terminologyeval.HeldOutMapPath(), casesPath, terminologyeval.FixedNow())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: class metrics: %v\n", err)
+		fmt.Fprintf(os.Stderr, "research-terminology-evaluation: held-out: %v\n", err)
 		os.Exit(1)
 	}
-	report := map[string]any{
-		"goldConsistency": map[string]any{
-			"exact":                  gold.Exact,
-			"narrow":                 gold.Narrow,
-			"broad":                  gold.Broad,
-			"unmatched":              gold.Unmatched,
-			"passed":                 gold.Passed,
-			"failed":                 gold.Failed,
-			"accuracy":               gold.Accuracy,
-			"provenanceCompleteness": gold.Provenance,
-			"results":                gold.Results,
-			"note":                   "accuracy 1.0 means $translate implements this map, not an independent quality signal",
+	report := publishedReport{
+		GoldConsistency: goldBlock{
+			Exact:                  gold.Exact,
+			Narrow:                 gold.Narrow,
+			Broad:                  gold.Broad,
+			Unmatched:              gold.Unmatched,
+			Passed:                 gold.Passed,
+			Failed:                 gold.Failed,
+			Accuracy:               gold.Accuracy,
+			ProvenanceCompleteness: gold.Provenance,
+			Results:                gold.Results,
+			Note:                   "accuracy 1.0 means $translate implements conceptmap.json, not an independent quality signal",
 		},
-		"classMetrics": map[string]any{
-			"accuracy": classMetrics.Accuracy,
-			"passed":   classMetrics.Passed,
-			"failed":   classMetrics.Failed,
-			"byClass":  classMetrics.ByClass,
-			"note":     "mismatched labels against the same map; byClass is not the pass rate",
+		ClassMetrics: classBlock{
+			Accuracy: held.Accuracy,
+			Passed:   held.Passed,
+			Failed:   held.Failed,
+			ByClass:  held.ByClass,
+			Note:     "held-out ConceptMap (WBC equivalent vs authored wider) scored against cases.json",
 		},
 	}
 	enc := json.NewEncoder(os.Stdout)

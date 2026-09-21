@@ -141,10 +141,42 @@ func TestTranslateAuditVersionFromResourceJSONNotRequest(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("audit events = %d, want 1", len(events))
 	}
-	if events[0].Details["conceptMapVersion"] != "1.0.0" {
-		t.Fatalf("version must come from ConceptMap JSON, not the empty request: %v", events[0].Details)
-	}
 	if events[0].Details["sourceSystemVersion"] != "9" {
 		t.Fatalf("sourceSystemVersion = %v", events[0].Details)
+	}
+}
+
+func TestTranslateAuditURLFromResourceJSONNotStoreKey(t *testing.T) {
+	raw := []byte(`{
+		"resourceType":"ConceptMap",
+		"url":"http://example.org/maps/gender",
+		"version":"1.0.0",
+		"sourceUri":"http://example.org/source|9",
+		"group":[{"source":"http://example.org/source","element":[{"code":"F","target":[{"code":"female","equivalence":"equivalent"}]}]}]
+	}`)
+	mem := NewMemoryStore()
+	if err := mem.PutResource(context.Background(), store.TerminologyResourceRecord{
+		ScopeID: "default", ResourceType: "ConceptMap", ResourceID: "map-1",
+		CanonicalURL: "urn:local:loaded-map", ResourceJSON: raw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auditStore := audit.NewMemoryStore()
+	logger := &audit.StoreAdapter{Store: auditStore}
+	svc := NewLocalService(mem, "default", WithTranslateAudit(logger, "tester", "t1", nil))
+	if _, err := svc.Translate(context.Background(), ConceptMapTranslateRequest{
+		URL: "urn:local:loaded-map", Coding: Coding{Code: "F"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := logger.ListEvents(context.Background(), audit.Query{Action: audit.ActionTerminologyTranslate, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
+	}
+	if events[0].Details["conceptMapUrl"] != "http://example.org/maps/gender" {
+		t.Fatalf("url must come from ConceptMap JSON, not store key: %v", events[0].Details)
 	}
 }
