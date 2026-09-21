@@ -1163,7 +1163,16 @@ func (st *evalState) retrieveRequest(n *retrieveNode) RetrieveRequest {
 		return req
 	}
 	if n.comparator != "=" && n.comparator != "~" {
-		if vs := st.lookupValueSet(n.terminology); vs != nil {
+		if vs := st.lookupValueSetMatch(n.terminology, true); vs != nil {
+			req.ValueSetURL = vs.URL
+			return req
+		}
+		if c := st.lookupCodeMatch(n.terminology, true); c != nil {
+			req.System = c.System
+			req.Code = c.Code
+			return req
+		}
+		if vs := st.lookupValueSetMatch(n.terminology, false); vs != nil {
 			req.ValueSetURL = vs.URL
 			return req
 		}
@@ -1200,12 +1209,16 @@ func (st *evalState) terminology() fhirpath.TerminologyValidator {
 }
 
 func (st *evalState) lookupValueSet(name string) *ValueSet {
+	return st.lookupValueSetMatch(name, false)
+}
+
+func (st *evalState) lookupValueSetMatch(name string, exact bool) *ValueSet {
 	search := func(lib *Library) *ValueSet {
 		if lib == nil {
 			return nil
 		}
 		for i := range lib.ValueSets {
-			if lib.ValueSets[i].Name == name || strings.EqualFold(lib.ValueSets[i].Name, name) {
+			if lib.ValueSets[i].Name == name || (!exact && strings.EqualFold(lib.ValueSets[i].Name, name)) {
 				return &lib.ValueSets[i]
 			}
 		}
@@ -1223,12 +1236,16 @@ func (st *evalState) lookupValueSet(name string) *ValueSet {
 }
 
 func (st *evalState) lookupCode(name string) *Code {
+	return st.lookupCodeMatch(name, false)
+}
+
+func (st *evalState) lookupCodeMatch(name string, exact bool) *Code {
 	search := func(lib *Library) *Code {
 		if lib == nil {
 			return nil
 		}
 		for i := range lib.Codes {
-			if lib.Codes[i].Name == name || strings.EqualFold(lib.Codes[i].Name, name) {
+			if lib.Codes[i].Name == name || (!exact && strings.EqualFold(lib.Codes[i].Name, name)) {
 				return &lib.Codes[i]
 			}
 		}

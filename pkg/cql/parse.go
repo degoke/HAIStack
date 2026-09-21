@@ -725,6 +725,9 @@ func (p *parser) parseAdd() (Node, error) {
 		case tMinus:
 			op = "-"
 			p.lex.next()
+		case tPipe:
+			op = "|"
+			p.lex.next()
 		default:
 			if p.acceptKeyword("union") {
 				op = "|"
