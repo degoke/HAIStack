@@ -50,9 +50,8 @@ type ClassScore struct {
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
 // Accuracy is the pass rate (class and target). ByClass is one-vs-rest on class
 // labels only. Gold conceptmap.json vs cases.json checks that $translate
-// implements that map. Divergent conceptmap vs the same cases is an in-repo
-// map-vs-cases class metric (authored disagreement), not translator quality
-// and not an external mapping.
+// implements that map (published artefact). Divergent conceptmap vs the same
+// cases is a unit-test fixture for those class metrics, not a published score.
 type Metrics struct {
 	Exact      int                   `json:"exact"`
 	Narrow     int                   `json:"narrow"`
@@ -263,8 +262,8 @@ func TestdataPaths() (mapPath, casesPath string) {
 	return filepath.Join(dir, "conceptmap.json"), filepath.Join(dir, "cases.json")
 }
 
-// DivergentMapPath is an independently smaller ConceptMap scored against
-// authored cases.json (missing K/CBC-DIFF, WBC equivalent, GLU mapped).
+// DivergentMapPath is a known-error ConceptMap fixture for class-metric tests
+// (missing K/CBC-DIFF, WBC equivalent, GLU mapped). Not a published artefact.
 func DivergentMapPath() string {
 	return filepath.Join(testdataDir(), "divergent-conceptmap.json")
 }

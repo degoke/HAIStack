@@ -46,9 +46,12 @@ removing gold-only `meta.source` (the spec URL Convert does not emit).
 Presence of a remap stamp is not enough: dropping copy-through fields
 (`id`, `subject`, `reason`, …) fails. Constraint URLs live on Convert
 (emission) and in authorship tests (testdata); they are not a third scorer
-table. `TestCorpusGoldIsAuthoredOracle` inspects testdata only.
-`TestConverterImplementsAuthoredGold` **does** call Convert: it requires
-`Convert ≠ gold` because of `meta.source`, and ScoreCorpus to pass.
+table. `TestCorpusGoldIsAuthoredOracle` inspects testdata only, including
+that gold R5 copy-through fields (`id`, `subject`, `status`, …) match R4
+without calling Convert. `TestConverterImplementsAuthoredGold` **does**
+call Convert: it requires `Convert ≠ gold` because of `meta.source`, and
+ScoreCorpus to pass. A full pass means Convert implements this corpus, not
+an external mapping.
 
 For each pair:
 

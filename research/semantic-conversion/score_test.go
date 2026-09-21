@@ -86,6 +86,9 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 	var unchanged, transformed int
 	for _, p := range pairs {
 		r4, r5 := string(p.R4), string(p.R5)
+		r4obj := jsonObj(t, p.R4)
+		r5obj := jsonObj(t, p.R5)
+		assertCopyThrough(t, p.ID, r4obj, r5obj, "resourceType", "id")
 		switch p.Category {
 		case semanticconversion.CategoryUnchanged:
 			if !bytesEqualCanonical(p.R4, p.R5) {
@@ -93,6 +96,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			}
 			unchanged++
 		case semanticconversion.CategoryRemoved:
+			assertCopyThrough(t, p.ID, r4obj, r5obj, "gender")
 			if !bytes.Contains(p.R4, []byte(`"animal"`)) || bytes.Contains(p.R5, []byte(`"animal"`)) {
 				t.Errorf("%s: removed gold must drop Patient.animal on R5 only", p.ID)
 			}
@@ -101,6 +105,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			}
 			transformed++
 		case semanticconversion.CategoryRenamed:
+			assertCopyThrough(t, p.ID, r4obj, r5obj, "clinicalStatus", "code", "subject")
 			if p.Spec != goldConditionDiff {
 				t.Errorf("%s: spec = %q, want Condition R5 diff", p.ID, p.Spec)
 			}
@@ -118,6 +123,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			}
 			transformed++
 		case semanticconversion.CategoryCardinality:
+			assertCopyThrough(t, p.ID, r4obj, r5obj, "status", "code")
 			if p.Spec != goldObservationDiff {
 				t.Errorf("%s: spec = %q, want Observation R5 diff", p.ID, p.Spec)
 			}
@@ -129,6 +135,7 @@ func TestCorpusGoldIsAuthoredOracle(t *testing.T) {
 			}
 			transformed++
 		case semanticconversion.CategoryCodeableConcept, semanticconversion.CategoryTypeChange:
+			assertCopyThrough(t, p.ID, r4obj, r5obj, "status", "intent", "subject")
 			if p.Spec != goldMedicationDiff {
 				t.Errorf("%s: spec = %q, want MedicationRequest R5 diff", p.ID, p.Spec)
 			}
@@ -276,4 +283,38 @@ func goldHasMetaSource(raw []byte, spec string) bool {
 	meta, _ := obj["meta"].(map[string]any)
 	src, _ := meta["source"].(string)
 	return src == spec
+}
+
+func jsonObj(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	return obj
+}
+
+func assertCopyThrough(t *testing.T, id string, r4, r5 map[string]any, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		if _, ok := r4[key]; !ok {
+			t.Errorf("%s: R4 missing copy-through field %s", id, key)
+			continue
+		}
+		if !jsonValueEqual(r4[key], r5[key]) {
+			t.Errorf("%s: gold R5 %s must copy through from R4 (testdata authorship, no Convert)", id, key)
+		}
+	}
+}
+
+func jsonValueEqual(a, b any) bool {
+	ab, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	bb, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(ab, bb)
 }

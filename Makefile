@@ -86,7 +86,7 @@ research-conversion: ## Track B: R4/R5 conversion corpus scoring
 	$(GO) test ./research/semantic-conversion -count=1
 	$(GO) run ./research/semantic-conversion/cmd
 
-research-terminology: ## Track D: $translate consistency, map agreement, provenance
+research-terminology: ## Track D: $translate consistency and provenance
 	$(GO) test ./research/terminology-evaluation -count=1
 	$(GO) run ./research/terminology-evaluation/cmd
 

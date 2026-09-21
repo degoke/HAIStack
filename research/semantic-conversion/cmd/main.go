@@ -26,6 +26,7 @@ func main() {
 		"semanticPassed":   report.Semantic,
 		"failed":           report.Failed,
 		"byCategory":       report.ByCategory,
+		"note":             "structuralPassed == pairs means Convert implements corpus.json except gold-only meta.source; not hl7.fhir.uv.xver",
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

@@ -258,6 +258,8 @@ func evalJSONPath(raw json.RawMessage, expr string) ([]string, error) {
 				cur = v[0]
 			case nil:
 				return nil, fmt.Errorf("%s: empty collection", expr)
+			default:
+				return nil, fmt.Errorf("%s: first() requires a collection", expr)
 			}
 			continue
 		}

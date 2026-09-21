@@ -205,3 +205,15 @@ func addToyMed(t *testing.T, raw json.RawMessage) json.RawMessage {
 	}
 	return out
 }
+
+func TestEvalJSONPathFirstRequiresCollection(t *testing.T) {
+	singleton := json.RawMessage(`{"resourceType":"Observation","interpretation":{"coding":[{"code":"N"}]}}`)
+	err := assertJSONPath(singleton, "Observation.interpretation.first().coding.first().code", []string{"N"})
+	if err == nil || !strings.Contains(err.Error(), "first() requires a collection") {
+		t.Fatalf("first() on a singleton object must fail, got %v", err)
+	}
+	listed := json.RawMessage(`{"resourceType":"Observation","interpretation":[{"coding":[{"code":"N"}]}]}`)
+	if err := assertJSONPath(listed, "Observation.interpretation.first().coding.first().code", []string{"N"}); err != nil {
+		t.Fatalf("first() on a list: %v", err)
+	}
+}

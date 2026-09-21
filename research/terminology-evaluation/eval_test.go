@@ -32,7 +32,7 @@ func TestGoldConceptMapMetrics(t *testing.T) {
 	}
 }
 
-func TestDivergentMapAgreementAgainstAuthoredCases(t *testing.T) {
+func TestClassMetricsOnKnownErrorMap(t *testing.T) {
 	_, casesPath := terminologyeval.TestdataPaths()
 	metrics, err := terminologyeval.Evaluate(context.Background(), terminologyeval.DivergentMapPath(), casesPath, terminologyeval.FixedNow())
 	if err != nil {
@@ -60,7 +60,7 @@ func TestDivergentMapAgreementAgainstAuthoredCases(t *testing.T) {
 	}
 }
 
-func TestMetricsGradeTranslatorNotGold(t *testing.T) {
+func TestWrongCaseLabelsFailAccuracy(t *testing.T) {
 	mapPath, _ := terminologyeval.TestdataPaths()
 	dir := t.TempDir()
 	casesPath := filepath.Join(dir, "cases.json")
@@ -194,7 +194,7 @@ func TestProvenanceIncompleteWhenMapLacksVersion(t *testing.T) {
 	}
 }
 
-func TestMissingMapURLStillTranslatesButProvenanceZero(t *testing.T) {
+func TestMissingMapURLIsUnmatchedAndProvenanceZero(t *testing.T) {
 	dir := t.TempDir()
 	mapPath := filepath.Join(dir, "conceptmap.json")
 	casesPath := filepath.Join(dir, "cases.json")
@@ -215,7 +215,7 @@ func TestMissingMapURLStillTranslatesButProvenanceZero(t *testing.T) {
 		t.Fatalf("provenance = %v, want 0 when ConceptMap body has no url", metrics.Provenance)
 	}
 	if metrics.Results[0].GotClass != "unmatched" {
-		t.Fatalf("result = %+v", metrics.Results[0])
+		t.Fatalf("empty canonical cannot $translate, result = %+v", metrics.Results[0])
 	}
 }
 

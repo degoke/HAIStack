@@ -1,10 +1,9 @@
-# Track D — Terminology `$translate` consistency, map agreement, and provenance
+# Track D — Terminology `$translate` consistency and provenance
 
 Authored translation cases, a gold ConceptMap used as a **consistency**
-check that `$translate` implements that map, a **divergent** in-repo
-ConceptMap scored against the same cases (map-vs-cases agreement, not
-translator or external-mapping quality), and an audit-backed provenance
-model for `$translate`.
+check that `$translate` implements that map, and an audit-backed
+provenance model for `$translate`. Class precision/recall is exercised in
+tests against a known-error map; it is not a published quality number.
 
 ## Reproduce
 
@@ -26,10 +25,9 @@ terminology licenses.
 equivalence class and target.
 
 [`testdata/divergent-conceptmap.json`](./testdata/divergent-conceptmap.json)
-is a smaller, independently written map: it omits K and CBC-DIFF, maps WBC
-as equivalent (cases want broad), and maps GLU (cases want unmatched). It
-is not a one-field edit of the gold file. Accuracy 0.5 is that authored
-error set, published as a class metric on this map versus `cases.json`.
+is a known-error fixture for class-metric unit tests (omit K/CBC-DIFF, WBC
+equivalent, GLU mapped). It is not published by the command and is not an
+evaluation of the translator or of an external mapping.
 
 | Class | Meaning |
 |-------|---------|
@@ -40,25 +38,22 @@ error set, published as a class metric on this map versus `cases.json`.
 
 ## Metrics
 
+The published command prints **gold consistency** only: gold map ×
+`cases.json`. **1.0 is expected** (`$translate` implements this map). That
+is not translator quality and not an external mapping.
+
 Exact / narrow / broad / unmatched counts are `$translate` observed
 classes from ConceptMap `equivalence` on the returned coding.
 
 A case passes when `gotClass` matches authored gold and the target code
 matches when gold specifies one.
 
-The published command prints two objects:
-
-| Key | Source | What it is |
-|-----|--------|------------|
-| `goldConsistency` | gold map × `cases.json` | Does `$translate` implement this map? **1.0 is expected.** No `byClass`. |
-| `mapAgreement` | **divergent map** × `cases.json` | Class metric of this in-repo map vs authored labels. Accuracy 0.5 is the authored disagreement (omit K/CBC-DIFF, WBC equivalent, GLU mapped). **Not** translator quality and **not** an external mapping. |
-
 **Accuracy** is the pass rate (`class` and `target` both match).
 
-**Precision** and **recall** are published **only in `mapAgreement.byClass`**.
-Precision is omitted when a class has no predictions; recall is omitted when
-it has no gold support. A right class with a wrong target fails accuracy and
-is not a class false positive.
+**Precision** and **recall** are computed by `Evaluate` as one-vs-rest on
+class labels (omitted when predicted or support is 0). A right class with
+a wrong target fails accuracy and is not a class false positive. Those
+scores are asserted in tests, not printed as a published artefact.
 
 **Provenance completeness** is the share of translations whose
 `terminology.translate` audit event was **emitted by
