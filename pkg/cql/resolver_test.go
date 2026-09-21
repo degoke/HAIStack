@@ -11,6 +11,7 @@ import (
 
 type testResourceStore struct {
 	byType map[string]map[string]*types.ResourceEnvelope
+	reads  int
 }
 
 func (s *testResourceStore) Create(context.Context, *types.ResourceEnvelope) error { return nil }
@@ -21,6 +22,7 @@ func (s *testResourceStore) Exists(_ context.Context, resourceType, id string) (
 	return ok, nil
 }
 func (s *testResourceStore) Read(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+	s.reads++
 	if env, ok := s.byType[resourceType][id]; ok {
 		return env, nil
 	}
@@ -145,5 +147,78 @@ func TestStoreLibraryResolverCacheInvalidatesOnHashChange(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != int64(2) {
 		t.Fatalf("updated define: %#v", got)
+	}
+}
+
+func TestStoreLibraryResolverSkipsBrokenSiblingVersion(t *testing.T) {
+	broken := libraryEnvelope(t, "v1", "http://example.org/Library/Good", "Good", "1.0.0",
+		"this is not cql")
+	good := libraryEnvelope(t, "v2", "http://example.org/Library/Good", "Good", "2.0.0",
+		"library Good version '2.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": true\n")
+	store := &testResourceStore{byType: map[string]map[string]*types.ResourceEnvelope{
+		"Library": {"v1": broken, "v2": good},
+	}}
+	r := &StoreLibraryResolver{Resources: store, Engine: testEngine(t)}
+	lib, err := r.Resolve(context.Background(), "http://example.org/Library/Good")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Version != "2.0.0" {
+		t.Fatalf("expected latest good version, got %s", lib.Version)
+	}
+}
+
+func TestStoreLibraryResolverPicksSemverLatest(t *testing.T) {
+	older := libraryEnvelope(t, "a", "http://example.org/Library/V", "V", "1.9.0",
+		"library V version '1.9.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": 9\n")
+	newer := libraryEnvelope(t, "b", "http://example.org/Library/V", "V", "1.10.0",
+		"library V version '1.10.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": 10\n")
+	store := &testResourceStore{byType: map[string]map[string]*types.ResourceEnvelope{
+		"Library": {"a": older, "b": newer},
+	}}
+	r := &StoreLibraryResolver{Resources: store, Engine: testEngine(t)}
+	lib, err := r.Resolve(context.Background(), "http://example.org/Library/V")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Version != "1.10.0" {
+		t.Fatalf("semver latest: got %s", lib.Version)
+	}
+}
+
+func TestStoreLibraryResolverDoesNotRereadCatalog(t *testing.T) {
+	good := libraryEnvelope(t, "good", "http://example.org/Library/Good", "Good", "1.0.0",
+		"library Good version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": true\n")
+	other := libraryEnvelope(t, "other", "http://example.org/Library/Other", "Other", "1.0.0",
+		"library Other version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"Y\": 1\n")
+	store := &testResourceStore{byType: map[string]map[string]*types.ResourceEnvelope{
+		"Library": {"good": good, "other": other},
+	}}
+	r := &StoreLibraryResolver{Resources: store, Engine: testEngine(t)}
+	if _, err := r.Resolve(context.Background(), "http://example.org/Library/Good"); err != nil {
+		t.Fatal(err)
+	}
+	first := store.reads
+	if first < 2 {
+		t.Fatalf("expected initial catalog peek, reads=%d", first)
+	}
+	if _, err := r.Resolve(context.Background(), "http://example.org/Library/Good"); err != nil {
+		t.Fatal(err)
+	}
+	delta := store.reads - first
+	if delta != 1 {
+		t.Fatalf("second resolve should read only the matching library, got %d extra reads", delta)
+	}
+}
+
+func TestCompareVersionNumericOrder(t *testing.T) {
+	if compareVersion("1.10.0", "1.9.0") <= 0 {
+		t.Fatal("1.10.0 should be newer than 1.9.0")
+	}
+	if compareVersion("2.0.0", "1.99.0") <= 0 {
+		t.Fatal("2.0.0 should be newer than 1.99.0")
+	}
+	if compareVersion("1.0.0", "1.0.0-beta") <= 0 {
+		t.Fatal("release should be newer than prerelease")
 	}
 }

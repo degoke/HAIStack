@@ -10,6 +10,7 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/types"
+	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 )
 
 func testEngine(t *testing.T) *Engine {
@@ -343,6 +344,54 @@ func TestEvalUsesConfiguredFHIRPath(t *testing.T) {
 	}
 }
 
+func TestEvalUsesFHIRPathNestedName(t *testing.T) {
+	fp, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &nestedNameFHIRPath{inner: fp}
+	eng, err := NewEngine(Config{
+		FHIRPath: stub,
+		Now:      func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.Eval(context.Background(), "First(Patient.name.given)", EvalContext{Patient: adaPatient(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "FromFHIRPath" {
+		t.Fatalf("expected FHIRPath HumanName conversion, got %#v", got)
+	}
+}
+
+type nestedNameFHIRPath struct {
+	inner fhirpath.Engine
+}
+
+func (t *nestedNameFHIRPath) Compile(expr string) (fhirpath.CompiledExpression, error) {
+	return t.inner.Compile(expr)
+}
+func (t *nestedNameFHIRPath) Eval(ctx context.Context, expr string, resource any) ([]fhirpath.Value, error) {
+	if expr == "name" {
+		return []fhirpath.Value{fhirpath.NewValue(&dtpb.HumanName{
+			Family: &dtpb.String{Value: "FromFP"},
+			Given:  []*dtpb.String{{Value: "FromFHIRPath"}},
+		})}, nil
+	}
+	return t.inner.Eval(ctx, expr, resource)
+}
+func (t *nestedNameFHIRPath) EvalWithEnv(ctx context.Context, expr string, resource any, env map[string]any) ([]fhirpath.Value, error) {
+	return t.Eval(ctx, expr, resource)
+}
+func (t *nestedNameFHIRPath) EvalBool(ctx context.Context, expr string, resource any) (bool, error) {
+	return t.inner.EvalBool(ctx, expr, resource)
+}
+func (t *nestedNameFHIRPath) EvalString(ctx context.Context, expr string, resource any) (string, error) {
+	return t.inner.EvalString(ctx, expr, resource)
+}
+
 func TestRetrieveMatchesStructuredCodesNotJSONSubstring(t *testing.T) {
 	leak, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
 		"resourceType": "Observation",
@@ -392,6 +441,67 @@ func TestRetrieveMatchesStructuredCodesNotJSONSubstring(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != int64(0) {
 		t.Fatalf("status must not match as terminology: %#v", got)
+	}
+}
+
+func TestRetrieveIgnoresQuantityAndNotes(t *testing.T) {
+	qty, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "wt",
+		"status": "final",
+		"code": {"coding": [{"system": "http://loinc.org", "code": "29463-7", "display": "Body weight"}]},
+		"valueQuantity": {"value": 70, "unit": "kg", "system": "http://unitsofmeasure.org", "code": "kg"},
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "n",
+		"status": "final",
+		"code": {"text": "Note"},
+		"note": [{"text": "Heart rate was recorded"}],
+		"subject": {"reference": "Patient/ada"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{qty, note},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := EvalContext{Patient: adaPatient(t)}
+	got, err := eng.Eval(context.Background(), "[Observation: 'kg'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("quantity unit must not match retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: 'http://unitsofmeasure.org'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("quantity system must not match retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: 'Heart rate was recorded'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("note text must not match retrieve: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "[Observation: '29463-7'].count()", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("primary code should still match: %#v", got)
 	}
 }
 
@@ -507,6 +617,36 @@ define "Code In VS":
 	}
 	if len(got) != 1 || got[0] != true {
 		t.Fatalf("in valueset: %#v", got)
+	}
+}
+
+func TestInValueSetDoesNotFallbackToDisplayWhenTerminologySet(t *testing.T) {
+	eng, err := NewEngine(Config{
+		Terminology: staticMembership{},
+		Now:         func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library HeartLogic version '1.0.0'
+using FHIR version '4.0.1'
+codesystem "LOINC": 'http://loinc.org'
+valueset "Heart Rate": 'http://example.org/ValueSet/heart-rate'
+code "Lookalike": '99999-9' from "LOINC" display 'Heart Rate'
+context Patient
+define "In VS":
+  "Lookalike" in "Heart Rate"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "In VS", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("MemberOf false must not match valueset name/display: %#v", got)
 	}
 }
 

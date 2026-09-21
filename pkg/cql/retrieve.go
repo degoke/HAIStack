@@ -2,6 +2,7 @@ package cql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -158,12 +159,36 @@ func extractCodings(v any) []fhirCoding {
 		return nil
 	}
 	var out []fhirCoding
-	walkCodings(obj, &out)
+	rt, _ := obj["resourceType"].(string)
+	if rt == "" {
+		collectCodeable(obj, &out)
+		return out
+	}
+	for _, field := range primaryCodeFields {
+		if raw, exists := obj[field]; exists {
+			collectCodeable(raw, &out)
+		}
+	}
 	return out
 }
 
-func walkCodings(v any, out *[]fhirCoding) {
+// primaryCodeFields are the FHIR elements CQL retrieve typically filters on.
+// Nested Quantity, Annotation, component, and meta.tag are ignored.
+var primaryCodeFields = []string{
+	"code",
+	"type",
+	"class",
+	"medicationCodeableConcept",
+	"medication",
+	"vaccineCode",
+}
+
+func collectCodeable(v any, out *[]fhirCoding) {
 	switch x := v.(type) {
+	case []any:
+		for _, el := range x {
+			collectCodeable(el, out)
+		}
 	case map[string]any:
 		if raw, ok := x["coding"].([]any); ok {
 			text := strField(x, "text")
@@ -172,39 +197,50 @@ func walkCodings(v any, out *[]fhirCoding) {
 				if !ok {
 					continue
 				}
-				*out = append(*out, fhirCoding{
-					System:  strField(m, "system"),
-					Code:    strField(m, "code"),
-					Display: strField(m, "display"),
-					Text:    text,
-				})
+				appendCoding(m, text, out)
 			}
 			if text != "" && len(raw) == 0 {
 				*out = append(*out, fhirCoding{Text: text})
 			}
-		} else if isCodingShape(x) {
-			*out = append(*out, fhirCoding{
-				System:  strField(x, "system"),
-				Code:    strField(x, "code"),
-				Display: strField(x, "display"),
-			})
-		} else if text := strField(x, "text"); text != "" && looksLikeCodeableText(x) {
-			*out = append(*out, fhirCoding{Text: text})
+			return
 		}
-		for k, child := range x {
-			if k == "coding" {
-				continue
-			}
-			walkCodings(child, out)
+		if isCoding(x) {
+			appendCoding(x, "", out)
+			return
 		}
-	case []any:
-		for _, el := range x {
-			walkCodings(el, out)
+		if isTextOnlyCodeableConcept(x) {
+			*out = append(*out, fhirCoding{Text: strField(x, "text")})
 		}
 	}
 }
 
-func isCodingShape(m map[string]any) bool {
+func appendCoding(m map[string]any, text string, out *[]fhirCoding) {
+	if isQuantity(m) {
+		return
+	}
+	*out = append(*out, fhirCoding{
+		System:  strField(m, "system"),
+		Code:    strField(m, "code"),
+		Display: strField(m, "display"),
+		Text:    text,
+	})
+}
+
+func isQuantity(m map[string]any) bool {
+	if _, ok := m["unit"]; ok {
+		return true
+	}
+	switch m["value"].(type) {
+	case float64, float32, int, int32, int64, json.Number:
+		return true
+	}
+	return false
+}
+
+func isCoding(m map[string]any) bool {
+	if isQuantity(m) {
+		return false
+	}
 	code, _ := m["code"].(string)
 	if code == "" {
 		return false
@@ -214,17 +250,18 @@ func isCodingShape(m map[string]any) bool {
 	return hasSystem || hasDisplay
 }
 
-func looksLikeCodeableText(m map[string]any) bool {
-	if _, hasCoding := m["coding"]; hasCoding {
-		return true
-	}
-	// CodeableConcept with only text: typically just "text" and maybe "id"/"extension".
-	if _, hasText := m["text"]; !hasText {
+func isTextOnlyCodeableConcept(m map[string]any) bool {
+	if strField(m, "text") == "" {
 		return false
 	}
-	_, hasSystem := m["system"]
-	_, hasCode := m["code"]
-	return !hasSystem && !hasCode
+	for k := range m {
+		switch k {
+		case "id", "extension", "text", "coding":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func codingFromValue(v any) fhirCoding {
@@ -240,7 +277,7 @@ func codingFromValue(v any) fhirCoding {
 		return fhirCoding{Code: x, Text: x, Display: x}
 	}
 	if obj, ok := asObject(v); ok {
-		if isCodingShape(obj) {
+		if isCoding(obj) {
 			return fhirCoding{System: strField(obj, "system"), Code: strField(obj, "code"), Display: strField(obj, "display")}
 		}
 		if raw, ok := obj["coding"].([]any); ok {

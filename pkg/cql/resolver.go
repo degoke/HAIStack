@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -12,15 +13,19 @@ import (
 )
 
 // StoreLibraryResolver loads FHIR Library resources from a ResourceStore and
-// optionally a DefinitionStore, then compiles their CQL content. Resolve peeks
-// url/name/version and compiles only matching candidates, caching by resource
-// ID and envelope Hash.
+// optionally a DefinitionStore, then compiles their CQL content.
+//
+// Resolve peeks url/name/version, compiles only matching candidates, and caches
+// compiled libraries by resource ID and envelope Hash. After the first catalog
+// scan, subsequent resolves read only matching (and newly listed) Library
+// resources instead of the full catalog.
 type StoreLibraryResolver struct {
 	Resources store.ResourceStore
 	Registry  store.DefinitionStore
 	Engine    *Engine
 	mu        sync.Mutex
 	compiled  map[string]cachedLibrary
+	meta      map[string]libraryMeta
 	// compileCount is the number of CQL compiles performed (tests).
 	compileCount int
 }
@@ -28,6 +33,10 @@ type StoreLibraryResolver struct {
 type cachedLibrary struct {
 	hash string
 	lib  *Library
+}
+
+type libraryMeta struct {
+	hash, url, name, version string
 }
 
 func (r *StoreLibraryResolver) Resolve(ctx context.Context, canonical string) (*Library, error) {
@@ -73,25 +82,98 @@ func (r *StoreLibraryResolver) resolveFromStore(ctx context.Context, canonical s
 	if err != nil {
 		return nil, fmt.Errorf("list Library resources: %w", err)
 	}
-	var out []*Library
+	idSet := make(map[string]bool, len(ids))
 	for _, id := range ids {
-		env, err := r.Resources.Read(ctx, "Library", id)
-		if err != nil || env == nil {
-			continue
+		idSet[id] = true
+	}
+
+	r.mu.Lock()
+	if r.meta == nil {
+		r.meta = map[string]libraryMeta{}
+	}
+	if r.compiled == nil {
+		r.compiled = map[string]cachedLibrary{}
+	}
+	for id := range r.meta {
+		if !idSet[id] {
+			delete(r.meta, id)
+			delete(r.compiled, id)
 		}
-		url, name, version := peekLibraryMeta(env)
-		if !matchesLibraryMeta(url, name, version, canonical) {
-			continue
+	}
+	readIDs := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
 		}
+		seen[id] = true
+		readIDs = append(readIDs, id)
+	}
+	for _, id := range ids {
+		m, ok := r.meta[id]
+		if !ok || matchesLibraryMeta(m.url, m.name, m.version, canonical) {
+			add(id)
+		}
+	}
+	r.mu.Unlock()
+
+	var out []*Library
+	var lastErr error
+	matched := false
+	process := func(env *types.ResourceEnvelope, meta libraryMeta) {
+		if env == nil || !matchesLibraryMeta(meta.url, meta.name, meta.version, canonical) {
+			return
+		}
+		matched = true
 		lib, err := r.compileCached(env)
 		if err != nil {
-			return nil, err
+			lastErr = err
+			return
 		}
 		if lib != nil {
 			out = append(out, lib)
 		}
 	}
+
+	for _, id := range readIDs {
+		env, meta, err := r.readMeta(ctx, id)
+		if err != nil || env == nil {
+			continue
+		}
+		process(env, meta)
+	}
+	if !matched {
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			env, meta, err := r.readMeta(ctx, id)
+			if err != nil || env == nil {
+				continue
+			}
+			process(env, meta)
+		}
+	}
+	if len(out) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
 	return out, nil
+}
+
+func (r *StoreLibraryResolver) readMeta(ctx context.Context, id string) (*types.ResourceEnvelope, libraryMeta, error) {
+	env, err := r.Resources.Read(ctx, "Library", id)
+	if err != nil || env == nil {
+		return env, libraryMeta{}, err
+	}
+	url, name, version := peekLibraryMeta(env)
+	meta := libraryMeta{hash: env.Hash, url: url, name: name, version: version}
+	r.mu.Lock()
+	if r.meta == nil {
+		r.meta = map[string]libraryMeta{}
+	}
+	r.meta[id] = meta
+	r.mu.Unlock()
+	return env, meta, nil
 }
 
 func (r *StoreLibraryResolver) compileCached(env *types.ResourceEnvelope) (*Library, error) {
@@ -186,17 +268,71 @@ func resolveLibraryIndex(byURL map[string][]*Library, canonical string) (*Librar
 		return matches[0], true, nil
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return versionLess(candidates[j].Version, candidates[i].Version)
+		return compareVersion(candidates[i].Version, candidates[j].Version) > 0
 	})
 	return candidates[0], true, nil
 }
 
-func versionLess(a, b string) bool {
-	return strings.TrimSpace(a) < strings.TrimSpace(b)
-}
-
 func matchesLibraryMeta(url, name, version, canonical string) bool {
 	return matchesCanonical(&Library{URL: url, Name: name, Version: version}, canonical)
+}
+
+// compareVersion returns -1, 0, or 1 using numeric dotted-version order
+// (so 1.10.0 > 1.9.0). Prerelease tags sort before the matching release.
+// Non-numeric leftovers fall back to lexical compare.
+func compareVersion(a, b string) int {
+	an, ap := versionParts(a)
+	bn, bp := versionParts(b)
+	n := len(an)
+	if len(bn) > n {
+		n = len(bn)
+	}
+	for i := 0; i < n; i++ {
+		av, bv := 0, 0
+		if i < len(an) {
+			av = an[i]
+		}
+		if i < len(bn) {
+			bv = bn[i]
+		}
+		if av < bv {
+			return -1
+		}
+		if av > bv {
+			return 1
+		}
+	}
+	if ap == "" && bp != "" {
+		return 1
+	}
+	if ap != "" && bp == "" {
+		return -1
+	}
+	return strings.Compare(ap, bp)
+}
+
+func versionParts(v string) (nums []int, pre string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, ""
+	}
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		pre = v[i+1:]
+		v = v[:i]
+	}
+	for _, part := range strings.Split(v, ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			pre = part + pre
+			nums = append(nums, 0)
+			continue
+		}
+		nums = append(nums, n)
+	}
+	return nums, pre
 }
 
 // MapLibraryResolver resolves from an in-memory CQL source table.

@@ -7,10 +7,14 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/google/fhir/go/fhirversion"
+	"github.com/google/fhir/go/jsonformat"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type evalState struct {
@@ -803,9 +807,6 @@ func (st *evalState) inValueSet(values []any, vs ValueSet) (bool, error) {
 		if ok {
 			return true, nil
 		}
-		if codingMatches([]fhirCoding{codingFromValue(v)}, "", "", vs.Name) {
-			return true, nil
-		}
 	}
 	return false, nil
 }
@@ -864,10 +865,45 @@ func convertFHIRPathValue(v fhirpath.Value) (any, bool) {
 	if _, ok := asObject(raw); ok {
 		return raw, true
 	}
+	if msg, ok := raw.(gproto.Message); ok && msg != nil {
+		if mapped, ok := protoElementToValue(msg); ok {
+			return mapped, true
+		}
+	}
 	if s, err := v.String(); err == nil {
 		return s, true
 	}
 	return nil, false
+}
+
+var (
+	elementMarshalerOnce sync.Once
+	elementMarshaler     *jsonformat.Marshaller
+)
+
+func protoElementToValue(msg gproto.Message) (any, bool) {
+	elementMarshalerOnce.Do(func() {
+		m, err := jsonformat.NewMarshaller(false, "", "", fhirversion.R4)
+		if err != nil {
+			return
+		}
+		elementMarshaler = m
+	})
+	if elementMarshaler == nil {
+		return nil, false
+	}
+	raw, err := elementMarshaler.MarshalElement(msg)
+	if err != nil {
+		raw, err = elementMarshaler.MarshalResource(msg)
+	}
+	if err != nil {
+		return nil, false
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, false
+	}
+	return v, true
 }
 
 func singletonValueSet(v []any) (ValueSet, bool) {
