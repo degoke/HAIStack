@@ -79,7 +79,7 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(v) == 0 {
+		if len(v) != 1 {
 			return nil, nil
 		}
 		if iv, ok := asInterval(v[0]); ok {
@@ -96,7 +96,7 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 0 || len(right) == 0 {
+		if len(left) != 1 || len(right) != 1 {
 			return nil, nil
 		}
 		start, end = left[0], right[0]

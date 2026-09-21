@@ -1,7 +1,6 @@
 package cql
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -45,7 +44,7 @@ func indexesAsList(n Node) bool {
 	return false
 }
 
-func (st *evalState) evalIndexer(args [][]any) ([]any, error) {
+func (st *evalState) evalIndexer(args [][]any, src Node) ([]any, error) {
 	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
 		return nil, nil
 	}
@@ -53,11 +52,13 @@ func (st *evalState) evalIndexer(args [][]any) ([]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
-		if i < 0 || int(i) >= len(s) {
-			return nil, nil
+	if !indexesAsList(src) && len(args[0]) == 1 {
+		if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+			if i < 0 || int(i) >= len(s) {
+				return nil, nil
+			}
+			return []any{string(s[i])}, nil
 		}
-		return []any{string(s[i])}, nil
 	}
 	if i < 0 || int(i) >= len(args[0]) {
 		return nil, nil
@@ -71,6 +72,9 @@ func (st *evalState) evalConvert(n *convertNode) ([]any, error) {
 		return nil, err
 	}
 	if len(v) == 0 {
+		return nil, nil
+	}
+	if len(v) != 1 {
 		return nil, nil
 	}
 	target := strings.ToLower(n.target)
@@ -89,7 +93,11 @@ func (st *evalState) evalConvert(n *convertNode) ([]any, error) {
 		}
 		return []any{f}, nil
 	case "string":
-		return []any{fmt.Sprint(unwrapPrimitive(item))}, nil
+		s, ok := cqlToString(item)
+		if !ok {
+			return nil, nil
+		}
+		return []any{s}, nil
 	case "boolean":
 		b := asBool(v)
 		if b == nil {
@@ -125,29 +133,50 @@ func (st *evalState) evalSameAs(n *binaryNode) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(left) == 0 || len(right) == 0 {
+	if left == nil || right == nil {
 		return nil, nil
 	}
+	if len(left) != len(right) {
+		return []any{false}, nil
+	}
 	unit, before, after := splitSameOp(n.op)
-	lt, lok := asTime(left[0])
-	rt, rok := asTime(right[0])
+	unknown := false
+	for i := range left {
+		eq := sameAsPair(left[i], right[i], unit, before, after)
+		if eq == nil {
+			unknown = true
+			continue
+		}
+		if eq[0] != true {
+			return []any{false}, nil
+		}
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
+}
+
+func sameAsPair(lv, rv any, unit string, before, after bool) []any {
+	lt, lok := asTime(lv)
+	rt, rok := asTime(rv)
 	var cmp int
 	var ok bool
 	if lok && rok {
 		cmp, ok = samePrecisionCompare(lt, rt, unit)
 	} else {
-		cmp, ok = cqlCompare(left[0], right[0])
+		cmp, ok = cqlCompare(lv, rv)
 	}
 	if !ok {
-		return nil, nil
+		return nil
 	}
 	switch {
 	case before:
-		return []any{cmp <= 0}, nil
+		return []any{cmp <= 0}
 	case after:
-		return []any{cmp >= 0}, nil
+		return []any{cmp >= 0}
 	default:
-		return []any{cmp == 0}, nil
+		return []any{cmp == 0}
 	}
 }
 

@@ -431,6 +431,9 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	}
 	switch n.op {
 	case "not":
+		if len(v) != 1 {
+			return nil, nil
+		}
 		b := asBool(v)
 		if b == nil {
 			return nil, nil
@@ -439,7 +442,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "exists":
 		return []any{existsNonNull(v)}, nil
 	case "-":
-		if len(v) == 0 {
+		if len(v) != 1 {
 			return nil, nil
 		}
 		if q, ok := asQuantity(v[0]); ok {
@@ -462,7 +465,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "flatten":
 		return flattenValues(v), nil
 	case "start":
-		if len(v) == 0 {
+		if len(v) != 1 {
 			return nil, nil
 		}
 		if iv, ok := asInterval(v[0]); ok {
@@ -473,7 +476,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		}
 		return nil, nil
 	case "end":
-		if len(v) == 0 {
+		if len(v) != 1 {
 			return nil, nil
 		}
 		if iv, ok := asInterval(v[0]); ok {
@@ -484,7 +487,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 		}
 		return nil, nil
 	case "width":
-		if len(v) == 0 {
+		if len(v) != 1 {
 			return nil, nil
 		}
 		if iv, ok := asInterval(v[0]); ok {
@@ -541,7 +544,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 0 || len(right) == 0 {
+		if len(left) != 1 || len(right) != 1 {
 			return nil, nil
 		}
 		ls, lok := unwrapPrimitive(left[0]).(string)
@@ -604,7 +607,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 1 && len(right) == 1 {
+		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					out, ok := intervalIntersect(li, ri)
@@ -625,7 +628,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(left) == 1 && len(right) == 1 {
+		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					return intervalExcept(li, ri), nil
@@ -836,6 +839,13 @@ func (st *evalState) evalCall(n *callNode) ([]any, error) {
 	if fn, lib := st.lookupFunction(name); fn != nil {
 		return st.evalUserFunction(lib, fn, args)
 	}
+	if strings.EqualFold(name, "Indexer") {
+		var src Node
+		if len(n.args) > 0 {
+			src = n.args[0]
+		}
+		return st.evalIndexer(args, src)
+	}
 	return st.evalFunction(name, args)
 }
 
@@ -877,6 +887,8 @@ func (st *evalState) evalMethod(name string, recv []any, rawArgs []Node, args []
 		return []any{recv[0]}, nil
 	case "distinct":
 		return distinctValues(recv), nil
+	case "indexer":
+		return st.evalIndexer(append([][]any{recv}, args...), nil)
 	case "value":
 		var out []any
 		for _, item := range recv {
@@ -1015,17 +1027,23 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return st.ageInYears(&at)
 	case "tostring":
-		if len(args) == 0 || len(args[0]) == 0 {
-			return nil, nil
-		}
-		return []any{fmt.Sprint(unwrapPrimitive(args[0][0]))}, nil
-	case "tointeger":
-		if len(args) == 0 || len(args[0]) == 0 {
-			return nil, nil
-		}
-		n, ok := asInt(args[0][0])
+		item, ok := singletonArg(args)
 		if !ok {
-			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+			return nil, nil
+		}
+		s, ok := cqlToString(item)
+		if !ok {
+			return nil, nil
+		}
+		return []any{s}, nil
+	case "tointeger":
+		item, ok := singletonArg(args)
+		if !ok {
+			return nil, nil
+		}
+		n, ok := asInt(item)
+		if !ok {
+			if s, ok := unwrapPrimitive(item).(string); ok {
 				parsed, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 				if err != nil {
 					return nil, nil
@@ -1036,12 +1054,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return []any{n}, nil
 	case "todecimal":
-		if len(args) == 0 || len(args[0]) == 0 {
+		item, ok := singletonArg(args)
+		if !ok {
 			return nil, nil
 		}
-		f, ok := asFloat(args[0][0])
+		f, ok := asFloat(item)
 		if !ok {
-			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+			if s, ok := unwrapPrimitive(item).(string); ok {
 				parsed, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
 				if err != nil {
 					return nil, nil
@@ -1052,12 +1071,13 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return []any{f}, nil
 	case "toboolean":
-		if len(args) == 0 || len(args[0]) == 0 {
+		item, ok := singletonArg(args)
+		if !ok {
 			return nil, nil
 		}
-		b := asBool(args[0])
+		b := asBool([]any{item})
 		if b == nil {
-			if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
+			if s, ok := unwrapPrimitive(item).(string); ok {
 				if strings.EqualFold(s, "true") {
 					return []any{true}, nil
 				}
@@ -1208,7 +1228,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 	case "substring":
 		return stringSubstring(args)
 	case "indexer":
-		return st.evalIndexer(args)
+		return st.evalIndexer(args, nil)
 	case "collapse":
 		if len(args) == 0 {
 			return nil, nil
@@ -1968,6 +1988,58 @@ func evalArithmetic(op string, lv, rv any) ([]any, error) {
 		return []any{int64(out)}, nil
 	}
 	return []any{out}, nil
+}
+
+func singletonArg(args [][]any) (any, bool) {
+	if len(args) == 0 || args[0] == nil || len(args[0]) != 1 {
+		return nil, false
+	}
+	return args[0][0], true
+}
+
+func cqlToString(v any) (string, bool) {
+	v = unwrapPrimitive(v)
+	if v == nil {
+		return "", false
+	}
+	if t, ok := asTime(v); ok {
+		if isDateOnlyTime(t) {
+			return t.Format("2006-01-02"), true
+		}
+		if isNaiveDateTimeTime(t) {
+			if t.Nanosecond() == 0 {
+				return t.Format("2006-01-02T15:04:05"), true
+			}
+			return t.Format("2006-01-02T15:04:05.000"), true
+		}
+		if t.Nanosecond() == 0 {
+			return t.Format(time.RFC3339), true
+		}
+		return t.Format("2006-01-02T15:04:05.000Z07:00"), true
+	}
+	if q, ok := asQuantity(v); ok {
+		if isIntLike(q.Value) || q.Value == float64(int64(q.Value)) {
+			return fmt.Sprintf("%g '%s'", q.Value, q.Unit), true
+		}
+		return fmt.Sprintf("%g '%s'", q.Value, q.Unit), true
+	}
+	if s, ok := v.(string); ok {
+		return s, true
+	}
+	if b, ok := v.(bool); ok {
+		if b {
+			return "true", true
+		}
+		return "false", true
+	}
+	if isIntLike(v) {
+		n, _ := asInt(v)
+		return strconv.FormatInt(n, 10), true
+	}
+	if f, ok := asFloat(v); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64), true
+	}
+	return fmt.Sprint(v), true
 }
 
 func isIntLike(v any) bool {

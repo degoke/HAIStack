@@ -2632,3 +2632,193 @@ func TestFlattenAndDistinctKeepEmptyList(t *testing.T) {
 		t.Fatalf("Distinct({}) = {}: %#v", got)
 	}
 }
+
+func TestListOfIntervalsIntersectExcept(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{ Interval[1, 5] } intersect { Interval[3, 10] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("list intersect of unequal intervals must be {}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{ Interval[1, 5] } except { Interval[3, 10] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("list except: %#v", got)
+	}
+	iv, ok := asInterval(got[0])
+	if !ok || fmt.Sprint(iv.Low) != "1" || fmt.Sprint(iv.High) != "5" {
+		t.Fatalf("list except keeps left interval: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[1, 5] intersect Interval[3, 10]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, ok = asInterval(got[0])
+	if !ok || fmt.Sprint(iv.Low) != "3" || fmt.Sprint(iv.High) != "5" {
+		t.Fatalf("bare interval intersect: %#v", got)
+	}
+}
+
+func TestIndexerFunctionIndexesLists(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Indexer({'abc'}, 0)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "abc" {
+		t.Fatalf("Indexer({'abc'}, 0): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Indexer({'abc'}, 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Indexer({'abc'}, 1) must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Indexer({'a', 'b'}, 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "b" {
+		t.Fatalf("Indexer({'a', 'b'}, 1): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Indexer('abc', 1)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "b" {
+		t.Fatalf("Indexer('abc', 1): %#v", got)
+	}
+}
+
+func TestConcatRequiresSingletonStrings(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{ 'a', 'b' } & 'c'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("list & string must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "'a' & { 'c', 'd' }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("string & list must be null: %#v", got)
+	}
+}
+
+func TestSameAsComparesAllElements(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "{1, 2} same as {1, 3}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{1, 2} same as {1, 3}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{1} same as {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("{1} same as {1, 2}: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{} same as {}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("{} same as {}: %#v", got)
+	}
+}
+
+func TestToStringFormatsDateAndQuantity(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ToString(@2020-01-01)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "2020-01-01" {
+		t.Fatalf("ToString date: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToString(5 'mg')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "5 'mg'" {
+		t.Fatalf("ToString quantity: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "convert @2020-01-01 to String", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "2020-01-01" {
+		t.Fatalf("convert date to String: %#v", got)
+	}
+}
+
+func TestScalarOpsRequireSingleton(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "duration in days between { @2020-01-01, @2020-01-02 } and @2020-01-05", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("duration with list start must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "not {true, false}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("not list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "- {1, 2}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unary - list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "start of { Interval[1,2], Interval[3,4] }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("start of interval list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToInteger({1, 2})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToInteger list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToBoolean({true, false})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToBoolean list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToString({1, 2})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ToString list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Take({1, 2, 3}, null)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Take null count must be null: %#v", got)
+	}
+}

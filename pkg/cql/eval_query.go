@@ -290,7 +290,10 @@ func flattenValues(v []any) []any {
 }
 
 func listIntersect(left, right []any) []any {
-	var out []any
+	if left == nil || right == nil {
+		return nil
+	}
+	out := []any{}
 	for _, el := range left {
 		if containsValue(right, el) && !containsValue(out, el) {
 			out = append(out, el)
@@ -300,7 +303,10 @@ func listIntersect(left, right []any) []any {
 }
 
 func listExcept(left, right []any) []any {
-	var out []any
+	if left == nil {
+		return nil
+	}
+	out := []any{}
 	for _, el := range left {
 		if !containsValue(right, el) && !containsValue(out, el) {
 			out = append(out, el)
@@ -419,12 +425,14 @@ func listTakeSkip(args [][]any, take bool) ([]any, error) {
 		return nil, nil
 	}
 	list := args[0]
-	n := 0
-	if len(args) > 1 && len(args[1]) > 0 {
-		if v, ok := asInt(args[1][0]); ok {
-			n = int(v)
-		}
+	if len(args) < 2 || args[1] == nil || len(args[1]) == 0 {
+		return nil, nil
 	}
+	n64, ok := asInt(args[1][0])
+	if !ok {
+		return nil, nil
+	}
+	n := int(n64)
 	if n < 0 {
 		n = 0
 	}
