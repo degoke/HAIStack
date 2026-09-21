@@ -691,43 +691,11 @@ func schemaElementByPath(t *testing.T, data []byte, path ...string) format.Schem
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	resolved := resolveTestColumnPath(t, file.Schema(), path...)
-	leaf, ok := file.Schema().Lookup(resolved...)
-	if !ok {
-		t.Fatalf("column %v not found in %#v", resolved, file.Schema().Columns())
+	_, leaf, err := parquetfhir.ResolveInt96Column(file.Schema(), path...)
+	if err != nil {
+		t.Fatalf("ResolveInt96Column(%v): %v", path, err)
 	}
 	return leafSchemaElement(t, file.Metadata(), leaf.ColumnIndex)
-}
-
-func resolveTestColumnPath(t *testing.T, schema *parquet.Schema, path ...string) []string {
-	t.Helper()
-	if len(path) == 0 {
-		t.Fatal("column path is required")
-	}
-	if len(path) > 1 {
-		if _, ok := schema.Lookup(path...); !ok {
-			t.Fatalf("column %v not found in %#v", path, schema.Columns())
-		}
-		return path
-	}
-	name := path[0]
-	var matches [][]string
-	for _, col := range schema.Columns() {
-		if len(col) > 0 && col[len(col)-1] == name {
-			matches = append(matches, col)
-		}
-	}
-	if len(matches) == 0 {
-		t.Fatalf("column %q not found in %#v", name, schema.Columns())
-	}
-	if len(matches) > 1 {
-		listed := make([]string, len(matches))
-		for i, col := range matches {
-			listed[i] = strings.Join(col, ".")
-		}
-		t.Fatalf("column %q is ambiguous; use a full path (matches %s)", name, strings.Join(listed, ", "))
-	}
-	return matches[0]
 }
 
 func leafSchemaElement(t *testing.T, meta *format.FileMetaData, colIndex int) format.SchemaElement {
@@ -773,15 +741,19 @@ func assertMetadataTimestampMillis(t *testing.T, data []byte, path ...string) {
 	}
 }
 
-func assertParquetGoCannotReadINT96Timestamp(t *testing.T, data []byte, name string) {
+func assertParquetGoCannotReadINT96Timestamp(t *testing.T, data []byte, path ...string) {
 	t.Helper()
 	file, err := parquet.OpenFile(bytesReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	col := findLeafColumn(file.Root(), name)
+	resolved, leaf, err := parquetfhir.ResolveInt96Column(file.Schema(), path...)
+	if err != nil {
+		t.Fatalf("ResolveInt96Column(%v): %v", path, err)
+	}
+	col := columnByIndex(file.Root(), leaf.ColumnIndex)
 	if col == nil {
-		t.Fatalf("column %q not found", name)
+		t.Fatalf("column %v (index %d) not found", resolved, leaf.ColumnIndex)
 	}
 	pages := col.Pages()
 	defer func() { _ = pages.Close() }()
@@ -808,15 +780,15 @@ func assertInt96MillisRoundTrip(t *testing.T, data []byte, want time.Time, path 
 	}
 }
 
-func findLeafColumn(col *parquet.Column, name string) *parquet.Column {
+func columnByIndex(col *parquet.Column, index int) *parquet.Column {
 	if col == nil {
 		return nil
 	}
-	if col.Leaf() && col.Name() == name {
+	if col.Leaf() && col.Index() == index {
 		return col
 	}
 	for _, child := range col.Columns() {
-		if found := findLeafColumn(child, name); found != nil {
+		if found := columnByIndex(child, index); found != nil {
 			return found
 		}
 	}

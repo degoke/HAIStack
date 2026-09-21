@@ -33,14 +33,11 @@ import (
 // schema path when names collide (for example effectivePeriod.__start_start vs
 // valuePeriod.__start_start).
 func ReadInt96MillisColumn(r io.ReaderAt, size int64, path ...string) ([]*time.Time, error) {
-	if len(path) == 0 {
-		return nil, fmt.Errorf("parquetfhir: column path is required")
-	}
 	file, err := parquet.OpenFile(r, size)
 	if err != nil {
 		return nil, fmt.Errorf("parquetfhir: open INT96 file: %w", err)
 	}
-	resolved, leaf, err := resolveInt96Column(file.Schema(), path)
+	resolved, leaf, err := ResolveInt96Column(file.Schema(), path...)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +66,16 @@ func int96MillisToTime(v deprecated.Int96) time.Time {
 	return time.UnixMilli(v.Int64()).UTC()
 }
 
-func resolveInt96Column(schema *parquet.Schema, path []string) ([]string, parquet.LeafColumn, error) {
+// ResolveInt96Column maps a unique leaf name or a full schema path to a parquet
+// leaf. A single element matches one unique trailing name; collisions require
+// the full path (for example effectivePeriod.__start_start).
+func ResolveInt96Column(schema *parquet.Schema, path ...string) ([]string, parquet.LeafColumn, error) {
+	if schema == nil {
+		return nil, parquet.LeafColumn{}, fmt.Errorf("parquetfhir: schema is required")
+	}
+	if len(path) == 0 {
+		return nil, parquet.LeafColumn{}, fmt.Errorf("parquetfhir: column path is required")
+	}
 	if len(path) > 1 {
 		leaf, ok := schema.Lookup(path...)
 		if !ok {
