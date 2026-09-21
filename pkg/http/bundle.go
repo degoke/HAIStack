@@ -120,6 +120,8 @@ var platformCapabilityResourceTypes = []string{
 type capabilityFlags struct {
 	Search             bool
 	Terminology        bool
+	Translate          bool
+	Everything         bool
 	BulkExport         bool
 	SDC                bool
 	Validate           bool
@@ -139,6 +141,8 @@ func capabilityFromConfig(cfg Config) capabilityFlags {
 	return capabilityFlags{
 		Search:             cfg.SearchService != nil,
 		Terminology:        cfg.TerminologyService != nil,
+		Translate:          terminologyHasTranslate(cfg.TerminologyService),
+		Everything:         resourceServiceHasEverything(cfg.ResourceService) || cfg.OperationService != nil,
 		BulkExport:         cfg.BulkExportService != nil,
 		SDC:                cfg.SDCService != nil,
 		Validate:           cfg.ValidateService != nil,
@@ -290,10 +294,12 @@ func resourceOperations(resourceType string, flags capabilityFlags) []map[string
 	}
 	switch resourceType {
 	case "Patient":
-		operations = append(operations, map[string]string{
-			"name":       "everything",
-			"definition": "http://hl7.org/fhir/OperationDefinition/Patient-everything",
-		})
+		if flags.Everything {
+			operations = append(operations, map[string]string{
+				"name":       "everything",
+				"definition": "http://hl7.org/fhir/OperationDefinition/Patient-everything",
+			})
+		}
 		if flags.BulkExport {
 			operations = append(operations, map[string]string{
 				"name":       "export",
@@ -341,7 +347,7 @@ func resourceOperations(resourceType string, flags capabilityFlags) []map[string
 			)
 		}
 	case "ConceptMap":
-		if flags.Terminology {
+		if flags.Translate {
 			operations = append(operations, map[string]string{
 				"name":       "translate",
 				"definition": "http://hl7.org/fhir/OperationDefinition/ConceptMap-translate",

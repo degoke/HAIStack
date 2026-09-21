@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -32,18 +33,19 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 		writeError(w, err)
 		return
 	}
-	if h.cfg.CapabilitySource != nil && len(query.Types) == 0 {
-		snapshot := h.cfg.CapabilitySource.CapabilitySnapshot()
-		for _, res := range snapshot.Resources {
-			if res.ResourceType != "" {
-				query.Types = append(query.Types, res.ResourceType)
-			}
-		}
+	pageSize := query.Count
+	if pageSize <= 0 {
+		pageSize = 1000
 	}
+	query.Count = pageSize + 1
 	envelopes, err := h.everything(r.Context(), route.id, query)
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	hasMore := len(envelopes) > pageSize
+	if hasMore {
+		envelopes = envelopes[:pageSize]
 	}
 	entries := make([]search.BundleEntry, 0, len(envelopes))
 	for _, env := range envelopes {
@@ -56,17 +58,28 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 		if err := h.enforceScopeFiltersOnEnvelope(r.Context(), env.ResourceType, smart.OpRead, env); err != nil {
 			continue
 		}
+		mode := "include"
+		if env.ResourceType == "Patient" && env.ID == route.id {
+			mode = "match"
+		}
 		entries = append(entries, search.BundleEntry{
 			FullURL:  locationURL(h.cfg.BasePath, env.ResourceType, env.ID),
 			Resource: env,
-			Mode:     "match",
+			Mode:     mode,
 		})
 	}
 	total := len(entries)
+	links := map[string]string{
+		"self": everythingPageURL(h.cfg.BasePath, route.id, r.URL.Query(), query.Offset, pageSize),
+	}
+	if hasMore {
+		links["next"] = everythingPageURL(h.cfg.BasePath, route.id, r.URL.Query(), query.Offset+pageSize, pageSize)
+	}
 	data, err := marshalSearchBundle(&search.SearchBundle{
 		ResourceType: "Bundle",
 		Total:        &total,
 		Entries:      entries,
+		Links:        links,
 	})
 	if err != nil {
 		writeError(w, invalidRequest("build $everything bundle", err))
@@ -75,7 +88,36 @@ func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route
 	writeResource(w, http.StatusOK, data, nil)
 }
 
+func everythingPageURL(basePath, patientID string, params url.Values, offset, count int) string {
+	query := url.Values{}
+	for key, values := range params {
+		if key == "_offset" || key == "_count" {
+			continue
+		}
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	if offset > 0 {
+		query.Set("_offset", strconv.Itoa(offset))
+	}
+	query.Set("_count", strconv.Itoa(count))
+	path := strings.TrimSuffix(basePath, "/") + "/Patient/" + patientID + "/$everything"
+	encoded := query.Encode()
+	if encoded == "" {
+		return path
+	}
+	return path + "?" + encoded
+}
+
 func (h *handler) everything(ctx context.Context, patientID string, q core.EverythingQuery) ([]*types.ResourceEnvelope, error) {
+	hasEverything := resourceServiceHasEverything(h.cfg.ResourceService)
+	// Prefer compartment search when both search and Everything are wired so
+	// production does not list every ID of every type. Tests that inject a
+	// fake SearchService plus OperationService keep the operation fallback.
+	if h.cfg.SearchService != nil && hasEverything {
+		return h.everythingBySearch(ctx, patientID, q)
+	}
 	if svc, ok := h.cfg.ResourceService.(interface {
 		Everything(context.Context, string, core.EverythingQuery) ([]*types.ResourceEnvelope, error)
 	}); ok {
@@ -92,7 +134,193 @@ func (h *handler) everything(ctx context.Context, patientID string, q core.Every
 		}
 		return envelopesFromEverythingBundle(result)
 	}
+	if h.cfg.SearchService != nil {
+		return h.everythingBySearch(ctx, patientID, q)
+	}
 	return nil, notImplementedEndpoint("Patient/$everything")
+}
+
+func (h *handler) everythingBySearch(ctx context.Context, patientID string, q core.EverythingQuery) ([]*types.ResourceEnvelope, error) {
+	patient, err := h.cfg.ResourceService.Read(ctx, "Patient", patientID)
+	if err != nil {
+		return nil, err
+	}
+	typesToScan := q.Types
+	if len(typesToScan) == 0 {
+		typesToScan = core.DefaultEverythingTypes
+	}
+	limit := q.Count
+	if limit <= 0 {
+		limit = 1001
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	out := make([]*types.ResourceEnvelope, 0, 8)
+	appendEnv := func(env *types.ResourceEnvelope) bool {
+		if env == nil {
+			return true
+		}
+		if !resourceMatchesEverythingHTTP(env, patientID, q) {
+			return true
+		}
+		out = append(out, env)
+		return len(out) < offset+limit
+	}
+	if !appendEnv(patient) {
+		return paginateEverythingHTTP(out, offset, limit), nil
+	}
+	for _, resourceType := range typesToScan {
+		if resourceType == "" || resourceType == "Patient" {
+			continue
+		}
+		param := core.PatientCompartmentSearchParam(resourceType)
+		if param == "" {
+			continue
+		}
+		params := url.Values{}
+		params.Set(param, "Patient/"+patientID)
+		params.Set("_count", "1000")
+		if !q.Since.IsZero() {
+			params.Set("_lastUpdated", "ge"+q.Since.UTC().Format(time.RFC3339Nano))
+		}
+		bundle, err := h.cfg.SearchService.SearchBundle(ctx, resourceType, params)
+		if err != nil {
+			return nil, err
+		}
+		if bundle == nil {
+			continue
+		}
+		for _, entry := range bundle.Entries {
+			if entry.Resource == nil || entry.Mode == "include" {
+				continue
+			}
+			if !appendEnv(entry.Resource) {
+				return paginateEverythingHTTP(out, offset, limit), nil
+			}
+		}
+	}
+	return paginateEverythingHTTP(out, offset, limit), nil
+}
+
+func resourceMatchesEverythingHTTP(env *types.ResourceEnvelope, patientID string, q core.EverythingQuery) bool {
+	if env == nil {
+		return false
+	}
+	if env.ResourceType == "Patient" {
+		return env.ID == patientID && everythingSinceOK(env, q) && everythingCareDateOK(env, q)
+	}
+	return everythingSinceOK(env, q) && everythingCareDateOK(env, q)
+}
+
+func everythingSinceOK(env *types.ResourceEnvelope, q core.EverythingQuery) bool {
+	if q.Since.IsZero() || env.LastUpdated.IsZero() {
+		return true
+	}
+	return !env.LastUpdated.Before(q.Since)
+}
+
+func everythingCareDateOK(env *types.ResourceEnvelope, q core.EverythingQuery) bool {
+	if q.Start.IsZero() && q.End.IsZero() {
+		return true
+	}
+	dates := extractCareDates(env)
+	if len(dates) == 0 {
+		return true
+	}
+	for _, ts := range dates {
+		if !q.Start.IsZero() && ts.Before(q.Start) {
+			continue
+		}
+		if !q.End.IsZero() && ts.After(q.End) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func extractCareDates(env *types.ResourceEnvelope) []time.Time {
+	if env == nil || len(env.JSON) == 0 {
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(env.JSON, &obj); err != nil {
+		return nil
+	}
+	var out []time.Time
+	collectHTTPCareDates(obj, &out)
+	return out
+}
+
+func collectHTTPCareDates(value any, out *[]time.Time) {
+	switch node := value.(type) {
+	case map[string]any:
+		for key, child := range node {
+			switch key {
+			case "effectiveDateTime", "issued", "date", "authoredOn", "recordedDate",
+				"occurrenceDateTime", "onsetDateTime", "performedDateTime", "created":
+				if ts, ok := parseHTTPCareDate(child); ok {
+					*out = append(*out, ts)
+				}
+			case "effectivePeriod", "period", "onsetPeriod", "performedPeriod", "occurrencePeriod", "billablePeriod":
+				collectHTTPPeriodDates(child, out)
+			case "meta", "text", "extension", "contained":
+				continue
+			default:
+				collectHTTPCareDates(child, out)
+			}
+		}
+	case []any:
+		for _, child := range node {
+			collectHTTPCareDates(child, out)
+		}
+	}
+}
+
+func collectHTTPPeriodDates(value any, out *[]time.Time) {
+	switch node := value.(type) {
+	case map[string]any:
+		if ts, ok := parseHTTPCareDate(node["start"]); ok {
+			*out = append(*out, ts)
+		}
+		if ts, ok := parseHTTPCareDate(node["end"]); ok {
+			*out = append(*out, ts)
+		}
+	case []any:
+		for _, child := range node {
+			collectHTTPPeriodDates(child, out)
+		}
+	}
+}
+
+func parseHTTPCareDate(value any) (time.Time, bool) {
+	s, ok := value.(string)
+	if !ok {
+		return time.Time{}, false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
+		if ts, err := time.Parse(layout, s); err == nil {
+			return ts.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func paginateEverythingHTTP(envs []*types.ResourceEnvelope, offset, limit int) []*types.ResourceEnvelope {
+	if offset >= len(envs) {
+		return nil
+	}
+	envs = envs[offset:]
+	if limit > 0 && len(envs) > limit {
+		return envs[:limit]
+	}
+	return envs
 }
 
 func parseEverythingQuery(r *http.Request) (core.EverythingQuery, error) {
@@ -107,6 +335,20 @@ func parseEverythingQuery(r *http.Request) (core.EverythingQuery, error) {
 		}
 		out.Since = ts
 	}
+	if raw := strings.TrimSpace(q.Get("start")); raw != "" {
+		ts, err := parseEverythingDate(raw)
+		if err != nil {
+			return out, invalidRequest("invalid start parameter", err)
+		}
+		out.Start = ts
+	}
+	if raw := strings.TrimSpace(q.Get("end")); raw != "" {
+		ts, err := parseEverythingDate(raw)
+		if err != nil {
+			return out, invalidRequest("invalid end parameter", err)
+		}
+		out.End = ts
+	}
 	if raw := strings.TrimSpace(q.Get("_count")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
@@ -114,12 +356,25 @@ func parseEverythingQuery(r *http.Request) (core.EverythingQuery, error) {
 		}
 		out.Count = n
 	}
-	if out.Since.IsZero() && q.Get("start") != "" {
-		if ts, err := time.Parse("2006-01-02", q.Get("start")); err == nil {
-			out.Since = ts.UTC()
+	if raw := strings.TrimSpace(q.Get("_offset")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return out, invalidRequest("invalid _offset parameter", err)
 		}
+		out.Offset = n
 	}
 	return out, nil
+}
+
+func parseEverythingDate(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if ts, err := parseFHIRInstant(raw); err == nil {
+		return ts, nil
+	}
+	if ts, err := time.Parse("2006-01-02", raw); err == nil {
+		return ts.UTC(), nil
+	}
+	return time.Time{}, invalidRequest("invalid date "+raw, nil)
 }
 
 func envelopesFromEverythingBundle(bundle *types.ResourceEnvelope) ([]*types.ResourceEnvelope, error) {
@@ -153,4 +408,14 @@ func envelopesFromEverythingBundle(bundle *types.ResourceEnvelope) ([]*types.Res
 		out = append(out, &types.ResourceEnvelope{ResourceType: rt, ID: id, JSON: data})
 	}
 	return out, nil
+}
+
+func resourceServiceHasEverything(svc ResourceService) bool {
+	if svc == nil {
+		return false
+	}
+	_, ok := svc.(interface {
+		Everything(context.Context, string, core.EverythingQuery) ([]*types.ResourceEnvelope, error)
+	})
+	return ok
 }

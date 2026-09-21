@@ -3,6 +3,7 @@ package terminology
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Chain resolves terminology providers in precedence order. A provider that
@@ -63,4 +64,34 @@ func (c Chain) ValidateCode(ctx context.Context, r ValidateCodeRequest) (*Valida
 		return nil, last
 	}
 	return &ValidationResult{Status: UnknownTerminology, Message: "terminology is not known"}, nil
+}
+
+// Translate walks providers that implement ConceptMap/$translate.
+func (c Chain) Translate(ctx context.Context, r ConceptMapTranslateRequest) ([]Coding, error) {
+	var last error
+	anyTranslator := false
+	for _, p := range c.Providers {
+		translator, ok := p.(interface {
+			Translate(context.Context, ConceptMapTranslateRequest) ([]Coding, error)
+		})
+		if !ok {
+			continue
+		}
+		anyTranslator = true
+		v, e := translator.Translate(ctx, r)
+		if e != nil {
+			last = e
+			continue
+		}
+		if len(v) > 0 {
+			return v, nil
+		}
+	}
+	if last != nil {
+		return nil, last
+	}
+	if !anyTranslator {
+		return nil, fmt.Errorf("ConceptMap/$translate is not implemented")
+	}
+	return nil, last
 }

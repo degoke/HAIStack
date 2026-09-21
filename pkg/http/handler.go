@@ -518,7 +518,7 @@ func (h *handler) handlePatch(w http.ResponseWriter, r *http.Request, resourceTy
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
 	switch contentType {
 	case "application/json-patch+json":
-	case "application/fhir+json", "application/json", "application/fhir+xml", "application/xml":
+	case "application/fhir+json", "application/json":
 	default:
 		writeError(w, invalidRequest("PATCH requires Content-Type application/json-patch+json or application/fhir+json", nil))
 		return

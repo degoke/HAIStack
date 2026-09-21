@@ -120,19 +120,7 @@ func applyFHIRPatchOp(doc any, resourceType string, op fhirPatchOp) (any, error)
 		if op.From == "" || op.Dest == "" {
 			return nil, fmt.Errorf("move requires source and destination")
 		}
-		src, err := fhirPathGet(doc, resourceType, op.From)
-		if err != nil {
-			return nil, err
-		}
-		cloned, err := cloneJSONValue(src)
-		if err != nil {
-			return nil, err
-		}
-		doc, err = fhirPathDelete(doc, resourceType, op.From)
-		if err != nil {
-			return nil, err
-		}
-		return fhirPathReplace(doc, resourceType, op.Dest, cloned)
+		return fhirPathMove(doc, resourceType, op.From, op.Dest)
 	default:
 		return nil, fmt.Errorf("unsupported FHIR Patch type %q", op.Type)
 	}
@@ -160,12 +148,87 @@ func fhirPathAdd(doc any, resourceType, path, name string, value any) (any, erro
 	}
 	switch node := parent.(type) {
 	case map[string]any:
-		node[name] = value
-		return doc, nil
+		existing, ok := node[name]
+		if !ok {
+			if _, isMap := value.(map[string]any); isMap {
+				node[name] = []any{value}
+			} else {
+				node[name] = value
+			}
+			return doc, nil
+		}
+		switch arr := existing.(type) {
+		case []any:
+			node[name] = append(arr, value)
+			return doc, nil
+		default:
+			// Non-repeating element: replace-if-present.
+			node[name] = value
+			return doc, nil
+		}
 	case []any:
 		return nil, fmt.Errorf("add name %q targets an array; use insert", name)
 	default:
 		return nil, fmt.Errorf("add path does not resolve to an object")
+	}
+}
+
+func fhirPathMove(doc any, resourceType, from, dest string) (any, error) {
+	src, err := fhirPathGet(doc, resourceType, from)
+	if err != nil {
+		return nil, err
+	}
+	cloned, err := cloneJSONValue(src)
+	if err != nil {
+		return nil, err
+	}
+	doc, err = fhirPathDelete(doc, resourceType, from)
+	if err != nil {
+		return nil, err
+	}
+	destSegs, err := parseFHIRPatchPath(dest, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	if len(destSegs) == 0 {
+		return cloned, nil
+	}
+	parentSegs := destSegs[:len(destSegs)-1]
+	last := destSegs[len(destSegs)-1]
+	parent, err := getJSONSegments(doc, parentSegs, false)
+	if err != nil {
+		return nil, err
+	}
+	switch node := parent.(type) {
+	case map[string]any:
+		existing, ok := node[last.Name]
+		if last.Index != nil {
+			arr, isArr := existing.([]any)
+			if !isArr {
+				return nil, fmt.Errorf("move destination %s is not an array", last.Name)
+			}
+			idx := *last.Index
+			if idx < 0 || idx > len(arr) {
+				return nil, fmt.Errorf("move destination index %d is out of range", idx)
+			}
+			arr = append(arr, nil)
+			copy(arr[idx+1:], arr[idx:])
+			arr[idx] = cloned
+			node[last.Name] = arr
+			return doc, nil
+		}
+		if ok {
+			if arr, isArr := existing.([]any); isArr {
+				node[last.Name] = append(arr, cloned)
+				return doc, nil
+			}
+		}
+		node[last.Name] = cloned
+		return doc, nil
+	case []any:
+		return fhirPathInsert(doc, resourceType, dest, len(node), cloned)
+	default:
+		return fhirPathReplace(doc, resourceType, dest, cloned)
 	}
 }
 

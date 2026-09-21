@@ -125,6 +125,136 @@ func TestEverythingIncludesPatientCompartment(t *testing.T) {
 	}
 }
 
+func TestEverythingIgnoresNestedNonCompartmentReferences(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-2", "Other")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := harness.svc.Create(ctx, observationEnvelope("obs-1", "pat-1")); err != nil {
+		t.Fatal(err)
+	}
+	focus := map[string]any{
+		"resourceType": "Observation",
+		"id":           "obs-focus",
+		"status":       "final",
+		"code":         map[string]any{"text": "demo"},
+		"subject":      map[string]any{"reference": "Patient/pat-2"},
+		"focus":        []any{map[string]any{"reference": "Patient/pat-1"}},
+	}
+	data, _ := json.Marshal(focus)
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: data}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := harness.svc.Everything(ctx, "pat-1", core.EverythingQuery{Types: []string{"Patient", "Observation"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range got {
+		if env.ID == "obs-focus" {
+			t.Fatalf("nested focus reference must not pull Observation/obs-focus into Patient/pat-1 $everything")
+		}
+	}
+}
+
+func TestEverythingStartFiltersCareDatesNotLastUpdated(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+	if _, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe")); err != nil {
+		t.Fatal(err)
+	}
+	oldObs := map[string]any{
+		"resourceType":      "Observation",
+		"id":                "obs-old",
+		"status":            "final",
+		"code":              map[string]any{"text": "demo"},
+		"subject":           map[string]any{"reference": "Patient/pat-1"},
+		"effectiveDateTime": "2020-01-01T00:00:00Z",
+	}
+	newObs := map[string]any{
+		"resourceType":      "Observation",
+		"id":                "obs-new",
+		"status":            "final",
+		"code":              map[string]any{"text": "demo"},
+		"subject":           map[string]any{"reference": "Patient/pat-1"},
+		"effectiveDateTime": "2024-06-01T00:00:00Z",
+	}
+	oldData, _ := json.Marshal(oldObs)
+	newData, _ := json.Marshal(newObs)
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: oldData}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := harness.svc.Create(ctx, &types.ResourceEnvelope{ResourceType: "Observation", JSON: newData}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := harness.svc.Everything(ctx, "pat-1", core.EverythingQuery{
+		Types: []string{"Patient", "Observation"},
+		Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, env := range got {
+		ids[env.ID] = true
+	}
+	if !ids["obs-new"] {
+		t.Fatalf("expected obs-new in care-date window, got %v", ids)
+	}
+	if ids["obs-old"] {
+		t.Fatalf("obs-old is outside start care-date window: %v", ids)
+	}
+}
+
+func TestFHIRPatchAddAppendsRepeatingElements(t *testing.T) {
+	harness := newTestHarness(t, harnessOptions{})
+	ctx := context.Background()
+	created, err := harness.svc.Create(ctx, patientEnvelope("pat-1", "Doe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := created.StringField("identifier"); ok {
+		t.Fatal("fixture should start without identifier")
+	}
+	addFirst := []byte(`{
+		"resourceType":"Parameters",
+		"parameter":[{"name":"operation","part":[
+			{"name":"type","valueCode":"add"},
+			{"name":"path","valueString":"Patient"},
+			{"name":"name","valueString":"identifier"},
+			{"name":"value","valueIdentifier":{"system":"http://example.org/mrn","value":"1"}}
+		]}]
+	}`)
+	patched, err := harness.svc.Patch(ctx, "Patient", "pat-1", addFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addSecond := []byte(`{
+		"resourceType":"Parameters",
+		"parameter":[{"name":"operation","part":[
+			{"name":"type","valueCode":"add"},
+			{"name":"path","valueString":"Patient"},
+			{"name":"name","valueString":"identifier"},
+			{"name":"value","valueIdentifier":{"system":"http://example.org/mrn","value":"2"}}
+		]}]
+	}`)
+	patched, err = harness.svc.Patch(ctx, "Patient", "pat-1", addSecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(patched.JSON, &obj); err != nil {
+		t.Fatal(err)
+	}
+	ident, ok := obj["identifier"].([]any)
+	if !ok || len(ident) != 2 {
+		t.Fatalf("identifier = %#v, want 2 entries", obj["identifier"])
+	}
+}
+
 func TestFHIRPatchReplaceAndDelete(t *testing.T) {
 	harness := newTestHarness(t, harnessOptions{})
 	ctx := context.Background()

@@ -520,5 +520,15 @@ func atoiDefault(raw string, fallback int) int {
 	return v
 }
 
+func terminologyHasTranslate(svc TerminologyService) bool {
+	if svc == nil {
+		return false
+	}
+	_, ok := svc.(interface {
+		Translate(context.Context, terminology.ConceptMapTranslateRequest) ([]terminology.Coding, error)
+	})
+	return ok
+}
+
 // TerminologyService is the terminology provider surface exposed over HTTP.
 type TerminologyService = terminology.Service

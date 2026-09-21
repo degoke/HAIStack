@@ -142,11 +142,74 @@ func TestMetadataOmitsUnimplementedPackageAndAdvertisesVRead(t *testing.T) {
 	if !strings.Contains(body, `"vread"`) {
 		t.Fatal("metadata missing vread")
 	}
-	if !strings.Contains(body, `"everything"`) {
-		t.Fatal("metadata missing $everything")
+	if strings.Contains(body, `"everything"`) {
+		t.Fatal("metadata must not advertise $everything without an Everything implementation")
 	}
 	if strings.Contains(body, `"lookup"`) {
 		t.Fatal("metadata must not advertise terminology ops without a terminology service")
+	}
+	if strings.Contains(body, `"translate"`) {
+		t.Fatal("metadata must not advertise $translate without a Translate implementation")
+	}
+}
+
+func TestMetadataAdvertisesEverythingWhenImplemented(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: hahttp.CoreResourceService{Svc: mustCoreSQLiteService(t)},
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources:   []registry.ResourceCapability{{ResourceType: "Patient"}},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"everything"`) {
+		t.Fatal("metadata missing $everything")
+	}
+}
+
+func TestMetadataAdvertisesTranslateForChain(t *testing.T) {
+	ctx := context.Background()
+	mem := terminology.NewMemoryStore()
+	raw := []byte(`{"resourceType":"ConceptMap","url":"http://example.org/maps/gender","group":[{"element":[{"code":"F","target":[{"code":"female","equivalence":"equivalent"}]}]}]}`)
+	if err := mem.PutResource(ctx, store.TerminologyResourceRecord{
+		ScopeID: "default", ResourceType: "ConceptMap", ResourceID: "map-1",
+		CanonicalURL: "http://example.org/maps/gender", ResourceJSON: raw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	chain := terminology.Chain{Providers: []terminology.Provider{terminology.NewLocalService(mem, "default")}}
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService:    &fakeResourceService{},
+		TerminologyService: chain,
+		CapabilitySource: fakeCapabilitySource{snapshot: registry.CapabilitySnapshot{
+			FHIRVersion: "4.0.1",
+			Resources:   []registry.ResourceCapability{{ResourceType: "ConceptMap"}},
+		}},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/metadata", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"translate"`) {
+		t.Fatal("metadata missing $translate for Chain")
+	}
+	rec = doRequest(t, handler, http.MethodGet, "/fhir/ConceptMap/$translate?url=http://example.org/maps/gender&code=F", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("translate via Chain status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFHIRPatchRejectsXMLContentType(t *testing.T) {
+	handler := newTestHandler(t, hahttp.Config{ResourceService: &fakeResourceService{}})
+	req := httptest.NewRequest(http.MethodPatch, "/fhir/Patient/pat-1", strings.NewReader("<Parameters/>"))
+	req.Header.Set("Content-Type", "application/fhir+xml")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
