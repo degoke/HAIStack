@@ -189,6 +189,18 @@ func TestProviderApplicationXCQL(t *testing.T) {
 	}
 }
 
+func TestProviderDoesNotTreatResponseAsPatient(t *testing.T) {
+	eng := testEngine(t)
+	provider := NewProvider(eng, nil)
+	_, err := provider.EvaluateCQL(context.Background(), "Patient.gender", sdc.QuestionnaireResponse{
+		ResourceType: "QuestionnaireResponse",
+		Status:       "in-progress",
+	})
+	if !errors.Is(err, ErrMissingContext) {
+		t.Fatalf("expected missing Patient context, got %v", err)
+	}
+}
+
 func sdcFind(items []sdc.ResponseItem, id string) *sdc.ResponseItem {
 	for i := range items {
 		if items[i].LinkID == id {

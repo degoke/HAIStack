@@ -169,6 +169,9 @@ func parseCQFLibrary(ext Extension) (CQFLibraryRef, bool) {
 }
 
 func cqfLibraryExtension(v CQFLibraryRef) Extension {
+	if strings.TrimSpace(v.Name) == "" {
+		return Extension{URL: CQFLibraryExtension, Value: v.LibraryCanonical, valueType: "Canonical"}
+	}
 	return Extension{URL: SDCCQFLibraryExt, Extension: []Extension{
 		{URL: "library", Value: v.LibraryCanonical, valueType: "Canonical"},
 		{URL: "name", Value: v.Name, valueType: "Code"},

@@ -100,11 +100,11 @@ func resourceMatchesPatient(env *types.ResourceEnvelope, wantRef string) bool {
 		subj, _ = obj["patient"].(map[string]any)
 	}
 	if subj == nil {
-		return true
+		return false
 	}
 	ref, _ := subj["reference"].(string)
 	if ref == "" {
-		return true
+		return false
 	}
 	return strings.EqualFold(ref, wantRef) || strings.HasSuffix(ref, "/"+strings.TrimPrefix(wantRef, "Patient/"))
 }

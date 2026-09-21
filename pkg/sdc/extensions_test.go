@@ -226,4 +226,14 @@ func TestCQFLibraryCanonicalIsParsed(t *testing.T) {
 	if len(q.CQFLibraries) != 1 || q.CQFLibraries[0].LibraryCanonical != "http://example.org/Library/Demo" {
 		t.Fatalf("cqf-library: %#v", q.CQFLibraries)
 	}
+	b, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"url":"http://hl7.org/fhir/StructureDefinition/cqf-library"`) {
+		t.Fatalf("official cqf-library URL was rewritten: %s", b)
+	}
+	if !strings.Contains(string(b), `"valueCanonical":"http://example.org/Library/Demo"`) {
+		t.Fatalf("valueCanonical missing: %s", b)
+	}
 }

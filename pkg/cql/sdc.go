@@ -152,6 +152,13 @@ func evalContextFromInput(input any) (EvalContext, error) {
 			return EvalContext{}, nil
 		}
 		return fromSDCEnv(*x), nil
+	case sdc.QuestionnaireResponse:
+		return evalContextFromResponse(x), nil
+	case *sdc.QuestionnaireResponse:
+		if x == nil {
+			return EvalContext{}, nil
+		}
+		return evalContextFromResponse(*x), nil
 	case *types.ResourceEnvelope:
 		return EvalContext{Patient: x}, nil
 	case types.ResourceEnvelope:
@@ -216,6 +223,18 @@ func fromSDCEnv(env sdc.ExpressionEnvironment) EvalContext {
 				out.Contained = append(out.Contained, c)
 			}
 		}
+	}
+	return out
+}
+
+func evalContextFromResponse(r sdc.QuestionnaireResponse) EvalContext {
+	out := EvalContext{Parameters: map[string]any{}}
+	if r.Subject == nil {
+		return out
+	}
+	out.Parameters["subject"] = r.Subject
+	if rt, _ := r.Subject["resourceType"].(string); rt != "" {
+		out.Patient = r.Subject
 	}
 	return out
 }

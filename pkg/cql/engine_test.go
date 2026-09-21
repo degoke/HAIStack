@@ -179,6 +179,30 @@ func TestEvalRetrieve(t *testing.T) {
 	}
 }
 
+func TestResourceMatchesPatientRequiresSubject(t *testing.T) {
+	unscoped, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"x","status":"final"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resourceMatchesPatient(unscoped, "Patient/ada") {
+		t.Fatal("observation without subject must not match a patient retrieve")
+	}
+	other, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"y","subject":{"reference":"Patient/other"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resourceMatchesPatient(other, "Patient/ada") {
+		t.Fatal("observation for another patient must not match")
+	}
+	mine, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{"resourceType":"Observation","id":"z","subject":{"reference":"Patient/ada"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resourceMatchesPatient(mine, "Patient/ada") {
+		t.Fatal("expected matching observation")
+	}
+}
+
 func TestParseLibraryResource(t *testing.T) {
 	src := "library Demo version '1.0.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": true\n"
 	env, err := types.NewJSONCodec().ParseJSON("Library", []byte(`{
