@@ -1,6 +1,7 @@
 package cql
 
 import (
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -611,4 +612,204 @@ func stringMatches(args [][]any, full bool) ([]any, error) {
 		return nil, nil
 	}
 	return []any{re.MatchString(s)}, nil
+}
+
+func stringPositionOf(args [][]any, last bool) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	pat, pok := unwrapPrimitive(args[0][0]).(string)
+	s, sok := unwrapPrimitive(args[1][0]).(string)
+	if !pok || !sok {
+		return nil, nil
+	}
+	idx := strings.Index(s, pat)
+	if last {
+		idx = strings.LastIndex(s, pat)
+	}
+	return []any{int64(idx)}, nil
+}
+
+func stringReplaceMatches(args [][]any) ([]any, error) {
+	if len(args) < 3 || len(args[0]) == 0 || len(args[1]) == 0 || len(args[2]) == 0 {
+		return nil, nil
+	}
+	s, sok := unwrapPrimitive(args[0][0]).(string)
+	pat, pok := unwrapPrimitive(args[1][0]).(string)
+	sub, subok := unwrapPrimitive(args[2][0]).(string)
+	if !sok || !pok || !subok {
+		return nil, nil
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return nil, nil
+	}
+	return []any{re.ReplaceAllString(s, sub)}, nil
+}
+
+func stringSplitOnMatches(args [][]any) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	s, sok := unwrapPrimitive(args[0][0]).(string)
+	pat, pok := unwrapPrimitive(args[1][0]).(string)
+	if !sok || !pok {
+		return nil, nil
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return nil, nil
+	}
+	parts := re.Split(s, -1)
+	out := make([]any, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func evalMath(name string, args [][]any) ([]any, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
+		return nil, nil
+	}
+	item := args[0][0]
+	if q, ok := asQuantity(item); ok {
+		switch name {
+		case "abs":
+			if q.Value < 0 {
+				q.Value = -q.Value
+			}
+			return []any{q}, nil
+		case "floor":
+			q.Value = math.Floor(q.Value)
+			return []any{q}, nil
+		case "ceiling":
+			q.Value = math.Ceil(q.Value)
+			return []any{q}, nil
+		case "truncate":
+			q.Value = math.Trunc(q.Value)
+			return []any{q}, nil
+		case "round":
+			prec := 0
+			if len(args) > 1 && len(args[1]) > 0 {
+				if n, ok := asInt(args[1][0]); ok {
+					prec = int(n)
+				}
+			}
+			q.Value = roundTo(q.Value, prec)
+			return []any{q}, nil
+		}
+	}
+	f, ok := asFloat(item)
+	if !ok {
+		return nil, nil
+	}
+	switch name {
+	case "abs":
+		return []any{math.Abs(f)}, nil
+	case "floor":
+		return []any{math.Floor(f)}, nil
+	case "ceiling":
+		return []any{math.Ceil(f)}, nil
+	case "truncate":
+		return []any{math.Trunc(f)}, nil
+	case "round":
+		prec := 0
+		if len(args) > 1 && len(args[1]) > 0 {
+			if n, ok := asInt(args[1][0]); ok {
+				prec = int(n)
+			}
+		}
+		out := roundTo(f, prec)
+		if prec == 0 {
+			return []any{int64(out)}, nil
+		}
+		return []any{out}, nil
+	}
+	return nil, nil
+}
+
+func roundTo(f float64, prec int) float64 {
+	if prec <= 0 {
+		return math.Round(f)
+	}
+	pow := math.Pow(10, float64(prec))
+	return math.Round(f*pow) / pow
+}
+
+func convertQuantityArgs(args [][]any) ([]any, error) {
+	if len(args) < 2 || len(args[0]) == 0 || len(args[1]) == 0 {
+		return nil, nil
+	}
+	q, ok := asQuantity(args[0][0])
+	if !ok {
+		return nil, nil
+	}
+	unit, ok := quantityUnitArg(args[1][0])
+	if !ok {
+		return nil, nil
+	}
+	out, ok := convertQuantityValue(q, unit)
+	if !ok {
+		return nil, nil
+	}
+	return []any{out}, nil
+}
+
+func quantityUnitArg(v any) (string, bool) {
+	if s, ok := unwrapPrimitive(v).(string); ok && strings.TrimSpace(s) != "" {
+		return s, true
+	}
+	if q, ok := asQuantity(v); ok && q.Unit != "" {
+		return q.Unit, true
+	}
+	return "", false
+}
+
+func convertQuantityValue(q Quantity, unit string) (Quantity, bool) {
+	if sameUnit(q.Unit, unit) {
+		return Quantity{Value: q.Value, Unit: unit}, true
+	}
+	if isTimeUnit(q.Unit) && isTimeUnit(unit) {
+		sec := toSeconds(q)
+		den := toSeconds(Quantity{Value: 1, Unit: unit})
+		if den == 0 {
+			return Quantity{}, false
+		}
+		return Quantity{Value: sec / den, Unit: unit}, true
+	}
+	from, fok := quantitySIFactor(q.Unit)
+	to, tok := quantitySIFactor(unit)
+	if !fok || !tok || to == 0 {
+		return Quantity{}, false
+	}
+	return Quantity{Value: q.Value * from / to, Unit: unit}, true
+}
+
+func quantitySIFactor(unit string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "g", "gm", "gram", "grams":
+		return 1, true
+	case "mg":
+		return 0.001, true
+	case "kg":
+		return 1000, true
+	case "mcg", "ug":
+		return 1e-6, true
+	case "m", "meter", "meters":
+		return 1, true
+	case "cm":
+		return 0.01, true
+	case "mm":
+		return 0.001, true
+	case "km":
+		return 1000, true
+	case "l", "liter", "liters":
+		return 1, true
+	case "ml":
+		return 0.001, true
+	case "dl":
+		return 0.1, true
+	}
+	return 0, false
 }

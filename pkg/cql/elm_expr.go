@@ -90,7 +90,7 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 			return parseELMExpr(codes[0])
 		}
 		return &litNode{}, nil
-	case "IdentifierRef", "ExpressionRef", "ParameterRef", "OperandRef", "AliasRef", "ValueSetRef", "CodeRef", "CodeSystemRef", "ConceptRef":
+	case "IdentifierRef", "ExpressionRef", "ParameterRef", "OperandRef", "AliasRef", "QueryLetRef", "ValueSetRef", "CodeRef", "CodeSystemRef", "ConceptRef":
 		return parseELMRef(obj)
 	case "Property":
 		return parseELMProperty(obj)
@@ -227,7 +227,38 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 		return &durationNode{unit: strings.ToLower(elmString(obj["precision"])), left: ops[0], right: ops[1], difference: typ == "DifferenceBetween"}, nil
 	case "CalculateAge", "CalculateAgeAt":
 		return parseELMAge(obj, typ)
-	case "InValueSet":
+	case "DateFrom":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "date from", x: x}, nil
+	case "TimeFrom":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "time from", x: x}, nil
+	case "TimezoneFrom", "TimezoneOffsetFrom":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{op: "timezoneoffset from", x: x}, nil
+	case "DateTimeComponentFrom":
+		x, err := firstELMOperand(obj)
+		if err != nil {
+			return nil, err
+		}
+		prec := strings.ToLower(firstNonEmpty(elmString(obj["precision"]), "year"))
+		if u := timeUnitName(prec); u != "" {
+			prec = u
+		}
+		if prec == "timezone" {
+			prec = "timezoneoffset"
+		}
+		return &unaryNode{op: prec + " from", x: x}, nil
+	case "InValueSet", "AnyInValueSet", "AllInValueSet":
 		return parseELMInValueSet(obj)
 	case "InCodeSystem":
 		ops, err := parseELMOperands(obj)
@@ -261,22 +292,41 @@ func parseELMExpr(obj map[string]any) (Node, error) {
 }
 
 func parseELMInValueSet(obj map[string]any) (Node, error) {
-	code, err := parseELMNamedOrOperand(obj, "code")
+	code, err := parseELMOptional(obj, "code")
 	if err != nil {
 		return nil, err
+	}
+	if code == nil {
+		code, err = parseELMOptional(obj, "codes")
+		if err != nil {
+			return nil, err
+		}
+	}
+	op := "in"
+	if strings.EqualFold(elmType(obj), "AllInValueSet") {
+		op = "all in"
 	}
 	if ref, ok := asObject(obj["valueset"]); ok {
 		vs, err := parseELMExpr(ref)
 		if err != nil {
 			return nil, err
 		}
-		return &binaryNode{op: "in", left: code, right: vs}, nil
+		if code == nil {
+			code, err = parseELMNamedOrOperand(obj, "code")
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &binaryNode{op: op, left: code, right: vs}, nil
 	}
 	ops, err := parseELMOperands(obj)
 	if err != nil || len(ops) < 2 {
 		return nil, errf("%w: ELM InValueSet requires a valueset", ErrUnsupported)
 	}
-	return &binaryNode{op: "in", left: ops[0], right: ops[1]}, nil
+	if code == nil {
+		code = ops[0]
+	}
+	return &binaryNode{op: op, left: code, right: ops[len(ops)-1]}, nil
 }
 
 func parseELMLiteral(obj map[string]any) (Node, error) {
@@ -793,12 +843,84 @@ func parseELMCallFallback(obj map[string]any, typ string) (Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	if keys := elmCallNamedKeys(typ); len(keys) > 0 {
+		named, err := parseELMNamedArgs(obj, keys)
+		if err != nil {
+			return nil, err
+		}
+		if len(named) > len(args) {
+			args = named
+		}
+	}
 	if len(args) == 0 {
 		if src, err := parseELMChild(obj, "source"); err == nil {
 			args = []Node{src}
 		}
 	}
+	if strings.EqualFold(typ, "Now") || strings.EqualFold(typ, "Today") || strings.EqualFold(typ, "TimeOfDay") {
+		if _, ok := obj["timezoneOffset"]; ok {
+			off, err := parseELMTemporalField(obj["timezoneOffset"])
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, off)
+		}
+	}
 	return &callNode{callee: &identNode{name: typ}, args: args}, nil
+}
+
+func elmCallNamedKeys(typ string) []string {
+	switch strings.ToLower(typ) {
+	case "split":
+		return []string{"stringToSplit", "separator"}
+	case "splitonmatches":
+		return []string{"stringToSplit", "separatorPattern", "separator"}
+	case "combine":
+		return []string{"source", "separator"}
+	case "substring":
+		return []string{"stringToSub", "startIndex", "length"}
+	case "indexof", "take":
+		return []string{"source", "element"}
+	case "skip":
+		return []string{"source", "startIndex"}
+	case "positionof", "lastpositionof":
+		return []string{"pattern", "string"}
+	case "replace", "replacematches":
+		return []string{"operand", "string", "pattern", "substitution"}
+	case "round":
+		return []string{"operand", "precision"}
+	case "collapse", "expand":
+		return []string{"operand", "per"}
+	}
+	return nil
+}
+
+func parseELMNamedArgs(obj map[string]any, keys []string) ([]Node, error) {
+	var out []Node
+	for _, key := range keys {
+		v, ok := obj[key]
+		if !ok || v == nil {
+			continue
+		}
+		n, err := parseELMValue(v)
+		if err != nil {
+			return nil, err
+		}
+		if n != nil {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+func parseELMValue(v any) (Node, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if m, ok := asObject(v); ok {
+		return parseELMExpr(m)
+	}
+	return parseELMLiteral(map[string]any{"value": v})
 }
 
 func parseELMChild(obj map[string]any, key string) (Node, error) {
@@ -956,13 +1078,16 @@ func parseELMIndexer(obj map[string]any) (Node, error) {
 func elmIsBuiltinCall(typ string) bool {
 	switch strings.ToLower(typ) {
 	case "first", "last", "count", "exists", "empty", "distinct",
-		"now", "today", "length",
-		"tostring", "tointeger", "todecimal", "toboolean",
-		"todate", "todatetime", "totime", "toquantity", "tointerval",
+		"now", "today", "timeofday", "length",
+		"tostring", "tointeger", "todecimal", "toboolean", "tolong",
+		"todate", "todatetime", "totime", "toquantity", "tointerval", "convertquantity",
 		"min", "max", "sum", "avg", "average", "alltrue", "anytrue",
 		"take", "skip", "indexof", "flatten", "singletonfrom", "coalesce",
 		"date", "datetime", "time",
-		"startswith", "endswith", "matches", "replace", "split", "combine",
+		"round", "abs", "floor", "ceiling", "truncate",
+		"positionof", "lastpositionof",
+		"startswith", "endswith", "matches", "matchesfull", "replace", "replacematches",
+		"split", "splitonmatches", "combine",
 		"upper", "lower", "substring", "collapse", "expand":
 		return true
 	}

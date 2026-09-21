@@ -490,6 +490,9 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 	case "expand":
 		return expandValues(v, nil), nil
 	}
+	if strings.HasSuffix(n.op, " from") {
+		return st.evalDateComponent(v, strings.TrimSuffix(n.op, " from"))
+	}
 	return nil, errf("%w: unary operator %q", ErrUnsupported, n.op)
 }
 
@@ -539,7 +542,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		return []any{ls + rs}, nil
-	case "in":
+	case "in", "all in":
 		left, err := st.eval(n.left)
 		if err != nil {
 			return nil, err
@@ -552,11 +555,20 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		if vs, ok := singletonValueSet(right); ok {
-			ok, err := st.inValueSet(left, vs)
+			var ok bool
+			var err error
+			if n.op == "all in" {
+				ok, err = st.allInValueSet(left, vs)
+			} else {
+				ok, err = st.inValueSet(left, vs)
+			}
 			if err != nil {
 				return nil, err
 			}
 			return []any{ok}, nil
+		}
+		if n.op == "all in" {
+			return allContainsResult(right, left), nil
 		}
 		if len(right) == 1 {
 			if iv, ok := asInterval(right[0]); ok {
@@ -1086,10 +1098,18 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return []any{*b}, nil
 	case "length":
 		return listOrStringLength(args)
-	case "today", "now":
+	case "today", "now", "timeofday":
 		t := clockInZone(st.now)
+		if len(args) > 0 && len(args[0]) > 0 {
+			if off, ok := asFloat(args[0][0]); ok {
+				t = t.In(time.FixedZone("", int(off*3600)))
+			}
+		}
 		if n == "today" {
 			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())}, nil
+		}
+		if n == "timeofday" {
+			return []any{time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())}, nil
 		}
 		return []any{t}, nil
 	case "tointerval":
@@ -1183,6 +1203,18 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listTakeSkip(args, false)
 	case "indexof":
 		return listIndexOf(args)
+	case "positionof":
+		return stringPositionOf(args, false)
+	case "lastpositionof":
+		return stringPositionOf(args, true)
+	case "round", "abs", "floor", "ceiling", "truncate":
+		return evalMath(n, args)
+	case "convertquantity":
+		return convertQuantityArgs(args)
+	case "splitonmatches":
+		return stringSplitOnMatches(args)
+	case "replacematches":
+		return stringReplaceMatches(args)
 	case "distinct":
 		if len(args) == 0 {
 			return nil, nil
@@ -1555,6 +1587,101 @@ func (st *evalState) inValueSet(values []any, vs ValueSet) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (st *evalState) allInValueSet(values []any, vs ValueSet) (bool, error) {
+	if len(values) == 0 {
+		return true, nil
+	}
+	req := RetrieveRequest{ValueSetURL: vs.URL, Terminology: vs.Name}
+	for _, v := range values {
+		if v == nil {
+			continue
+		}
+		ok, err := matchResourceTerminology(st.ctx, v, req, st.terminology(), st.resolveReferenceCodings)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func allContainsResult(haystack, needles []any) []any {
+	if len(needles) == 0 {
+		return []any{true}
+	}
+	for _, n := range needles {
+		if n == nil {
+			continue
+		}
+		found := false
+		for _, h := range haystack {
+			if cqlEqual(h, n) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return []any{false}
+		}
+	}
+	return []any{true}
+}
+
+func (st *evalState) evalDateComponent(v []any, component string) ([]any, error) {
+	if len(v) == 0 {
+		return nil, nil
+	}
+	tm, ok := asTime(v[0])
+	if !ok {
+		if s, isStr := unwrapPrimitive(v[0]).(string); isStr {
+			if parsed, err := parseCQLDate(s); err == nil {
+				tm = parsed
+				ok = true
+			} else if parsed, pok := parseELMTimeString(s); pok {
+				tm = parsed
+				ok = true
+			}
+		}
+	}
+	if !ok {
+		return nil, nil
+	}
+	loc := tm.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	switch strings.ToLower(strings.TrimSpace(component)) {
+	case "date":
+		return []any{time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc)}, nil
+	case "time":
+		now := clockInZone(st.now)
+		return []any{time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), loc)}, nil
+	case "year":
+		return []any{int64(tm.Year())}, nil
+	case "month":
+		return []any{int64(tm.Month())}, nil
+	case "day":
+		return []any{int64(tm.Day())}, nil
+	case "hour":
+		return []any{int64(tm.Hour())}, nil
+	case "minute":
+		return []any{int64(tm.Minute())}, nil
+	case "second":
+		return []any{int64(tm.Second())}, nil
+	case "millisecond":
+		return []any{int64(tm.Nanosecond() / 1e6)}, nil
+	case "week":
+		_, w := tm.ISOWeek()
+		return []any{int64(w)}, nil
+	case "timezoneoffset", "timezone":
+		_, off := tm.Zone()
+		return []any{float64(off) / 3600}, nil
+	}
+	return nil, errf("%w: date component %q", ErrUnsupported, component)
 }
 
 func (st *evalState) memberValues(item any, name string) ([]any, bool) {

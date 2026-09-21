@@ -870,7 +870,43 @@ func (p *parser) parseUnary() (Node, error) {
 		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: op, x: x}, nil
 	}
+	if unit, ok := p.peekExtractorFrom(); ok {
+		p.lex.next()
+		if !p.acceptKeyword("from") {
+			return nil, parseError(p.src, p.lex.lookahead().pos, "expected from")
+		}
+		x, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: unit + " from", x: x}, nil
+	}
 	return p.parsePostfix()
+}
+
+func (p *parser) peekExtractorFrom() (string, bool) {
+	t := p.lex.lookahead()
+	if t.kind != tIdent {
+		return "", false
+	}
+	name := strings.ToLower(t.text)
+	switch name {
+	case "date", "time", "timezoneoffset", "timezone",
+		"year", "month", "week", "day", "hour", "minute", "second", "millisecond":
+	default:
+		return "", false
+	}
+	rest := p.src[t.pos:]
+	lx := newLexer(rest)
+	_ = lx.next()
+	next := lx.next()
+	if next.kind == tIdent && keywordEq(next.text, "from") {
+		if name == "timezone" {
+			name = "timezoneoffset"
+		}
+		return name, true
+	}
+	return "", false
 }
 
 func (p *parser) peekStartEndWidth() (bool, string) {
