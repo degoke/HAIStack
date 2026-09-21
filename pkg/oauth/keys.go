@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // KeySet holds signing keys exposed through JWKS.
@@ -18,6 +19,19 @@ type KeySet struct {
 	PrivateKey *rsa.PrivateKey
 	KeyID      string
 	Algorithm  string
+	// RetireAt is when a rotated key leaves JWKS and verification. Zero means active.
+	RetireAt time.Time
+}
+
+// Published reports whether the key should still appear in JWKS and verify tokens.
+func (k *KeySet) Published(now time.Time) bool {
+	if k == nil {
+		return false
+	}
+	if k.RetireAt.IsZero() {
+		return true
+	}
+	return k.RetireAt.After(now)
 }
 
 // LoadKeySetFromPEM loads an RSA signing key from a PKCS#8 or PKCS#1 PEM file.

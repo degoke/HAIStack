@@ -203,7 +203,8 @@ func TestApplySQLiteStores_BindsUnscopedClients(t *testing.T) {
 	}
 
 	cfg := oauth.Config{Issuer: "https://auth.example.test"}
-	if err := oauthstore.ApplySQLiteStores(&cfg, db.SQL()); err != nil {
+	tenantIssuer := "https://auth.example.test/t/local"
+	if err := oauthstore.ApplySQLiteStores(&cfg, db.SQL(), tenantIssuer); err != nil {
 		t.Fatal(err)
 	}
 	client, ok := cfg.Clients.Get("legacy-app")
@@ -213,6 +214,9 @@ func TestApplySQLiteStores_BindsUnscopedClients(t *testing.T) {
 
 	_, clients, _, _ := oauthstore.SQLiteStores(db.SQL())
 	scoped := clients.(oauth.IssuerScopedClientRegistry)
+	if _, ok := scoped.ForIssuer(tenantIssuer).Get("legacy-app"); !ok {
+		t.Fatal("expected rebound client on tenant issuer")
+	}
 	if _, ok := scoped.ForIssuer("https://other.example").Get("legacy-app"); ok {
 		t.Fatal("expected rebound client not visible to another issuer")
 	}

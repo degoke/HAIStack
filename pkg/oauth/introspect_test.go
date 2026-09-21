@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/client"
 	"github.com/degoke/health-ai-stack/pkg/oauth"
@@ -176,5 +177,47 @@ func TestOAuthServer_VerificationKeysValidatePreviousKid(t *testing.T) {
 	body := jwksRec.Body.String()
 	if !strings.Contains(body, oldKey.KeyID) || !strings.Contains(body, newKey.KeyID) {
 		t.Fatalf("jwks missing rotated keys: %s", body)
+	}
+}
+
+func TestOAuthServer_JWKSDropsRetiredKeysAtRequestTime(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	clock := now
+	oldKey, err := oauth.NewKeySet(2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey.RetireAt = now.Add(time.Hour)
+	active, err := oauth.NewKeySet(2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:           "https://auth.example.test",
+		SigningKey:       active,
+		VerificationKeys: []*oauth.KeySet{oldKey},
+		Now:              func() time.Time { return clock },
+		AutoApprove:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := func() string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/jwks", nil))
+		return rec.Body.String()
+	}
+	body := jwks()
+	if !strings.Contains(body, oldKey.KeyID) || !strings.Contains(body, active.KeyID) {
+		t.Fatalf("jwks before TTL = %s", body)
+	}
+	clock = now.Add(2 * time.Hour)
+	body = jwks()
+	if strings.Contains(body, oldKey.KeyID) {
+		t.Fatalf("retired key stayed in JWKS after TTL: %s", body)
+	}
+	if !strings.Contains(body, active.KeyID) {
+		t.Fatalf("active key missing after TTL: %s", body)
 	}
 }

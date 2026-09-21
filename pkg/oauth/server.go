@@ -65,6 +65,7 @@ type Server struct {
 	tokenLimiter    RateLimitStore
 	registerLimiter RateLimitStore
 	loginLimiter    RateLimitStore
+	loginIPLimiter  RateLimitStore
 }
 
 // NewServer constructs an authorization server.
@@ -266,7 +267,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
-	tokenLimit, _, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
+	tokenLimit, _, _, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.rateLimitOAuth(w, r, "token", s.tokenRateLimiter(tokenLimit, window), tokenLimit, window) {
 			return
@@ -276,7 +277,7 @@ func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) wrapRegisterRateLimit(next http.HandlerFunc) http.HandlerFunc {
-	_, registerLimit, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
+	_, registerLimit, _, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.rateLimitOAuth(w, r, "register", s.registerRateLimiter(registerLimit, window), registerLimit, window) {
 			return

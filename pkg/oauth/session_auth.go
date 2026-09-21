@@ -330,15 +330,15 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		return
 	}
-	if !s.rateLimitLogin(w, r) {
-		return
-	}
 	if auth.users == nil {
 		http.Error(w, "login unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	subject := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
+	if !s.rateLimitLogin(w, r, subject) {
+		return
+	}
 	if subject == "" || password == "" {
 		http.Error(w, "username and password required", http.StatusBadRequest)
 		return

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
@@ -48,12 +49,16 @@ func (s *Server) handleJWKS(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) verificationKeySets() []*KeySet {
+	now := time.Now()
+	if s != nil && s.cfg.Now != nil {
+		now = s.cfg.Now()
+	}
 	out := []*KeySet{}
-	if s.cfg.SigningKey != nil {
+	if s.cfg.SigningKey != nil && s.cfg.SigningKey.Published(now) {
 		out = append(out, s.cfg.SigningKey)
 	}
 	for _, keySet := range s.cfg.VerificationKeys {
-		if keySet != nil {
+		if keySet != nil && keySet.Published(now) {
 			out = append(out, keySet)
 		}
 	}

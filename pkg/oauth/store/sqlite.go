@@ -347,9 +347,12 @@ func (s *SQLiteClientRegistry) Register(client oauth.Client) error {
 
 // bindUnscopedSQLiteClients attaches pre-issuer-column rows (issuer=”) to issuer
 // so ForIssuer(https://…) still finds migrated DCR clients.
-func bindUnscopedSQLiteClients(db *sql.DB, issuer string) error {
-	issuer = oauth.NormalizeIssuerURL(issuer)
-	if db == nil || issuer == "" {
+func bindUnscopedSQLiteClients(db *sql.DB, issuers ...string) error {
+	if db == nil {
+		return nil
+	}
+	dest := uniqueNormalizedIssuers(issuers...)
+	if len(dest) == 0 {
 		return nil
 	}
 	tx, err := db.BeginTx(context.Background(), nil)
@@ -357,11 +360,13 @@ func bindUnscopedSQLiteClients(db *sql.DB, issuer string) error {
 		return fmt.Errorf("bind unscoped oauth clients: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(context.Background(), `
-		INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
-		SELECT ?, client_id, payload, updated_at FROM hai_oauth_client WHERE issuer = ''
-		ON CONFLICT (issuer, client_id) DO NOTHING`, issuer); err != nil {
-		return fmt.Errorf("bind unscoped oauth clients: %w", err)
+	for _, issuer := range dest {
+		if _, err := tx.ExecContext(context.Background(), `
+			INSERT INTO hai_oauth_client (issuer, client_id, payload, updated_at)
+			SELECT ?, client_id, payload, updated_at FROM hai_oauth_client WHERE issuer = ''
+			ON CONFLICT (issuer, client_id) DO NOTHING`, issuer); err != nil {
+			return fmt.Errorf("bind unscoped oauth clients: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(context.Background(), `
 		DELETE FROM hai_oauth_client WHERE issuer = ''`); err != nil {

@@ -73,6 +73,8 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	if err != nil {
 		return err
 	}
+	tenantID := firstNonEmptyString(cfg.TenantID, "local")
+	tenantIssuer := strings.TrimRight(issuer, "/") + "/t/" + tenantID
 
 	oauthCfg := oauth.Config{
 		Issuer:       issuer,
@@ -80,14 +82,14 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 	switch {
 	case state.sqliteDB != nil:
-		if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL()); err != nil {
+		if err := oauthstore.ApplySQLiteStores(&oauthCfg, state.sqliteDB.SQL(), tenantIssuer); err != nil {
 			return fmt.Errorf("runtime: oauth sqlite stores: %w", err)
 		}
 		if err := b.applyBuiltinSigningKey(&oauthCfg, state, issuer); err != nil {
 			return fmt.Errorf("runtime: oauth signing key: %w", err)
 		}
 	case state.postgresDB != nil:
-		if err := oauthstore.ApplyPostgresStores(&oauthCfg, state.postgresDB.Pool()); err != nil {
+		if err := oauthstore.ApplyPostgresStores(&oauthCfg, state.postgresDB.Pool(), tenantIssuer); err != nil {
 			return fmt.Errorf("runtime: oauth postgres stores: %w", err)
 		}
 		if err := b.applyBuiltinSigningKey(&oauthCfg, state, issuer); err != nil {
@@ -139,7 +141,6 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 		oauthCfg.RegistrationAccessToken = regToken
 	}
 
-	tenantID := firstNonEmptyString(cfg.TenantID, "local")
 	if !cfg.Production {
 		if err := oauthCfg.Clients.Register(oauth.Client{
 			ClientID:     "haistack-app",
@@ -156,7 +157,6 @@ func (b *Builder) wireBuiltinOAuth(ctx context.Context, state *wireState) error 
 	}
 
 	tenantRegistry := oauth.NewTenantRegistry()
-	tenantIssuer := strings.TrimRight(issuer, "/") + "/t/" + tenantID
 	autoApprovePtr := oauthCfg.AutoApprove
 	tenantAuth := oauthCfg.UserAuthenticator
 	if sessionAuth, ok := oauthCfg.UserAuthenticator.(*oauth.SessionUserAuthenticator); ok && sessionAuth != nil {

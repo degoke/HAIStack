@@ -142,10 +142,10 @@ func TestSessionLoginRateLimit(t *testing.T) {
 	}
 	handler := srv.Handler()
 
-	post := func() *httptest.ResponseRecorder {
+	post := func(username string) *httptest.ResponseRecorder {
 		t.Helper()
 		form := url.Values{
-			"username": {"missing"},
+			"username": {username},
 			"password": {"nope"},
 		}
 		req := httptest.NewRequest(http.MethodPost, "/oauth/login", strings.NewReader(form.Encode()))
@@ -155,11 +155,56 @@ func TestSessionLoginRateLimit(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		return rec
 	}
-	if rec := post(); rec.Code != http.StatusUnauthorized {
+	if rec := post("missing"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("first login status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if rec := post(); rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("rate limited status = %d body=%s", rec.Code, rec.Body.String())
+	if rec := post("missing"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("same-user rate limited status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := post("other"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("different username should not share per-user bucket, status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSessionLoginIPRateLimit(t *testing.T) {
+	users, err := oauth.ParsePasswordUsers("clinician-1:s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := oauth.NewSessionUserAuthenticator(oauth.SessionAuthConfig{
+		Secret: "session-secret",
+		Issuer: "https://auth.example.test",
+		Users:  users,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := oauth.NewServer(oauth.Config{
+		Issuer:            "https://auth.example.test",
+		UserAuthenticator: auth,
+		LoginPath:         "/oauth/login",
+		AutoApprove:       true,
+		RateLimit:         oauth.RateLimitConfig{LoginRequests: 100, LoginIPRequests: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := srv.Handler()
+	post := func(username string) *httptest.ResponseRecorder {
+		t.Helper()
+		form := url.Values{"username": {username}, "password": {"nope"}}
+		req := httptest.NewRequest(http.MethodPost, "/oauth/login", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "203.0.113.25:9"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := post("alice"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("first IP login status = %d", rec.Code)
+	}
+	if rec := post("bob"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("IP spray status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

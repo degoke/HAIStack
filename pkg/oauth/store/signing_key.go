@@ -119,14 +119,6 @@ func activeKeyID(opts SigningKeyOptions) string {
 	return keyID
 }
 
-func signingKeyStillPublished(retiredAt string, now time.Time) bool {
-	retiredAt = strings.TrimSpace(retiredAt)
-	if retiredAt == "" {
-		return true
-	}
-	return oauthExpiryValid(retiredAt, now)
-}
-
 func loadSQLiteSigningKeySet(db *sql.DB, issuer, secret string) (SigningKeySet, error) {
 	rows, err := db.QueryContext(context.Background(), `
 		SELECT key_id, private_key_pem, encryption_nonce, active, retired_at
@@ -175,10 +167,17 @@ func scanSigningKeyRows(rows signingKeyRowScanner, secret string) (SigningKeySet
 		if strings.TrimSpace(nonce) != "" {
 			set.EncryptionUsed = true
 		}
-		if active != 0 && signingKeyStillPublished(retiredAt, now) {
+		if retiredAt = strings.TrimSpace(retiredAt); retiredAt != "" {
+			t, err := parseOAuthExpiry(retiredAt)
+			if err != nil {
+				continue
+			}
+			keySet.RetireAt = t
+		}
+		if active != 0 && keySet.Published(now) {
 			set.Active = keySet
 		}
-		if signingKeyStillPublished(retiredAt, now) {
+		if keySet.Published(now) {
 			set.Verification = append(set.Verification, keySet)
 		}
 	}
