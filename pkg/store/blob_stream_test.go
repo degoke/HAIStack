@@ -55,13 +55,13 @@ func (s *streamOnlyBlobStore) PutStream(_ context.Context, key, contentType stri
 	s.mu.Lock()
 	s.putStreamCalls++
 	s.mu.Unlock()
-	var data bytes.Buffer
+	w := &sliceWriter{}
 	buf := make([]byte, 32*1024)
-	if _, err := io.CopyBuffer(&data, r, buf); err != nil {
+	if _, err := io.CopyBuffer(w, r, buf); err != nil {
 		return err
 	}
 	if size <= 0 {
-		size = int64(data.Len())
+		size = int64(len(w.b))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,9 +69,18 @@ func (s *streamOnlyBlobStore) PutStream(_ context.Context, key, contentType stri
 		Key:         key,
 		ContentType: contentType,
 		Size:        size,
-		Data:        data.Bytes(),
+		Data:        w.b,
 	}
 	return nil
+}
+
+type sliceWriter struct {
+	b []byte
+}
+
+func (w *sliceWriter) Write(p []byte) (int, error) {
+	w.b = append(w.b, p...)
+	return len(p), nil
 }
 
 func (s *streamOnlyBlobStore) Get(_ context.Context, key string) (*store.BlobObject, error) {
