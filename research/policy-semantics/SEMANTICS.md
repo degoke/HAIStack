@@ -49,8 +49,9 @@ uses `checkAnyRequiredPermission` on those values). A production view
 executor may also require a ViewDefinition's declared permissions; that
 gate is outside this catalogue.
 
-Device push is a separate path: registered, trusted, active device for the
-tenant, then policy `push-device-event`.
+Device push (`push-device-event`) and module install (`install-module`) are
+separate `pkg/auth` engine paths (trusted device, then policy). The Track C
+YAML runner does not accept those actions; they are not catalogue cases.
 
 ## Policy DSL match fields
 

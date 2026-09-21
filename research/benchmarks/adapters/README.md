@@ -8,10 +8,13 @@ To compare another FHIR implementation (HAPI FHIR, Firely, IBM, etc.):
    - `scan-read` — list ids then read. The HAIStack runner uses in-memory
      `ListIDs` + `Read` (not FHIR `_search`). External servers may list via
      search `_elements=id` or a bulk dump; report which.
-   - `view` — execute `observation_view` if the server supports SQL-on-FHIR
-     ViewDefinitions; otherwise skip and report `unsupported`
-2. Use the **same** generated dataset (run `go run ./research/benchmarks -dump DIR` or copy the in-memory generator with `seed=11`).
-3. Record per-workload p50/p95 latency and operations/second. Do not publish a single blended score.
+   - `view` — execute `observation_view` with the YAML `limit` (page size)
+     if the server supports SQL-on-FHIR ViewDefinitions; otherwise skip
+     and report `unsupported`. `count` is executions, not rows.
+2. Use the **same** generated dataset (run `go run ./research/benchmarks -dump DIR` or copy the in-memory generator with `seed=11`). `-size` changes dump cardinality only; honor the YAML `count` / `limit` even when the store is larger.
+3. Record per-workload p50/p95 latency and operations/second. For
+   `scan-read`, say whether percentiles mix list+read samples (the
+   reference runner does) or split them. Do not publish a single blended score.
 4. Keep PHI out of dumps. Only synthetic resources from this repository are licensed Apache-2.0.
 
 Suggested Go seam:
@@ -20,7 +23,7 @@ Suggested Go seam:
 type Adapter interface {
     Read(ctx context.Context, resourceType, id string) error
     ListIDs(ctx context.Context, resourceType string, limit int) ([]string, error)
-    ExecuteView(ctx context.Context, name, version string) (rowCount int, err error)
+    ExecuteView(ctx context.Context, name string, limit int) (rowCount int, err error)
 }
 ```
 

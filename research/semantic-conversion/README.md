@@ -1,8 +1,9 @@
 # Track B — Semantic conversion corpus (R4 → R5)
 
 Paired FHIR instances documenting R4 → R5 mapping classes, with a scorer
-that reports **structural equivalence**, **semantic equivalence**, and
-**information-loss flags**.
+that reports **structural path checks**, **R4 FHIRPath assertions**,
+**R5 JSON structural checks**, and **information-loss flags**. R5 checks
+are not FHIRPath and are not semantic equivalence in the R4 sense.
 
 This artefact is a **catalogue scorer**, not a converter. `ScoreAll`
 checks embedded R4/R5 JSON pairs. It does **not** transform R4 into R5.
@@ -20,10 +21,11 @@ go test ./research/semantic-conversion
 go run ./research/semantic-conversion
 ```
 
-The generator produces **≥50 pairs** across Patient, Observation,
-Condition, and MedicationRequest. **≥30 pairs** have distinct R4 and R5
-JSON. Categories `renamed`, `type`, `cardinality`, and `information_loss`
-always differ between versions.
+Static `Corpus()` in `corpus.go` embeds **≥50 pairs** across Patient,
+Observation, Condition, and MedicationRequest. There is no generator
+CLI. **≥30 pairs** have distinct R4 and R5 JSON. Categories `renamed`,
+`type`, `cardinality`, and `information_loss` always differ between
+versions.
 
 `identity` documents **stable paths** (id, status, subject, quantities).
 R4 and R5 JSON may still differ on mapped fields that every R5 instance
@@ -38,7 +40,7 @@ must carry — notably MedicationRequest `medicationCodeableConcept` →
 | `type` | Choice or type shifts, e.g. Observation.bodySite CodeableConcept → BackboneElement; MedicationRequest.medication[x] → CodeableReference |
 | `renamed` | Field moves, e.g. Condition.asserter → participant; MedicationRequest.reasonCode → reason |
 | `codeableconcept` | Same concept with display/text presentation changes |
-| `information_loss` | R4 elements with no R5 counterpart (Condition.evidence, MedicationRequest.detectedIssue) or converter drops (Patient.photo) |
+| `information_loss` | Flagged R4 fields absent on the paired R5 JSON. **HL7 removals:** `Condition.evidence`, `MedicationRequest.detectedIssue`, `MedicationRequest.instantiatesUri`. **Planted converter drops** (still valid R5 elements, or local extensions): `Patient.photo`, `Observation.note`, example.org extensions |
 
 ## Scoring
 

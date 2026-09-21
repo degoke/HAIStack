@@ -6,6 +6,8 @@ version: "1"
 # RequiredPermissions; policy rules still narrow the allowed resource types.
 # Patient overlay is examples 6–7 (action: read + patientId). The runner
 # supports action: patient-access; this catalogue does not use it.
+# Device push and module install are pkg/auth engine paths, not catalogue
+# actions (the runner rejects push-device-event and install-module).
 roles:
   - name: clinician
     permissions:
@@ -14,12 +16,6 @@ roles:
       - read-appointment
       - patient.read
       - observation.read
-  - name: tenant-admin
-    permissions:
-      - module.install
-      - read-appointment
-      - appointment.read
-      - read-patient-summary
   - name: backend
     permissions:
       - "*.read"
@@ -30,11 +26,6 @@ principals:
     kind: user
     tenant: tenant-a
     roles: [clinician]
-  admin:
-    id: user-admin
-    kind: user
-    tenant: tenant-a
-    roles: [tenant-admin]
   backend:
     id: backend-app
     kind: service
@@ -75,20 +66,6 @@ policies:
           actions: [execute-ai-tool]
           toolNames: [run_view]
         reason: ai may run view tool
-      - name: device-push
-        effect: allow
-        match:
-          actions: [push-device-event]
-          deviceTrusted: true
-          deviceStatuses: [active]
-        reason: trusted device may push
-      - name: install-scheduling
-        effect: allow
-        match:
-          actions: [install-module]
-          moduleNames: [scheduling]
-          roles: [tenant-admin]
-        reason: admin may install scheduling
   observation-only:
     version: "1"
     rules:

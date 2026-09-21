@@ -50,6 +50,19 @@ func TestLoadWorkloadsEmbedded(t *testing.T) {
 	if len(wls) != 3 {
 		t.Fatalf("workloads = %d", len(wls))
 	}
+	var viewLimit int
+	for _, wl := range wls {
+		if wl.Name != "view-execute" {
+			continue
+		}
+		if len(wl.Operations) == 0 {
+			t.Fatal("view-execute has no operations")
+		}
+		viewLimit = wl.Operations[0].Limit
+	}
+	if viewLimit != 100 {
+		t.Fatalf("view-execute limit = %d, want 100 (portable page size)", viewLimit)
+	}
 }
 
 func TestDumpWritesJSON(t *testing.T) {

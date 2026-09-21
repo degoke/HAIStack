@@ -31,6 +31,7 @@ type Operation struct {
 	ResourceType string `yaml:"resourceType" json:"resourceType"`
 	ViewName     string `yaml:"viewName" json:"viewName"`
 	Count        int    `yaml:"count" json:"count"`
+	Limit        int    `yaml:"limit" json:"limit"`
 }
 
 // WorkloadResult is one workload's measurements.
@@ -191,9 +192,12 @@ func runWorkload(ctx context.Context, resources store.ResourceStore, views *view
 				ops++
 			}
 		case "view":
+			if op.Limit <= 0 {
+				return WorkloadResult{}, fmt.Errorf("view %s: limit is required", op.ViewName)
+			}
 			for i := 0; i < n; i++ {
 				t0 := time.Now()
-				result, err := views.Execute(ctx, view.ExecuteRequest{ViewName: op.ViewName, Limit: 100})
+				result, err := views.Execute(ctx, view.ExecuteRequest{ViewName: op.ViewName, Limit: op.Limit})
 				if err != nil {
 					return WorkloadResult{}, err
 				}

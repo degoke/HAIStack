@@ -33,7 +33,8 @@ policy engine allow the action. Policy documents, the role catalog, and
 principals are declared in `scenarios.yaml` (portable `pkg/auth` DSL), not as
 Go-named enums or hardcoded fixture IDs. YAML principal `id` / `kind` /
 `tenant` / `roles` drive the SMART adapter. Tenant and kind are required on
-every principal. Catalogue runs use `RunYAML` (no Go `BaseConfig` kit).
+every principal. The CLI runs `ScenariosFromYAML` then `sc.Run(ctx, nil)`.
+Tests call `authztest.RunYAML`. Neither uses a Go `BaseConfig` kit.
 `policyRoleGrants` overlays extra role permissions per named policy
 (clinician `*.read` only for `observation-only`). Per-scenario `roleGrants`
 do the same for deny-by-default, first-match, view, and AI-tool examples so

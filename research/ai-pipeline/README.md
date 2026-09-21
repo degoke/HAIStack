@@ -31,7 +31,7 @@ deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
 
 | Field | Value |
 |-------|-------|
-| Identifier | `research/ai-pipeline` |
+| Identifier | Bundle `artefact` = `haistack-research-ai-pipeline` (path `research/ai-pipeline`) |
 | License | Apache-2.0 |
 | Data | Synthetic patients and observations; no PHI |
 | IG / FHIR | FHIR R4 `4.0.1` base Patient/Observation SDs **and** compiled HAIStack IG `hai-patient` from `modules/core/ig`; package/version from `conformance-lock.json` (`haistack.fhir.r4`). `conformanceLockCommit` is the lock rewrite; `checkoutCommit` is this tree. |
