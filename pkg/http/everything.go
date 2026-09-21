@@ -224,7 +224,6 @@ func (h *handler) searchEverythingParam(
 			return nil
 		}
 		matchCount := 0
-		added := 0
 		for _, entry := range bundle.Entries {
 			if entry.Resource == nil || entry.Mode == "include" {
 				continue
@@ -235,13 +234,14 @@ func (h *handler) searchEverythingParam(
 				continue
 			}
 			seen[key] = true
-			added++
 			if !appendEnv(entry.Resource) {
 				return nil
 			}
 		}
 		nextOffset, hasNext := everythingSearchNextOffset(bundle, pageOffset, matchCount)
-		if !hasNext || added == 0 {
+		// Keep paging while search reports a next page, even if this page was all
+		// duplicates from another compartment param (e.g. subject then performer).
+		if !hasNext || matchCount == 0 {
 			return nil
 		}
 		if nextOffset <= pageOffset {

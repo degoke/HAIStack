@@ -293,6 +293,78 @@ func TestEverythingSearchUnionsPerformer(t *testing.T) {
 	}
 }
 
+func TestEverythingSearchFollowsPerformerPagesAfterSeenSubjectHits(t *testing.T) {
+	subjectObs := &types.ResourceEnvelope{
+		ResourceType: "Observation",
+		ID:           "obs-subject",
+		JSON:         []byte(`{"resourceType":"Observation","id":"obs-subject","subject":{"reference":"Patient/pat-1"}}`),
+	}
+	performerObs := &types.ResourceEnvelope{
+		ResourceType: "Observation",
+		ID:           "obs-performer-page2",
+		JSON:         []byte(`{"resourceType":"Observation","id":"obs-performer-page2","performer":[{"reference":"Patient/pat-1"}]}`),
+	}
+	var performerOffsets []string
+	handler := newTestHandler(t, hahttp.Config{
+		ResourceService: &fakeResourceService{
+			readFn: func(_ context.Context, resourceType, id string) (*types.ResourceEnvelope, error) {
+				if resourceType == "Patient" && id == "pat-1" {
+					return patientEnvelope("pat-1", "Doe"), nil
+				}
+				return nil, &core.ServiceError{Kind: core.ErrorKindNotFound, Message: "not found"}
+			},
+		},
+		SearchService: &fakeSearchService{
+			searchFn: func(_ context.Context, resourceType string, params url.Values) (*search.SearchBundle, error) {
+				if resourceType != "Observation" {
+					return &search.SearchBundle{ResourceType: resourceType}, nil
+				}
+				if params.Get("subject") != "" {
+					return &search.SearchBundle{
+						ResourceType: "Observation",
+						Entries: []search.BundleEntry{{
+							FullURL: "Observation/obs-subject", Resource: subjectObs, Mode: "match",
+						}},
+					}, nil
+				}
+				if params.Get("performer") == "" {
+					return &search.SearchBundle{ResourceType: resourceType}, nil
+				}
+				offset := params.Get("_offset")
+				performerOffsets = append(performerOffsets, offset)
+				if offset == "" || offset == "0" {
+					return &search.SearchBundle{
+						ResourceType: "Observation",
+						Entries: []search.BundleEntry{{
+							FullURL: "Observation/obs-subject", Resource: subjectObs, Mode: "match",
+						}},
+						Links: map[string]string{
+							"next": "/fhir/Observation?performer=Patient%2Fpat-1&_offset=1&_count=1000",
+						},
+					}, nil
+				}
+				return &search.SearchBundle{
+					ResourceType: "Observation",
+					Entries: []search.BundleEntry{{
+						FullURL: "Observation/obs-performer-page2", Resource: performerObs, Mode: "match",
+					}},
+				}, nil
+			},
+		},
+	})
+	rec := doRequest(t, handler, http.MethodGet, "/fhir/Patient/pat-1/$everything?_type=Observation", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"obs-performer-page2"`) {
+		t.Fatalf("performer page 2 dropped after duplicate subject hits: %s", body)
+	}
+	if len(performerOffsets) < 2 {
+		t.Fatalf("expected performer search to follow next, offsets=%v", performerOffsets)
+	}
+}
+
 func TestEverythingPrefersSearchAndFollowsPages(t *testing.T) {
 	svc := mustCoreSQLiteService(t)
 	ctx := context.Background()
