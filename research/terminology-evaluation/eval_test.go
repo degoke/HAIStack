@@ -244,7 +244,7 @@ func TestGoldFileOmitsMapIdentity(t *testing.T) {
 	}
 }
 
-func TestPublishedJSONIsTranslateDumpNotAScore(t *testing.T) {
+func TestPublishedJSONIsResolvedIdentityNotGoldRows(t *testing.T) {
 	mapPath, casesPath := terminologyeval.TestdataPaths()
 	metrics, err := terminologyeval.Evaluate(context.Background(), mapPath, casesPath, terminologyeval.FixedNow())
 	if err != nil {
@@ -261,9 +261,16 @@ func TestPublishedJSONIsTranslateDumpNotAScore(t *testing.T) {
 	for _, key := range []string{
 		"accuracy", "consistency", "mapAgreement", "provenance", "provenanceComplete",
 		"passed", "failed", "results", "implementsMap", "exact", "narrow", "broad", "unmatched",
+		"translations",
 	} {
 		if _, ok := obj[key]; ok {
 			t.Errorf("published JSON must not include %s", key)
+		}
+	}
+	body, _ := json.Marshal(obj)
+	for _, code := range []string{"HB", "NA", "K", "WBC", "CBC-DIFF", "GLU", "ALT", "UNKNOWN"} {
+		if strings.Contains(string(body), code) {
+			t.Errorf("published JSON must not restate gold code %s", code)
 		}
 	}
 	if obj["conceptMapUrl"] != "http://haistack.dev/research/ConceptMap/lab-to-panel" {
@@ -271,17 +278,6 @@ func TestPublishedJSONIsTranslateDumpNotAScore(t *testing.T) {
 	}
 	if obj["conceptMapVersion"] != "1.0.0" || obj["sourceSystemVersion"] != "1.0.0" {
 		t.Fatalf("resolved identity version=%v source=%v", obj["conceptMapVersion"], obj["sourceSystemVersion"])
-	}
-	rows, _ := obj["translations"].([]any)
-	if len(rows) != len(metrics.Results) || len(rows) == 0 {
-		t.Fatalf("translations = %d, results = %d", len(rows), len(metrics.Results))
-	}
-	first, _ := rows[0].(map[string]any)
-	if _, ok := first["pass"]; ok {
-		t.Fatal("translation rows must not include pass")
-	}
-	if first["code"] != "HB" || first["class"] != "exact" {
-		t.Fatalf("first translation = %#v", first)
 	}
 }
 
@@ -301,7 +297,7 @@ func TestMetricsJSONOmitsAccuracyAndProvenanceRates(t *testing.T) {
 	}
 }
 
-func TestPublishCopiesResolveIdentityAndGotClass(t *testing.T) {
+func TestPublishCopiesResolvedIdentityOnly(t *testing.T) {
 	got := terminologyeval.Publish(terminologyeval.Metrics{
 		ConceptMapURL:       "http://example.org/map",
 		ConceptMapVersion:   "9",
@@ -313,8 +309,15 @@ func TestPublishCopiesResolveIdentityAndGotClass(t *testing.T) {
 	if got.ConceptMapURL != "http://example.org/map" || got.ConceptMapVersion != "9" || got.SourceSystemVersion != "8" {
 		t.Fatalf("identity = %+v", got)
 	}
-	if len(got.Translations) != 1 || got.Translations[0].Class != "exact" || got.Translations[0].Code != "HB" {
-		t.Fatalf("translations must use gotClass, got %+v", got.Translations)
+	if got.Note != terminologyeval.PublishedNote {
+		t.Fatalf("note = %q", got.Note)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "HB") || strings.Contains(string(raw), "translations") {
+		t.Fatalf("Publish must not copy gold rows: %s", raw)
 	}
 }
 

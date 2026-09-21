@@ -38,12 +38,12 @@ evaluation of the translator or of an external mapping.
 
 ## Metrics
 
-The published command dumps **`$translate` output** and the resolved
-ConceptMap identity fields (`conceptMapUrl`, `conceptMapVersion`,
-`sourceSystemVersion`). `cases.json` restates `conceptmap.json`, so that
-dump is not translator quality and not an external mapping. There is no
-published `implementsMap`, class-total, `accuracy`, or `consistency`
-ratio, and no per-case `pass` rows. Tests still assert that `$translate`
+The published command prints **Translate-resolved ConceptMap identity**
+(`conceptMapUrl`, `conceptMapVersion`, `sourceSystemVersion`). Those fields
+are copied from the ConceptMap body by `$translate`. It does **not** print
+gold translation rows (`HB` exact, …): `cases.json` restates
+`conceptmap.json`. There is no published `implementsMap`, class-total,
+`accuracy`, or `consistency` ratio. Tests still assert that `$translate`
 matches authored cases (gold consistency) and class P/R on the known-error
 map.
 

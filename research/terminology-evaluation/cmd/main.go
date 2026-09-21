@@ -1,5 +1,5 @@
-// Command research-terminology-evaluation prints $translate output for the
-// gold ConceptMap plus resolved map identity fields. It is not a quality score.
+// Command research-terminology-evaluation prints Translate-resolved ConceptMap
+// identity fields. It does not publish gold translation rows.
 package main
 
 import (

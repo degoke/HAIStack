@@ -50,9 +50,9 @@ type ClassScore struct {
 
 // Metrics grade a ConceptMap loaded into pkg/terminology against authored cases.
 // Accuracy and Provenance are in-memory pass rates used by tests; they are not
-// JSON fields. The published command dumps $translate output and resolved map
-// identity fields; it does not print implementsMap, class totals, or 0–1
-// scores. ByClass is a unit-test fixture, not a published artefact.
+// JSON fields. The published command prints Translate-resolved map identity
+// only — not gold translation rows, implementsMap, class totals, or 0–1 scores.
+// ByClass is a unit-test fixture, not a published artefact.
 type Metrics struct {
 	Exact               int                   `json:"exact"`
 	Narrow              int                   `json:"narrow"`
@@ -70,41 +70,24 @@ type Metrics struct {
 }
 
 // PublishedNote is the command JSON note. It is not a quality claim.
-const PublishedNote = "translations are $translate output for testdata/conceptmap.json; cases.json restates that map, so this dump is not translator quality. conceptMapUrl, conceptMapVersion, and sourceSystemVersion are copied from the Translate-resolved ConceptMap body."
+const PublishedNote = "conceptMapUrl, conceptMapVersion, and sourceSystemVersion are copied from the Translate-resolved ConceptMap body. Gold translation rows are not published; cases.json restates conceptmap.json."
 
-// PublishedTranslation is one $translate result in the command JSON.
-type PublishedTranslation struct {
-	Code   string `json:"code"`
-	Class  string `json:"class"`
-	Target string `json:"target,omitempty"`
-}
-
-// PublishedReport is the command JSON: resolved map identity plus $translate
-// rows. It omits implementsMap, class totals, pass rates, and per-case pass flags.
+// PublishedReport is the command JSON: Translate-resolved map identity only.
 type PublishedReport struct {
-	ConceptMapURL       string                 `json:"conceptMapUrl"`
-	ConceptMapVersion   string                 `json:"conceptMapVersion,omitempty"`
-	SourceSystemVersion string                 `json:"sourceSystemVersion,omitempty"`
-	Translations        []PublishedTranslation `json:"translations"`
-	Note                string                 `json:"note"`
+	ConceptMapURL       string `json:"conceptMapUrl"`
+	ConceptMapVersion   string `json:"conceptMapVersion,omitempty"`
+	SourceSystemVersion string `json:"sourceSystemVersion,omitempty"`
+	Note                string `json:"note"`
 }
 
 // Publish is the artefact the command prints.
 func Publish(m Metrics) PublishedReport {
-	out := PublishedReport{
+	return PublishedReport{
 		ConceptMapURL:       m.ConceptMapURL,
 		ConceptMapVersion:   m.ConceptMapVersion,
 		SourceSystemVersion: m.SourceSystemVersion,
 		Note:                PublishedNote,
 	}
-	for _, r := range m.Results {
-		out.Translations = append(out.Translations, PublishedTranslation{
-			Code:   r.Code,
-			Class:  r.GotClass,
-			Target: r.Target,
-		})
-	}
-	return out
 }
 
 type conceptMapHeader struct {

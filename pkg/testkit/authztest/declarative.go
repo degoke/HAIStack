@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/smart"
@@ -15,21 +16,22 @@ import (
 // the JSON published under research/policy-semantics/testdata/scenarios.json.
 // Consent overlays are research-only and skipped by RunDeclarative.
 type DeclarativeScenario struct {
-	ID            string          `json:"id"`
-	Doc           string          `json:"doc"`
-	Principal     string          `json:"principal"`
-	Policy        string          `json:"policy"`
-	Scopes        string          `json:"scopes,omitempty"`
-	LaunchPatient string          `json:"launchPatient,omitempty"`
-	PatientScope  string          `json:"patientScope,omitempty"`
-	Tenant        string          `json:"tenant,omitempty"`
-	PurposeOfUse  string          `json:"purposeOfUse,omitempty"`
-	Action        string          `json:"action"`
-	ResourceType  string          `json:"resourceType,omitempty"`
-	ResourceID    string          `json:"resourceId,omitempty"`
-	ToolName      string          `json:"toolName,omitempty"`
-	Consent       json.RawMessage `json:"consent,omitempty"`
-	ExpectAllow   bool            `json:"expectAllow"`
+	ID                 string          `json:"id"`
+	Doc                string          `json:"doc"`
+	Principal          string          `json:"principal"`
+	Policy             string          `json:"policy"`
+	Scopes             string          `json:"scopes,omitempty"`
+	LaunchPatient      string          `json:"launchPatient,omitempty"`
+	PatientScope       string          `json:"patientScope,omitempty"`
+	CompartmentPatient string          `json:"compartmentPatient,omitempty"`
+	Tenant             string          `json:"tenant,omitempty"`
+	PurposeOfUse       string          `json:"purposeOfUse,omitempty"`
+	Action             string          `json:"action"`
+	ResourceType       string          `json:"resourceType,omitempty"`
+	ResourceID         string          `json:"resourceId,omitempty"`
+	ToolName           string          `json:"toolName,omitempty"`
+	Consent            json.RawMessage `json:"consent,omitempty"`
+	ExpectAllow        bool            `json:"expectAllow"`
 }
 
 type declarativeFile struct {
@@ -125,6 +127,13 @@ func runDeclarative(ctx context.Context, adapter *smart.AuthAdapter, sc Declarat
 		}
 	}
 
+	if d := eng.CheckTenantBinding(principal, tenant); !d.Allowed {
+		return AssertDecision(sc.ID, sc.ExpectAllow, d, nil)
+	}
+	if d := eng.CheckPatientOverlay(tenant, overlayPatientID(sc)); !d.Allowed {
+		return AssertDecision(sc.ID, sc.ExpectAllow, d, nil)
+	}
+
 	var decision auth.Decision
 	switch sc.Action {
 	case auth.ActionRead:
@@ -157,6 +166,18 @@ func runDeclarative(ctx context.Context, adapter *smart.AuthAdapter, sc Declarat
 		return err
 	}
 	return AssertDecision(sc.ID, sc.ExpectAllow, decision, nil)
+}
+
+// overlayPatientID is SEMANTICS gate 2's target patient: Patient.id, else the
+// authored compartment patient, else the SMART launch patient.
+func overlayPatientID(sc DeclarativeScenario) string {
+	if strings.EqualFold(sc.ResourceType, "Patient") {
+		return sc.ResourceID
+	}
+	if sc.CompartmentPatient != "" {
+		return sc.CompartmentPatient
+	}
+	return sc.LaunchPatient
 }
 
 // withWildcardRead adds *.read to the clinician role so wildcard SMART scopes

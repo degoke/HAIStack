@@ -152,6 +152,56 @@ func TestPatientOverlayDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
 	}
 }
 
+func TestPatientOverlayObservationDenyIsNotOverwrittenByConsentDeny(t *testing.T) {
+	sc := policysemantics.Scenario{
+		ID:                 "obs-compartment-before-consent",
+		Principal:          "clinician",
+		Policy:             "narrow-observation",
+		PatientScope:       "pat-1",
+		CompartmentPatient: "pat-2",
+		Action:             "read",
+		ResourceType:       "Observation",
+		ResourceID:         "obs-1",
+		Consent: &policysemantics.ConsentState{
+			Status:        "active",
+			PatientID:     "pat-2",
+			ProvisionType: "deny",
+			ResourceTypes: []string{"Observation"},
+			Actions:       []string{"read"},
+		},
+		ExpectAllow: false,
+	}
+	report, err := policysemantics.RunCatalog(context.Background(), []policysemantics.Scenario{sc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed != 0 || len(report.Results) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	want := `principal scoped to patient "pat-1" cannot access "pat-2"`
+	if report.Results[0].Reason != want {
+		t.Fatalf("Observation compartment overlay must fail before consent, got %q", report.Results[0].Reason)
+	}
+}
+
+func TestOverlayPatientID(t *testing.T) {
+	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
+		ResourceType: "Patient", ResourceID: "pat-1", CompartmentPatient: "pat-9", LaunchPatient: "pat-8",
+	}); got != "pat-1" {
+		t.Fatalf("Patient.id = %q", got)
+	}
+	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
+		ResourceType: "Observation", ResourceID: "obs-1", CompartmentPatient: "pat-2", LaunchPatient: "pat-1",
+	}); got != "pat-2" {
+		t.Fatalf("compartment = %q", got)
+	}
+	if got := policysemantics.OverlayPatientID(policysemantics.Scenario{
+		ResourceType: "Observation", ResourceID: "obs-1", LaunchPatient: "pat-1",
+	}); got != "pat-1" {
+		t.Fatalf("launch fallback = %q", got)
+	}
+}
+
 func TestSMARTWriteDeny(t *testing.T) {
 	sc := policysemantics.Scenario{
 		ID:            "smart-write-deny",

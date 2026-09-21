@@ -104,7 +104,7 @@ func runOne(ctx context.Context, adapter *smart.AuthAdapter, sc Scenario) (Outco
 	if d := eng.CheckTenantBinding(principal, tenant); !d.Allowed {
 		return outcomeFrom(sc, d), nil
 	}
-	if d := eng.CheckPatientOverlay(tenant, sc.ResourceType, sc.ResourceID); !d.Allowed {
+	if d := eng.CheckPatientOverlay(tenant, OverlayPatientID(sc)); !d.Allowed {
 		return outcomeFrom(sc, d), nil
 	}
 	if haveSMART {
@@ -185,6 +185,18 @@ func smartVerb(action string) (smart.AccessVerb, bool) {
 	}
 }
 
+// OverlayPatientID is SEMANTICS gate 2's target patient: Patient.id, else the
+// authored compartment patient, else the SMART launch patient.
+func OverlayPatientID(sc Scenario) string {
+	if strings.EqualFold(sc.ResourceType, "Patient") {
+		return sc.ResourceID
+	}
+	if sc.CompartmentPatient != "" {
+		return sc.CompartmentPatient
+	}
+	return sc.LaunchPatient
+}
+
 func consentAllows(c *ConsentState, sc Scenario) (bool, string) {
 	if c == nil {
 		return true, ""
@@ -192,12 +204,9 @@ func consentAllows(c *ConsentState, sc Scenario) (bool, string) {
 	if !strings.EqualFold(c.Status, "active") {
 		return true, "inactive consent ignored"
 	}
-	patientID := sc.LaunchPatient
+	patientID := OverlayPatientID(sc)
 	if patientID == "" {
 		patientID = sc.PatientScope
-	}
-	if sc.ResourceType == "Patient" {
-		patientID = sc.ResourceID
 	}
 	if c.PatientID != "" && patientID != "" && c.PatientID != patientID {
 		return true, "consent for another patient"

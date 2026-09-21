@@ -394,10 +394,11 @@ func (e *Engine) CheckTenantBinding(p Principal, tenant TenantContext) Decision 
 	return e.checkTenantBinding(p, tenant)
 }
 
-// CheckPatientOverlay is patient-compartment overlay for one resource id
-// (SEMANTICS gate 2). Empty PatientScope is unrestricted.
-func (e *Engine) CheckPatientOverlay(tenant TenantContext, resourceType, resourceID string) Decision {
-	return e.checkPatientScopeConstraint(tenant, patientIDFromSubject(resourceID, resourceType))
+// CheckPatientOverlay is patient-compartment overlay (SEMANTICS gate 2).
+// patientID is Patient.id or the compartment patient of the resource.
+// Empty PatientScope or empty patientID is unrestricted.
+func (e *Engine) CheckPatientOverlay(tenant TenantContext, patientID string) Decision {
+	return e.checkPatientScopeConstraint(tenant, patientID)
 }
 
 func (e *Engine) checkPatientScopeConstraint(tenant TenantContext, patientID string) Decision {
