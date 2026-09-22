@@ -1278,7 +1278,7 @@ func TestReviewNitsRound3(t *testing.T) {
 	}
 	r, ok := got[0].(Ratio)
 	want := Ratio{Numerator: Quantity{Value: 2, Unit: "mg"}, Denominator: Quantity{Value: 2, Unit: "mL"}}
-	if !ok || !ratioEqual(r, want) {
+	if !ok || !ratioEqualWithUCUM(r, want, DefaultUCUMConverter()) {
 		t.Fatalf("ratio add: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "TruncateQuantity(1.9)", EvalContext{})
@@ -1435,7 +1435,7 @@ func TestReviewNitsRound6(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, ok = got[0].(Ratio)
-	if !ok || !ratioEqual(r, Ratio{Numerator: Quantity{Value: 1, Unit: "mg"}, Denominator: Quantity{Value: 1, Unit: "mL"}}) {
+	if !ok || !ratioEqualWithUCUM(r, Ratio{Numerator: Quantity{Value: 1, Unit: "mg"}, Denominator: Quantity{Value: 1, Unit: "mL"}}, DefaultUCUMConverter()) {
 		t.Fatalf("ratio multiply two ratios: %#v", got)
 	}
 	got, err = eng.Eval(context.Background(), "ConvertQuantity(1 '[ft_i]', 'm')", EvalContext{})
@@ -1456,6 +1456,30 @@ func TestReviewNitsRound8(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != true {
 		t.Fatalf("ratio proportional equivalence: %#v", got)
+	}
+}
+
+func TestReviewNitsRound12(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "2 'mg' * 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "mg" || q.Value != 10 {
+		t.Fatalf("quantity multiply UCUM: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "10 'mg' / 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Unit != "mg" || q.Value != 2 {
+		t.Fatalf("quantity divide UCUM: %#v", got)
+	}
+	mul, err := eng.Eval(context.Background(), "(1 'mg' : 2 'mL') * (1 'mg' : 2000 'uL')", EvalContext{})
+	if err != nil || len(mul) != 1 {
+		t.Fatalf("ratio multiply with mL/uL denominators: %#v err=%v", mul, err)
 	}
 }
 

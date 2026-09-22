@@ -843,22 +843,36 @@ func intervalWidth(iv Interval) ([]any, error) {
 	return nil, nil
 }
 
+func alignQuantitiesForArith(op string, a, b Quantity, conv UCUMConverter) (Quantity, Quantity, bool) {
+	if sameUnit(a.Unit, b.Unit) || isTimeUnit(a.Unit) {
+		return a, b, true
+	}
+	switch op {
+	case "+", "-", "*", "/":
+		if !quantitySameDimension(a.Unit, b.Unit, conv) {
+			return a, b, false
+		}
+		if convB, ok := convertQuantityValue(b, a.Unit, conv); ok {
+			return a, convB, true
+		}
+		if convA, ok := convertQuantityValue(a, b.Unit, conv); ok {
+			return convA, b, true
+		}
+		return a, b, false
+	default:
+		return a, b, false
+	}
+}
+
 func evalQuantityArith(op string, a, b Quantity, conv UCUMConverter) ([]any, error) {
 	if conv == nil {
 		conv = defaultUCUM
 	}
 	if !sameUnit(a.Unit, b.Unit) && !isTimeUnit(a.Unit) {
-		if op == "+" || op == "-" {
-			if !quantitySameDimension(a.Unit, b.Unit, conv) {
-				return nil, nil
-			}
-			if convB, ok := convertQuantityValue(b, a.Unit, conv); ok {
-				b = convB
-			} else if convA, ok := convertQuantityValue(a, b.Unit, conv); ok {
-				a = convA
-			} else {
-				return nil, nil
-			}
+		var ok bool
+		a, b, ok = alignQuantitiesForArith(op, a, b, conv)
+		if !ok {
+			return nil, nil
 		}
 	}
 	ua, ub := a.Value, b.Value

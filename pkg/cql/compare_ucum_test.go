@@ -23,6 +23,17 @@ func (s stubUCUM) Convert(value float64, fromUnit, toUnit string) (float64, bool
 	return defaultUCUM.Convert(value, fromUnit, toUnit)
 }
 
+func TestQuantityRatioTermVolumeUCUM(t *testing.T) {
+	conv := DefaultUCUMConverter()
+	v, ok := quantityRatioTerm(Quantity{Value: 2, Unit: "mL"}, Quantity{Value: 2000, Unit: "uL"}, conv)
+	if !ok {
+		t.Fatal("quantityRatioTerm mL*uL")
+	}
+	if v < 3.99 || v > 4.01 {
+		t.Fatalf("expected ~4 mL^2 value term, got %v", v)
+	}
+}
+
 func TestEngineCompareUsesConfigUCUM(t *testing.T) {
 	eng, err := NewEngine(Config{UCUM: stubUCUM{factor: 2}})
 	if err != nil {

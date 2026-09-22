@@ -147,6 +147,29 @@ func cqlEqualWithUCUM(a, b any, conv UCUMConverter) bool {
 	return false
 }
 
+// cqlEquivalentStructuralEqual handles types where strict = already matches ~ (excludes quantity/ratio/interval).
+func cqlEquivalentStructuralEqual(a, b any, conv UCUMConverter) bool {
+	if _, ok := asQuantity(a); ok {
+		if _, ok := asQuantity(b); ok {
+			return false
+		}
+	}
+	if _, ok := asRatio(a); ok {
+		if _, ok := asRatio(b); ok {
+			return false
+		}
+	}
+	if ia, ok := isCQLInterval(a); ok {
+		if ib, ok := isCQLInterval(b); ok {
+			vcmp := compareCtx{conv: conv}
+			return boundEqual(ia.Low, ib.Low, vcmp) &&
+				boundEqual(ia.High, ib.High, vcmp) &&
+				ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
+		}
+	}
+	return cqlEqualWithUCUM(a, b, conv)
+}
+
 func cqlCompareUCUM(a, b any, conv UCUMConverter) (int, bool) {
 	if conv == nil {
 		conv = defaultUCUM
@@ -225,7 +248,7 @@ func cqlEquivalentUCUM(a, b any, conv UCUMConverter) bool {
 		conv = defaultUCUM
 	}
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
-	if cqlEqualWithUCUM(a, b, conv) {
+	if cqlEquivalentStructuralEqual(a, b, conv) {
 		return true
 	}
 	if ra, ok := asRatio(a); ok {

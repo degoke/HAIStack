@@ -96,6 +96,10 @@ func cqlUCUMAlias(unit string) (string, bool) {
 		return "m", true
 	case "liter", "liters":
 		return "L", true
+	case "ml":
+		return "mL", true
+	case "ul", "µl", "microliter", "microliters":
+		return "uL", true
 	case "mcg":
 		return "ug", true
 	default:
