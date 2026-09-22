@@ -265,7 +265,15 @@ func (st *evalState) applyParameterDefaults() error {
 			if err != nil {
 				return err
 			}
-			st.params[p.Name] = singletonOrList(v)
+			if isListParameterType(p.Type) {
+				if v == nil {
+					st.params[p.Name] = []any{}
+				} else {
+					st.params[p.Name] = append([]any{}, v...)
+				}
+			} else {
+				st.params[p.Name] = singletonOrList(v)
+			}
 			seen[p.Name] = true
 			seen[strings.ToLower(p.Name)] = true
 		}
@@ -586,6 +594,18 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		}
 		num, ok1 := asQuantity(left[0])
 		den, ok2 := asQuantity(right[0])
+		if !ok1 {
+			if f, ok := asFloat(left[0]); ok {
+				num = Quantity{Value: f, Unit: "1"}
+				ok1 = true
+			}
+		}
+		if !ok2 {
+			if f, ok := asFloat(right[0]); ok {
+				den = Quantity{Value: f, Unit: "1"}
+				ok2 = true
+			}
+		}
 		if !ok1 || !ok2 {
 			return nil, nil
 		}
@@ -2419,7 +2439,11 @@ func asTemporal(v any, loc *time.Location) (time.Time, bool) {
 }
 
 func membershipItem(n Node, v []any) any {
-	if isListValued(n) {
+	return membershipItemLets(n, v, nil)
+}
+
+func membershipItemLets(n Node, v []any, listLets map[string]bool) any {
+	if isListValuedExpr(n, listLets) {
 		if v == nil {
 			return []any{}
 		}
@@ -2435,7 +2459,11 @@ func membershipItem(n Node, v []any) any {
 }
 
 func wrapListElement(el Node, v []any) any {
-	if isListValued(el) {
+	return wrapListElementLets(el, v, nil)
+}
+
+func wrapListElementLets(el Node, v []any, listLets map[string]bool) any {
+	if isListValuedExpr(el, listLets) {
 		if v == nil {
 			return []any{}
 		}
@@ -2451,11 +2479,44 @@ func wrapListElement(el Node, v []any) any {
 }
 
 func isListValued(n Node) bool {
+	return isListValuedExpr(n, nil)
+}
+
+func isListValuedExpr(n Node, listLets map[string]bool) bool {
 	switch n.(type) {
 	case *listNode, *retrieveNode, *queryNode:
 		return true
 	}
+	if id, ok := n.(*identNode); ok {
+		return listLetIsListValued(listLets, id.name)
+	}
 	return false
+}
+
+func listLetIsListValued(listLets map[string]bool, name string) bool {
+	if listLets == nil {
+		return false
+	}
+	if listLets[name] {
+		return true
+	}
+	for k, v := range listLets {
+		if v && strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func isListParameterType(typ string) bool {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		return false
+	}
+	if i := strings.Index(typ, "<"); i > 0 {
+		return strings.EqualFold(typ[:i], "List")
+	}
+	return strings.EqualFold(typ, "List")
 }
 
 func listValueResult(v any) []any {
@@ -2715,6 +2776,13 @@ func cqlToString(v any) (string, bool) {
 		}
 	}
 	if q, ok := asQuantity(v); ok {
+		if isDimensionlessUnit(q.Unit) {
+			if isIntLike(q.Value) {
+				n, _ := asInt(q.Value)
+				return strconv.FormatInt(n, 10), true
+			}
+			return strconv.FormatFloat(q.Value, 'f', -1, 64), true
+		}
 		if isIntLike(q.Value) || q.Value == float64(int64(q.Value)) {
 			return fmt.Sprintf("%g '%s'", q.Value, q.Unit), true
 		}
@@ -2747,7 +2815,32 @@ func cqlToString(v any) (string, bool) {
 			return "'" + c.Code + "'", true
 		}
 	}
+	if m, ok := asObject(v); ok {
+		if s, ok := tupleToCQLString(m); ok {
+			return s, true
+		}
+	}
 	return fmt.Sprint(v), true
+}
+
+func tupleToCQLString(m map[string]any) (string, bool) {
+	if len(m) == 0 {
+		return "{}", true
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		vs, ok := cqlToString(m[k])
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, k+": "+vs)
+	}
+	return "{" + strings.Join(parts, ", ") + "}", true
 }
 
 func intervalToCQLString(iv Interval) (string, bool) {

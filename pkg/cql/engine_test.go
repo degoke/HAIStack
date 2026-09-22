@@ -3097,6 +3097,22 @@ func TestQueryReturnAndTupleKeepSingletonLists(t *testing.T) {
 			t.Fatalf("return {X} row %d: %#v", i, row)
 		}
 	}
+	got, err = eng.Eval(context.Background(), "from {1, 2} X let L: {X} return L", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("return L: %#v", got)
+	}
+	for i, row := range got {
+		list, ok := row.([]any)
+		if !ok || len(list) != 1 {
+			t.Fatalf("return L row %d: %#v", i, row)
+		}
+		if list[0] != int64(i+1) && list[0] != i+1 {
+			t.Fatalf("return L row %d: %#v", i, row)
+		}
+	}
 	got, err = eng.Eval(context.Background(), "{id: {1}}", EvalContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -3108,6 +3124,72 @@ func TestQueryReturnAndTupleKeepSingletonLists(t *testing.T) {
 	id, ok := obj["id"].([]any)
 	if !ok || len(id) != 1 || id[0] != int64(1) && id[0] != 1 {
 		t.Fatalf("tuple id field: %#v", obj["id"])
+	}
+	got, err = eng.Eval(context.Background(), "ToString({a: 1, b: 2})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "{a: 1, b: 2}" {
+		t.Fatalf("ToString tuple: %#v", got)
+	}
+}
+
+func TestListParameterDefaultStaysList(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library P version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Items" List<Integer> default {1}
+context Patient
+define "Len":
+  Count(Items)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "Len", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) {
+		t.Fatalf("List parameter default: %#v", got)
+	}
+}
+
+func TestIntegerRatioLiteral(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1:2", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := asRatio(got[0])
+	if !ok || r.Numerator.Value != 1 || r.Denominator.Value != 2 {
+		t.Fatalf("1:2: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "ToString(1:2)", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "1 : 2" {
+		t.Fatalf("ToString 1:2: %#v", got)
+	}
+}
+
+func TestCaseListComparandEquality(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "case {1, 2} when {1, 2} then 'yes' else 'no' end", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "yes" {
+		t.Fatalf("case list comparand: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "case {1, 2} when 1 then 'yes' else 'no' end", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "no" {
+		t.Fatalf("case list vs scalar: %#v", got)
 	}
 }
 

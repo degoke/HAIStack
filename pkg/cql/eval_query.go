@@ -5,10 +5,11 @@ import (
 )
 
 type queryRow struct {
-	locals  map[string][]any
-	this    any
-	thisSet bool
-	item    any
+	locals   map[string][]any
+	listLets map[string]bool
+	this     any
+	thisSet  bool
+	item     any
 }
 
 func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
@@ -41,6 +42,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				this, thisSet = val, true
 			}
 		}
+		listLets := map[string]bool{}
 		ok, err := withQueryScope(st, locals, this, thisSet, func() (bool, error) {
 			for _, let := range q.lets {
 				v, err := st.eval(let.expr)
@@ -49,6 +51,9 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				}
 				st.stack[let.name] = v
 				locals[let.name] = v
+				if isListValued(let.expr) {
+					listLets[let.name] = true
+				}
 			}
 			for _, rel := range q.related {
 				pass, err := st.evalRelated(rel)
@@ -77,7 +82,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		if !ok {
 			continue
 		}
-		qr := queryRow{locals: copyQueryLocals(locals), this: this, thisSet: thisSet}
+		qr := queryRow{locals: copyQueryLocals(locals), listLets: listLets, this: this, thisSet: thisSet}
 		if q.agg != nil {
 			rows = append(rows, qr)
 			continue
@@ -88,7 +93,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				if err != nil {
 					return nil, err
 				}
-				return wrapListElement(q.ret, v), nil
+				return wrapListElementLets(q.ret, v, qr.listLets), nil
 			}
 			if thisSet {
 				return this, nil
@@ -245,7 +250,7 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 				if err != nil {
 					return false, err
 				}
-				ks = append(ks, singletonOrList(v))
+				ks = append(ks, membershipItemLets(k.expr, v, row.listLets))
 			}
 			return true, nil
 		})
@@ -478,13 +483,12 @@ func (st *evalState) evalCase(n *caseNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		tv := singletonOrList(test)
 		for _, w := range n.whens {
 			when, err := st.eval(w.when)
 			if err != nil {
 				return nil, err
 			}
-			eq := st.cqlEqual3Value(tv, singletonOrList(when), st.compareContext())
+			eq := st.cqlEqualResult(test, when)
 			if len(eq) == 1 && eq[0] == true {
 				return st.eval(w.then)
 			}
