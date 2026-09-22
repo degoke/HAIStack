@@ -21,7 +21,9 @@ Every library under `pkg/<name>/` should ship a **README.md** that stands alone 
 - **Ecosystem context** — Every README answers: “If I use only this import, what else do I typically wire?”
 - **Multiple paths** — CLI, `runtime.Builder`, and manual wiring should be mentioned when all three exist.
 - **`## Limits`** and **`## Related docs`** — use these exact headings (rename legacy `MVP limits`, `Related packages`, etc.).
-- **`## How it fits in the ecosystem`** — preferred title; **`## Where it fits`** is accepted by CI as an equivalent ecosystem section.
+- **`## How it fits in the ecosystem`** — preferred title; **`## Where it fits`** is an equivalent ecosystem section.
+
+Run locally: `make check-package-readmes` or `bash scripts/check-package-readmes.sh` (not enforced in CI).
 
 ## Also document
 

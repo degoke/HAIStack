@@ -24,6 +24,9 @@ fmt-check format-check: ## Verify Go files are formatted
 		exit 1; \
 	fi
 
+check-package-readmes: ## Verify pkg/*/README.md match docs/package-readme-standard.md headings
+	bash scripts/check-package-readmes.sh
+
 vet: ## Run go vet
 	$(GO) vet ./...
 
