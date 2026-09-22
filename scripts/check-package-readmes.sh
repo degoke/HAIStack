@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies pkg/*/README.md match docs/package-readme-standard.md section headings.
+# Optional local check: required section headings in pkg/*/README.md.
 set -euo pipefail
 
 fail=0
