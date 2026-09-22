@@ -3218,6 +3218,117 @@ define "LitIn":
 	}
 }
 
+func TestDefineListIdentSemantics(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library P version '1.0.0'
+using FHIR version '4.0.1'
+define "Single": {1}
+context Patient
+define "TDef":
+  {id: Single}
+define "InDef":
+  Single in {{1}}
+define "Q":
+  from {1} X let L: Single return L
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "TDef", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, ok := asObject(got[0])
+	if !ok {
+		t.Fatalf("TDef: %#v", got)
+	}
+	id, ok := obj["id"].([]any)
+	if !ok || len(id) != 1 || id[0] != int64(1) && id[0] != 1 {
+		t.Fatalf("TDef id: %#v", obj["id"])
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "InDef", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("InDef: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "Q", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Q: %#v", got)
+	}
+	row, ok := got[0].([]any)
+	if !ok || len(row) != 1 || row[0] != int64(1) && row[0] != 1 {
+		t.Fatalf("Q row: %#v", got[0])
+	}
+}
+
+func TestMemberStringIndexing(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "('hello')[0]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "h" {
+		t.Fatalf("string index: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "({s: 'hello'}).s[0]", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "h" {
+		t.Fatalf("member string index: %#v", got)
+	}
+}
+
+func TestLetRetrieveExpressionNotInnerQuery(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = eng.ParseExpression("[Observation] return X")
+	if err == nil {
+		t.Fatal("expected parse error for retrieve glued to return in expression")
+	}
+	lib, err := eng.ParseLibrary(`
+library R version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Q":
+  from {1} X let L: [Observation] return L
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "Q", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("let retrieve: %#v", got)
+	}
+	inner, ok := got[0].([]any)
+	if !ok || len(inner) != 1 {
+		t.Fatalf("expected nested observation list: %#v", got[0])
+	}
+}
+
 func TestListParameterDefaultStaysList(t *testing.T) {
 	eng := testEngine(t)
 	lib, err := eng.ParseLibrary(`

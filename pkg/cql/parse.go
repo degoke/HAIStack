@@ -1290,9 +1290,6 @@ func (p *parser) parsePrimary() (Node, error) {
 			p.lex.next()
 			return p.parseQuery(querySource{expr: n, alias: t.text})
 		}
-		if t.kind == tIdent && isQueryClauseKeyword(t.text) {
-			return p.parseQuery(querySource{expr: n})
-		}
 		return n, nil
 	case tLBrace:
 		return p.parseBrace()

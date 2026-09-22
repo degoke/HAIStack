@@ -2487,15 +2487,40 @@ func (st *evalState) isListValued(n Node) bool {
 }
 
 func (st *evalState) isListValuedExpr(n Node, listLets map[string]bool) bool {
-	switch n.(type) {
+	return st.isListValuedExprVisit(n, listLets, nil)
+}
+
+func (st *evalState) isListValuedExprVisit(n Node, listLets map[string]bool, visiting map[string]bool) bool {
+	if n == nil {
+		return false
+	}
+	switch x := n.(type) {
 	case *listNode, *retrieveNode, *queryNode:
 		return true
-	}
-	if id, ok := n.(*identNode); ok {
-		if listLetIsListValued(listLets, id.name) {
+	case *identNode:
+		if listLetIsListValued(listLets, x.name) {
 			return true
 		}
-		return st.isListTypedName(id.name)
+		if st.isListTypedName(x.name) {
+			return true
+		}
+		if def, _ := st.lookupDefine(x.name); def != nil && def.Expression != nil {
+			key := strings.ToLower(x.name)
+			if visiting != nil && visiting[key] {
+				return false
+			}
+			if visiting == nil {
+				visiting = map[string]bool{}
+			}
+			visiting[key] = true
+			return st.isListValuedExprVisit(def.Expression, listLets, visiting)
+		}
+		return false
+	case *binaryNode:
+		if x.op == "|" {
+			return st.isListValuedExprVisit(x.left, listLets, visiting) &&
+				st.isListValuedExprVisit(x.right, listLets, visiting)
+		}
 	}
 	return false
 }

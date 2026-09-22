@@ -40,12 +40,21 @@ func (st *evalState) evalIndex(n *indexNode) ([]any, error) {
 }
 
 func (st *evalState) indexesAsList(n Node) bool {
-	switch n.(type) {
-	case *listNode, *retrieveNode, *queryNode, *memberNode:
+	switch x := n.(type) {
+	case *listNode, *retrieveNode, *queryNode:
 		return true
-	}
-	if id, ok := n.(*identNode); ok {
-		return st.isListTypedName(id.name)
+	case *identNode:
+		return st.isListValuedExpr(x, nil)
+	case *memberNode:
+		if tup, ok := x.x.(*tupleNode); ok {
+			for _, f := range tup.fields {
+				if f.name == x.name || strings.EqualFold(f.name, x.name) {
+					return st.isListValuedExpr(f.value, nil)
+				}
+			}
+			return false
+		}
+		return st.isListValuedExpr(x.x, nil)
 	}
 	return false
 }
