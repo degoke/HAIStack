@@ -18,7 +18,7 @@
 //   - Logger / LoggerFunc — append seam
 //   - StoreAdapter — bridges Event to store.AuditStore
 //   - Emit helpers: LogResourceRead, LogResourceWrite, LogSyncEvent,
-//     LogAIToolCall, LogAuthDecision, LogExport, LogBlobAccess, LogViewAccess
+//     LogAIToolCall, LogAIModelInvoke, LogAuthDecision, LogExport, LogBlobAccess, LogViewAccess
 //   - Action and Outcome constants for consistent naming
 //
 // # Typical usage

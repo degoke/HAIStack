@@ -1,266 +1,431 @@
-// Package aipipeline is the Track E reproducible FHIR → view → AI → audit demo.
-package aipipeline
+// Command ai-pipeline runs the reproducible FHIR → view → AI provenance demo.
+package main
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
 	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
 	"github.com/degoke/health-ai-stack/pkg/validate"
 	"github.com/degoke/health-ai-stack/pkg/view"
-	"github.com/degoke/health-ai-stack/research/internal/memstore"
+	"github.com/degoke/health-ai-stack/research/internal/researchutil"
 )
 
-// Result is the pipeline outcome plus the exportable provenance bundle.
-type Result struct {
-	Bundle    ProvenanceBundle
-	ViewRows  int
-	DeniedErr string
+//go:embed views/research_vitals_view.json
+var vitalsView []byte
+
+const (
+	viewName    = "research_vitals_view"
+	viewVersion = "1.0.0"
+	modelSeed   = int64(11)
+)
+
+var pipelinePolicy = []byte(`{
+  "version": "1",
+  "rules": [
+    {
+      "name": "patient-and-observation-read",
+      "effect": "allow",
+      "match": {
+        "actions": ["read"],
+        "resourceTypes": ["Patient", "Observation"],
+        "anyPermissions": ["patient.read", "observation.read"]
+      },
+      "reason": "clinician may read patients and observations"
+    },
+    {
+      "name": "vitals-view",
+      "effect": "allow",
+      "match": {
+        "actions": ["execute-view"],
+        "viewNames": ["research_vitals_view"],
+        "anyPermissions": ["observation.read"]
+      },
+      "reason": "clinician may execute the research vitals view"
+    },
+    {
+      "name": "ai-run-view",
+      "effect": "allow",
+      "match": {
+        "actions": ["execute-ai-tool"],
+        "toolNames": ["run_view"]
+      },
+      "reason": "clinician may invoke run_view"
+    }
+  ]
+}`)
+
+func main() {
+	if err := printPipeline(); err != nil {
+		fmt.Fprintf(os.Stderr, "ai-pipeline: %v\n", err)
+		os.Exit(1)
+	}
 }
 
-// Run executes the reproducible pipeline with a fixed clock and seeded stub.
-func Run(ctx context.Context) (*Result, error) {
-	ds, err := LoadDataset()
+func printPipeline() error {
+	bundle, err := Run(context.Background())
 	if err != nil {
-		return nil, err
+		return err
 	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(bundle)
+}
 
-	validator, err := validate.NewEngine(validate.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("validate engine: %w", err)
-	}
-	inputs := make([]InputRef, 0, len(ds.Patients)+len(ds.Observations))
-	resources := memstore.New()
-	all := make([]*types.ResourceEnvelope, 0, len(ds.Patients)+len(ds.Observations))
-	all = append(all, ds.Patients...)
-	all = append(all, ds.Observations...)
-	for _, env := range all {
-		res, err := validator.Validate(ctx, env, validate.ValidateOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("validate %s/%s: %w", env.ResourceType, env.ID, err)
-		}
-		if res != nil && !res.Valid {
-			return nil, fmt.Errorf("validate %s/%s: invalid: %+v", env.ResourceType, env.ID, res.Issues)
-		}
-		if err := resources.Create(ctx, env); err != nil {
-			return nil, err
-		}
-		inputs = append(inputs, InputRef{
-			Ref:  env.ResourceType + "/" + env.ID,
-			Hash: env.Hash,
-		})
-	}
-
-	fp, err := fhirpath.NewEngine(fhirpath.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("fhirpath: %w", err)
-	}
-
-	now := FixedNow
+// Run executes the reproducible FHIR → view → AI tool → audit pipeline.
+func Run(ctx context.Context) (*ProvenanceBundle, error) {
+	now := researchutil.FixedTime
+	resources := researchutil.NewMemoryResourceStore()
 	auditStore := audit.NewMemoryStore()
-	newID := sequentialID("audit")
-	auditLogger := &audit.StoreAdapter{Store: auditStore, Now: now, NewID: newID}
 
-	engine, err := newAuthEngine()
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
 		return nil, err
 	}
+	inputs, validation, err := loadAndValidate(ctx, resources, engine)
+	if err != nil {
+		return nil, err
+	}
+	authEng, err := auth.NewEngine(auth.Config{
+		Roles: []auth.Role{{
+			Name: "clinician",
+			Permissions: []auth.Permission{
+				"patient.read",
+				"observation.read",
+			},
+		}},
+		Principals: []auth.Principal{{
+			ID:   pipelineActor,
+			Kind: auth.KindUser,
+			TenantBindings: []auth.TenantBinding{{
+				TenantID: pipelineTenant,
+				Roles:    []string{"clinician"},
+			}},
+		}},
+		PolicyBytes:  pipelinePolicy,
+		PolicyFormat: auth.PolicyFormatJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	resolve := func(_ context.Context, actor, _ string) (auth.Principal, auth.TenantContext, error) {
-		p, err := engine.Catalog().GetPrincipal(actor)
+		p, err := authEng.Catalog().GetPrincipal(actor)
 		if err != nil {
 			return auth.Principal{}, auth.TenantContext{}, err
 		}
-		return p, auth.TenantContext{TenantID: TenantID}, nil
+		return p, auth.TenantContext{TenantID: pipelineTenant}, nil
 	}
 
 	viewReg := view.NewRegistry()
-	if _, err := viewReg.Register(LabViewDefinition(), fp); err != nil {
+	if _, err := viewReg.Register(vitalsView, engine); err != nil {
 		return nil, fmt.Errorf("register view: %w", err)
 	}
 	viewExec, err := view.NewExecutor(view.Config{
 		Resources: resources,
-		Engine:    fp,
+		Engine:    engine,
 		Registry:  viewReg,
 		Authorizer: &auth.ViewAuthorizer{
-			Engine:   engine,
-			TenantID: TenantID,
+			Engine:   authEng,
+			TenantID: pipelineTenant,
 			Resolve:  resolve,
 		},
-		Audit: &view.AuditStoreAdapter{Store: auditStore, Now: now, NewID: newID},
+		Audit: &view.AuditStoreAdapter{Store: auditStore, Now: now},
 		Now:   now,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("view executor: %w", err)
+		return nil, err
 	}
 
+	stub := &StubModel{Adapter: "stub-v1", Seed: modelSeed}
 	aiExec, err := ai.NewExecutor(ai.Config{
 		Resources:             resources,
 		Views:                 viewExec,
-		Audit:                 &ai.AuditStoreAdapter{Store: auditStore, Now: now, NewID: newID},
+		Audit:                 &ai.AuditStoreAdapter{Store: auditStore, Now: now},
 		AuditRequired:         true,
 		RequireConversationID: true,
+		Now:                   now,
+		ModelRouter:           &ai.ModelRouter{Local: stub},
 		Policy: &auth.AIPolicyAdapter{
-			Engine:   engine,
-			TenantID: TenantID,
+			Engine:   authEng,
+			TenantID: pipelineTenant,
 			Resolve:  resolve,
 			Constraints: &auth.AIConstraints{
 				Views: map[string]ai.ViewTypePolicy{
-					ViewName: {MaxCount: 50},
+					viewName: {},
 				},
 			},
 		},
-		ModelRouter: &ai.ModelRouter{Local: SeededStub{Seed: StubSeed}},
-		Now:         now,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ai executor: %w", err)
+		return nil, err
 	}
 
-	toolResult, err := aiExec.ExecuteTool(ctx, ai.ToolRequest{
+	toolRes, err := aiExec.ExecuteTool(ctx, ai.ToolRequest{
 		ToolName:       ai.ToolRunView,
-		Actor:          ActorID,
-		TenantID:       TenantID,
-		ConversationID: ConversationID,
+		Actor:          pipelineActor,
+		TenantID:       pipelineTenant,
+		Subject:        "research/vitals",
+		ConversationID: conversationID,
 		Input: map[string]any{
-			"viewName": ViewName,
-			"version":  ViewVersion,
+			"viewName": viewName,
+			"version":  viewVersion,
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("run_view: %w", err)
 	}
 
-	_, denied := aiExec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName:       ai.ToolRunView,
-		Actor:          DeniedActorID,
-		TenantID:       TenantID,
-		ConversationID: ConversationID,
-		Input: map[string]any{
-			"viewName": ViewName,
-			"version":  ViewVersion,
-		},
-	})
-	if denied == nil {
-		return nil, fmt.Errorf("research-ai-pipeline: denied actor %s was allowed run_view", DeniedActorID)
-	}
-	deniedErr := denied.Error()
-
-	model, err := aiExec.InvokeModel(ctx, ai.ToolRequest{
-		Actor:          ActorID,
-		ConversationID: ConversationID,
-	}, Prompt, toolResult.Context)
+	modelRes, err := aiExec.InvokeModel(ctx, ai.ToolRequest{
+		Actor:          pipelineActor,
+		TenantID:       pipelineTenant,
+		ConversationID: conversationID,
+		ModelHint:      "local",
+	}, "Summarize authorized vitals view output for research evaluation.", toolRes.Context)
 	if err != nil {
-		return nil, fmt.Errorf("invoke stub: %w", err)
+		return nil, fmt.Errorf("invoke model: %w", err)
 	}
-	modelProv := ModelProvenance{Adapter: "seeded-stub", Seed: StubSeed}
-	output := toolResult.Context
-	if model != nil {
-		modelProv.Adapter = model.Adapter
-		modelProv.Content = model.Content
-		output = model.Content
+	if modelRes == nil {
+		return nil, fmt.Errorf("stub model returned nil")
 	}
 
-	events, err := auditLogger.ListEvents(ctx, audit.Query{Limit: 100})
+	rows, columns := viewRows(toolRes.Data)
+	rowHash, err := researchutil.HashJSON(rows)
 	if err != nil {
 		return nil, err
 	}
+	ctxHash := researchutil.HashBytes([]byte(toolRes.Context))
+	policyHash := researchutil.HashBytes(pipelinePolicy)
+	defHash := researchutil.HashBytes(vitalsView)
 
-	rowCount := viewRowCount(toolResult.Data)
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("expected authorized view rows, got 0")
+	}
+	// preliminary observation is filtered out of the view
+	if len(rows) != 5 {
+		return nil, fmt.Errorf("expected 5 final vitals rows, got %d", len(rows))
+	}
 
-	bundle := ProvenanceBundle{
-		Pipeline:    "research/ai-pipeline",
-		Version:     PipelineVersion,
-		GeneratedAt: FixedNow(),
-		FAIR: FAIR{
-			License:     "Apache-2.0",
-			Synthetic:   true,
-			ContainsPHI: false,
-			Citation:    "See CITATION.cff",
+	events, err := auditStore.List(ctx, store.AuditQuery{})
+	if err != nil {
+		return nil, err
+	}
+	if !hasAuditAction(events, audit.ActionExecuteView) {
+		return nil, fmt.Errorf("missing %s audit event", audit.ActionExecuteView)
+	}
+	if !hasAuditAction(events, audit.ActionExecuteTool) {
+		return nil, fmt.Errorf("missing %s audit event", audit.ActionExecuteTool)
+	}
+	if !hasAuditAction(events, audit.ActionInvokeModel) {
+		return nil, fmt.Errorf("missing %s audit event", audit.ActionInvokeModel)
+	}
+
+	return &ProvenanceBundle{
+		Artefact:  "haistack-research-ai-pipeline",
+		Track:     "E",
+		CreatedAt: now(),
+		FAIR: FAIRMetadata{
+			License:   "Apache-2.0",
+			Synthetic: true,
+			PHI:       false,
+			Citation:  "See CITATION.cff and research/README.md",
 		},
-		Inputs: inputs,
+		Inputs:     inputs,
+		Validation: validation,
 		View: ViewProvenance{
-			Name:     ViewName,
-			Version:  ViewVersion,
-			RowCount: rowCount,
+			Name:       viewName,
+			Version:    viewVersion,
+			Definition: defHash,
+			RowCount:   len(rows),
+			RowHash:    rowHash,
+			Columns:    columns,
 		},
 		Policy: PolicyProvenance{
 			Version: "1",
-			Hash:    policyHash(PolicyJSON()),
+			Hash:    policyHash,
+			Format:  "json",
 		},
 		Tool: ToolProvenance{
-			Name:    ai.ToolRunView,
-			Outcome: toolResult.AuditMeta.Outcome,
+			Name:      ai.ToolRunView,
+			Actor:     pipelineActor,
+			Outcome:   toolRes.AuditMeta.Outcome,
+			Citations: toolRes.Citations,
 		},
-		Model:     modelProv,
-		Citations: toolResult.Citations,
-		Output:    output,
-		Audit:     compactAudit(events),
-	}
-
-	return &Result{Bundle: bundle, ViewRows: rowCount, DeniedErr: deniedErr}, nil
+		Model: ModelProvenance{
+			Adapter: stub.Name(),
+			Seed:    modelSeed,
+		},
+		Output: OutputProvenance{
+			Content: modelRes.Content,
+			Context: ctxHash,
+		},
+		Audit: events,
+	}, nil
 }
 
-func viewRowCount(data any) int {
-	m, ok := data.(map[string]any)
-	if !ok {
-		return 0
+func loadAndValidate(ctx context.Context, resources store.ResourceStore, engine fhirpath.Engine) ([]InputRecord, ValidationProvenance, error) {
+	catalog, pin, err := loadPinnedCatalog()
+	if err != nil {
+		return nil, ValidationProvenance{}, err
 	}
-	switch rows := m["rows"].(type) {
-	case []map[string]any:
-		return len(rows)
-	case []any:
-		return len(rows)
-	}
-	switch total := m["total"].(type) {
-	case int:
-		return total
-	case float64:
-		return int(total)
-	default:
-		return 0
-	}
-}
-
-func newAuthEngine() (*auth.Engine, error) {
-	return auth.NewEngine(auth.Config{
-		Roles: []auth.Role{{
-			Name: "clinician",
-			Permissions: []auth.Permission{
-				"read-lab-summary",
-				"observation.read",
-			},
-		}},
-		Principals: []auth.Principal{
-			{
-				ID:   ActorID,
-				Kind: auth.KindUser,
-				TenantBindings: []auth.TenantBinding{{
-					TenantID: TenantID,
-					Roles:    []string{"clinician"},
-				}},
-			},
-			{
-				ID:   DeniedActorID,
-				Kind: auth.KindUser,
-				TenantBindings: []auth.TenantBinding{{
-					TenantID: TenantID,
-					Roles:    []string{},
-				}},
-			},
-		},
-		PolicyBytes:  PolicyJSON(),
-		PolicyFormat: auth.PolicyFormatJSON,
+	validator, err := validate.NewEngine(validate.Config{
+		ProfileCatalog: catalog,
+		FHIRPath:       engine,
 	})
+	if err != nil {
+		return nil, pin, err
+	}
+	var inputs []InputRecord
+	var envelopes []*types.ResourceEnvelope
+	for _, p := range pipelinePatients() {
+		env, err := patientEnvelope(p)
+		if err != nil {
+			return nil, pin, err
+		}
+		envelopes = append(envelopes, env)
+	}
+	for _, o := range pipelineObservations() {
+		env, err := observationEnvelope(o)
+		if err != nil {
+			return nil, pin, err
+		}
+		envelopes = append(envelopes, env)
+	}
+	opts := validate.ValidateOptions{
+		ProfileCatalog:          catalog,
+		EnforceBaseProfile:      true,
+		EnforceDeclaredProfiles: true,
+		Mode:                    validate.ValidationModeFast,
+	}
+	for _, env := range envelopes {
+		result, err := validator.Validate(ctx, env, opts)
+		if err != nil {
+			return nil, pin, fmt.Errorf("validate %s/%s: %w", env.ResourceType, env.ID, err)
+		}
+		if result == nil || !result.Valid {
+			return nil, pin, fmt.Errorf("validate %s/%s: invalid %+v", env.ResourceType, env.ID, result)
+		}
+		if err := resources.Create(ctx, env); err != nil {
+			return nil, pin, err
+		}
+		profile := validate.BaseStructureDefinitionURL(env.ResourceType)
+		if env.ResourceType == "Patient" {
+			profile = haiPatientProfileURL
+		}
+		inputs = append(inputs, InputRecord{
+			ResourceType: env.ResourceType,
+			ID:           env.ID,
+			Hash:         env.Hash,
+			Validated:    true,
+			Profile:      profile,
+		})
+	}
+	return inputs, pin, nil
 }
 
-func sequentialID(prefix string) func() string {
-	n := 0
-	return func() string {
-		n++
-		return fmt.Sprintf("%s-%02d", prefix, n)
+type conformanceLock struct {
+	IGPackage struct {
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Canonical string `json:"canonical"`
+	} `json:"igPackage"`
+	FHIRVersion string `json:"fhirVersion"`
+	GitCommit   string `json:"gitCommit"`
+}
+
+func loadPinnedCatalog() (validate.MemoryProfileCatalog, ValidationProvenance, error) {
+	root, err := researchutil.RepoRoot()
+	if err != nil {
+		return nil, ValidationProvenance{}, err
 	}
+	lockPath := filepath.Join(root, "conformance-lock.json")
+	lockBytes, err := os.ReadFile(lockPath)
+	if err != nil {
+		return nil, ValidationProvenance{}, fmt.Errorf("read conformance-lock: %w", err)
+	}
+	var lock conformanceLock
+	if err := json.Unmarshal(lockBytes, &lock); err != nil {
+		return nil, ValidationProvenance{}, err
+	}
+	igRel := "modules/core/ig"
+	pin := ValidationProvenance{
+		FHIRVersion:           lock.FHIRVersion,
+		IGPackage:             lock.IGPackage.Name,
+		IGVersion:             lock.IGPackage.Version,
+		Canonical:             lock.IGPackage.Canonical,
+		ConformanceLockCommit: lock.GitCommit,
+		CheckoutCommit:        researchutil.CheckoutCommit(root),
+		Mode:                  "r4-base-and-declared-ig-fast",
+		Profiles: []string{
+			validate.BaseStructureDefinitionURL("Patient"),
+			validate.BaseStructureDefinitionURL("Observation"),
+			haiPatientProfileURL,
+		},
+		IGResources: igRel,
+	}
+	sdDir := filepath.Join(root, "pkg/registry/internal/bundles/r4/structure-definitions")
+	var resources [][]byte
+	for _, name := range []string{"Patient.json", "Observation.json"} {
+		raw, err := os.ReadFile(filepath.Join(sdDir, name))
+		if err != nil {
+			return nil, pin, fmt.Errorf("load %s: %w", name, err)
+		}
+		resources = append(resources, raw)
+	}
+	catalog, err := validate.LoadProfileCatalogFromJSON(resources)
+	if err != nil {
+		return nil, pin, err
+	}
+	igDir := filepath.Join(root, igRel)
+	ig, err := validate.LoadProfileCatalogFromDir(igDir)
+	if err != nil {
+		return nil, pin, fmt.Errorf("load compiled IG from %s: %w", igRel, err)
+	}
+	if _, ok := ig.GetStructureDefinition(haiPatientProfileURL); !ok {
+		return nil, pin, fmt.Errorf("compiled IG %s is missing %s", igRel, haiPatientProfileURL)
+	}
+	return validate.MergeProfileCatalogs(catalog, ig), pin, nil
+}
+
+func viewRows(data any) ([]map[string]any, []string) {
+	switch v := data.(type) {
+	case *view.Result:
+		cols := make([]string, 0, len(v.Columns))
+		for _, c := range v.Columns {
+			cols = append(cols, c.Name)
+		}
+		return v.Rows, cols
+	case map[string]any:
+		rows, _ := v["rows"].([]map[string]any)
+		var cols []string
+		switch c := v["columns"].(type) {
+		case []view.ColumnInfo:
+			for _, col := range c {
+				cols = append(cols, col.Name)
+			}
+		case []string:
+			cols = append(cols, c...)
+		}
+		return rows, cols
+	default:
+		return nil, nil
+	}
+}
+
+func hasAuditAction(events []store.AuditRecord, action string) bool {
+	for _, e := range events {
+		if e.Action == action {
+			return true
+		}
+	}
+	return false
 }

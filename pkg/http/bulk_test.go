@@ -1,9 +1,11 @@
 package http_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -482,6 +484,13 @@ func (s stubExportFiles) Manifest(*export.Job) *export.Manifest               { 
 func (s stubExportFiles) StatusURL(string) string                             { return "" }
 func (s stubExportFiles) GetFile(context.Context, string, string) ([]byte, string, error) {
 	return nil, "", s.err
+}
+func (s stubExportFiles) OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	data, ct, err := s.GetFile(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
 }
 
 type stubImportFiles struct {

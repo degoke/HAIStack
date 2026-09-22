@@ -1,15 +1,20 @@
 HAIStack research artefacts
-==========================
+===========================
 
-Code under research/ is licensed under the Apache License, Version 2.0.
-See the repository root LICENSE file.
+Code under this directory is licensed under the Apache License 2.0, the same
+license as the rest of the HAIStack repository. See the LICENSE file at the
+repository root.
 
-Datasets, corpora, gold ConceptMaps, workload definitions, and synthetic FHIR
-instances under research/ are original, fully synthetic, and contain no PHI.
-They are also licensed under Apache License 2.0 so that code and data can be
-redistributed together.
+Datasets, corpora, ConceptMaps, policy scenarios, and workload definitions
+in this directory are **synthetic**. They contain no protected health
+information (PHI) and no de-identified real-patient records.
 
-If a future dataset uses a different license (for example CC-BY for a
-third-party synthetic corpus), that dataset directory will include its own
-LICENSE file. None of the artefacts in this tree currently differ from
-Apache 2.0.
+Unless a file states otherwise, synthetic research datasets are also
+released under Apache License 2.0 so they can be redistributed with the
+code. They are provided for evaluation, benchmarking, and documentation of
+methodology — not as clinical decision support.
+
+If a future artefact uses a third-party terminology or dataset with a
+different license (for example UMLS/SNOMED CT), that artefact MUST record
+the license, attribution, and access conditions next to the files and MUST
+not mix those terms into this default Apache-2.0 grant.

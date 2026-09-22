@@ -1,3 +1,5 @@
+# PRs targeting main: fmt, vet, lint, build, fast tests (-short, no race), and make research.
+# Pushes to main (after merge): full suite including race detector and Postgres integration tests, then make research.
 name: CI
 
 on:
@@ -5,6 +7,8 @@ on:
     branches:
       - main
   pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -39,7 +43,12 @@ jobs:
         with:
           version: v2.12.2
 
-      - name: Test
+      - name: Test (fast)
+        if: github.event_name == 'pull_request'
+        run: go test -short -count=1 -timeout 20m ./...
+
+      - name: Test (full)
+        if: github.event_name == 'push'
         run: go test -race -count=1 -timeout 30m ./...
 
       - name: Build
@@ -49,3 +58,9 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+
+      # Merge-blocking research artefact checks. GitHub branch protection
+      # cannot be set from repository files; this step lives in the required
+      # `ci` job so research failures fail the existing required check.
+      - name: Research artefacts
+        run: make research

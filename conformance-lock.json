@@ -15,5 +15,5 @@
     "hl7.fhir.uv.extensions.r4": "5.3.0",
     "hl7.fhir.uv.tools.r4": "1.1.2"
   },
-  "gitCommit": "4fd5d1266824318c50cfea3af2b89ab2bf1bb7b0"
+  "gitCommit": "46d0afaa9039a5ea63b2a2805c8c1b176935f898"
 }

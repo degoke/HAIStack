@@ -1,7 +1,11 @@
 package view_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -417,3 +421,137 @@ func TestExportServiceAdvancesWatermarkToMaxLastUpdatedFlatParquet(t *testing.T)
 		t.Fatalf("watermark advanced=%v, want %v", wm.advanced, patients.Jane.LastUpdated.UTC())
 	}
 }
+
+func TestExportServiceStreamsParquetWithoutFullFilePut(t *testing.T) {
+	ctx := context.Background()
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	reg := view.NewRegistry()
+	if _, err := reg.Register(view.PatientSummaryView(), engine); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resources := newMemResourceStore()
+	resources.Seed(t, patientJane(t))
+	exec, err := view.NewExecutor(view.Config{
+		Resources: resources,
+		Engine:    engine,
+		Registry:  reg,
+	})
+	if err != nil {
+		t.Fatalf("executor: %v", err)
+	}
+	inner, err := view.NewLocalExportFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewLocalExportFileStore: %v", err)
+	}
+	files := &streamOnlyExportFiles{inner: inner}
+	svc, err := view.NewExportService(view.ExportServiceConfig{
+		Jobs:     view.NewInMemoryViewExportJobStore(),
+		Files:    files,
+		Executor: exec,
+	})
+	if err != nil {
+		t.Fatalf("NewExportService: %v", err)
+	}
+	job, err := svc.Kickoff(ctx, view.ViewExportRequest{
+		Format: view.FormatParquet,
+		Views:  []view.ViewExportTarget{{ViewName: "patient_summary_view", Version: "1.0.0"}},
+	})
+	if err != nil {
+		t.Fatalf("Kickoff: %v", err)
+	}
+	if job.Status != view.ExportComplete {
+		t.Fatalf("status=%q err=%q", job.Status, job.LastError)
+	}
+	if files.putCalls != 0 {
+		t.Fatalf("putCalls=%d, want 0 (must stream via PutStream, not os.ReadFile + Put)", files.putCalls)
+	}
+	if files.putStreamCalls != 1 {
+		t.Fatalf("putStreamCalls=%d, want 1", files.putStreamCalls)
+	}
+	data, contentType, err := svc.GetFile(ctx, job.ID, job.Files[0].Filename)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if contentType != view.ParquetContentType {
+		t.Fatalf("contentType=%q", contentType)
+	}
+	if !view.IsParquetFile(data) {
+		t.Fatal("expected parquet binary artifact")
+	}
+}
+
+func TestLocalExportFileStorePutStreamDoesNotUseFullFileReadBuffer(t *testing.T) {
+	ctx := context.Background()
+	store, err := view.NewLocalExportFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewLocalExportFileStore: %v", err)
+	}
+	payload := bytes.Repeat([]byte("e"), 256*1024)
+	probe := &readSizeProbe{r: bytes.NewReader(payload)}
+	if err := store.PutStream(ctx, "job-1", "big.bin", probe, int64(len(payload)), "application/octet-stream"); err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if probe.maxRead >= len(payload) {
+		t.Fatalf("max Read dest %d equals full payload; expected io.Copy buffer", probe.maxRead)
+	}
+	got, ct, err := store.Get(ctx, "job-1", "big.bin")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if ct != "application/octet-stream" || !bytes.Equal(got, payload) {
+		t.Fatalf("got %d bytes ct=%q", len(got), ct)
+	}
+}
+
+type readSizeProbe struct {
+	r       io.Reader
+	maxRead int
+}
+
+func (p *readSizeProbe) Read(b []byte) (int, error) {
+	if len(b) > p.maxRead {
+		p.maxRead = len(b)
+	}
+	return p.r.Read(b)
+}
+
+type streamOnlyExportFiles struct {
+	inner          view.ExportFileStoreWithStream
+	mu             sync.Mutex
+	putCalls       int
+	putStreamCalls int
+}
+
+func (s *streamOnlyExportFiles) Put(ctx context.Context, jobID, filename string, data []byte, contentType string) error {
+	s.mu.Lock()
+	s.putCalls++
+	s.mu.Unlock()
+	if len(data) > 0 {
+		return fmt.Errorf("buffered Put of %d bytes is not allowed", len(data))
+	}
+	return s.inner.Put(ctx, jobID, filename, data, contentType)
+}
+
+func (s *streamOnlyExportFiles) PutStream(ctx context.Context, jobID, filename string, r io.Reader, size int64, contentType string) error {
+	s.mu.Lock()
+	s.putStreamCalls++
+	s.mu.Unlock()
+	return s.inner.PutStream(ctx, jobID, filename, r, size, contentType)
+}
+
+func (s *streamOnlyExportFiles) Get(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	return s.inner.Get(ctx, jobID, filename)
+}
+
+func (s *streamOnlyExportFiles) Open(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	return s.inner.Open(ctx, jobID, filename)
+}
+
+func (s *streamOnlyExportFiles) DeleteJob(ctx context.Context, jobID string) error {
+	return s.inner.DeleteJob(ctx, jobID)
+}
+
+var _ view.ExportFileStoreWithStream = (*streamOnlyExportFiles)(nil)

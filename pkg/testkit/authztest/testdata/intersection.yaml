@@ -1,0 +1,70 @@
+version: "1"
+roles:
+  - name: clinician
+    permissions:
+      - appointment.read
+      - read-patient-summary
+      - read-appointment
+      - patient.read
+      - observation.read
+  - name: tenant-admin
+    permissions:
+      - module.install
+      - read-appointment
+      - appointment.read
+      - read-patient-summary
+  - name: backend
+    permissions:
+      - "*.read"
+      - patient.read
+principals:
+  clinician:
+    id: user-clinician
+    kind: user
+    tenant: tenant-a
+    roles: [clinician]
+  admin:
+    id: user-admin
+    kind: user
+    tenant: tenant-a
+    roles: [tenant-admin]
+  backend:
+    id: backend-app
+    kind: service
+    clientId: backend-app
+    tenant: tenant-a
+    roles: [backend]
+policyRoleGrants:
+  observation-only:
+    clinician:
+      - "*.read"
+policies:
+  observation-only:
+    version: "1"
+    rules:
+      - name: observation-only
+        effect: allow
+        match:
+          actions: [read]
+          resourceTypes: [Observation]
+          anyPermissions: [observation.read, "*.read"]
+        reason: policy allows observation only
+scenarios:
+  - name: testdata_scope_and_policy_allow_observation
+    doc: user/*.read ∩ observation-only policy allows Observation read.
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    expectAllow: true
+  - name: testdata_scope_allows_policy_denies_appointment
+    doc: user/*.read ∩ observation-only policy denies Appointment read.
+    principal: clinician
+    scopes: user/*.read
+    policy: observation-only
+    action: read
+    resourceType: Appointment
+    resourceId: a1
+    expectAllow: false

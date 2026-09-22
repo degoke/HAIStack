@@ -1,51 +1,86 @@
-package benchmarks_test
+package main
 
 import (
-	"context"
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
-
-	"github.com/degoke/health-ai-stack/research/benchmarks"
 )
 
-func TestGenerateDeterministic(t *testing.T) {
-	a, err := benchmarks.Generate(benchmarks.DefaultSeed, benchmarks.SizeSmall)
+func TestGenerateSeedStable(t *testing.T) {
+	aP, aO, err := Generate(SizeSmall)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := benchmarks.Generate(benchmarks.DefaultSeed, benchmarks.SizeSmall)
+	bP, bO, err := Generate(SizeSmall)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.Patients) != 10 || len(a.Observations) != 20 {
-		t.Fatalf("small size = %d patients %d obs", len(a.Patients), len(a.Observations))
+	if len(aP) != 20 || len(aO) != 40 {
+		t.Fatalf("small size patients=%d obs=%d", len(aP), len(aO))
 	}
-	if a.Patients[0].Hash != b.Patients[0].Hash {
-		t.Fatal("generator is not deterministic")
+	if aP[0].Hash != bP[0].Hash || aO[0].Hash != bO[0].Hash {
+		t.Fatal("seeded dataset is not stable")
 	}
 }
 
-func TestHAIStackWorkloads(t *testing.T) {
-	file, err := benchmarks.LoadWorkloads(benchmarks.DefaultWorkloadPath())
+func TestRunSmallWorkloads(t *testing.T) {
+	report, err := Run(t.Context(), SizeSmall)
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := benchmarks.NewHAIStackAdapter()
-	if err != nil {
-		t.Fatal(err)
+	if report.Track != "A" {
+		t.Fatalf("track = %s", report.Track)
 	}
-	report, err := benchmarks.Run(context.Background(), adapter, benchmarks.SizeSmall, benchmarks.DefaultSeed, file.Workloads)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.Results) != len(file.Workloads) {
-		t.Fatalf("results = %d, want %d", len(report.Results), len(file.Workloads))
+	if len(report.Results) != 3 {
+		t.Fatalf("results = %d", len(report.Results))
 	}
 	for _, r := range report.Results {
-		if r.Error != "" && !r.Skipped {
-			t.Errorf("%s: %s", r.Workload, r.Error)
+		if r.Operations == 0 {
+			t.Fatalf("workload %s performed no operations", r.Name)
 		}
-		if r.Workload == "crud-read" && r.Operations != 10 {
-			t.Errorf("crud-read operations = %d", r.Operations)
+	}
+}
+
+func TestLoadWorkloadsEmbedded(t *testing.T) {
+	wls, err := loadWorkloads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wls) != 3 {
+		t.Fatalf("workloads = %d", len(wls))
+	}
+	var viewLimit int
+	for _, wl := range wls {
+		if wl.Name != "view-execute" {
+			continue
 		}
+		if len(wl.Operations) == 0 {
+			t.Fatal("view-execute has no operations")
+		}
+		viewLimit = wl.Operations[0].Limit
+	}
+	if viewLimit != 100 {
+		t.Fatalf("view-execute limit = %d, want 100 (portable page size)", viewLimit)
+	}
+}
+
+func TestDumpWritesJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := Dump(dir, SizeSmall); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Patient", "pat-0000.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Observation", "obs-0000.json")); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"seed": 11`)) && !bytes.Contains(raw, []byte(`"seed":11`)) {
+		t.Fatalf("manifest = %s", raw)
 	}
 }

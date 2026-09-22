@@ -1,14 +1,17 @@
 # Track E — Reproducible FHIR → AI pipeline
 
-End-to-end, deterministic demonstration of HAIStack's safe-AI path:
+End-to-end demonstration that HAIStack can turn **validated FHIR** into
+**authorized ViewDefinition output**, invoke a **policy-governed AI tool**,
+and emit an **auditable provenance chain**.
 
 ```
-synthetic FHIR (structurally validated)
+FHIR resources (synthetic, validated)
   → ViewDefinition projection (pkg/view)
-  → permissioned row set (pkg/auth)
-  → AI tool invocation (pkg/ai run_view)
-  → seeded model stub (no API keys)
-  → audit log + exportable provenance bundle (pkg/audit)
+  → authorized view/tool execution (pkg/auth; full authorized view output,
+    not per-row ACL filtering or a deny-path demo)
+  → AI tool `run_view` (pkg/ai)
+  → seeded stub model (no API keys)
+  → audit log + provenance bundle (pkg/audit)
 ```
 
 ## Reproduce
@@ -16,39 +19,39 @@ synthetic FHIR (structurally validated)
 ```bash
 make research-ai-pipeline
 # or
-go test ./research/ai-pipeline -count=1
-go run ./research/ai-pipeline/cmd
+go test ./research/ai-pipeline
+go run ./research/ai-pipeline
 ```
 
-The command prints a provenance bundle on stdout. Hashes, view version, policy
-version, tool name, stub seed, **sequential audit event IDs**, and the full
-bundle JSON are byte-stable across runs (fixed clock `2026-09-21T13:00:00Z`,
-stub seed `11`, `NewID` `audit-01`…). If the denied actor is not actually
-denied, `Run` returns an error and the command exits without printing a
-bundle.
+`go run ./research/ai-pipeline` prints a JSON provenance bundle to
+stdout. `make research-ai-pipeline` runs the same CLI but discards
+stdout (`>/dev/null`); it is an exit-status check. The bundle is
+deterministic given the fixed clock (`2026-09-21T12:00:00Z`) and stub seed
+`11`.
 
-## Dataset
+## FAIR metadata
 
-Three synthetic patients and six observations (some `final`, some
-`preliminary`). The lab view keeps only final rows. There is no PHI.
+| Field | Value |
+|-------|-------|
+| Identifier | Bundle `artefact` = `haistack-research-ai-pipeline` (path `research/ai-pipeline`) |
+| License | Apache-2.0 |
+| Data | Synthetic patients and observations; no PHI |
+| IG / FHIR | FHIR R4 `4.0.1` base Patient/Observation SDs **and** compiled HAIStack IG `hai-patient` from `modules/core/ig`; package/version from `conformance-lock.json` (`haistack.fhir.r4`). Validator is `ValidationModeFast` (cardinality, unknown snapshot elements, optional FHIRPath) — not `ValidationModeFull` (SD terminology bindings and extension URL policy). Bundle `validation.mode` is `r4-base-and-declared-ig-fast`. `conformanceLockCommit` is the lock rewrite; `checkoutCommit` is this tree. |
+| Policy | deny-by-default DSL in `pipeline.go` |
+| Model | `stub-v1` deterministic adapter; no network |
+| Store | `research/internal/researchutil.MemoryResourceStore` (not `pkg/testkit`) |
+| Audit | `pkg/audit` memory store; actions `execute-view`, `execute-tool`, and `invoke-model` |
 
-Conformance pinning to a published IG is tracked separately; this pipeline
-validates resources with `pkg/validate` against FHIR R4 structural rules.
+## What the bundle proves
 
-## Provenance chain
+- Each input resource has a canonical JSON hash and was validated in
+  `ValidationModeFast` against the recorded profile (`hai-patient` for
+  Patient, HL7 R4 base for Observation).
+- The view name, version, and row hashes are recorded for the **full
+  authorized view output** (no per-row ACL filtering in this artefact).
+- The policy document hash is recorded.
+- The tool **name** is recorded (not a separate tool-version field).
+- Tool citations point at the view and source Observation ids.
+- Audit events cover view execution, AI tool success, and stub model invocation (`pkg/ai.Executor.InvokeModel`).
 
-The bundle records:
-
-| Field | Source |
-|-------|--------|
-| `inputs[].hash` | `ResourceEnvelope.Hash` (canonical JSON) |
-| `view.name` / `view.version` | registered ViewDefinition |
-| `policy.hash` | SHA-256 of the policy document |
-| `tool.name` | `run_view` |
-| `model.adapter` / `model.seed` | seeded stub |
-| `output` | stub summary of permissioned context |
-| `citations` | view + resource citations from `pkg/ai` |
-| `audit[]` | `execute-view` and `execute-tool` events |
-
-Denied paths (wrong actor / wrong view) are required: `Run` fails if the
-denied actor is allowed, so `go run` cannot publish a success-only bundle.
+This is an evaluation artefact, not a clinical model.

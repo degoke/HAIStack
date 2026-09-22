@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,6 +34,8 @@ var (
 	_ store.IDRegistryStore           = (*postgres.IDRegistry)(nil)
 	_ store.BinaryStore               = (*postgres.BinaryStore)(nil)
 	_ store.BlobStore                 = (*postgres.BlobStore)(nil)
+	_ store.BlobStoreWithStream       = (*postgres.BlobStore)(nil)
+	_ store.BlobStoreWithOpen         = (*postgres.BlobStore)(nil)
 	_ store.AuditStore                = (*postgres.AuditStore)(nil)
 	_ store.SubscriptionStore         = (*postgres.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
@@ -51,6 +54,8 @@ var (
 	_ binary.MetadataStore            = (*postgres.BlobMetadataStore)(nil)
 	_ binary.TransferStore            = (*postgres.BlobMetadataStore)(nil)
 	_ binary.BlobStore                = (*postgres.BlobChunkStore)(nil)
+	_ binary.BlobStoreWithStream      = (*postgres.BlobChunkStore)(nil)
+	_ binary.BlobStoreWithOpen        = (*postgres.BlobChunkStore)(nil)
 	_ binary.ChunkStore               = (*postgres.BlobChunkStore)(nil)
 	_ binary.WriteSessionExtension    = (*postgres.Session)(nil)
 )
@@ -874,6 +879,35 @@ func TestBinaryBlobAuditModuleStores(t *testing.T) {
 	head, err := tdb.BlobStore().Head(ctx, "blob-1")
 	if err != nil || head.Location != "s3://bucket/key" {
 		t.Fatalf("Blob Head = %+v, %v", head, err)
+	}
+	if _, _, err := tdb.BlobStore().Open(ctx, "blob-1"); err == nil {
+		t.Fatal("expected Open of URI location without payload to fail")
+	}
+
+	if err := tdb.BlobStore().Put(ctx, store.BlobObject{
+		Key: "blob-payload", ContentType: "text/plain", Size: 7, Data: []byte("payload"), CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("Blob payload Put: %v", err)
+	}
+	if err := tdb.BlobStore().Put(ctx, store.BlobObject{
+		Key: "blob-ptr", Size: 7, Location: "blob-payload", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("Blob pointer Put: %v", err)
+	}
+	rc, head, err := tdb.BlobStore().Open(ctx, "blob-ptr")
+	if err != nil {
+		t.Fatalf("Open pointer: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+	if head.Data != nil {
+		t.Fatal("Open head included payload")
+	}
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open pointer read: %v", err)
+	}
+	if string(openData) != "payload" {
+		t.Fatalf("Open pointer = %q", openData)
 	}
 
 	auditID := uuid.NewString()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type BulkExportService interface {
 	Manifest(job *export.Job) *export.Manifest
 	StatusURL(jobID string) string
 	GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error)
+	OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error)
 }
 
 func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -141,17 +143,12 @@ func (h *handler) handleBulkExportFile(w http.ResponseWriter, r *http.Request, j
 		writeError(w, err)
 		return
 	}
-	data, contentType, err := h.cfg.BulkExportService.GetFile(r.Context(), jobID, filename)
+	data, contentType, err := h.cfg.BulkExportService.OpenFile(r.Context(), jobID, filename)
 	if err != nil {
 		writeFileError(w, err, "export file not found")
 		return
 	}
-	if contentType == "" {
-		contentType = "application/fhir+ndjson"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	writeFileBody(w, data, contentType, "application/fhir+ndjson")
 }
 
 func parseCSVParam(raw string) []string {
@@ -202,4 +199,14 @@ func writeFileError(w http.ResponseWriter, err error, missing string) {
 		return
 	}
 	writeError(w, err)
+}
+
+func writeFileBody(w http.ResponseWriter, rc io.ReadCloser, contentType, fallback string) {
+	defer func() { _ = rc.Close() }()
+	if contentType == "" {
+		contentType = fallback
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, rc)
 }

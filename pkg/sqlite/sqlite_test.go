@@ -41,6 +41,8 @@ var (
 	_ binary.MetadataStore            = (*sqlite.BlobMetadataStore)(nil)
 	_ binary.TransferStore            = (*sqlite.BlobMetadataStore)(nil)
 	_ binary.BlobStore                = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.BlobStoreWithStream      = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.BlobStoreWithOpen        = (*sqlite.ChunkBlobStore)(nil)
 	_ binary.ChunkStore               = (*sqlite.ChunkBlobStore)(nil)
 	_ binary.WriteSessionExtension    = (*sqlite.Session)(nil)
 )

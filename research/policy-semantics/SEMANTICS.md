@@ -1,255 +1,148 @@
-# Policy and consent decision semantics
+# HAIStack policy DSL semantics
 
-This document is the citable description of how HAIStack combines SMART
-scopes, the `pkg/auth` policy DSL, patient-compartment overlay, and (in
-research) R4 Consent provisions. Production `pkg/auth` does **not** yet
-evaluate Consent resources; the consent overlay is specified here so
-implementations and test suites can share a vendor-neutral algorithm.
+This document is the normative description of how `pkg/auth` and `pkg/smart`
+compose. It is the research artefact for Track C (issue #11).
 
-## Decision algorithm
+## Layers
 
-Evaluate gates in order. The first failing gate denies. All gates must pass
-for an allow.
+Authorization is **not** OAuth token exchange. A valid SMART token is an
+identity + scope grant. Access is decided afterwards:
 
 ```
-1. Identity        Principal must exist and be bound to the request tenant.
-2. Patient overlay If TenantContext.PatientScope is set, the target patient
-                   id must equal that scope (Patient.id, or the compartment
-                   patient of the resource). Empty PatientScope is unrestricted.
-3. SMART scopes    If the request carries SMART scopes, the scope set must
-                   grant the resource type and verb for the principal's actor
-                   class (patient | user | system). Missing scopes on a
-                   policy-only principal skip this gate.
-4. Consent overlay If an active Consent provision applies to the patient,
-                   resource class, and action:
-                     deny provision  → deny
-                     permit provision → continue
-                   Inactive / unmatched Consent is ignored.
-                   Production engines that do not implement Consent skip this
-                   gate; research scenarios that declare consent require it.
-5. Policy DSL      Compile PolicyDocument. Walk rules in document order.
-                   First matching rule wins (allow or deny).
-                   If no rule matches, DefaultEffect applies (deny).
+token valid
+  ∧ SMART.ScopeImplies(actor, resourceType, verb)
+  ∧ auth.Engine decision (catalog + policy DSL + patient overlay)
 ```
 
-The research runner applies gates 1–5 in that order (identity, patient overlay,
-SMART, consent, policy). Gate 2's target patient is `Patient.id` when the
-resource is a Patient, otherwise the Patient reference on the scenario
-resource body (`Observation.subject`, `Appointment.participant.actor`),
-via `pkg/auth.CompartmentPatientFromJSON` / `CanReadResource.PatientID`.
-Launch patient is not a stand-in for compartment membership. Loaded
-production resources use the same overlay through
-`CheckEnvelopePatientScope`.
+Policy may only **narrow** SMART scopes. A policy allow never expands a
+missing scope. This matches the SMART warning that servers SHOULD apply
+additional constraints (patient compartment, business rules) on top of
+granted scopes.
 
-The compact form used in SMART discussions:
+## Decision algorithm (`pkg/auth.Engine`)
+
+For resource read/write, view execution, and AI tools:
+
+1. **Reject malformed requests** — principal id/kind and tenant id are required.
+2. **Tenant binding** — the principal must be bound to the requested tenant
+   (users). Cross-tenant requests are denied.
+3. **Patient-scope overlay** — when `TenantContext.PatientScope` is set,
+   `Patient/{id}` must equal that id. Other resource types use a
+   patient-compartment resolver when one is configured
+   (`CheckEnvelopePatientScope`). Mismatch is deny.
+4. **Required permissions** — SMART adapters set `RequiredPermissions` from
+   granted scopes (`resourceType.verb`, or `*.verb`) on read, write, view,
+   and AI-tool requests (`ToReadRequest`, `ToWriteRequest`, `ToViewRequest`,
+   `ToAIToolRequest`). The principal must hold those permissions via
+   catalog roles. Missing permissions are deny.
+5. **Policy DSL** — `CompiledPolicy.Evaluate`:
+   - Rules are evaluated **in document order**.
+   - The **first matching rule wins**.
+   - Empty match fields mean "any".
+   - `*` in a string list matches any value for that field.
+   - If no rule matches, `defaultEffect` applies (**deny** when omitted).
+6. Result: `Decision{Allowed, Reason, RequiredPermissions, ...}`.
+
+The Track C YAML runner does **not** load a ViewDefinition. View and AI
+cases evaluate SMART-derived `RequiredPermissions` on the request (view
+uses `checkAnyRequiredPermission` on those values). A production view
+executor may also require a ViewDefinition's declared permissions; that
+gate is outside this catalogue.
+
+Device push (`push-device-event`) and module install (`install-module`) are
+separate `pkg/auth` engine paths (trusted device, then policy). The Track C
+YAML runner does not accept those actions; they are not catalogue cases.
+
+## Policy DSL match fields
+
+| Field | Meaning |
+|-------|---------|
+| `principalKinds` | `user`, `device`, `service`, `ai-agent` |
+| `tenants` | tenant ids (`*` wildcard) |
+| `roles` | any overlapping role |
+| `anyPermissions` / `allPermissions` | permission checks |
+| `resourceTypes` | FHIR resource type |
+| `actions` | Catalogue cases use `read`, `write`, `execute-view`, `execute-ai-tool`. The YAML runner also accepts `search` as an alias of `read` (same `ScopeImplies` + `CanReadResource`). This catalogue does not use `search`. |
+| `viewNames` / `toolNames` / `moduleNames` | named targets |
+| `purposeOfUse` | attribute match |
+| `deviceTrusted` / `deviceStatuses` | device trust |
+| `patientScoped` | whether tenant patient scope is set |
+
+Permissions treat `appointment.read` and `read-appointment` as equivalent.
+
+## SMART adapter
+
+`pkg/smart.AuthAdapter` turns token claims + launch context into:
+
+- `Principal` (id, kind, tenant role bindings)
+- `TenantContext` (`PatientScope` from `launch/patient` / `patient` claim)
+- `Permissions` derived from resource scopes (`Observation.read`, `*.read`, …)
+- `RequiredPermissions` on read, write, view, and AI-tool requests (`requiredFor`)
+
+`ScopeImplies` is the scope-layer check used by the research YAML runner.
+The intersection is computed as:
 
 ```
-allowed = scope_grants ∩ policy_allows ∩ consent_permits ∩ patient_scope_ok
+allowed = ScopeImplies(resource, verb) && engine.Can*(...).Allowed
 ```
-
-Policy **narrows** scopes: a `patient/*.read` token is not a read grant for
-every resource type if the policy only allows Observation. This matches the
-SMART warning that scopes are necessary but not sufficient.
-
-### Policy DSL evaluation (pkg/auth)
-
-- Rules are ordered. First match wins.
-- Empty match lists mean "any".
-- `*` wildcards are allowed in string lists (tenants, resource types, …).
-- Permissions treat `appointment.read` and `read-appointment` as equivalent.
-- Device push additionally requires a registered, trusted, active device.
-- View execution additionally requires the principal to hold at least one
-  permission declared on the ViewDefinition, when that list is non-empty.
-
-### SMART scope derivation
-
-`pkg/smart.AuthAdapter` maps resource scopes to permissions
-`{ResourceType}.{verb}` (or `*.{verb}`). `ToReadRequest` sets
-`RequiredPermissions` from those derived permissions. If the scope set does
-not include the verb, the required-permission check fails **before** policy
-allow rules are considered — another form of intersection.
-
-### Research runner overlay (not production)
-
-The catalogue runner grants the clinician role `*.read` **only when a
-scenario carries SMART scopes**. That is required so a `patient/*.read`
-token can satisfy `RequiredPermissions` (`*.read`) set by
-`pkg/smart.AuthAdapter.ToReadRequest`. Without the overlay, wildcard SMART
-examples fail the permission check before policy rules run.
-
-This overlay is **research-layer wiring**, not how production `pkg/auth`
-intersects SMART:
-
-- Production principals hold only the permissions their roles declare.
-- SMART scopes still must imply the verb (`scope_grants`).
-- Policy still narrows those grants (`policy_allows`).
-
-The compact production equation remains `scope_grants ∩ policy_allows ∩
-consent_permits ∩ patient_scope_ok`. The extra `*.read` is not part of that
-intersection; it only makes wildcard SMART cases executable in this runner.
-Policy-only scenarios (no `scopes` field) do not receive the overlay.
 
 ## Worked examples
 
-Each example has a matching id in `testdata/scenarios.json`.
+The machine-readable catalogue is [`scenarios.yaml`](scenarios.yaml).
+Narrative copies of all fourteen cases. Where `user/*.read` would require
+clinician `*.read` for SMART `RequiredPermissions`, the YAML overlays that
+permission (`policyRoleGrants` on `observation-only`, or per-scenario
+`roleGrants`) so the interesting gate is still scope ∩ policy:
 
-### 1. `deny_by_default_unmatched_resource`
+1. **Broad scope ∩ matching policy (allow).** `user/*.read` and
+   observation-only (with clinician `*.read` overlay) → Observation/obs-1
+   is allowed.
+2. **Broad scope ∩ narrowing policy (deny).** Same token and overlay but
+   observation-only policy → Appointment/a1 is denied. Scopes granted more
+   than policy permits; policy wins (narrowing).
+3. **Narrow scope ∩ broad policy (deny).** `user/Patient.read` and
+   allow-all-read policy → Observation/obs-1 is denied. Policy cannot
+   expand missing Observation scope.
+4. **Matching granular scope ∩ matching policy (allow).**
+   `user/Observation.rs` ∩ observation-only policy → Observation allowed.
+5. **Write scope missing (deny).** `user/Observation.read` ∩ allow-all
+   policy → Observation write denied (no write verb). This is a
+   **scope-layer** deny. The catalogue has no case that grants write
+   scope and then allows or denies at the policy gate.
+6. **Patient overlay allow.** `launch/patient user/Patient.read` with
+   `patient=pat-1` reading Patient/pat-1 → allow (base policy patient-read).
+7. **Patient overlay deny.** Same token reading Patient/pat-2 → deny
+   (compartment mismatch) even though scopes grant Patient read.
+8. **Deny-by-default.** `user/*.read` ∩ base policy reading
+   MedicationRequest → deny (no matching rule). Clinician `*.read` is
+   granted for this case only so deny is unmatched policy, not missing
+   RequiredPermissions.
+9. **First-match deny wins.** Deny-first policy lists a deny Appointment
+   rule before an allow rule → Appointment read denied (same `*.read`
+   overlay as example 8).
+10. **Cross-tenant deny.** Clinician bound to `tenant-a` requesting
+    `tenant-b` → deny (tenant binding), regardless of scopes.
+11. **View execution.** `user/*.read` ∩ base policy executing
+    `patient_summary_view` → allow after clinician `*.read` overlay so
+    `ToViewRequest` RequiredPermissions are satisfied.
+12. **AI tool.** `user/*.read` ∩ base policy `execute-ai-tool` `run_view`
+    → allow (same overlay; `ToAIToolRequest` RequiredPermissions).
+13. **Backend system scope allow.** `system/*.read` on a service principal ∩
+    observation-only → Observation allow.
+14. **Backend system scope deny.** Same token ∩ observation-only →
+    Appointment deny (policy narrowing). Patient-compartment overlay is
+    examples 6–7 (`action: read` plus `patientId`), not a separate
+    `patient-access` catalogue case.
 
-Clinician, base policy (Appointment + Patient allow rules only), no SMART
-scopes. Request: `read MedicationRequest/rx-1`.
+## Consent overlay (not a second engine)
 
-**Result: deny.** No rule matches. Default effect is deny.
+R4 `Consent` (and future R5/R6 `Permission`) are **inputs** that a host
+application can compile into the same policy DSL and/or patient-scope
+overlay. HAIStack v1 does not interpret Consent resources automatically.
+`scenarios.yaml` has no consent-state field; it is SMART scopes ∩ policy
+only. See [consent-patterns.md](consent-patterns.md).
 
-### 2. `first_match_deny_wins`
+## Conformance target
 
-Policy: (1) deny Appointment read, (2) allow Appointment read. Request:
-`read Appointment/a1`.
-
-**Result: deny.** First matching rule is deny, even though a later allow
-would match. Ordering is part of the semantics.
-
-### 3. `first_match_allow`
-
-Base policy, clinician, `read Appointment/a1`.
-
-**Result: allow.** Rule `appointment-rw` matches first.
-
-### 4. `patient_scope_same_patient`
-
-PatientScope=`pat-1`, request `read Patient/pat-1`.
-
-**Result: allow.** Overlay matches; patient-read rule allows.
-
-### 5. `patient_scope_other_patient`
-
-PatientScope=`pat-1`, request `read Patient/pat-2`.
-
-**Result: deny.** Overlay fails before policy. Reason mentions the scoped
-patient id.
-
-### 6. `patient_scope_observation_same_compartment`
-
-PatientScope=`pat-1`, request `read Observation/obs-1` whose
-`subject.reference` is `Patient/pat-1`. Policy allows Observation.
-
-**Result: allow.** Gate 2 matches `Observation.subject`, not the Observation
-id.
-
-### 7. `patient_scope_observation_other_compartment`
-
-PatientScope=`pat-1`, request `read Observation/obs-2` whose
-`subject.reference` is `Patient/pat-2`.
-
-**Result: deny.** Overlay fails before policy. Reason mentions the scoped
-patient id versus `pat-2`.
-
-### 8. `patient_scope_appointment_other_compartment`
-
-PatientScope=`pat-1`, request `read Appointment/a2` whose
-`participant.actor` is `Patient/pat-2`. Policy would allow Appointment.
-
-**Result: deny.** Overlay fails before policy.
-
-### 9. `smart_patient_scope_appointment_other_compartment`
-
-SMART `patient/*.read`, launch patient `pat-1`, request `read Appointment/a2`
-whose `participant.actor` is `Patient/pat-2`.
-
-**Result: deny.** Overlay fails before SMART/policy. Launch patient is not
-treated as the Appointment's compartment patient.
-
-### 10. `smart_scope_allows_policy_denies`
-
-SMART `patient/*.read` (grants every resource type) + Observation-only
-policy. Request: `read Appointment/a1` for launch patient `pat-1`.
-
-**Result: deny.** Scopes grant Appointment.read; policy does not. This is
-policy narrowing of SMART scopes.
-
-### 11. `smart_scope_and_policy_allow_observation`
-
-Same token and Observation-only policy. Request: `read Observation/obs-1`
-with `subject.reference` `Patient/pat-1` (the launch patient).
-
-**Result: allow.** Overlay, SMART, and policy all pass.
-
-### 12. `smart_scope_denies_policy_would_allow`
-
-SMART `patient/Observation.read` (no Appointment) + base policy that allows
-Appointment. Request: `read Appointment/a1`.
-
-**Result: deny.** `RequiredPermissions` includes `Appointment.read`, which
-the scope-derived permission set does not contain. Scopes ∩ policy.
-
-### 13. `smart_scope_denies_write`
-
-SMART `patient/Appointment.read` + base policy that allows Appointment write.
-Request: `write Appointment/a1`.
-
-**Result: deny.** SMART write gate (Appointment.read does not grant write).
-
-### 14. `cross_tenant_denied`
-
-Clinician bound to `tenant-a`. Request tenant `tenant-b`.
-
-**Result: deny.** Tenant-binding gate.
-
-### 15. `purpose_of_use_mismatch`
-
-Allow rule requires `purposeOfUse: TREAT`. Request purpose `ETREAT`.
-
-**Result: deny.** Rule does not match; default deny.
-
-### 16. `consent_permit_observation`
-
-Active R4 Consent, provision `permit` on Observation/read for `pat-1`.
-SMART `patient/*.read` + Observation-only policy. Request: read Observation.
-
-**Result: allow.** Consent permit applies and does not block.
-
-### 17. `consent_deny_observation`
-
-Same as (16) but provision `type: deny` on Observation.
-
-**Result: deny.** Consent overlay fails even though scopes and policy allow.
-This is the research Consent pattern (R5/R6 Permission is future work).
-
-### 18. `ai_tool_run_view_allowed`
-
-Base policy allows `execute-ai-tool` for `run_view`.
-
-**Result: allow.**
-
-### 19. `ai_tool_write_denied`
-
-Request `execute-ai-tool` `write_fhir_resource` with no matching rule.
-
-**Result: deny.**
-
-## Consent resource pattern (R4)
-
-Research scenarios use a simplified R4 Consent:
-
-```json
-{
-  "resourceType": "Consent",
-  "status": "active",
-  "patient": { "reference": "Patient/pat-1" },
-  "provision": {
-    "type": "permit",
-    "class": [{ "code": "Observation" }],
-    "action": [{ "coding": [{ "code": "access" }] }]
-  }
-}
-```
-
-`access` maps to policy action `read`. A deny provision with the same class
-blocks matching reads. Future R5/R6 `Permission` resources should populate
-the same `ConsentState` structure so the catalogue stays version-agnostic.
-
-## Relationship to pkg/testkit/authztest
-
-The executable Go catalogue in `authztest.AllScenarios` covers REST, search,
-views, AI, sync, and SMART 2.2 filters. Declarative JSON here is the
-portable, vendor-neutral subset (principal + scopes + consent + request →
-decision) intended for cross-implementation publication.
+These scenarios are intended as an open test suite. A non-HAIStack
+implementation can emit the same YAML decisions without speaking Go.

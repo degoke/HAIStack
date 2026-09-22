@@ -1,111 +1,97 @@
-package aipipeline
+package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/audit"
+	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-// InputRef is one hashed FHIR input in the provenance chain.
-type InputRef struct {
-	Ref  string `json:"ref"`
-	Hash string `json:"hash"`
+// ProvenanceBundle is the exportable FAIR artefact for one pipeline run.
+type ProvenanceBundle struct {
+	Artefact   string               `json:"artefact"`
+	Track      string               `json:"track"`
+	CreatedAt  time.Time            `json:"createdAt"`
+	FAIR       FAIRMetadata         `json:"fair"`
+	Inputs     []InputRecord        `json:"inputs"`
+	Validation ValidationProvenance `json:"validation"`
+	View       ViewProvenance       `json:"view"`
+	Policy     PolicyProvenance     `json:"policy"`
+	Tool       ToolProvenance       `json:"tool"`
+	Model      ModelProvenance      `json:"model"`
+	Output     OutputProvenance     `json:"output"`
+	Audit      []store.AuditRecord  `json:"audit"`
 }
 
-// ViewProvenance identifies the ViewDefinition that produced rows.
+// FAIRMetadata records license and reuse constraints.
+type FAIRMetadata struct {
+	License   string `json:"license"`
+	Synthetic bool   `json:"synthetic"`
+	PHI       bool   `json:"phi"`
+	Citation  string `json:"citation"`
+}
+
+// ValidationProvenance pins the FHIR/IG versions and the profiles actually
+// applied to pipeline inputs. IGPackage/IGVersion and ConformanceLockCommit
+// come from conformance-lock.json (the lock rewrite, not this checkout).
+// CheckoutCommit is the git revision of the tree that ran the pipeline.
+// Mode and Profiles record what the validator ran, not only the lock citation.
+// Mode is `r4-base-and-declared-ig-fast`: R4 base + declared IG profiles
+// under validate.ValidationModeFast (not Full).
+type ValidationProvenance struct {
+	FHIRVersion           string   `json:"fhirVersion"`
+	IGPackage             string   `json:"igPackage"`
+	IGVersion             string   `json:"igVersion"`
+	Canonical             string   `json:"canonical,omitempty"`
+	ConformanceLockCommit string   `json:"conformanceLockCommit,omitempty"`
+	CheckoutCommit        string   `json:"checkoutCommit,omitempty"`
+	Mode                  string   `json:"mode"`
+	Profiles              []string `json:"profiles,omitempty"`
+	IGResources           string   `json:"igResources,omitempty"`
+}
+
+// InputRecord is one hashed FHIR resource that entered the pipeline.
+type InputRecord struct {
+	ResourceType string `json:"resourceType"`
+	ID           string `json:"id"`
+	Hash         string `json:"hash"`
+	Validated    bool   `json:"validated"`
+	Profile      string `json:"profile,omitempty"`
+}
+
+// ViewProvenance identifies the ViewDefinition and its row set.
 type ViewProvenance struct {
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	RowCount int    `json:"rowCount"`
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Definition string   `json:"definitionHash"`
+	RowCount   int      `json:"rowCount"`
+	RowHash    string   `json:"rowHash"`
+	Columns    []string `json:"columns"`
 }
 
-// PolicyProvenance identifies the policy document.
+// PolicyProvenance identifies the policy document used for permissioning.
 type PolicyProvenance struct {
 	Version string `json:"version"`
 	Hash    string `json:"hash"`
+	Format  string `json:"format"`
 }
 
 // ToolProvenance identifies the AI tool invocation.
 type ToolProvenance struct {
-	Name    string `json:"name"`
-	Outcome string `json:"outcome"`
+	Name      string        `json:"name"`
+	Actor     string        `json:"actor"`
+	Outcome   string        `json:"outcome"`
+	Citations []ai.Citation `json:"citations,omitempty"`
 }
 
-// ModelProvenance identifies the stub (or other adapter).
+// ModelProvenance identifies the stub model.
 type ModelProvenance struct {
 	Adapter string `json:"adapter"`
 	Seed    int64  `json:"seed"`
-	Content string `json:"content,omitempty"`
 }
 
-// AuditEvent is a compact audit record copied from pkg/audit.
-type AuditEvent struct {
-	ID       string            `json:"id,omitempty"`
-	Action   string            `json:"action"`
-	Outcome  string            `json:"outcome"`
-	ToolName string            `json:"toolName,omitempty"`
-	ViewName string            `json:"viewName,omitempty"`
-	Actor    string            `json:"actor,omitempty"`
-	Details  map[string]string `json:"details,omitempty"`
-}
-
-// FAIR is dataset-level metadata for the pipeline artefact.
-type FAIR struct {
-	License     string `json:"license"`
-	Synthetic   bool   `json:"synthetic"`
-	ContainsPHI bool   `json:"containsPhi"`
-	Citation    string `json:"citation"`
-}
-
-// ProvenanceBundle is the exportable chain from FHIR → view → tool → audit.
-type ProvenanceBundle struct {
-	Pipeline    string           `json:"pipeline"`
-	Version     string           `json:"version"`
-	GeneratedAt time.Time        `json:"generatedAt"`
-	FAIR        FAIR             `json:"fair"`
-	Inputs      []InputRef       `json:"inputs"`
-	View        ViewProvenance   `json:"view"`
-	Policy      PolicyProvenance `json:"policy"`
-	Tool        ToolProvenance   `json:"tool"`
-	Model       ModelProvenance  `json:"model"`
-	Citations   []ai.Citation    `json:"citations"`
-	Output      string           `json:"output"`
-	Audit       []AuditEvent     `json:"audit"`
-}
-
-func hashBytes(raw []byte) string {
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
-}
-
-func compactAudit(events []audit.Event) []AuditEvent {
-	out := make([]AuditEvent, 0, len(events))
-	for _, ev := range events {
-		out = append(out, AuditEvent{
-			ID:       ev.ID,
-			Action:   ev.Action,
-			Outcome:  ev.Outcome,
-			ToolName: ev.ToolName,
-			ViewName: ev.ViewName,
-			Actor:    ev.Actor,
-			Details:  ev.Details,
-		})
-	}
-	return out
-}
-
-func policyHash(raw []byte) string {
-	var obj any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return hashBytes(raw)
-	}
-	canonical, err := json.Marshal(obj)
-	if err != nil {
-		return hashBytes(raw)
-	}
-	return hashBytes(canonical)
+// OutputProvenance is the model-facing result.
+type OutputProvenance struct {
+	Content string `json:"content"`
+	Context string `json:"contextHash"`
 }

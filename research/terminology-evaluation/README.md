@@ -1,68 +1,98 @@
-# Track D — Terminology `$translate` consistency and provenance
+# Track D — Terminology mapping scorer harness
 
-Authored translation cases, a gold ConceptMap used as a **consistency**
-check that `$translate` implements that map, and an audit-backed
-provenance model for `$translate`. Class precision/recall is exercised in
-tests against a known-error map; it is not a published quality number.
+Scores ConceptMap translations against an **independent gold-standard**
+catalogue. Provenance (ConceptMap version, source CodeSystem version,
+timestamp) is recorded on each **fixture** translation. Those fields are
+copied onto `pkg/audit` (`terminology.translate`) for the planted map
+only; the gold control run uses a nil logger and does not emit audit
+events.
+
+This is **not** a mapping-quality study of a real translator. The
+defective map is a **planted scorer fixture** so the metrics code can
+report F1 < 1. A separately authored map would be required for a genuine
+quality evaluation.
 
 ## Reproduce
 
 ```bash
 make research-terminology
-go test ./research/terminology-evaluation -count=1
-go run ./research/terminology-evaluation/cmd
+# or
+go test ./research/terminology-evaluation
+go run ./research/terminology-evaluation
 ```
 
-## Gold set
+`go run ./research/terminology-evaluation` prints gold and fixture
+scores (plus provenance and audit counts). `make research-terminology`
+runs the same CLI but discards stdout (`>/dev/null`); it is an
+exit-status check.
 
-[`testdata/conceptmap.json`](./testdata/conceptmap.json) is a synthetic
-ConceptMap (`http://haistack.dev/research/ConceptMap/lab-to-panel|1.0.0`)
-from a toy lab CodeSystem to a toy panel CodeSystem. Codes are **not**
-SNOMED CT or LOINC — they exist so the artefact can be redistributed without
-terminology licenses.
+- Exit 0: gold control is perfect (Translate + scorer harness) **and**
+  the defective fixture is not (scorer can emit F1 < 1).
+- Exit 1: harness failure (gold control not F1 = 1) **or** the fixture
+  accidentally matches gold (scorer cannot demonstrate F1 < 1).
+- Fixture F1 < 1 is success for the harness, not a mapping-quality
+  result.
 
-[`testdata/cases.json`](./testdata/cases.json) is the **authored** expected
-equivalence class and target.
+## Gold set vs scorer fixture
 
-[`testdata/divergent-conceptmap.json`](./testdata/divergent-conceptmap.json)
-is a known-error fixture for class-metric unit tests (omit K/CBC-DIFF, WBC
-equivalent, GLU mapped). It is not published by the command and is not an
-evaluation of the translator or of an external mapping.
+[`gold/translations.json`](gold/translations.json) lists expected
+`(source, target, equivalence)` tuples for a synthetic vitals CodeSystem
+(`https://example.org/CodeSystem/haistack-vitals`) onto LOINC. Those
+tuples are the independent truth. `conceptMap` and `conceptMapVersion`
+must match [`gold/conceptmap.json`](gold/conceptmap.json) (the control
+map). They are not compared to the planted fixture map.
 
-| Class | Meaning |
-|-------|---------|
-| `exact` | equivalent / equal |
-| `narrow` | source is broader than target (narrower result) |
-| `broad` | source is narrower than target (wider result) |
-| `unmatched` | no acceptable translation (unmatched, disjoint, noMap) |
+[`gold/conceptmap.json`](gold/conceptmap.json) is a **control** map that
+implements the catalogue. Scoring it confirms the translator and scorer:
+F1 = 1 here means Translate works, not that mapping quality was tested.
 
-## Metrics
+[`fixture/defective-conceptmap.json`](fixture/defective-conceptmap.json)
+is a planted map (version `1.1.0-defective`) with known errors so the
+scorer can report F1 < 1:
 
-The published command prints **Translate-resolved ConceptMap identity**
-(`conceptMapUrl`, `conceptMapVersion`, `sourceSystemVersion`). Those fields
-are copied from the ConceptMap body by `$translate`. Exact / narrow / broad
-/ unmatched counts and class precision/recall are **test-only** (`Evaluate`
-plus `go test`); they are not command JSON. There is no published
-`implementsMap`, class-total, `accuracy`, or `consistency` ratio, and no
-gold translation rows (`HB` exact, …): `cases.json` restates
-`conceptmap.json`.
+| Source | Gold | Planted defect |
+|--------|------|----------------|
+| `hr` | LOINC 8867-4 (exact) | wrong target 9279-1 (false positive) |
+| `dbp` | LOINC 8462-4 (exact) | element omitted (false negative) |
+| `fever` | 8310-5 (broad / `wider`) | `equivalent` instead of `wider` (false positive) |
+| `unknown` | unmatched / `noMap` | falsely mapped to 8867-4 (false positive) |
 
-A case passes when `gotClass` matches authored gold and the target code
-matches when gold specifies one.
+Planted fixture confusion counts: TP = 8, FP = 3, FN = 1, F1 = 0.8.
 
-**Precision** and **recall** are computed by `Evaluate` as one-vs-rest on
-class labels (omitted when predicted or support is 0). A right class with
-a wrong target fails the case and is not a class false positive.
+Equivalence classes scored:
 
-**Provenance** identity fields come from the `terminology.translate`
-audit event **emitted by `pkg/terminology.Translate`**. They are copied
-from the resolved ConceptMap body (`url`, `version`, `sourceUri` version).
-A failed audit emit aborts the run. The harness stores the ConceptMap at
-its FHIR `url` and calls `$translate` with that url (no version parameter).
+| Class | FHIR ConceptMap equivalence |
+|-------|-----------------------------|
+| exact | `equivalent`, `equal` |
+| narrow | `narrower`, `specializes`, `source-is-broader-than-target` |
+| broad | `wider`, `subsumes`, `source-is-narrower-than-target` |
+| unmatched | no acceptable translation / `unmatched` |
 
-## Finite ValueSet expansion
+Metrics: precision, recall, and F1 against the gold set, plus per-tuple
+mismatches. CLI fields `exact`, `narrow`, `broad`, and `unmatched` are
+**true-positive counts in that class**, not how many gold tuples carry
+the label. The planted fixture therefore reports `broad: 0` because
+`fever` (gold `broad`) mismatches.
 
-`pkg/terminology` expands only finite compose/expansion members. Unbounded
-intensional ValueSets, missing global-catalog opt-in, and remote-only codes
-are expected gaps: the gold set documents unmatched codes rather than
-pretending local expansion is complete.
+## Provenance model
+
+Each **fixture** translation records:
+
+- ConceptMap canonical URL and version (`1.1.0-defective`)
+- source CodeSystem URL and version
+- target system
+- translation timestamp
+- equivalence class
+
+Those fields are copied onto `pkg/audit` event details
+(`terminology.translate`) for the planted fixture only. The gold control
+does not emit audit events (nil logger). Track E and `pkg/terminology`
+do not consume this provenance; it is CLI/harness output only.
+
+## Limitations
+
+Finite ValueSet expansion in `pkg/terminology` does not replace a full
+terminology server. This gold set is intentionally small and synthetic;
+it does not redistribute SNOMED CT or UMLS subsets. The defective map is
+a scorer fixture, not a recommended vitals map and not an independently
+produced mapping.

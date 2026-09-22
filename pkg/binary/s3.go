@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -72,8 +73,24 @@ func (s *S3BlobStore) Put(ctx context.Context, blobID string, data []byte, conte
 
 // PutWithOptions stores blob bytes with retention-aware headers.
 func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []byte, opts BlobWriteOptions) (*BlobDescriptor, error) {
+	return s.putStream(ctx, blobID, bytes.NewReader(data), int64(len(data)), opts)
+}
+
+// PutStream uploads from r without requiring a full in-memory []byte.
+// size is sent as Content-Length and must be >= 0 (S3 PutObject rejects chunked bodies).
+func (s *S3BlobStore) PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error) {
+	return s.putStream(ctx, blobID, r, size, BlobWriteOptions{ContentType: contentType})
+}
+
+func (s *S3BlobStore) putStream(ctx context.Context, blobID string, r io.Reader, size int64, opts BlobWriteOptions) (*BlobDescriptor, error) {
 	if blobID == "" {
 		return nil, fmt.Errorf("%w: blobID is required", ErrInvalidArgument)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("%w: reader is required", ErrInvalidArgument)
+	}
+	if size < 0 {
+		return nil, fmt.Errorf("%w: size is required for S3 streaming put", ErrInvalidArgument)
 	}
 	headers := map[string]string{}
 	if opts.ContentType != "" {
@@ -87,10 +104,13 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, signed.URL, bytes.NewReader(data))
+	h := &countingHash{h: sha256.New()}
+	body := io.TeeReader(r, h)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, signed.URL, body)
 	if err != nil {
 		return nil, err
 	}
+	req.ContentLength = size
 	for k, v := range signed.Headers {
 		req.Header.Set(k, v)
 	}
@@ -103,11 +123,13 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("s3 put blob: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	hash := HashSHA256(data)
+	if h.n != size {
+		return nil, fmt.Errorf("%w: uploaded %d bytes, declared size %d", ErrInvalidArgument, h.n, size)
+	}
 	return &BlobDescriptor{
 		BlobID:      blobID,
-		SHA256:      hash,
-		Size:        int64(len(data)),
+		SHA256:      h.sumHex(),
+		Size:        h.n,
 		ContentType: opts.ContentType,
 		Backend:     BackendS3,
 		Pointer: StoragePointer{
@@ -118,8 +140,42 @@ func (s *S3BlobStore) PutWithOptions(ctx context.Context, blobID string, data []
 	}, nil
 }
 
+type countingHash struct {
+	h hash.Hash
+	n int64
+}
+
+func (c *countingHash) Write(p []byte) (int, error) {
+	n, err := c.h.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func (c *countingHash) sumHex() string {
+	return hex.EncodeToString(c.h.Sum(nil))
+}
+
 // Get reads blob bytes from object storage.
 func (s *S3BlobStore) Get(ctx context.Context, blobID string) ([]byte, *BlobDescriptor, error) {
+	rc, desc, err := s.Open(ctx, blobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, nil, err
+	}
+	if desc == nil {
+		desc = &BlobDescriptor{BlobID: blobID, Backend: BackendS3, Pointer: StoragePointer{Backend: BackendS3, Ref: s.objectRef(blobID)}}
+	}
+	desc.SHA256 = HashSHA256(data)
+	desc.Size = int64(len(data))
+	return data, desc, nil
+}
+
+// Open streams blob bytes from object storage without buffering the full object.
+func (s *S3BlobStore) Open(ctx context.Context, blobID string) (io.ReadCloser, *BlobDescriptor, error) {
 	signed, err := s.SignedGetURL(ctx, blobID, 15*time.Minute)
 	if err != nil {
 		return nil, nil, err
@@ -132,27 +188,23 @@ func (s *S3BlobStore) Get(ctx context.Context, blobID string) ([]byte, *BlobDesc
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
+		_ = resp.Body.Close()
 		return nil, nil, ErrNotFound
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		_ = resp.Body.Close()
 		return nil, nil, fmt.Errorf("s3 get blob: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
 	}
 	desc := &BlobDescriptor{
 		BlobID:      blobID,
-		SHA256:      HashSHA256(data),
-		Size:        int64(len(data)),
+		Size:        resp.ContentLength,
 		Backend:     BackendS3,
 		Pointer:     StoragePointer{Backend: BackendS3, Ref: s.objectRef(blobID)},
 		ContentType: resp.Header.Get("Content-Type"),
 	}
-	return data, desc, nil
+	return resp.Body, desc, nil
 }
 
 // Head returns object metadata.
@@ -355,3 +407,9 @@ func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
+var (
+	_ BlobStore           = (*S3BlobStore)(nil)
+	_ BlobStoreWithStream = (*S3BlobStore)(nil)
+	_ BlobStoreWithOpen   = (*S3BlobStore)(nil)
+)

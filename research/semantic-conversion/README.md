@@ -1,89 +1,73 @@
-# Track B — R4/R5 semantic conversion corpus
+# Track B — Semantic conversion corpus (R4 → R5)
 
-Paired synthetic FHIR instances for scoring structural equivalence, semantic
-equivalence, and information-loss flags on R4→R5 migration. **R6 is out of
-scope** for this issue.
+Paired FHIR instances documenting R4 → R5 mapping classes, with a scorer
+that reports **structural path checks**, **R4 FHIRPath assertions**,
+**R5 JSON structural checks**, and **information-loss flags**. R5 checks
+are not FHIRPath and are not semantic equivalence in the R4 sense.
+
+This artefact is a **catalogue scorer**, not a converter. `ScoreAll`
+checks embedded R4/R5 JSON pairs. It does **not** transform R4 into R5.
+HAIStack `pkg/proto` currently ships Google FHIR **R4** only; a live R5
+codec is out of scope for issue #11. R4 inputs are parsed with
+`pkg/proto.NewGoogleR4Codec()`. The CLI report sets `"mode": "catalogue"`
+and `"converter": false`.
 
 ## Reproduce
 
 ```bash
 make research-conversion
-go test ./research/semantic-conversion -count=1
-go run ./research/semantic-conversion/cmd
+# or
+go test ./research/semantic-conversion
+go run ./research/semantic-conversion
 ```
 
-The scorer always emits at least 50 pair results. Categories:
+`go run` prints the score JSON. `make research-conversion` discards
+stdout (`>/dev/null`); it is an exit-status check.
+
+Static `Corpus()` in `corpus.go` embeds **≥50 pairs** across Patient,
+Observation, Condition, and MedicationRequest. There is no generator
+CLI. **≥30 pairs** have distinct R4 and R5 JSON. Categories `renamed`,
+`type`, `cardinality`, and `information_loss` always differ between
+versions.
+
+`identity` documents **stable paths** (id, status, subject, quantities).
+R4 and R5 JSON may still differ on mapped fields that every R5 instance
+must carry — notably MedicationRequest `medicationCodeableConcept` →
+`medication.concept`. Every MedicationRequest R5 body uses R5
+`medication` (CodeableReference), not R4 `medication[x]`.
 
 | Category | What it exercises |
 |----------|-------------------|
-| `unchanged` | Elements with the same path in R4 and R5 |
-| `removed` | R4 `Patient.animal` is absent in R5 |
-| `renamed` | R4 `Condition.asserter` → R5 `Condition.participant` |
-| `cardinality` | Singleton vs list (for example `interpretation`) |
-| `type-change` | `MedicationRequest.reported[x]` boolean vs reference |
-| `codeableconcept` | `reasonCode`/`reasonReference` → R5 `reason` CodeableReference |
+| `identity` | Unique stable instances; StablePaths match across versions |
+| `cardinality` | Shape/count changes, e.g. Observation.specimen 0..1 → 0..* |
+| `type` | Choice or type shifts, e.g. Observation.bodySite CodeableConcept → BackboneElement; MedicationRequest.medication[x] → CodeableReference |
+| `renamed` | Field moves, e.g. Condition.asserter → participant; MedicationRequest.reasonCode → reason |
+| `codeableconcept` | Same concept with display/text presentation changes |
+| `information_loss` | Flagged R4 fields absent on the paired R5 JSON. **HL7 removals:** `Condition.evidence`, `MedicationRequest.detectedIssue`, `MedicationRequest.instantiatesUri`. **Planted converter drops** (still valid R5 elements, or local extensions): `Patient.photo`, `Observation.note`, example.org extensions |
 
 ## Scoring
 
-Gold pairs live in [`testdata/corpus.json`](./testdata/corpus.json). That file
-is an **in-repo authored R5 oracle**, not a third-party mapping
-(`hl7.fhir.uv.xver` / core conversion maps). Unchanged pairs are identical
-in R4 and R5 in testdata because those elements did not change; that
-identity is an authorship invariant checked without running the converter.
-Transformed pairs cite the R5 resource diff (`spec`) and include mapping
-fields that are not on the R4 instance:
-
-| Category | Authored R5 constraint (absent from R4) |
-|----------|-----------------------------------------|
-| `removed` | R5 omits `animal`; pair cites the Patient R5 diff |
-| `renamed` | `Condition.participant.function` informant system **and** display |
-| `cardinality` | `Observation.interpretation` list plus v3 interpretation system/display |
-| `codeableconcept` / `type-change` | `MedicationRequest.medication` CodeableReference; toy-med system on coded medication |
-
-`ConvertR4ToR5` is an implementation scored against that oracle. Structural
-scoring is **document equality** of `Convert(r4)` against gold R5 after
-removing gold-only `meta.source` (the spec URL Convert does not emit).
-Presence of a remap stamp is not enough: dropping copy-through fields
-(`id`, `subject`, …) or remapped fields (`reason`, `participant`) fails.
-Constraint URLs live on Convert (emission) and in authorship tests
-(testdata); they are not a third scorer table.
-`TestCorpusGoldIsAuthoredOracle` inspects testdata only: gold R5
-copy-through fields (`id`, `subject`, `status`, …) match R4; gold
-`participant.actor` matches R4 `asserter` and `participant[0].function`
-is the informant coding; gold `interpretation` wraps the R4 singleton
-with v3 system/display; gold `reason` wraps R4 `reasonCode`/`reasonReference`;
-gold `medication[0].concept` wraps R4 `medicationCodeableConcept` (toy-med
-on coded medication); type-change gold `informationSource` wraps R4
-`reportedReference` with `reported: true`.
-`TestConverterImplementsAuthoredGold` **does** call Convert: it requires
-`Convert ≠ gold` because of `meta.source`, and ScoreCorpus to pass. A
-full pass means Convert implements this corpus, not an external mapping.
-
 For each pair:
 
-1. **Structural** — canonical JSON of `ConvertR4ToR5(r4)` equals the gold R5
-   document for that pair id except gold-only `meta.source`.
-2. **Semantic (R4)** — assertions run with `pkg/fhirpath` against the R4
-   protobuf codec. Instances the codec cannot load (R4-removed
-   `Patient.animal`, singleton JSON for 0..* `interpretation`) fall back to
-   the JSON-path subset. The score records `r4Engine` as `fhirpath` or
-   `json-path`.
-3. **Semantic (R5)** — the same assertion expressions are evaluated with the
-   JSON-path subset against the **converted** payload, not the gold file.
-   `r5Engine` is always `json-path` because HAIStack has no R5 protobuf codec
-   yet (`google_r5.go` is planned). This is not `pkg/fhirpath`.
-4. **Information loss** — flags declared on the pair must appear in the loss
-   list **detected by** `ConvertR4ToR5`. Declared flags are not copied into
-   that list before the check.
+1. Parse R4 JSON with `pkg/proto` (must succeed).
+2. Structural: compare documented stable paths on R4 vs R5 JSON.
+3. Semantic (R4): `pkg/fhirpath.EvalBool` against the Google R4 proto
+   envelope. There is no JSON-walker fallback; a failing expression fails
+   the pair.
+4. Semantic (R5): structural JSON checks (`exists`, `missing`, `count`,
+   `equals`) on the expected R5 document. These are **not** FHIRPath —
+   `pkg/fhirpath` has no R5 codec.
+5. `informationLoss` flags must be **present on R4** and **absent on R5**
+   (including `extension[url]`). A flag for a field that never existed on R4
+   fails the pair.
 
-HAIStack's production codec is R4 (`pkg/proto.GoogleR4Codec`). This corpus
-does not require a live R5 protobuf codec; envelopes use canonical JSON.
+The CLI field `informationLossFlags` is
+`sum(len(pair.InformationLoss))` over the corpus: a count of **declared
+flag strings**, not a scored loss metric and not
+`byCategory.information_loss`.
 
-## HL7 version conversion packages
+Relationship to HL7: pairs follow published R4/R5 resource diffs where a
+mapping is defined. They are not a substitute for the HL7 version
+conversion maps (`hl7.fhir.uv.xver` and related packages).
 
-HL7 publishes FHIR version conversion maps (for example
-`hl7.fhir.uv.xver` / the core conversion maps). This corpus is **not** a
-reimplementation of those maps. It is a small, citable test set focused on
-four resource types (Patient, Observation, Condition, MedicationRequest) with
-explicit information-loss flags so pipelines can be scored even when a
-converter is lossy by design.
+R6 is reserved; this corpus starts at R4→R5.

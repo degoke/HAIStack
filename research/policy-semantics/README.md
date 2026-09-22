@@ -1,31 +1,52 @@
 # Track C — Computable consent and policy semantics
 
-Formalizes HAIStack's deny-by-default policy DSL and its intersection with
-SMART scopes and R4 Consent patterns. This is a vendor-neutral test catalogue,
-not a production consent engine.
-
-See [`SEMANTICS.md`](./SEMANTICS.md) for the decision algorithm and worked
-examples. Machine-readable cases live in
-[`testdata/scenarios.json`](./testdata/scenarios.json).
+Formalizes HAIStack authorization as **SMART scope grants ∩ pkg/auth policy
+allows**, with a vendor-neutral scenario catalogue and a shared runner in
+`pkg/testkit/authztest`.
 
 ## Reproduce
 
 ```bash
 make research-policy
-go test ./research/policy-semantics -count=1
-go run ./research/policy-semantics/cmd
+# or
+go test ./research/policy-semantics
+go run ./research/policy-semantics
 ```
 
-The runner evaluates `principal + SMART scopes + consent state + request →
-expected decision` against `pkg/auth` and `pkg/smart`. SMART scenarios add a
-research-only `*.read` overlay on the clinician role so wildcard scopes can
-satisfy `RequiredPermissions`; that overlay is not applied to policy-only
-scenarios and is not production `pkg/auth` ∩ SMART (see SEMANTICS.md).
-Declarative scenarios are also executable from `pkg/testkit/authztest`
-(consent overlays are research-only and skipped there; the SMART `*.read`
-overlay is applied only when a scenario carries scopes).
+The CLI loads `scenarios.yaml` (≥10 cases) and executes them against
+`pkg/auth` + `pkg/smart`.
 
-## Catalogue size
+## Documents
 
-The published JSON includes **≥12** scope ∩ policy examples plus consent
-permit/deny overlays. Each example in SEMANTICS.md has a matching scenario id.
+| File | Contents |
+|------|----------|
+| [SEMANTICS.md](SEMANTICS.md) | Decision algorithm, first-match, deny-by-default, patient overlay, scope ∩ policy |
+| [scenarios.yaml](scenarios.yaml) | Machine-readable cases: principal + scopes + policy + request → expected decision (no consent-state field) |
+| [consent-patterns.md](consent-patterns.md) | R4 Consent / R5 Permission compile sketches; not an in-engine Consent suite |
+
+## Runner
+
+`pkg/testkit/authztest.ParseYAML` / `ScenariosFromYAML` is the shared
+scenario runner requested by issue #11 (also used by the authorization
+test suite). YAML cases fail unless **both** SMART `ScopeImplies` and the
+policy engine allow the action. Policy documents, the role catalog, and
+principals are declared in `scenarios.yaml` (portable `pkg/auth` DSL), not as
+Go-named enums or hardcoded fixture IDs. YAML principal `id` / `kind` /
+`tenant` / `roles` drive the SMART adapter. Tenant and kind are required on
+every principal. The CLI runs `ScenariosFromYAML` then `sc.Run(ctx, nil)`.
+Tests call `authztest.RunYAML`. Neither uses a Go `BaseConfig` kit.
+`policyRoleGrants` overlays extra role permissions per named policy
+(clinician `*.read` only for `observation-only`). Per-scenario `roleGrants`
+do the same for deny-by-default, first-match, view, and AI-tool examples so
+those cases pass SMART `RequiredPermissions` after `user/*.read` and then
+fail or allow at the policy gate. Every scenario must declare `principal`,
+`scopes`, `action`, `resourceType`, and `policy` (or `policyDocument`).
+Catalogue actions are `read`, `write`, `execute-view`, and
+`execute-ai-tool`. The runner also accepts `search` as an alias of
+`read`; this catalogue does not use it. Track C is the exception to
+“testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
+do **not** import `pkg/testkit`.
+
+This catalogue is vendor-neutral: the YAML does not mention HAPI, Firely,
+or other servers. Adapters can replay the same principal/scope/request
+tuples against another authorization engine.

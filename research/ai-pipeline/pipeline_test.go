@@ -1,105 +1,134 @@
-package aipipeline_test
+package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 
+	"github.com/degoke/health-ai-stack/pkg/ai"
 	"github.com/degoke/health-ai-stack/pkg/audit"
-	aipipeline "github.com/degoke/health-ai-stack/research/ai-pipeline"
 )
 
-func TestPipelineProvenanceChain(t *testing.T) {
-	ctx := context.Background()
-	result, err := aipipeline.Run(ctx)
+func TestAIPipelineProvenanceChain(t *testing.T) {
+	bundle, err := Run(context.Background())
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatal(err)
 	}
-	if result.ViewRows != 4 {
-		t.Fatalf("view rows = %d, want 4 final labs", result.ViewRows)
+	if bundle.Track != "E" {
+		t.Fatalf("track = %q", bundle.Track)
 	}
-	if result.DeniedErr == "" {
-		t.Fatal("expected denied actor to fail run_view")
+	if !bundle.FAIR.Synthetic || bundle.FAIR.PHI {
+		t.Fatal("dataset must be synthetic and contain no PHI")
 	}
-
-	b := result.Bundle
-	if b.Pipeline != "research/ai-pipeline" || b.Version != aipipeline.PipelineVersion {
-		t.Fatalf("bundle identity = %s %s", b.Pipeline, b.Version)
+	if len(bundle.Inputs) != len(pipelinePatients())+len(pipelineObservations()) {
+		t.Fatalf("inputs = %d", len(bundle.Inputs))
 	}
-	if !b.FAIR.Synthetic || b.FAIR.ContainsPHI {
-		t.Fatalf("FAIR flags = %+v", b.FAIR)
-	}
-	if len(b.Inputs) != 9 {
-		t.Fatalf("inputs = %d, want 9", len(b.Inputs))
-	}
-	for _, in := range b.Inputs {
-		if in.Hash == "" || in.Ref == "" {
-			t.Fatalf("input missing hash/ref: %+v", in)
+	for _, in := range bundle.Inputs {
+		if in.Hash == "" || !in.Validated {
+			t.Fatalf("input %+v missing hash or validation", in)
 		}
 	}
-	if b.View.Name != aipipeline.ViewName || b.View.Version != aipipeline.ViewVersion {
-		t.Fatalf("view provenance = %+v", b.View)
+	if bundle.View.Name != viewName || bundle.View.Version != viewVersion {
+		t.Fatalf("view = %+v", bundle.View)
 	}
-	if b.Policy.Hash == "" {
+	if bundle.View.RowCount != 5 {
+		t.Fatalf("row count = %d, want 5 (preliminary filtered)", bundle.View.RowCount)
+	}
+	if bundle.View.Definition == "" || bundle.View.RowHash == "" {
+		t.Fatal("view hashes missing")
+	}
+	if bundle.Policy.Hash == "" {
 		t.Fatal("policy hash missing")
 	}
-	if b.Tool.Name != "run_view" {
-		t.Fatalf("tool = %q", b.Tool.Name)
+	if bundle.Tool.Name != ai.ToolRunView || bundle.Tool.Outcome != "success" {
+		t.Fatalf("tool = %+v", bundle.Tool)
 	}
-	if b.Model.Adapter != "seeded-stub" || b.Model.Seed != aipipeline.StubSeed || b.Model.Content == "" {
-		t.Fatalf("model provenance = %+v", b.Model)
-	}
-	if len(b.Citations) == 0 {
+	if len(bundle.Tool.Citations) == 0 {
 		t.Fatal("expected view/resource citations")
 	}
-
-	var sawView, sawTool bool
-	for _, ev := range b.Audit {
-		if ev.Action == audit.ActionExecuteView {
-			sawView = true
+	if bundle.Model.Adapter != "stub-v1" || bundle.Model.Seed != modelSeed {
+		t.Fatalf("model = %+v", bundle.Model)
+	}
+	if bundle.Output.Content == "" || bundle.Output.Context == "" {
+		t.Fatal("model output missing")
+	}
+	if !hasAuditAction(bundle.Audit, audit.ActionExecuteView) {
+		t.Fatal("missing execute-view audit")
+	}
+	if !hasAuditAction(bundle.Audit, audit.ActionExecuteTool) {
+		t.Fatal("missing execute-tool audit")
+	}
+	if !hasAuditAction(bundle.Audit, audit.ActionInvokeModel) {
+		t.Fatal("missing invoke-model audit")
+	}
+	if bundle.Validation.FHIRVersion == "" || bundle.Validation.IGPackage == "" {
+		t.Fatalf("validation pin missing: %+v", bundle.Validation)
+	}
+	if bundle.Validation.ConformanceLockCommit == "" {
+		t.Fatal("conformance lock commit missing")
+	}
+	if bundle.Validation.CheckoutCommit == "" {
+		t.Fatal("checkout commit missing (lock rewrite is not this tree)")
+	}
+	if bundle.Validation.Mode != "r4-base-and-declared-ig-fast" {
+		t.Fatalf("validation mode = %q, want r4-base-and-declared-ig-fast (profiles + ValidationModeFast, not Full)", bundle.Validation.Mode)
+	}
+	if bundle.Validation.IGResources != "modules/core/ig" {
+		t.Fatalf("ig resources = %q, want compiled modules/core/ig", bundle.Validation.IGResources)
+	}
+	hasHai := false
+	for _, p := range bundle.Validation.Profiles {
+		if p == haiPatientProfileURL {
+			hasHai = true
+			break
 		}
-		if ev.Action == audit.ActionExecuteTool {
-			sawTool = true
+	}
+	if !hasHai {
+		t.Fatalf("validation profiles missing hai-patient: %+v", bundle.Validation.Profiles)
+	}
+	for _, in := range bundle.Inputs {
+		if in.Profile == "" {
+			t.Fatalf("input %+v missing profile URL", in)
+		}
+		switch in.ResourceType {
+		case "Patient":
+			if in.Profile != haiPatientProfileURL {
+				t.Fatalf("patient %s profile = %q, want hai-patient", in.ID, in.Profile)
+			}
+		case "Observation":
+			if in.Profile != "http://hl7.org/fhir/StructureDefinition/Observation" {
+				t.Fatalf("observation %s profile = %q", in.ID, in.Profile)
+			}
 		}
 	}
-	if !sawView || !sawTool {
-		t.Fatalf("audit chain missing view or tool events: %+v", b.Audit)
-	}
+}
 
-	raw, err := json.Marshal(b)
+func TestAIPipelineDeterministic(t *testing.T) {
+	a, err := Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte(`"lab-summary:`)) && !strings.Contains(b.Output, "lab-summary:") {
-		t.Fatalf("expected stub output, got %q", b.Output)
+	b, err := Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
+	if a.View.RowHash != b.View.RowHash {
+		t.Fatalf("row hash drifted: %s vs %s", a.View.RowHash, b.View.RowHash)
+	}
+	if a.Output.Content != b.Output.Content {
+		t.Fatal("stub model output drifted")
+	}
+	if a.Policy.Hash != b.Policy.Hash {
+		t.Fatal("policy hash drifted")
+	}
+}
 
-	again, err := aipipeline.Run(ctx)
+func TestStubModelNoNetwork(t *testing.T) {
+	m := &StubModel{Adapter: "stub-v1", Seed: 11}
+	resp, err := m.Invoke(context.Background(), ai.ModelRequest{Prompt: "x", Context: "y"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Bundle.Model.Content != b.Model.Content {
-		t.Fatalf("stub output not deterministic: %q vs %q", b.Model.Content, again.Bundle.Model.Content)
-	}
-	if again.Bundle.Policy.Hash != b.Policy.Hash {
-		t.Fatal("policy hash not stable")
-	}
-	firstJSON, err := json.Marshal(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondJSON, err := json.Marshal(again.Bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(firstJSON, secondJSON) {
-		t.Fatalf("provenance bundle is not byte-stable\nfirst:  %s\nsecond: %s", firstJSON, secondJSON)
-	}
-	for _, ev := range b.Audit {
-		if ev.ID == "" {
-			t.Fatal("audit event missing stable id")
-		}
+	if resp.Adapter != "stub-v1" || resp.Content == "" {
+		t.Fatalf("%+v", resp)
 	}
 }

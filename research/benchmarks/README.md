@@ -1,48 +1,72 @@
 # Track A — Vendor-neutral FHIR benchmark suite
 
-Portable workloads and seeded synthetic datasets for comparing FHIR
-implementations on **workload-specific** measures, not a single score.
+Reference workloads and a HAIStack runner for **workload-specific**
+evaluation (latency and throughput per operation), not a single score.
 
 ## Reproduce
 
 ```bash
 make research-benchmarks
-go test ./research/benchmarks -count=1
-go run ./research/benchmarks/cmd
+# or
+go test ./research/benchmarks
+go run ./research/benchmarks
 ```
 
-Default size is `small`. Medium and large are generated from the same seed:
+By default the runner uses the **small** seed dataset (fast enough for
+CI). Override with `HAISTACK_BENCH_SIZE=medium|large` or `-size`.
+Write the same synthetic JSON for an external adapter with
+`go run ./research/benchmarks -dump DIR`.
 
-```bash
-go run ./research/benchmarks/cmd -size medium
-```
+## Contents
 
-## Workloads
+| Path | Role |
+|------|------|
+| `workloads/*.yaml` | Portable workload definitions (`read`, `scan-read`, `view`) |
+| `generate.go` | Seeded synthetic dataset (`seed=11`) |
+| `runner.go` | HAIStack in-memory runner (`researchutil.MemoryResourceStore` + `pkg/view`) |
+| `adapters/README.md` | Template for wiring HAPI or another server |
 
-Defined in [`testdata/workloads.yaml`](./testdata/workloads.yaml):
+## Sizes
 
-| Workload | Operation | What it measures |
-|----------|-----------|------------------|
-| `crud-read` | Patient reads by id | Envelope read latency / correctness |
-| `view-observation` | SQL-on-FHIR ViewDefinition | Projection completeness |
-| `ai-run-view` | `pkg/ai` `run_view` | Policy + view + audit path (HAIStack-only) |
-
-Methodology: report per-workload operation counts, row counts, and elapsed
-time. Do **not** collapse results into one ranking. Implementations that skip
-AI tools should omit `ai-run-view` rather than score zero.
-
-## Dataset generator
-
-`Generate(seed, size)` produces deterministic Patients and Observations.
-Sizes:
-
-| Size | Patients | Observations |
+| Name | Patients | Observations |
 |------|----------|----------------|
-| small | 10 | 20 |
-| medium | 50 | 100 |
-| large | 200 | 400 |
+| small | 20 | 40 |
+| medium | 100 | 200 |
+| large | 400 | 800 |
 
-## External adapters
+Datasets are generated from a fixed seed; they are not stored as PHI and
+are not sampled from real EHR extracts.
 
-[`adapter.go`](./adapter.go) defines `Adapter`. [`adapter_hapi.go`](./adapter_hapi.go)
-is a documented template for an HTTP HAPI client. It is not executed in CI.
+## Methodology
+
+Report **per-workload** measurements (p50/p95 latency, operations/sec).
+Do not collapse heterogeneous operations into one leaderboard number.
+Compare implementations only on the same workload YAML and size.
+
+`count` is the operation budget in the YAML, not a fraction of the
+generated store. `-size` / `HAISTACK_BENCH_SIZE` only changes how many
+Patients and Observations are seeded (20/40, 100/200, 400/800). The
+bundled counts stay 40 reads, 40 scan-list ids, and 10 view executions
+at every size — a large dump still lists at most 40 of 800 Observations.
+
+| `type` | What `count` means |
+|--------|--------------------|
+| `read` | Number of `Read` calls (round-robin over the seeded pool) |
+| `scan-read` | `ListIDs` page size, then one `Read` per returned id |
+| `view` | Number of `Execute` calls; page size is `limit` (required) |
+
+The HAIStack reference runner implements `scan-read` as
+`MemoryResourceStore.ListIDs` followed by `Read`. That is not FHIR
+`_search`. External adapters may list ids with search (`_elements=id`)
+or a bulk dump; say which path you used when comparing.
+
+For `scan-read`, p50/p95 are computed over **one combined sample pool**:
+the list call plus each subsequent read. They are not separate list vs
+read percentiles. `view` uses the YAML `limit` as the row page size
+(100 in `view-execute.yaml`).
+
+## Citation
+
+Cite this directory via the repository [`CITATION.cff`](../../CITATION.cff).
+A Zenodo deposit can attach the generated small/medium/large dumps when
+published.

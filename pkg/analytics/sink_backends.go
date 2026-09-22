@@ -29,23 +29,25 @@ func (s *warehouseSink) WriteRows(ctx context.Context, result *view.Result) erro
 
 // ManifestExportConfig configures cursor-based manifest export.
 type ManifestExportConfig struct {
-	Root          io.Writer
-	Watermark     *WatermarkStore
-	Format        ExportFormat
-	ParquetLayout view.ParquetLayout
-	Executor      *view.Executor
-	Actor         string
+	Root              io.Writer
+	Watermark         *WatermarkStore
+	Format            ExportFormat
+	ParquetLayout     view.ParquetLayout
+	TimestampEncoding view.TimestampEncoding
+	Executor          *view.Executor
+	Actor             string
 }
 
 type manifestExportSink struct {
-	root          io.Writer
-	watermark     *WatermarkStore
-	format        ExportFormat
-	parquetLayout view.ParquetLayout
-	executor      *view.Executor
-	actor         string
-	mu            sync.Mutex
-	lastRowCount  int
+	root              io.Writer
+	watermark         *WatermarkStore
+	format            ExportFormat
+	parquetLayout     view.ParquetLayout
+	timestampEncoding view.TimestampEncoding
+	executor          *view.Executor
+	actor             string
+	mu                sync.Mutex
+	lastRowCount      int
 }
 
 // NewManifestExportSink returns a sink that writes export payloads and advances watermarks.
@@ -59,12 +61,13 @@ func NewManifestExportSink(cfg ManifestExportConfig) ManifestExportSink {
 		layout = view.ParquetLayoutFlat
 	}
 	return &manifestExportSink{
-		root:          cfg.Root,
-		watermark:     cfg.Watermark,
-		format:        format,
-		parquetLayout: layout,
-		executor:      cfg.Executor,
-		actor:         cfg.Actor,
+		root:              cfg.Root,
+		watermark:         cfg.Watermark,
+		format:            format,
+		parquetLayout:     layout,
+		timestampEncoding: cfg.TimestampEncoding,
+		executor:          cfg.Executor,
+		actor:             cfg.Actor,
 	}
 }
 
@@ -100,10 +103,11 @@ func (s *manifestExportSink) writeFormatted(ctx context.Context, result *view.Re
 		return NewCSVSink(s.root).WriteRows(ctx, result)
 	case FormatParquet:
 		sink := NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
-			Writer:   s.root,
-			Layout:   s.parquetLayout,
-			Executor: s.executor,
-			Actor:    s.actor,
+			Writer:            s.root,
+			Layout:            s.parquetLayout,
+			TimestampEncoding: s.timestampEncoding,
+			Executor:          s.executor,
+			Actor:             s.actor,
 		})
 		if err := sink.WriteRows(ctx, result); err != nil {
 			return err

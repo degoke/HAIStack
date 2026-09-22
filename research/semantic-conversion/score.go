@@ -1,344 +1,328 @@
-package semanticconversion
+// Command semantic-conversion scores the R4→R5 paired corpus.
+package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
-	"strconv"
+	"os"
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	proto "github.com/degoke/health-ai-stack/pkg/proto"
 	"github.com/degoke/health-ai-stack/pkg/types"
 )
 
-const (
-	engineFHIRPath = "fhirpath"
-	engineJSONPath = "json-path"
-)
-
-// PairScore is the per-instance conversion score.
-type PairScore struct {
-	ID              string   `json:"id"`
-	ResourceType    string   `json:"resourceType"`
-	Category        string   `json:"category"`
-	StructuralOK    bool     `json:"structuralOk"`
-	SemanticOK      bool     `json:"semanticOk"`
-	R4Engine        string   `json:"r4Engine,omitempty"`
-	R5Engine        string   `json:"r5Engine,omitempty"`
-	InformationLoss []string `json:"informationLoss,omitempty"`
-	Errors          []string `json:"errors,omitempty"`
-}
-
-// Report summarizes corpus scoring.
-type Report struct {
+// ScoreReport is the conversion-corpus evaluation output.
+// Mode is "catalogue": the scorer checks embedded pairs. It does not convert
+// R4 JSON into R5 (there is no R5 codec / conversion pipeline).
+type ScoreReport struct {
+	Track      string         `json:"track"`
+	Mode       string         `json:"mode"`
+	Converter  bool           `json:"converter"`
 	Pairs      int            `json:"pairs"`
-	Structural int            `json:"structuralPassed"`
-	Semantic   int            `json:"semanticPassed"`
+	Passed     int            `json:"passed"`
 	Failed     int            `json:"failed"`
+	Differing  int            `json:"differingPairs"`
 	ByCategory map[string]int `json:"byCategory"`
-	Scores     []PairScore    `json:"scores"`
+	ByType     map[string]int `json:"byResourceType"`
+	// LossFlags is the count of declared pair.InformationLoss strings, not
+	// a scored metric and not byCategory["information_loss"].
+	LossFlags int           `json:"informationLossFlags"`
+	Failures  []PairFailure `json:"failures,omitempty"`
 }
 
-// ScoreCorpus converts each R4 instance with ConvertR4ToR5 and requires that
-// output to equal authored gold R5 except gold-only meta.source. Convert does
-// not produce gold; testdata is the oracle. Dropping copy-through fields (id,
-// subject, …) or remapped fields (reason, participant) fails structural.
-//
-// Semantic R4 checks use pkg/fhirpath. Instances the R4 protobuf codec cannot
-// load (unknown fields such as Patient.animal, singleton JSON for 0..*
-// interpretation) fall back to the JSON-path subset. Semantic R5 checks always
-// use that JSON-path subset because no production R5 codec exists yet, and they
-// run against the converted payload rather than the gold file.
-//
-// Information-loss flags declared on a pair must appear in the loss list
-// returned by ConvertR4ToR5. Declared flags are not merged into that list
-// before the check.
-func ScoreCorpus(pairs []Pair) (Report, error) {
-	fp, err := fhirpath.NewEngine(fhirpath.Config{})
+// PairFailure records why one pair did not score cleanly.
+type PairFailure struct {
+	ID     string   `json:"id"`
+	Errors []string `json:"errors"`
+}
+
+// ScoreAll evaluates every corpus pair.
+func ScoreAll(ctx context.Context) (*ScoreReport, error) {
+	engine, err := fhirpath.NewEngine(fhirpath.Config{})
 	if err != nil {
-		return Report{}, err
+		return nil, err
 	}
-	env := scoreEnv{
-		ctx:   context.Background(),
-		fp:    fp,
-		codec: types.NewJSONCodec(),
+	codec := proto.NewGoogleR4Codec()
+	pairs := Corpus()
+	report := &ScoreReport{
+		Track:      "B",
+		Mode:       "catalogue",
+		Converter:  false,
+		Pairs:      len(pairs),
+		ByCategory: map[string]int{},
+		ByType:     map[string]int{},
 	}
-	report := Report{ByCategory: map[string]int{}}
 	for _, pair := range pairs {
-		score := scorePair(env, pair)
-		report.Pairs++
 		report.ByCategory[pair.Category]++
-		if score.StructuralOK {
-			report.Structural++
+		report.ByType[pair.ResourceType]++
+		report.LossFlags += len(pair.InformationLoss)
+		if string(pair.R4) != string(pair.R5) {
+			report.Differing++
 		}
-		if score.SemanticOK {
-			report.Semantic++
-		}
-		if !score.StructuralOK || !score.SemanticOK {
+		if errs := scorePair(ctx, codec, engine, pair); len(errs) > 0 {
 			report.Failed++
+			report.Failures = append(report.Failures, PairFailure{ID: pair.ID, Errors: errs})
+			continue
 		}
-		report.Scores = append(report.Scores, score)
+		report.Passed++
 	}
 	return report, nil
 }
 
-type scoreEnv struct {
-	ctx   context.Context
-	fp    fhirpath.Engine
-	codec *types.JSONCodec
-}
-
-func scorePair(env scoreEnv, pair Pair) PairScore {
-	score := PairScore{
-		ID:           pair.ID,
-		ResourceType: pair.ResourceType,
-		Category:     pair.Category,
-		R4Engine:     engineFHIRPath,
-		R5Engine:     engineJSONPath,
+func scorePair(ctx context.Context, codec *proto.GoogleR4Codec, engine fhirpath.Engine, pair Pair) []string {
+	var errs []string
+	r4proto, protoErr := codec.ParseJSONToEnvelope(pair.ResourceType, pair.R4)
+	if protoErr != nil {
+		errs = append(errs, fmt.Sprintf("r4 proto parse: %v", protoErr))
 	}
-	got, loss, err := ConvertR4ToR5(pair.ResourceType, pair.R4)
+	r4env, err := types.NewJSONCodec().ParseJSON(pair.ResourceType, pair.R4)
 	if err != nil {
-		score.Errors = append(score.Errors, err.Error())
-		return score
+		errs = append(errs, fmt.Sprintf("r4 json: %v", err))
 	}
-	score.InformationLoss = sortedCopy(loss)
-	ok, msg, err := structuralOK(pair, got)
+	r5env, err := types.NewJSONCodec().ParseJSON(pair.ResourceType, pair.R5)
 	if err != nil {
-		score.Errors = append(score.Errors, err.Error())
-		return score
+		errs = append(errs, fmt.Sprintf("r5 json: %v", err))
 	}
-	score.StructuralOK = ok
-	if !ok && msg != "" {
-		score.Errors = append(score.Errors, msg)
-	}
-
-	score.SemanticOK = true
-	for _, as := range pair.Assertions {
-		if as.R4 != "" {
-			engine, err := assertR4(env, pair.ResourceType, pair.R4, as.R4, as.Want)
-			if engine == engineJSONPath {
-				score.R4Engine = engineJSONPath
+	if r4env != nil && r5env != nil {
+		for _, path := range pair.StablePaths {
+			if !structuralEqual(r4env, r5env, path) {
+				errs = append(errs, fmt.Sprintf("structural path %q differs", path))
 			}
+		}
+	}
+	if r4proto != nil {
+		for _, a := range pair.R4FHIRPath {
+			got, err := engine.EvalBool(ctx, a.Expr, r4proto)
 			if err != nil {
-				score.SemanticOK = false
-				score.Errors = append(score.Errors, "R4 "+as.Name+": "+err.Error())
+				errs = append(errs, fmt.Sprintf("r4 fhirpath %q: %v", a.Expr, err))
+				continue
+			}
+			if got != a.Want {
+				errs = append(errs, fmt.Sprintf("r4 fhirpath %q: got %v want %v", a.Expr, got, a.Want))
 			}
 		}
-		if as.R5 != "" {
-			// Grade the converter output, not the gold R5 file.
-			if err := assertJSONPath(got, as.R5, as.Want); err != nil {
-				score.SemanticOK = false
-				score.Errors = append(score.Errors, "R5 "+as.Name+": "+err.Error())
+	} else if len(pair.R4FHIRPath) > 0 {
+		errs = append(errs, "r4 fhirpath: missing proto envelope")
+	}
+	if r5env != nil {
+		for _, c := range pair.R5JSON {
+			got, err := evalJSONCheck(r5env.JSON, c)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("r5 json %s %q: %v", c.Op, c.Path, err))
+				continue
+			}
+			if !got {
+				errs = append(errs, fmt.Sprintf("r5 json %s %q: not satisfied (value=%v)", c.Op, c.Path, c.Value))
 			}
 		}
+	} else if len(pair.R5JSON) > 0 {
+		errs = append(errs, "r5 json checks: missing resource")
 	}
-	// Grade detected converter loss against the declared list. Do not union
-	// declared flags into the detected list first — that check cannot fail.
-	if !containsAll(loss, pair.InformationLoss) {
-		score.SemanticOK = false
-		score.Errors = append(score.Errors, "missing declared information-loss flags")
-	}
-	if pair.Spec != "" && !goldHasAuthoredSource(pair.R5, pair.Spec) {
-		score.SemanticOK = false
-		score.Errors = append(score.Errors, "gold R5 missing authored meta.source")
-	}
-	return score
-}
-
-func assertR4(env scoreEnv, resourceType string, raw json.RawMessage, expr string, want []string) (string, error) {
-	envelope, err := env.codec.ParseJSON(resourceType, raw)
-	if err != nil {
-		return engineJSONPath, assertJSONPath(raw, expr, want)
-	}
-	values, err := env.fp.Eval(env.ctx, expr, envelope)
-	if err != nil {
-		if r4CodecCannotLoad(err) {
-			return engineJSONPath, assertJSONPath(raw, expr, want)
-		}
-		return engineFHIRPath, err
-	}
-	got, err := stringifyFHIR(values)
-	if err != nil {
-		return engineFHIRPath, err
-	}
-	return engineFHIRPath, compareValues(expr, got, want)
-}
-
-func r4CodecCannotLoad(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "unknown field") || strings.Contains(s, "expected array")
-}
-
-func stringifyFHIR(values []fhirpath.Value) ([]string, error) {
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		if s, err := v.String(); err == nil {
-			out = append(out, s)
-			continue
-		}
-		if n, err := v.Float64(); err == nil {
-			if n == float64(int(n)) {
-				out = append(out, strconv.Itoa(int(n)))
-			} else {
-				out = append(out, strconv.FormatFloat(n, 'g', -1, 64))
-			}
-			continue
-		}
-		if b, err := v.Bool(); err == nil {
-			out = append(out, strconv.FormatBool(b))
-			continue
-		}
-		if v.Raw() == nil {
-			return nil, fmt.Errorf("unstringifiable FHIRPath value type %s", v.Type())
-		}
-		// Proto bound codes (GenderCode, StatusCode, …) stringify as value:FEMALE.
-		out = append(out, fmt.Sprint(v.Raw()))
-	}
-	return out, nil
-}
-
-func assertJSONPath(raw json.RawMessage, expr string, want []string) error {
-	got, err := evalJSONPath(raw, expr)
-	if err != nil {
-		return err
-	}
-	return compareValues(expr, got, want)
-}
-
-func compareValues(expr string, got, want []string) error {
-	if len(want) == 0 {
-		if len(got) == 0 {
-			return fmt.Errorf("%s: empty result", expr)
-		}
-		return nil
-	}
-	if len(got) != len(want) {
-		return fmt.Errorf("%s = %v, want %v", expr, got, want)
-	}
-	for i := range want {
-		if !equalFoldValue(got[i], want[i]) {
-			return fmt.Errorf("%s[%d] = %q, want %q", expr, i, got[i], want[i])
-		}
-	}
-	return nil
-}
-
-func equalFoldValue(got, want string) bool {
-	g := strings.TrimPrefix(strings.ToLower(got), "value:")
-	w := strings.ToLower(want)
-	return g == w
-}
-
-func evalJSONPath(raw json.RawMessage, expr string) ([]string, error) {
-	var root any
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return nil, err
-	}
-	parts := strings.Split(expr, ".")
-	if len(parts) > 0 {
-		if obj, ok := root.(map[string]any); ok {
-			if rt, _ := obj["resourceType"].(string); rt != "" && strings.EqualFold(rt, parts[0]) {
-				parts = parts[1:]
-			}
-		}
-	}
-	cur := root
-	for _, part := range parts {
-		if part == "first()" {
-			switch v := cur.(type) {
-			case []any:
-				if len(v) == 0 {
-					return nil, fmt.Errorf("%s: empty collection", expr)
+	if len(pair.InformationLoss) > 0 {
+		if r4env == nil {
+			errs = append(errs, "informationLoss: missing R4 resource")
+		} else {
+			for _, flag := range pair.InformationLoss {
+				present, err := informationLossPresent(r4env.JSON, pair.ResourceType, flag)
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("informationLoss %q on R4: %v", flag, err))
+					continue
 				}
-				cur = v[0]
-			case nil:
-				return nil, fmt.Errorf("%s: empty collection", expr)
-			default:
-				return nil, fmt.Errorf("%s: first() requires a collection", expr)
+				if !present {
+					errs = append(errs, fmt.Sprintf("informationLoss %q not present on R4", flag))
+				}
 			}
+		}
+		if r5env == nil {
+			errs = append(errs, "informationLoss: missing R5 resource")
+		} else {
+			for _, flag := range pair.InformationLoss {
+				absent, err := informationLossAbsent(r5env.JSON, pair.ResourceType, flag)
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("informationLoss %q on R5: %v", flag, err))
+					continue
+				}
+				if !absent {
+					errs = append(errs, fmt.Sprintf("informationLoss %q still present on R5", flag))
+				}
+			}
+		}
+	}
+	if pair.Category == "information_loss" && len(pair.InformationLoss) == 0 {
+		errs = append(errs, "information_loss category requires flags")
+	}
+	return errs
+}
+
+func evalJSONCheck(raw []byte, c JSONCheck) (bool, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false, err
+	}
+	values := walkJSON(obj, strings.Split(c.Path, "."))
+	switch c.Op {
+	case "exists":
+		return len(values) > 0, nil
+	case "missing":
+		return len(values) == 0, nil
+	case "count":
+		n, ok := asInt(c.Value)
+		if !ok {
+			return false, fmt.Errorf("count value %v is not an integer", c.Value)
+		}
+		return len(values) == n, nil
+	case "equals":
+		want := fmt.Sprint(c.Value)
+		for _, v := range values {
+			if fmt.Sprint(v) == want {
+				return true, nil
+			}
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("unsupported json check op %q", c.Op)
+	}
+}
+
+func informationLossPresent(raw []byte, resourceType, flag string) (bool, error) {
+	absent, err := informationLossAbsent(raw, resourceType, flag)
+	if err != nil {
+		return false, err
+	}
+	return !absent, nil
+}
+
+func informationLossAbsent(raw []byte, resourceType, flag string) (bool, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false, err
+	}
+	path := strings.TrimSpace(flag)
+	if path == "" {
+		return false, fmt.Errorf("empty flag")
+	}
+	if resourceType != "" && strings.HasPrefix(path, resourceType+".") {
+		path = strings.TrimPrefix(path, resourceType+".")
+	}
+	if strings.HasPrefix(path, "extension[") && strings.HasSuffix(path, "]") {
+		url := strings.TrimSuffix(strings.TrimPrefix(path, "extension["), "]")
+		return extensionURLAbsent(obj, url), nil
+	}
+	return len(walkJSON(obj, strings.Split(path, "."))) == 0, nil
+}
+
+func extensionURLAbsent(obj map[string]any, url string) bool {
+	raw, ok := obj["extension"]
+	if !ok || raw == nil {
+		return true
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return true
+	}
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
 			continue
 		}
-		obj, ok := cur.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%s: %q is not an object", expr, part)
-		}
-		cur = obj[part]
-	}
-	return stringifyJSON(cur), nil
-}
-
-func stringifyJSON(v any) []string {
-	switch t := v.(type) {
-	case nil:
-		return nil
-	case string:
-		return []string{t}
-	case float64:
-		if t == float64(int(t)) {
-			return []string{strconv.Itoa(int(t))}
-		}
-		return []string{strconv.FormatFloat(t, 'g', -1, 64)}
-	case bool:
-		return []string{strconv.FormatBool(t)}
-	case []any:
-		var out []string
-		for _, item := range t {
-			out = append(out, stringifyJSON(item)...)
-		}
-		return out
-	default:
-		b, err := json.Marshal(t)
-		if err != nil {
-			return []string{fmt.Sprint(t)}
-		}
-		return []string{string(b)}
-	}
-}
-
-func jsonEqual(a, b []byte) (bool, error) {
-	var left, right any
-	if err := json.Unmarshal(a, &left); err != nil {
-		return false, err
-	}
-	if err := json.Unmarshal(b, &right); err != nil {
-		return false, err
-	}
-	lb, err := json.Marshal(left)
-	if err != nil {
-		return false, err
-	}
-	rb, err := json.Marshal(right)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(lb, rb), nil
-}
-
-func sortedCopy(in []string) []string {
-	out := make([]string, 0, len(in))
-	for _, item := range in {
-		if item != "" {
-			out = append(out, item)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func containsAll(have, want []string) bool {
-	set := map[string]struct{}{}
-	for _, item := range have {
-		set[item] = struct{}{}
-	}
-	for _, item := range want {
-		if _, ok := set[item]; !ok {
+		if fmt.Sprint(m["url"]) == url {
 			return false
 		}
 	}
 	return true
+}
+
+func asInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func walkJSON(root any, path []string) []any {
+	cur := []any{root}
+	for _, p := range path {
+		if p == "" {
+			continue
+		}
+		next := make([]any, 0)
+		for _, node := range cur {
+			switch n := node.(type) {
+			case map[string]any:
+				if v, ok := n[p]; ok {
+					next = append(next, flatten(v)...)
+				}
+			case []any:
+				for _, item := range n {
+					if m, ok := item.(map[string]any); ok {
+						if v, ok := m[p]; ok {
+							next = append(next, flatten(v)...)
+						}
+					}
+				}
+			}
+		}
+		cur = next
+	}
+	return cur
+}
+
+func flatten(v any) []any {
+	if arr, ok := v.([]any); ok {
+		return arr
+	}
+	if v == nil {
+		return nil
+	}
+	return []any{v}
+}
+
+func structuralEqual(left, right *types.ResourceEnvelope, path string) bool {
+	lv, lok := left.Field(path)
+	rv, rok := right.Field(path)
+	if !lok && !rok {
+		return true
+	}
+	if lok != rok {
+		return false
+	}
+	lb, err1 := json.Marshal(lv)
+	rb, err2 := json.Marshal(rv)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return string(lb) == string(rb)
+}
+
+func main() {
+	report, err := ScoreAll(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "semantic-conversion: %v\n", err)
+		os.Exit(1)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(report); err != nil {
+		fmt.Fprintf(os.Stderr, "semantic-conversion: %v\n", err)
+		os.Exit(1)
+	}
+	if report.Pairs < 50 {
+		fmt.Fprintf(os.Stderr, "semantic-conversion: need ≥50 pairs, got %d\n", report.Pairs)
+		os.Exit(1)
+	}
+	if report.Differing < 30 {
+		fmt.Fprintf(os.Stderr, "semantic-conversion: need ≥30 differing R4/R5 pairs, got %d\n", report.Differing)
+		os.Exit(1)
+	}
+	if report.Failed > 0 {
+		os.Exit(1)
+	}
 }
