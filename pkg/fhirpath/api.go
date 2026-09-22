@@ -60,6 +60,11 @@ type TerminologyValidator interface {
 	MemberOf(ctx context.Context, valueSetURL, system, code string) (bool, error)
 }
 
+// SubsumptionValidator checks whether broadCode subsumes narrowCode in a code system.
+type SubsumptionValidator interface {
+	Subsumes(ctx context.Context, system, broadCode, narrowCode string) (bool, error)
+}
+
 // DefaultCacheSize is the default compile-cache capacity.
 const DefaultCacheSize = 256
 

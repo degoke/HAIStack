@@ -40,6 +40,8 @@ type LakehouseConfig struct {
 	Executor *view.Executor
 	// Actor is forwarded to FHIR resource export authorization.
 	Actor string
+	// TimestampEncoding selects INT64 (default) or INT96 date annotations for FHIR parquet.
+	TimestampEncoding view.TimestampEncoding
 }
 
 type lakehouseSink struct {
@@ -125,18 +127,18 @@ func (s *lakehouseSink) WriteRows(ctx context.Context, result *view.Result) erro
 	switch {
 	case strings.TrimSpace(s.cfg.RootDir) != "":
 		var location string
-		location, rowCount, err = writeLakehouseParquetFile(ctx, s.cfg.RootDir, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		location, rowCount, err = writeLakehouseParquetFile(ctx, s.cfg.RootDir, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor, s.cfg.TimestampEncoding)
 		if err == nil {
 			artifact.Location = location
 		}
 	case s.cfg.Blob != nil:
 		var location string
-		location, rowCount, err = writeLakehouseParquetBlob(ctx, s.cfg.Blob, s.cfg.BlobPrefix, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		location, rowCount, err = writeLakehouseParquetBlob(ctx, s.cfg.Blob, s.cfg.BlobPrefix, partition, filename, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor, s.cfg.TimestampEncoding)
 		if err == nil {
 			artifact.Location = location
 		}
 	case s.cfg.Root != nil:
-		rowCount, err = writeParquet(ctx, s.cfg.Root, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor)
+		rowCount, err = writeParquet(ctx, s.cfg.Root, result, s.cfg.ParquetLayout, s.cfg.Executor, s.cfg.Actor, s.cfg.TimestampEncoding)
 		if err == nil {
 			artifact.Location = "stream:" + filename
 		}
@@ -172,6 +174,7 @@ func writeLakehouseParquetFile(
 	layout view.ParquetLayout,
 	executor *view.Executor,
 	actor string,
+	encoding view.TimestampEncoding,
 ) (string, int, error) {
 	dir := filepath.Join(rootDir, filepath.FromSlash(partition))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -182,7 +185,7 @@ func writeLakehouseParquetFile(
 	if err != nil {
 		return "", 0, fmt.Errorf("create lakehouse parquet file: %w", err)
 	}
-	rowCount, err := writeParquet(ctx, file, result, layout, executor, actor)
+	rowCount, err := writeParquet(ctx, file, result, layout, executor, actor, encoding)
 	if err != nil {
 		_ = file.Close()
 		return "", rowCount, err
@@ -201,6 +204,7 @@ func writeLakehouseParquetBlob(
 	layout view.ParquetLayout,
 	executor *view.Executor,
 	actor string,
+	encoding view.TimestampEncoding,
 ) (string, int, error) {
 	tmp, err := os.CreateTemp("", "lakehouse-*.parquet")
 	if err != nil {
@@ -209,7 +213,7 @@ func writeLakehouseParquetBlob(
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 
-	rowCount, err := writeParquet(ctx, tmp, result, layout, executor, actor)
+	rowCount, err := writeParquet(ctx, tmp, result, layout, executor, actor, encoding)
 	if err != nil {
 		_ = tmp.Close()
 		return "", rowCount, err

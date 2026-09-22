@@ -148,14 +148,19 @@ func choiceColumnExtension(v ChoiceColumn) Extension {
 }
 
 func parseCQFLibrary(ext Extension) (CQFLibraryRef, bool) {
-	if ext.URL != SDCCQFLibraryExt {
+	if ext.URL != SDCCQFLibraryExt && ext.URL != CQFLibraryExtension {
 		return CQFLibraryRef{}, false
 	}
 	out := CQFLibraryRef{}
+	if v := extensionScalarString(ext); v != "" {
+		out.LibraryCanonical = v
+	}
 	for _, child := range ext.Extension {
 		switch childURLSuffix(child.URL) {
 		case "library":
-			out.LibraryCanonical = extensionScalarString(child)
+			if s := extensionScalarString(child); s != "" {
+				out.LibraryCanonical = s
+			}
 		case "name":
 			out.Name = extensionScalarString(child)
 		}
@@ -164,6 +169,9 @@ func parseCQFLibrary(ext Extension) (CQFLibraryRef, bool) {
 }
 
 func cqfLibraryExtension(v CQFLibraryRef) Extension {
+	if strings.TrimSpace(v.Name) == "" {
+		return Extension{URL: CQFLibraryExtension, Value: v.LibraryCanonical, valueType: "Canonical"}
+	}
 	return Extension{URL: SDCCQFLibraryExt, Extension: []Extension{
 		{URL: "library", Value: v.LibraryCanonical, valueType: "Canonical"},
 		{URL: "name", Value: v.Name, valueType: "Code"},

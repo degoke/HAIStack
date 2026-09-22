@@ -481,3 +481,145 @@ func TestViewDefinitionExportEmptyBodySubjectPreservesQuery(t *testing.T) {
 		t.Fatalf("Actor=%q, want query preserved when body actor is empty", exportSvc.last.Actor)
 	}
 }
+
+func TestViewDefinitionRunParsesTimestampEncoding(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?viewName=patient_summary_view&_parquetTimestampEncoding=int96",
+		nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96", runSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunRejectsInvalidTimestampEncoding(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?viewName=patient_summary_view&_parquetTimestampEncoding=nanos",
+		nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestViewDefinitionExportParsesTimestampEncoding(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?viewName=patient_summary_view&_parquetTimestampEncoding=int96",
+		nil, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96", exportSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunParsesTimestampEncodingFromBody(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"parquetTimestampEncoding","valueString":{"valueString":"int96"}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost, "/fhir/$viewdefinition-run", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96 from body", runSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunBodyTimestampEncodingOverridesQuery(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"parquetTimestampEncoding","valueString":{"valueString":"int96"}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?_parquetTimestampEncoding=int64", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want body int96 to override query", runSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunEmptyBodyTimestampEncodingPreservesQuery(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"parquetTimestampEncoding","valueString":{"valueString":""}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-run?_parquetTimestampEncoding=int96", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if runSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want query preserved when body encoding is empty", runSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionRunRejectsInvalidBodyTimestampEncoding(t *testing.T) {
+	runSvc := &fakeViewRunService{}
+	h := viewOpsHandler(t, hahttp.Config{ViewRunService: runSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"viewName","valueString":{"valueString":"patient_summary_view"}},
+		{"name":"parquetTimestampEncoding","valueString":{"valueString":"nanos"}}
+	]}`)
+	rec := doRequest(t, h, http.MethodPost, "/fhir/$viewdefinition-run", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestViewDefinitionExportParsesTimestampEncodingFromBody(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"parquetTimestampEncoding","valueString":{"valueString":"int96"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want int96 from body", exportSvc.last.TimestampEncoding)
+	}
+}
+
+func TestViewDefinitionExportBodyTimestampEncodingOverridesQuery(t *testing.T) {
+	exportSvc := newFakeViewExportService()
+	h := viewOpsHandler(t, hahttp.Config{ViewExportService: exportSvc})
+	body := []byte(`{"resourceType":"Parameters","parameter":[
+		{"name":"view","part":[
+			{"name":"viewName","valueString":{"valueString":"patient_summary_view"}}
+		]},
+		{"name":"_parquetTimestampEncoding","valueString":{"valueString":"int96"}}
+	]}`)
+	rec := doRequestWithHeaders(t, h, http.MethodPost,
+		"/fhir/$viewdefinition-export?_parquetTimestampEncoding=int64",
+		body, map[string]string{"Prefer": "respond-async"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if exportSvc.last.TimestampEncoding != view.TimestampEncodingInt96 {
+		t.Fatalf("TimestampEncoding=%q, want body int96 to override query", exportSvc.last.TimestampEncoding)
+	}
+}

@@ -32,6 +32,7 @@ const (
 	QuestionnaireOptionPrefixExtension = FHIRBaseURL + "questionnaire-optionPrefix"
 	QuestionnaireRegexExtension        = FHIRBaseURL + "regex"
 	QuestionnaireConstraintExtension   = FHIRBaseURL + "questionnaire-constraint"
+	CQFLibraryExtension                = FHIRBaseURL + "cqf-library"
 
 	SDCLaunchContextExtension      = SDCBaseURL + "sdc-questionnaire-launchContext"
 	SDCVariableExtension           = SDCBaseURL + "sdc-questionnaire-variable"
@@ -209,7 +210,7 @@ func absorbQuestionnaireExtensions(q *Questionnaire) {
 		case SDCPerformerTypeExt:
 			q.PerformerTypes = append(q.PerformerTypes, extensionCodeValues(ext)...)
 			continue
-		case SDCCQFLibraryExt:
+		case SDCCQFLibraryExt, CQFLibraryExtension:
 			if lib, ok := parseCQFLibrary(ext); ok {
 				q.CQFLibraries = append(q.CQFLibraries, lib)
 			}

@@ -12,6 +12,7 @@ import (
 type ParquetFileSink struct {
 	w            io.Writer
 	layout       view.ParquetLayout
+	encoding     view.TimestampEncoding
 	executor     *view.Executor
 	actor        string
 	lastRowCount int
@@ -19,10 +20,11 @@ type ParquetFileSink struct {
 
 // ParquetFileSinkConfig configures ParquetFileSink encoding.
 type ParquetFileSinkConfig struct {
-	Writer   io.Writer
-	Layout   view.ParquetLayout
-	Executor *view.Executor
-	Actor    string
+	Writer            io.Writer
+	Layout            view.ParquetLayout
+	TimestampEncoding view.TimestampEncoding
+	Executor          *view.Executor
+	Actor             string
 }
 
 // NewParquetFileSink returns a sink that writes flat-view parquet to w.
@@ -39,6 +41,7 @@ func NewParquetFileSinkWithConfig(cfg ParquetFileSinkConfig) *ParquetFileSink {
 	return &ParquetFileSink{
 		w:        cfg.Writer,
 		layout:   layout,
+		encoding: cfg.TimestampEncoding,
 		executor: cfg.Executor,
 		actor:    cfg.Actor,
 	}
@@ -55,7 +58,7 @@ func (s *ParquetFileSink) WriteRows(ctx context.Context, result *view.Result) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	rowCount, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor)
+	rowCount, err := writeParquet(ctx, s.w, result, s.layout, s.executor, s.actor, s.encoding)
 	if err != nil {
 		return fmt.Errorf("write parquet: %w", err)
 	}

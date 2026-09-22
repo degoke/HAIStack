@@ -8,7 +8,7 @@ import (
 	"github.com/degoke/haistack/pkg/view"
 )
 
-func writeParquet(ctx context.Context, w io.Writer, result *view.Result, layout view.ParquetLayout, executor *view.Executor, actor string) (int, error) {
+func writeParquet(ctx context.Context, w io.Writer, result *view.Result, layout view.ParquetLayout, executor *view.Executor, actor string, encoding view.TimestampEncoding) (int, error) {
 	if w == nil {
 		return 0, fmt.Errorf("%w: parquet writer is required", ErrUnsupportedDestination)
 	}
@@ -16,5 +16,8 @@ func writeParquet(ctx context.Context, w io.Writer, result *view.Result, layout 
 		return 0, fmt.Errorf("analytics: nil view result")
 	}
 	execReq := view.ExecRequestForExport(result, actor)
+	if encoding != "" {
+		execReq.TimestampEncoding = encoding
+	}
 	return view.WriteParquetOutput(ctx, w, result, execReq, layout, executor)
 }

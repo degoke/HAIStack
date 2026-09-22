@@ -28,7 +28,7 @@
 //     CheckRead, CheckSearch, CheckView, and CheckWrite.
 //   - Registry: convenience wrappers and custom tool registration.
 //   - Executor: validates requests, enforces policy, invokes backing packages,
-//     builds citations, and emits audit records via ExecuteTool.
+//     builds citations, and emits audit records via ExecuteTool and InvokeModel.
 //   - GenericToolDescriptors / Registry.AllToolDescriptors: model-facing tool
 //     discovery metadata.
 //   - ContextFormatter: converts tool output into model-facing JSON context.
@@ -91,7 +91,8 @@
 // input, runs the matching PolicyEngine check, invokes the backing package,
 // optionally de-identifies output, formats model context, builds citations, and
 // writes audit records on success, denial, validation failure, and
-// approval-required outcomes.
+// approval-required outcomes. InvokeModel audits invoke-model when a model
+// adapter actually runs.
 //
 // Write operations validate structured field input, may require approval through
 // ApprovalHook when policy demands it, and commit through core.ResourceService
@@ -101,7 +102,8 @@
 //
 // PolicyEngine is required. AllowListPolicy denies by default until explicit
 // allow-list entries are configured. AuditLogger is optional for local/test use;
-// production deployments should set Config.AuditRequired so missing or failed
+// implement both LogToolAccess (ExecuteTool) and LogModelInvoke (InvokeModel).
+// Production deployments should set Config.AuditRequired so missing or failed
 // audit persistence fails closed.
 //
 // # Integration points

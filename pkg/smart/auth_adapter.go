@@ -204,6 +204,31 @@ func (a *AuthAdapter) ToWriteRequest(bundle AuthBundle, operation, resourceType,
 	}
 }
 
+// ToViewRequest builds an auth.ViewRequest with SMART-derived RequiredPermissions
+// for a read of resourceType (same scope→permission mapping as ToReadRequest).
+func (a *AuthAdapter) ToViewRequest(bundle AuthBundle, viewName, resourceType string) auth.ViewRequest {
+	return auth.ViewRequest{
+		Principal:           bundle.Principal,
+		Tenant:              bundle.Tenant,
+		ViewName:            viewName,
+		ResourceType:        resourceType,
+		RequiredPermissions: requiredFor(bundle.Permissions, resourceType, VerbRead),
+	}
+}
+
+// ToAIToolRequest builds an auth.AIToolRequest with SMART-derived RequiredPermissions
+// for a read of resourceType.
+func (a *AuthAdapter) ToAIToolRequest(bundle AuthBundle, toolName, resourceType, viewName string) auth.AIToolRequest {
+	return auth.AIToolRequest{
+		Principal:           bundle.Principal,
+		Tenant:              bundle.Tenant,
+		ToolName:            toolName,
+		ResourceType:        resourceType,
+		ViewName:            viewName,
+		RequiredPermissions: requiredFor(bundle.Permissions, resourceType, VerbRead),
+	}
+}
+
 // ToPatientScopeRequest builds an auth.PatientScopeRequest using launch patient id
 // when patientID is empty.
 func (a *AuthAdapter) ToPatientScopeRequest(bundle AuthBundle, patientID string) auth.PatientScopeRequest {

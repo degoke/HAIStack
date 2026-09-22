@@ -109,6 +109,36 @@ func TestSearchFHIRQueryProviderExecutesQuery(t *testing.T) {
 	}
 }
 
+func TestComposeExpressionsRoutesCQL(t *testing.T) {
+	provider := ComposeExpressions(nil, nil, stubCQLProvider{result: []any{"from-cql"}})
+	values, err := provider.Evaluate(context.Background(), Expression{
+		Language:   CQLLanguage,
+		Expression: "Patient.gender",
+	}, QuestionnaireResponse{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != "from-cql" {
+		t.Fatalf("expected routed CQL result, got %#v", values)
+	}
+	values, err = provider.Evaluate(context.Background(), Expression{
+		Language:   CQLApplicationXLang,
+		Expression: "Patient.gender",
+	}, QuestionnaireResponse{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != "from-cql" {
+		t.Fatalf("expected application/x-cql routing, got %#v", values)
+	}
+}
+
+type stubCQLProvider struct{ result []any }
+
+func (s stubCQLProvider) EvaluateCQL(context.Context, string, any) ([]any, error) {
+	return s.result, nil
+}
+
 func TestComposeExpressionsRoutesFHIRQuery(t *testing.T) {
 	search := &stubFHIRQuerySearch{
 		resources: []*types.ResourceEnvelope{{ResourceType: "Patient", ID: "pat-1"}},

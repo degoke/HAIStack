@@ -54,7 +54,10 @@ func decimalAnnotationNode() parquet.Node {
 	return parquet.Decimal(6, 38, parquet.FixedLenByteArrayType(16))
 }
 
-func timestampAnnotationNode() parquet.Node {
+func timestampAnnotationNode(enc TimestampEncoding) parquet.Node {
+	if NormalizeTimestampEncoding(enc) == TimestampEncodingInt96 {
+		return parquet.Leaf(newTimestampMillisInt96Type())
+	}
 	return parquet.Timestamp(parquet.Millisecond)
 }
 

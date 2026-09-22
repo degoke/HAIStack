@@ -133,3 +133,4 @@ go run ./examples/ai-authz
 - The SQLite-only examples do not require Docker or Postgres.
 - The Postgres deployment examples require either Docker or `TEST_POSTGRES_DSN`.
 - The runtime example loads the local `modules/core` module from this repository.
+- Research-grade FHIR → AI provenance (stub model, synthetic data) lives in `research/ai-pipeline` (`make research-ai-pipeline`).

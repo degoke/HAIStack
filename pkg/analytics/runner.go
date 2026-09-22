@@ -115,6 +115,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 
 	layout, hasLayout := sinkParquetLayout(req.Destination.Sink)
 	skipFlatExecute := req.Mode == ModeExport && hasLayout && layout == view.ParquetLayoutFHIR
+	encoding := sinkTimestampEncoding(req.Destination.Sink)
 
 	var result *view.Result
 	var err error
@@ -124,12 +125,13 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			Version:  version,
 			Metadata: view.ResultMetadata{ExecutedAt: runAt},
 			ExecRequest: &view.ExecuteRequest{
-				ViewName:   req.ViewName,
-				Version:    version,
-				Actor:      req.Actor,
-				Subject:    req.Subject,
-				Parameters: req.Parameters,
-				Since:      since,
+				ViewName:          req.ViewName,
+				Version:           version,
+				Actor:             req.Actor,
+				Subject:           req.Subject,
+				Parameters:        req.Parameters,
+				Since:             since,
+				TimestampEncoding: encoding,
 			},
 		}
 	} else {

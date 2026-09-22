@@ -1,6 +1,7 @@
 package authztest_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/degoke/haistack/pkg/testkit/authztest"
@@ -24,5 +25,19 @@ func TestAuthorizationScenarioCatalog(t *testing.T) {
 func TestCatalogSize(t *testing.T) {
 	if authztest.CatalogSize() < 30 {
 		t.Fatalf("catalog size = %d, want >= 30", authztest.CatalogSize())
+	}
+}
+
+func TestDeclarativeFixtureCatalog(t *testing.T) {
+	path, err := authztest.DeclarativeFixturePath()
+	if err != nil {
+		t.Skip(err)
+	}
+	scenarios, err := authztest.LoadDeclarativeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authztest.RunDeclarative(context.Background(), scenarios); err != nil {
+		t.Fatal(err)
 	}
 }

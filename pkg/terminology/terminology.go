@@ -12,11 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/haistack/pkg/audit"
 	"github.com/degoke/haistack/pkg/conceptmap"
 	"github.com/degoke/haistack/pkg/store"
 )
 
-type Coding struct{ System, Version, Code, Display string }
+type Coding struct {
+	System, Version, Code, Display, Equivalence string
+}
 type CodeableConcept struct {
 	Coding []Coding
 	Text   string
@@ -95,7 +98,16 @@ type Provider interface {
 	Expand(context.Context, ExpandRequest) (*Expansion, error)
 	ValidateCode(context.Context, ValidateCodeRequest) (*ValidationResult, error)
 }
-type Service interface{ Provider }
+
+// SubsumptionService resolves code-system is-a relationships for CQL subsumes.
+type SubsumptionService interface {
+	Subsumes(context.Context, SubsumesRequest) (bool, error)
+}
+
+type Service interface {
+	Provider
+	SubsumptionService
+}
 type Invalidator interface {
 	InvalidateCodeSystem(ctx context.Context, system, version string)
 	InvalidateValueSet(ctx context.Context, url, version string)
@@ -116,6 +128,10 @@ type LocalService struct {
 	MaxExpansion      int
 	NegativeLookupTTL time.Duration
 	RemoteTranslate   conceptmap.RemoteTranslateClient
+	translateAudit    audit.Logger
+	translateActor    string
+	translateTenant   string
+	translateNow      func() time.Time
 	mu                sync.RWMutex
 	lookupCache       map[string]lookupCacheEntry
 	expandCache       map[string]*Expansion
@@ -128,6 +144,17 @@ type LocalServiceOption func(*LocalService)
 func WithMaxExpansion(max int) LocalServiceOption {
 	return func(s *LocalService) {
 		s.MaxExpansion = max
+	}
+}
+
+// WithTranslateAudit emits terminology.translate events from Translate using
+// the ConceptMap the translator resolved.
+func WithTranslateAudit(logger audit.Logger, actor, tenant string, now func() time.Time) LocalServiceOption {
+	return func(s *LocalService) {
+		s.translateAudit = logger
+		s.translateActor = actor
+		s.translateTenant = tenant
+		s.translateNow = now
 	}
 }
 

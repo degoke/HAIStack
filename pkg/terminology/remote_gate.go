@@ -49,6 +49,18 @@ func (g *OptInRemoteGate) ValidateCode(ctx context.Context, r ValidateCodeReques
 	return g.Inner.ValidateCode(ctx, r)
 }
 
+// Subsumes delegates to the inner provider when it implements SubsumptionService.
+func (g *OptInRemoteGate) Subsumes(ctx context.Context, r SubsumesRequest) (bool, error) {
+	if g.blocked(ctx, r.System, r.Version) {
+		return false, nil
+	}
+	sub, ok := g.Inner.(SubsumptionService)
+	if !ok {
+		return false, nil
+	}
+	return sub.Subsumes(ctx, r)
+}
+
 func (g *OptInRemoteGate) installsFor(ctx context.Context) store.TerminologyInstallStore {
 	if inst := store.TerminologyInstallsFromContext(ctx); inst != nil {
 		return inst

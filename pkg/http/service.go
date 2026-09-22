@@ -82,6 +82,18 @@ type OperationService interface {
 	Execute(context.Context, OperationRequest) (*types.ResourceEnvelope, error)
 }
 
+// MeasureEvaluateRequest is the HTTP boundary for Measure/$evaluate-measure.
+type MeasureEvaluateRequest struct {
+	ID    string
+	Query url.Values
+	Body  []byte
+}
+
+// MeasureEvaluateService runs CQF Measure/$evaluate-measure and returns a MeasureReport.
+type MeasureEvaluateService interface {
+	EvaluateMeasure(context.Context, MeasureEvaluateRequest) (*types.ResourceEnvelope, error)
+}
+
 // ValidateRequest carries FHIR Resource/$validate inputs.
 //
 // Query parameters:

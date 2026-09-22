@@ -1,0 +1,6 @@
+name: patient-read
+description: Deterministic round-robin Patient reads by id over the seeded pool (`count` may exceed pool size).
+operations:
+  - type: read
+    resourceType: Patient
+    count: 40

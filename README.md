@@ -76,6 +76,18 @@ Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlit
 
 ---
 
+## Research artefacts
+
+[`research/`](research/README.md) publishes vendor-neutral, fully synthetic artefacts for the five FHIR/clinical-AI gaps HAIStack is positioned to address: a portable benchmark suite, an R4→R5 conversion corpus, computable policy/consent semantics, a terminology mapping scorer harness (planted fixture with audit provenance, not a mapping-quality study), and a reproducible FHIR → ViewDefinition → AI tool pipeline.
+
+```bash
+make research
+```
+
+Cite the software and artefacts with [`CITATION.cff`](CITATION.cff). Datasets contain no PHI.
+
+---
+
 ## Architecture
 
 ```
@@ -179,6 +191,7 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 | haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
 | haistack-terminology | `pkg/terminology` | Done | Tenant-scoped CodeSystem lookup, ValueSet expansion, provider chain, and opt-in terminology validation |
 | haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
+| haistack-cql | `pkg/cql` | Done | CQL 1.5 engine for SDC questionnaires and CQF Measure evaluation |
 | haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
 | haistack-modules | `pkg/modules` | Done | Installable capability modules |
@@ -394,6 +407,18 @@ go run ./examples/edge-postgres
 go run ./examples/cloud-postgres
 go run ./examples/sync-two-nodes
 go run ./examples/ai-authz
+```
+
+## Research artefacts
+
+Reproducible evaluation artefacts live in [research/README.md](research/README.md):
+vendor-neutral benchmarks, an R4→R5 conversion corpus, SMART scope ∩ policy
+semantics, a ConceptMap scorer harness (planted fixture, not a quality
+study), and a FHIR → ViewDefinition → AI tool provenance pipeline. Cite via
+[`CITATION.cff`](CITATION.cff).
+
+```bash
+make research
 ```
 
 ---

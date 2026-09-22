@@ -22,6 +22,18 @@ func sinkParquetLayout(sink RowSink) (view.ParquetLayout, bool) {
 	return view.ParquetLayoutFlat, false
 }
 
+func sinkTimestampEncoding(sink RowSink) view.TimestampEncoding {
+	switch s := sink.(type) {
+	case *ParquetFileSink:
+		return s.encoding
+	case *lakehouseSink:
+		return s.cfg.TimestampEncoding
+	case *manifestExportSink:
+		return s.timestampEncoding
+	}
+	return view.TimestampEncodingInt64
+}
+
 func lastExportRowCount(sink RowSink) int {
 	if typed, ok := sink.(ExportRowCountSink); ok {
 		return typed.LastExportRowCount()

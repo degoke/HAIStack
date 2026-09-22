@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/degoke/haistack/pkg/types"
 )
@@ -114,6 +116,79 @@ func CheckEnvelopePatientScope(ctx context.Context, tenant TenantContext, resolv
 		return err
 	}
 	return CheckResourcePatientScope(tenant, resource.ResourceType, resource.ID, patientID, hasPatient)
+}
+
+// OverlayPatientID is the patient-compartment overlay target: Patient.id, else
+// the compartment patient resolved from the resource (Observation.subject,
+// Appointment.participant.actor, …). Empty compartment patient is unrestricted
+// for non-Patient types.
+func OverlayPatientID(resourceType, resourceID, compartmentPatient string) string {
+	if strings.EqualFold(resourceType, "Patient") {
+		return resourceID
+	}
+	return compartmentPatient
+}
+
+// CompartmentPatientFromJSON reads the Patient.id linked on a FHIR resource
+// body. Observation uses subject.reference; Appointment uses
+// participant.actor.reference. Other types use subject.reference when present.
+func CompartmentPatientFromJSON(resourceType string, raw []byte) string {
+	if len(raw) == 0 || strings.EqualFold(resourceType, "Patient") {
+		return ""
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	if strings.EqualFold(resourceType, "Appointment") {
+		return patientIDFromAppointmentParticipants(obj["participant"])
+	}
+	if id := patientIDFromReferenceNode(obj["subject"]); id != "" {
+		return id
+	}
+	return ""
+}
+
+func patientIDFromAppointmentParticipants(node any) string {
+	switch list := node.(type) {
+	case []any:
+		for _, item := range list {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id := patientIDFromReferenceNode(obj["actor"]); id != "" {
+				return id
+			}
+		}
+	case map[string]any:
+		return patientIDFromReferenceNode(list["actor"])
+	}
+	return ""
+}
+
+func patientIDFromReferenceNode(node any) string {
+	switch v := node.(type) {
+	case string:
+		return patientIDFromReferenceString(v)
+	case map[string]any:
+		if ref, ok := v["reference"].(string); ok {
+			return patientIDFromReferenceString(ref)
+		}
+	}
+	return ""
+}
+
+func patientIDFromReferenceString(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	const prefix = "Patient/"
+	if strings.HasPrefix(raw, prefix) {
+		return strings.TrimSpace(raw[len(prefix):])
+	}
+	return ""
 }
 
 // CloneURLValues returns a shallow copy of url.Values.
