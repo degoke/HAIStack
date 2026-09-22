@@ -455,7 +455,7 @@ func listSlice(args [][]any) ([]any, error) {
 	return append([]any{}, list[start:end]...), nil
 }
 
-func listIndexOf(args [][]any) ([]any, error) {
+func (st *evalState) listIndexOf(args [][]any) ([]any, error) {
 	if len(args) < 2 || args[1] == nil || len(args[1]) == 0 {
 		return nil, nil
 	}
@@ -463,8 +463,9 @@ func listIndexOf(args [][]any) ([]any, error) {
 	if unwrapPrimitive(item) == nil {
 		return nil, nil
 	}
+	cmp := st.compareContext()
 	for i, el := range args[0] {
-		if cqlEqual(el, item) {
+		if cmp.MemberEqual(el, item) {
 			return []any{int64(i)}, nil
 		}
 	}

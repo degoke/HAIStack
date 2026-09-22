@@ -1459,6 +1459,54 @@ func TestReviewNitsRound8(t *testing.T) {
 	}
 }
 
+func TestReviewNitsRound10(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "IndexOf({5 'mg'}, 5000 'ug')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(0) {
+		t.Fatalf("IndexOf UCUM member match: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Mode({5 'mg', 5000 'ug', 5 'mg'})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Value != 5 || q.Unit != "mg" {
+		t.Fatalf("Mode groups UCUM-equivalent quantities: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "PointFrom(Interval[5 'mg', 5 'mg'])", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Value != 5 || q.Unit != "mg" {
+		t.Fatalf("PointFrom degenerate UCUM interval: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Interval[5 'mg', 5 'mg'] = Interval[5000 'ug', 5000 'ug']", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("interval = with UCUM bounds: %#v", got)
+	}
+	sum, err := eng.Eval(context.Background(), "(1 'mg' : 2 'mL') + (2 'mg' : 4 'mL')", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sum) != 1 {
+		t.Fatalf("ratio add: %#v", sum)
+	}
+	r, ok := asRatio(sum[0])
+	if !ok || !ratioEquivalentUCUM(r, Ratio{
+		Numerator:   Quantity{Value: 2, Unit: "mg"},
+		Denominator: Quantity{Value: 2, Unit: "mL"},
+	}, eng.ucum()) {
+		t.Fatalf("ratio add with UCUM-aligned denominators: %#v", sum)
+	}
+}
+
 func TestReviewNitsRound9(t *testing.T) {
 	eng := testEngine(t)
 	got, err := eng.Eval(context.Background(), "1 'mg' : 2 'mL' = 2 'mg' : 4 'mL'", EvalContext{})

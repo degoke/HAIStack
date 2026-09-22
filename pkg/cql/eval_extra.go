@@ -1103,7 +1103,11 @@ func ratioEqual(a, b Ratio) bool {
 }
 
 func ratioEqualWithUCUM(a, b Ratio, conv UCUMConverter) bool {
-	if cqlEqual(a.Numerator, b.Numerator) && cqlEqual(a.Denominator, b.Denominator) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
+	if cqlEqualWithUCUM(a.Numerator, b.Numerator, conv) &&
+		cqlEqualWithUCUM(a.Denominator, b.Denominator, conv) {
 		return true
 	}
 	return ratioCrossEqual(a, b, conv)
@@ -1200,11 +1204,38 @@ func isDimensionlessUnit(unit string) bool {
 	return u == "" || u == "1"
 }
 
-func combineRatios(op string, a, b Ratio) (Ratio, bool) {
-	left, ok1 := multiplyQuantityValues(a.Numerator, b.Denominator)
-	right, ok2 := multiplyQuantityValues(b.Numerator, a.Denominator)
-	denVal, ok3 := multiplyQuantityValues(a.Denominator, b.Denominator)
-	if !ok1 || !ok2 || !ok3 || denVal == 0 {
+func quantityRatioTerm(q1, q2 Quantity, conv UCUMConverter) (float64, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
+	if isDimensionlessUnit(q1.Unit) || isDimensionlessUnit(q2.Unit) {
+		v, ok := multiplyQuantityValues(q1, q2)
+		return v, ok
+	}
+	if quantitySameDimension(q1.Unit, q2.Unit, conv) {
+		if sameUnit(q1.Unit, q2.Unit) {
+			return q1.Value * q2.Value, true
+		}
+		if q2c, ok := convertQuantityValue(q2, q1.Unit, conv); ok {
+			return q1.Value * q2c.Value, true
+		}
+		if q1c, ok := convertQuantityValue(q1, q2.Unit, conv); ok {
+			return q1c.Value * q2.Value, true
+		}
+		return 0, false
+	}
+	v, ok := multiplyQuantityValues(q1, q2)
+	return v, ok
+}
+
+func combineRatios(op string, a, b Ratio, conv UCUMConverter) (Ratio, bool) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
+	left, okL := quantityRatioTerm(a.Numerator, b.Denominator, conv)
+	right, okR := quantityRatioTerm(b.Numerator, a.Denominator, conv)
+	denVal, okD := quantityRatioTerm(a.Denominator, b.Denominator, conv)
+	if !okL || !okR || !okD || denVal == 0 {
 		return Ratio{}, false
 	}
 	numVal := left + right
@@ -1326,10 +1357,10 @@ func multiplyQuantityValues(q1, q2 Quantity) (float64, bool) {
 	return q1.Value * q2.Value, true
 }
 
-func evalRatioArith(op string, a, b Ratio) ([]any, error) {
+func evalRatioArith(op string, a, b Ratio, conv UCUMConverter) ([]any, error) {
 	switch op {
 	case "+", "-":
-		out, ok := combineRatios(op, a, b)
+		out, ok := combineRatios(op, a, b, conv)
 		if !ok {
 			return nil, nil
 		}
@@ -1466,7 +1497,7 @@ func convertsToRatio(args [][]any) ([]any, error) {
 	return []any{false}, nil
 }
 
-func pointFromInterval(iv Interval) ([]any, error) {
+func pointFromInterval(iv Interval, vcmp compareCtx) ([]any, error) {
 	start := iv.Low
 	if start != nil && !iv.LowClosed {
 		next, ok := successorValue(start, false)
@@ -1486,7 +1517,7 @@ func pointFromInterval(iv Interval) ([]any, error) {
 	if start == nil || end == nil {
 		return nil, nil
 	}
-	if !cqlEqual(start, end) {
+	if !boundEqual(start, end, vcmp) {
 		return nil, nil
 	}
 	return []any{start}, nil
@@ -2002,10 +2033,11 @@ func listMedian(args [][]any) ([]any, error) {
 	return []any{mid}, nil
 }
 
-func listMode(args [][]any) ([]any, error) {
+func (st *evalState) listMode(args [][]any) ([]any, error) {
 	if len(args) == 0 || args[0] == nil {
 		return nil, nil
 	}
+	cmp := st.compareContext()
 	type pair struct {
 		v any
 		n int
@@ -2017,7 +2049,7 @@ func listMode(args [][]any) ([]any, error) {
 		}
 		found := false
 		for i := range items {
-			if cqlEqual(items[i].v, item) {
+			if cmp.MemberEqual(items[i].v, item) {
 				items[i].n++
 				found = true
 				break

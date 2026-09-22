@@ -506,7 +506,7 @@ func (st *evalState) evalUnary(n *unaryNode) ([]any, error) {
 			return nil, nil
 		}
 		if iv, ok := asInterval(v[0]); ok {
-			return pointFromInterval(iv)
+			return pointFromInterval(iv, st.compareContext())
 		}
 		return nil, nil
 	case "precision":
@@ -803,7 +803,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if len(left) != 1 || len(right) != 1 {
 			return nil, nil
 		}
-		return evalArithmetic(n.op, left[0], right[0])
+		return st.evalArithmetic(n.op, left[0], right[0])
 	}
 	return nil, errf("%w: operator %q", ErrUnsupported, n.op)
 }
@@ -1301,7 +1301,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		return listTakeSkip([][]any{args[0], []any{int64(1)}}, false)
 	case "indexof":
-		return listIndexOf(args)
+		return st.listIndexOf(args)
 	case "positionof":
 		return stringPositionOf(args, false)
 	case "lastpositionof":
@@ -1427,7 +1427,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 	case "median":
 		return listMedian(args)
 	case "mode":
-		return listMode(args)
+		return st.listMode(args)
 	case "stddev", "stdev", "standarddeviation":
 		return listStdDev(args)
 	case "variance":
@@ -1481,7 +1481,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 			return nil, nil
 		}
 		if iv, ok := asInterval(item); ok {
-			return pointFromInterval(iv)
+			return pointFromInterval(iv, st.compareContext())
 		}
 		return nil, nil
 	case "minvalue":
@@ -2551,10 +2551,11 @@ func (st *evalState) cqlEquivalentValues(left, right []any) bool {
 	return cmp.Equivalent(left[0], right[0])
 }
 
-func evalArithmetic(op string, lv, rv any) ([]any, error) {
+func (st *evalState) evalArithmetic(op string, lv, rv any) ([]any, error) {
+	conv := st.ucumConv()
 	if r1, ok := asRatio(lv); ok {
 		if r2, ok := asRatio(rv); ok {
-			return evalRatioArith(op, r1, r2)
+			return evalRatioArith(op, r1, r2, conv)
 		}
 		if scaled, ok := scaleRatioByScalar(op, r1, rv); ok {
 			return scaled, nil

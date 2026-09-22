@@ -57,7 +57,7 @@ func boundEqual(a, b any, vcmp compareCtx) bool {
 	if ok {
 		return ord == 0
 	}
-	return cqlEqual(a, b)
+	return vcmp.Equal(a, b)
 }
 
 func cqlEqualWithUCUM(a, b any, conv UCUMConverter) bool {
@@ -88,8 +88,9 @@ func cqlEqualWithUCUM(a, b any, conv UCUMConverter) bool {
 	}
 	if ia, ok := isCQLInterval(a); ok {
 		if ib, ok := isCQLInterval(b); ok {
-			return cqlEqualWithUCUM(ia.Low, ib.Low, conv) &&
-				cqlEqualWithUCUM(ia.High, ib.High, conv) &&
+			vcmp := compareCtx{conv: conv}
+			return boundEqual(ia.Low, ib.Low, vcmp) &&
+				boundEqual(ia.High, ib.High, vcmp) &&
 				ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
 		}
 	}
@@ -224,7 +225,7 @@ func cqlEquivalentUCUM(a, b any, conv UCUMConverter) bool {
 		conv = defaultUCUM
 	}
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
-	if cqlEqual(a, b) {
+	if cqlEqualWithUCUM(a, b, conv) {
 		return true
 	}
 	if ra, ok := asRatio(a); ok {
