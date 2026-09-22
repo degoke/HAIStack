@@ -129,10 +129,10 @@ set in v1.
 ### Parquet and lakehouse sinks
 
 - `NewParquetSink(w)` writes flat view Apache Parquet binary to `w`.
-- `NewParquetFileSinkWithConfig(ParquetFileSinkConfig{Writer, Layout, Executor})` supports `_parquetLayout=fhir` nested resources.
-- `NewLakehouseSink(LakehouseConfig{RootDir, ParquetLayout, Executor})` writes `{partition}/{view}-{version}.parquet` files on disk (flat or FHIR layout).
-- `NewLakehouseSink(LakehouseConfig{Blob, BlobPrefix, ParquetLayout, Executor})` stores parquet objects via `store.BlobStore`.
-- `NewManifestExportSink(ManifestExportConfig{Format: FormatParquet, ParquetLayout, Executor})` supports flat or FHIR parquet manifest exports.
+- `NewParquetFileSinkWithConfig(ParquetFileSinkConfig{Writer, Layout, Executor, TimestampEncoding})` supports `_parquetLayout=fhir` nested resources and optional INT96 date annotations.
+- `NewLakehouseSink(LakehouseConfig{RootDir, ParquetLayout, Executor, TimestampEncoding})` writes `{partition}/{view}-{version}.parquet` files on disk (flat or FHIR layout).
+- `NewLakehouseSink(LakehouseConfig{Blob, BlobPrefix, ParquetLayout, Executor, TimestampEncoding})` stores parquet objects via `store.BlobStore`.
+- `NewManifestExportSink(ManifestExportConfig{Format: FormatParquet, ParquetLayout, Executor, TimestampEncoding})` supports flat or FHIR parquet manifest exports.
 - `NewWarehouseSink()` refreshes Postgres reporting tables.
 
 ## Background jobs

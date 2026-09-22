@@ -49,15 +49,16 @@ func (e *Executor) ResolveView(name, version string) (*ViewSpec, error) {
 
 // ExecuteRequest carries runtime parameters for one view execution.
 type ExecuteRequest struct {
-	ViewName    string
-	Version     string
-	Actor       string
-	Subject     string
-	Limit       int
-	Offset      int
-	Parameters  map[string]any
-	Since       time.Time
-	Materialize bool
+	ViewName          string
+	Version           string
+	Actor             string
+	Subject           string
+	Limit             int
+	Offset            int
+	Parameters        map[string]any
+	Since             time.Time
+	Materialize       bool
+	TimestampEncoding TimestampEncoding
 }
 
 // Result is the structured output of a view execution.

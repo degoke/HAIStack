@@ -5,6 +5,7 @@
 ### Added
 
 - Parquet-on-FHIR nested export via `_parquetLayout=fhir` on `$viewdefinition-run`, `$viewdefinition-export`, and analytics sinks.
+- Optional Parquet-on-FHIR INT96 date annotations via `_parquetTimestampEncoding=int96` (typed row writer). INT64 TIMESTAMP(MILLIS) remains the default. INT96 values are Unix millis packed with `Int64ToInt96` (not Hive julian-day). parquet-go cannot natively read INT96+TIMESTAMP pages; `ReadInt96MillisColumn` is a PLAIN workaround (optional columns row-aligned, LIST columns definition-level aligned; full path when leaf names collide). Nested `Period.start`/`end` annotations (for example Observation `effectivePeriod`) are covered. HTTP run/export accept the encoding from query or Parameters body.
 - `ExportPayload.since` and `ExportPayload.parameters` for analytics background export jobs.
 - `ResultMetadata.maxLastUpdated` for data-clock watermark advancement.
 - HTTP `$viewdefinition-export` support for `_subject`, `_actor`, and Parameters body fields (plus `subject`, `actor`, and custom parameters in POST body).
@@ -26,7 +27,6 @@
 
 ### Known limitations
 
-- INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42).
 - Postgres `store.BlobStore` (`hai_binary_object.data` BYTEA) still materializes streaming uploads for INSERT; object-store adapters and chunk stores stream.
 - HTTP `$viewdefinition-run` / `$viewdefinition-export` Parameters parsing accepts `valueString` only (see `pkg/view/README.md`).
 
