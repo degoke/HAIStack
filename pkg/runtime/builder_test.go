@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 func TestBuilderValidationConflictingStorage(t *testing.T) {

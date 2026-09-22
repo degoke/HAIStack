@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 func TestTier1ExtensionsRoundTrip(t *testing.T) {

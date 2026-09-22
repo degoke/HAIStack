@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestBuildHubWriteRejectsFHIRPayloadWithoutID(t *testing.T) {

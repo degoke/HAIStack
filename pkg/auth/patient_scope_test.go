@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 func TestApplyPatientSearchScopeToParams_PatientResource(t *testing.T) {

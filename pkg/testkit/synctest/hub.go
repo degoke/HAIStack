@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/testkit"
+	"github.com/degoke/haistack/pkg/types"
 	"github.com/google/uuid"
 )
 

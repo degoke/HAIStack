@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // MemoryStore is an optional in-memory store.AuditStore for tests.

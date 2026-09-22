@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/factories"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/testkit/factories"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestNewPatientDefaults(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 func TestAuditingEngineEmitsDecisions(t *testing.T) {

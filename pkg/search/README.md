@@ -1,6 +1,6 @@
 # haistack-search (`pkg/search`)
 
-Registry-driven FHIR search for the health-ai-stack monorepo.
+Registry-driven FHIR search for the haistack monorepo.
 
 ## What it does
 
@@ -46,8 +46,8 @@ It does **not**:
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/registry"
-    "github.com/degoke/health-ai-stack/pkg/search"
+    "github.com/degoke/haistack/pkg/registry"
+    "github.com/degoke/haistack/pkg/search"
 )
 
 snapshot, _ := manager.RebuildSnapshot(ctx)
@@ -58,8 +58,8 @@ reg := search.NewSnapshotRegistry(snapshot)
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/core"
-    "github.com/degoke/health-ai-stack/pkg/fhirpath"
+    "github.com/degoke/haistack/pkg/core"
+    "github.com/degoke/haistack/pkg/fhirpath"
 )
 
 engine := fhirpath.NewEngine(/* … */)

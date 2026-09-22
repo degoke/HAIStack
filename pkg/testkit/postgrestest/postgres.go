@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/postgres"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

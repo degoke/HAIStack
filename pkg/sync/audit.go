@@ -1,6 +1,6 @@
 package sync
 
-import "github.com/degoke/health-ai-stack/pkg/audit"
+import "github.com/degoke/haistack/pkg/audit"
 
 // Audit action identifiers written by the sync engine.
 // Canonical definitions live in pkg/audit; re-exported here for callers.

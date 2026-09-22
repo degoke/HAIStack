@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/conceptmap"
 )
 
 func TestIdTransformCreatesIdentifier(t *testing.T) {

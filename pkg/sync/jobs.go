@@ -1,6 +1,6 @@
 package sync
 
-import "github.com/degoke/health-ai-stack/pkg/jobs"
+import "github.com/degoke/haistack/pkg/jobs"
 
 // Job type identifiers enqueued by the sync engine.
 // Canonical names live in pkg/jobs; re-exported here for callers.

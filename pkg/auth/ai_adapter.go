@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
+	"github.com/degoke/haistack/pkg/ai"
 )
 
 // AIConstraints holds optional AI-specific narrowing that stays in the AI layer

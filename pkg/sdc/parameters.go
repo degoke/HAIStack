@@ -3,7 +3,7 @@ package sdc
 import (
 	"encoding/json"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // OperationParameters carries subject and launch context for SDC operations.

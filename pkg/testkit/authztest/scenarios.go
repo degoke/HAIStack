@@ -6,13 +6,13 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/modules"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/modules"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // AllScenarios returns the documented authorization scenario catalog (≥30 cases).

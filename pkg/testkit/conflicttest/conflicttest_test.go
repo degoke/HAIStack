@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit/conflicttest"
-	"github.com/degoke/health-ai-stack/pkg/testkit/synctest"
+	"github.com/degoke/haistack/pkg/conflict"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/testkit/conflicttest"
+	"github.com/degoke/haistack/pkg/testkit/synctest"
 )
 
 func TestStaleBaseConflictDetection(t *testing.T) {

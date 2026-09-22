@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestLocalExportFileStoreRejectsPathTraversalFilename(t *testing.T) {

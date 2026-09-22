@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
 )
 
 func TestDefaultsValidate(t *testing.T) {

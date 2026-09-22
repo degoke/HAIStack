@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conformance"
+	"github.com/degoke/haistack/pkg/conformance"
 )
 
 func TestValidateIGExamples(t *testing.T) {

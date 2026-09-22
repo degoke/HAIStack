@@ -3,8 +3,8 @@ package subscriptions
 import (
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // TriggerEvent describes which resource lifecycle action fires a subscription.

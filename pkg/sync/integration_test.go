@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/store"
+	hasync "github.com/degoke/haistack/pkg/sync"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 

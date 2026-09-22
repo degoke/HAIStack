@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Client is the generic-first FHIR REST SDK.

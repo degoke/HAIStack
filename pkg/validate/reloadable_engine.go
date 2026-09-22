@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ReloadableEngine is a thread-safe validate.Engine whose snapshot-backed state

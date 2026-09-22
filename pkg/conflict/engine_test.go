@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
+	"github.com/degoke/haistack/pkg/conflict"
 )
 
 func TestClassificationStaleBaseOnly(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 const (

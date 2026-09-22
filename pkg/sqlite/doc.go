@@ -1,10 +1,10 @@
 // Package sqlite implements haistack-sqlite, the embedded offline database layer for
-// health-ai-stack local deployments.
+// haistack local deployments.
 //
 // haistack-sqlite is the SQLite-backed implementation of pkg/store contracts for device,
 // tablet, workstation, and lightweight edge nodes. It owns schema, migrations, and the
 // atomic local write path. This is not bytefhir-sqlite; it is the haistack runtime's
-// embedded persistence adapter at github.com/degoke/health-ai-stack/pkg/sqlite.
+// embedded persistence adapter at github.com/degoke/haistack/pkg/sqlite.
 //
 // # Design principles
 //

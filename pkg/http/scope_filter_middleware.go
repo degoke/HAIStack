@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 func withScopeFilterMatcher(next http.Handler, matcher smart.ScopeFilterMatcher) http.Handler {

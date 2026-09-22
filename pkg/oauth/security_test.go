@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/oauth"
 )
 
 func TestOAuthServer_RejectsEmptyRedirectURIList(t *testing.T) {

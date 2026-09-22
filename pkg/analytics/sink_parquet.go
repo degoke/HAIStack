@@ -1,7 +1,7 @@
 package analytics
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // ExportRowCountSink optionally reports the row count from the most recent export write.

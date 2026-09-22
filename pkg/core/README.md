@@ -1,6 +1,6 @@
 # haistack-core (`pkg/core`)
 
-FHIR resource lifecycle kernel for the health-ai-stack monorepo.
+FHIR resource lifecycle kernel for the haistack monorepo.
 
 ## What it does
 
@@ -57,9 +57,9 @@ Wire up storage, create a `ResourceService`, and call methods:
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/core"
-    hasync "github.com/degoke/health-ai-stack/pkg/sync"
-    "github.com/degoke/health-ai-stack/pkg/types"
+    "github.com/degoke/haistack/pkg/core"
+    hasync "github.com/degoke/haistack/pkg/sync"
+    "github.com/degoke/haistack/pkg/types"
 )
 
 // 1. Wire up storage (example: local SQLite)

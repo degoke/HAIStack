@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
+	"github.com/degoke/haistack/pkg/testkit/fixtures"
 )
 
 func TestPatientJaneStableEnvelope(t *testing.T) {

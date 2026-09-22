@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/sdc"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // CoreSDCService is the default runtime adapter. It reuses core persistence,

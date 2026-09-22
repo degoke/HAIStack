@@ -3,7 +3,7 @@ package smart
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ScopeFilterMatcher evaluates whether a resource satisfies one SMART scope filter parameter.

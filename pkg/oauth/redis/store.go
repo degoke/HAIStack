@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/smart"
 	goredis "github.com/redis/go-redis/v9"
 )
 

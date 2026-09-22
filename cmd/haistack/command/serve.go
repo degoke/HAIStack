@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
 	"github.com/spf13/cobra"
 )
 

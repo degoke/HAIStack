@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
+	"github.com/degoke/haistack/pkg/conflict"
 )
 
 type failingResolutionHandler struct {

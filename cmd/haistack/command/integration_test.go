@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/runtime"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/runtime"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/testkit/postgrestest"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestServeBuildsAndStartsSQLite(t *testing.T) {

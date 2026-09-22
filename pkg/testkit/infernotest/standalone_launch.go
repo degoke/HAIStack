@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
+	"github.com/degoke/haistack/pkg/client"
 )
 
 // AssertStandaloneLaunchFlow exercises Inferno-aligned standalone SMART launch:

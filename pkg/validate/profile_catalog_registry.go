@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/haistack/pkg/registry"
 )
 
 // ErrProfileNotFound indicates a StructureDefinition URL is not in the catalog.

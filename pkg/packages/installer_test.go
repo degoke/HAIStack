@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/packages"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/packages"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestInstallFromDirectorySkipsPackageJSON(t *testing.T) {

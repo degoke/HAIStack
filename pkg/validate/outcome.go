@@ -1,6 +1,6 @@
 package validate
 
-import "github.com/degoke/health-ai-stack/pkg/types"
+import "github.com/degoke/haistack/pkg/types"
 
 // ToOperationOutcome maps a ValidationResult into a FHIR OperationOutcome.
 func ToOperationOutcome(result *ValidationResult) *types.OperationOutcome {

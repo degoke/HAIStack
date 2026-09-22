@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/modules"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/modules"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestDenyByDefault(t *testing.T) {

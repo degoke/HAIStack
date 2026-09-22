@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // CitationBuilder constructs provenance citations from tool outputs.

@@ -3,7 +3,7 @@ package validate
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Validator checks a resource envelope before lifecycle mutations in pkg/core.

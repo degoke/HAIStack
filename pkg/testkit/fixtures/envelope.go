@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/proto"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // EnvelopeFromJSON parses FHIR JSON through types.JSONCodec and returns a normalized envelope.

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 	"github.com/parquet-go/parquet-go"
 )
 

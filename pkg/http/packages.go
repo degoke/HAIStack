@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/packages"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/packages"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // PackageInstallService enqueues FHIR NPM package install jobs.

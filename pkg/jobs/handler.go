@@ -3,7 +3,7 @@ package jobs
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Handler processes one claimed background job.

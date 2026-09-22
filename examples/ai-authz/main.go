@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/degoke/health-ai-stack/examples/internal/appkit"
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/examples/internal/appkit"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 func main() {

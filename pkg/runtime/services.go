@@ -1,19 +1,19 @@
 package runtime
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/bulkimport"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/export"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/modules"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/subscriptions"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/bulkimport"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/export"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/modules"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/subscriptions"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // ServiceContainer exposes the wired service graph for embedding and testing.

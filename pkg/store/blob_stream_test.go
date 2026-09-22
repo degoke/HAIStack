@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 type readSizeProbe struct {

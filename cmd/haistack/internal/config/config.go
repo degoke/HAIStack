@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/oauth"
 	"gopkg.in/yaml.v3"
 )
 

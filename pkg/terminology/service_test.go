@@ -3,7 +3,7 @@ package terminology_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 func TestNewLocalService(t *testing.T) {

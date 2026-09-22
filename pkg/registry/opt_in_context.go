@@ -3,8 +3,8 @@ package registry
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // ContextWithTerminologyInstalls overrides the terminology opt-in store for one call tree.

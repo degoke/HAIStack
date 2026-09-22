@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // EventType names a sync protocol event family.

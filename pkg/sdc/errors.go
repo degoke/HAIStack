@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ValidationError carries a complete SDC OperationOutcome without collapsing diagnostics.

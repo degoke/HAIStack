@@ -3,7 +3,7 @@ package conceptmap
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // TerminologyStoreResolver resolves ConceptMaps from a terminology store projection.

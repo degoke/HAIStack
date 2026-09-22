@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func (h *handler) handleEverything(w http.ResponseWriter, r *http.Request, route parsedRoute) {

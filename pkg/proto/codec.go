@@ -1,6 +1,6 @@
 package proto
 
-import "github.com/degoke/health-ai-stack/pkg/types"
+import "github.com/degoke/haistack/pkg/types"
 
 // ProtoCodec converts between FHIR JSON, provider-specific protobuf messages,
 // and types.ResourceEnvelope values.

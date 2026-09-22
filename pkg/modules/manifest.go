@@ -3,7 +3,7 @@ package modules
 import (
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/haistack/pkg/registry"
 )
 
 // Manifest describes a module's identity and declared capabilities.

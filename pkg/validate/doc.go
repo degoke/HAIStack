@@ -1,5 +1,5 @@
 // Package validate implements haistack-validate, the built-in FHIR resource validation
-// library for health-ai-stack.
+// library for haistack.
 //
 // haistack-validate checks canonical JSON resources before storage, sync, indexing, or AI
 // exposure. It validates JSON shape, resource types, IDs, required fields, reference syntax,

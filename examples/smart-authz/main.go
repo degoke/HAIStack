@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/degoke/health-ai-stack/examples/internal/appkit"
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/examples/internal/appkit"
+	"github.com/degoke/haistack/pkg/auth"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 func main() {

@@ -3,7 +3,7 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/haistack/pkg/registry"
 )
 
 func TestModulesPackageID(t *testing.T) {

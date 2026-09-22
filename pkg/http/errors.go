@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func writeError(w http.ResponseWriter, err error) {

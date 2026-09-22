@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // InMemoryJobStore is a concurrent-safe store.JobStore for tests and local

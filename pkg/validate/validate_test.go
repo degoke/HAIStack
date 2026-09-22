@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 func newEngine(t *testing.T, cfg validate.Config) validate.Engine {

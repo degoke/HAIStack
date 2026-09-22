@@ -3,7 +3,7 @@ package parquetfhir
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 func TestMergeResourceProfilesAddsChoiceTypes(t *testing.T) {

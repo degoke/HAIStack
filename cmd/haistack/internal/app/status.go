@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/pkg/jobs"
+	hasync "github.com/degoke/haistack/pkg/sync"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

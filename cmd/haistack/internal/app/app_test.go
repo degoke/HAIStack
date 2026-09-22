@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/pkg/fhirpath"
 	"github.com/verily-src/fhirpath-go/fhirpath/system"
 )
 

@@ -40,8 +40,8 @@ It does **not**:
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/conflict"
-    "github.com/degoke/health-ai-stack/pkg/types"
+    "github.com/degoke/haistack/pkg/conflict"
+    "github.com/degoke/haistack/pkg/types"
 )
 
 engine := conflict.NewDefaultEngine()

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/sdc"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestMapErrorValidationErrorReturns400WithAllIssues(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Progress reports durable job execution state stored inside JobRecord.Payload.

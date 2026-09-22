@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // Config configures a built-in OAuth2/OIDC authorization server.

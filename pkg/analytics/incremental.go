@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // IncrementalTarget wraps a ReportingTarget with watermark-based delta refresh.

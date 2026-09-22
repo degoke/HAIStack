@@ -3,7 +3,7 @@ package sync
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Outbox appends resource change events for downstream sync pipelines.

@@ -1,6 +1,6 @@
 # haistack-types (`pkg/types`)
 
-Generic FHIR JSON layer for the health-ai-stack monorepo.
+Generic FHIR JSON layer for the haistack monorepo.
 
 ## What it does
 
@@ -27,7 +27,7 @@ It does **not** store data, run searches, validate profiles, or talk to a databa
 **Parse JSON into an envelope:**
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/types"
+import "github.com/degoke/haistack/pkg/types"
 
 codec := types.NewJSONCodec()
 envelope, err := codec.ParseJSON("Patient", patientJSON)

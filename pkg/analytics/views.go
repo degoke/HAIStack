@@ -3,7 +3,7 @@ package analytics
 import (
 	"bytes"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // Supported view names for the first analytics milestone.

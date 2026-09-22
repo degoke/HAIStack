@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 // CoreValidateService implements FHIR Resource/$validate using validate.Engine.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Point is one of the four intercept stages.

@@ -2,7 +2,7 @@ package terminology
 
 import (
 	"context"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 	"testing"
 )
 

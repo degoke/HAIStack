@@ -3,7 +3,7 @@ package sync
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // SessionOutbox appends events through a write session's event store.

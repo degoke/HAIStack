@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/store"
 	"github.com/google/uuid"
 )
 

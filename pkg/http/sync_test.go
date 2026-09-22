@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 type stubSyncHub struct {

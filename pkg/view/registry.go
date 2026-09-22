@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 // Registry stores named/versioned views in memory for runtime lookup. It is safe

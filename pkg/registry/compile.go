@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // ParsedDefinition is normalized metadata extracted from one definition JSON resource.

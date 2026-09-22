@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ErrNotFound indicates a resource does not exist in the current store.

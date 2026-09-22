@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestSQLiteRateLimitStoreAllow(t *testing.T) {

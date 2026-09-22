@@ -3,7 +3,7 @@ package terminology
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/conceptmap"
 )
 
 // ConceptMapTranslateRequest is the input for the terminology $translate operation.

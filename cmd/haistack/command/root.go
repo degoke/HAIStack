@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
 	"github.com/spf13/cobra"
 )
 
 // Version is the CLI version. Release builds override it with the git tag via
-// -ldflags "-X github.com/degoke/health-ai-stack/cmd/haistack/command.Version=vX.Y.Z".
+// -ldflags "-X github.com/degoke/haistack/cmd/haistack/command.Version=vX.Y.Z".
 var Version = "dev"
 
 // Options carries persistent CLI flags shared by all commands.

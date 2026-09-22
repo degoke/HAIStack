@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/haistack/pkg/search"
 )
 
 // SearchMode controls whether view execution uses the search index.

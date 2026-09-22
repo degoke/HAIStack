@@ -3,8 +3,8 @@ package command
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/pkg/validate"
 	"github.com/spf13/cobra"
 )
 

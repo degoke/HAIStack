@@ -3,7 +3,7 @@ package runtime_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 func TestRuntimeExposesConformanceRuntime(t *testing.T) {

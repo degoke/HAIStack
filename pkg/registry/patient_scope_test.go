@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/haistack/pkg/registry"
 )
 
 func TestSnapshotPatientSearchParameterCodeFromInstalledSearchParameters(t *testing.T) {

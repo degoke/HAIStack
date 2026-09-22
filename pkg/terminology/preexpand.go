@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // PreExpandSkipReason explains why a ValueSet was not pre-expanded.

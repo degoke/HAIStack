@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestFHIRXMLNegotiationAndRequestParsing(t *testing.T) {

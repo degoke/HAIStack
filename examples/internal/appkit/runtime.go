@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 // ShutdownRuntime normalizes benign runtime shutdown errors for examples.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/haistack/pkg/modules"
 )
 
 func TestLoaderReadsManifestAndDefinitions(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	extensionURLBlobRef = "https://health-ai-stack.dev/fhir/StructureDefinition/blob-reference"
+	extensionURLBlobRef = "https://haistack.dev/fhir/StructureDefinition/blob-reference"
 	attachmentExtKey    = "_blobRef"
 )
 

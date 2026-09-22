@@ -1,6 +1,6 @@
 # haistack-postgres (`pkg/postgres`)
 
-Server-side PostgreSQL storage for health-ai-stack — the **authoritative backend** for multi-tenant cloud and edge deployments.
+Server-side PostgreSQL storage for haistack — the **authoritative backend** for multi-tenant cloud and edge deployments.
 
 ## What it does
 
@@ -53,7 +53,7 @@ Use [`pkg/sqlite`](../sqlite) instead when the database lives on one device and 
 ### Connect and migrate
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/postgres"
+import "github.com/degoke/haistack/pkg/postgres"
 
 db, err := postgres.Open(ctx, "postgres://user:pass@localhost:5432/haistack?sslmode=disable")
 if err != nil { /* handle */ }

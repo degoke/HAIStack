@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // PrefixedFileStore stores artifact bytes in a store.BlobStore under a key prefix.

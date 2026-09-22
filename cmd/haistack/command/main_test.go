@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
+	"github.com/degoke/haistack/pkg/testkit/postgrestest"
 )
 
 func TestMain(m *testing.M) {

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestSQLiteStores_RoundTrip(t *testing.T) {

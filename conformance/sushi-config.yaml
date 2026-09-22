@@ -11,12 +11,12 @@ releaseLabel: ci-build
 license: Apache-2.0
 publisher:
   name: HAIStack
-  url: https://github.com/degoke/HAIStack
+  url: https://github.com/degoke/haistack
 contact:
   - name: HAIStack
     telecom:
       - system: url
-        value: https://github.com/degoke/HAIStack
+        value: https://github.com/degoke/haistack
 FSHOnly: true
 parameters:
   path-resource:

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/command"
+	"github.com/degoke/haistack/cmd/haistack/command"
 )
 
 func main() {

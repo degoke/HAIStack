@@ -33,8 +33,8 @@
 //	    "context"
 //	    "testing"
 //
-//	    "github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
-//	    "github.com/degoke/health-ai-stack/pkg/testkit/synctest"
+//	    "github.com/degoke/haistack/pkg/testkit/fixtures"
+//	    "github.com/degoke/haistack/pkg/testkit/synctest"
 //	)
 //
 //	func TestOfflinePatientSync(t *testing.T) {

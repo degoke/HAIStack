@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/degoke/health-ai-stack/examples/internal/appkit"
-	"github.com/degoke/health-ai-stack/examples/internal/postgresdemo"
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/examples/internal/appkit"
+	"github.com/degoke/haistack/examples/internal/postgresdemo"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 func main() {

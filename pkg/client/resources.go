@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Create posts a new resource and returns the server-assigned envelope.

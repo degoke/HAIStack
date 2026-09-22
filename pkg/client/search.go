@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // SearchResult is a page-aware search result with bundle metadata.

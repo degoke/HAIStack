@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // CanonicalOutcomeJSON returns stable JSON for an OperationOutcome (sorted issues).

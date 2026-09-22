@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/export"
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/export"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 func TestRuntimeBulkExportSelfTest(t *testing.T) {

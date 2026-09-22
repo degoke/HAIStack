@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestBuiltinOAuthWiresDiscovery(t *testing.T) {

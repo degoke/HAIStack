@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/export"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/export"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func TestRuntimeShutdownReturnsBackgroundWorkerError(t *testing.T) {

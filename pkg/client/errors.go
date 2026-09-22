@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Error carries HTTP status, raw body, parsed OperationOutcome, and retry hints.

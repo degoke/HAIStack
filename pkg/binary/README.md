@@ -1,6 +1,6 @@
 # haistack-binary (`pkg/binary`)
 
-Blob and file library for health-ai-stack — storage, hashing, manifests, resumable transfer, sync status, and FHIR linkage for Binary and DocumentReference resources.
+Blob and file library for haistack — storage, hashing, manifests, resumable transfer, sync status, and FHIR linkage for Binary and DocumentReference resources.
 
 ## What it does
 
@@ -77,7 +77,7 @@ It does **not**:
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/binary"
+    "github.com/degoke/haistack/pkg/binary"
 )
 
 files, err := binary.NewLocalFileBlobStore("/var/haistack/blobs")
@@ -102,7 +102,7 @@ payload, head, err := store.Get(ctx, "blob-1")
 ### SQLite backend
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/sqlite"
+import "github.com/degoke/haistack/pkg/sqlite"
 
 db, _ := sqlite.Open("/path/to/haistack.db")
 _ = db.Migrate(ctx)
@@ -117,7 +117,7 @@ manifest, err := meta.GetManifest(ctx, "blob-1")
 ### Postgres backend
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/postgres"
+import "github.com/degoke/haistack/pkg/postgres"
 
 tdb := pdb.Tenant("tenant-a")
 blobs := tdb.ChunkBlobStore()

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/haistack/pkg/search"
 )
 
 func TestRegistryIndexerPatientFields(t *testing.T) {

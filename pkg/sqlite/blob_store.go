@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 )
 
 // SQLiteBlobStore persists full blob bytes in SQLite via chunk and manifest tables.

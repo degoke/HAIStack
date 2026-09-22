@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 )
 
 // Compile-time interface checks for memory test doubles.

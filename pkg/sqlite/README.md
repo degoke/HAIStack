@@ -1,10 +1,10 @@
 # haistack-sqlite (`pkg/sqlite`)
 
-Embedded offline database for health-ai-stack local deployments.
+Embedded offline database for haistack local deployments.
 
 ## What it does
 
-**haistack-sqlite** is the **local database** for health-ai-stack. It saves FHIR resources and related data to a **SQLite file on disk** — on a device, tablet, workstation, or small edge node — so the app works **offline**.
+**haistack-sqlite** is the **local database** for haistack. It saves FHIR resources and related data to a **SQLite file on disk** — on a device, tablet, workstation, or small edge node — so the app works **offline**.
 
 Think of it as: *save Patient/Observation JSON locally, keep history, index for lookup, and queue changes for sync — all in one place.*
 
@@ -46,7 +46,7 @@ It does **not**:
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/sqlite"
+    "github.com/degoke/haistack/pkg/sqlite"
 )
 
 db, err := sqlite.Open("/path/to/haistack.db")
@@ -79,7 +79,7 @@ Same pattern for history, search, outbox, and cursors via `db.HistoryStore()`, `
 When you change a resource, update current state, history, outbox event, and search index **together**. If any step fails, nothing is half-saved.
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/store"
+import "github.com/degoke/haistack/pkg/store"
 
 result, err := db.ApplyLocalWrite(ctx, sqlite.LocalWrite{
     Resource:      envelope, // from pkg/types

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Runner claims pending jobs from a store.JobStore and dispatches them to

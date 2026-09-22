@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/haistack/pkg/core"
 )
 
 var fhirIDPattern = regexp.MustCompile(`^[A-Za-z0-9\-\.]{1,64}$`)

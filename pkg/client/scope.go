@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // ScopeSet is a validated SMART scope set for outbound authorize/token requests.

@@ -3,7 +3,7 @@ package oauth_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/oauth"
 )
 
 func TestEncryptDecryptSigningKeyPEM(t *testing.T) {

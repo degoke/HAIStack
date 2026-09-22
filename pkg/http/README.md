@@ -1,6 +1,6 @@
 # haistack-http (`pkg/http`)
 
-FHIR REST API adapter for the health-ai-stack monorepo.
+FHIR REST API adapter for the haistack monorepo.
 
 ## What it does
 
@@ -33,7 +33,7 @@ This package is named `http` and shadows the standard library. Always import wit
 import (
     nethttp "net/http"
 
-    hahttp "github.com/degoke/health-ai-stack/pkg/http"
+    hahttp "github.com/degoke/haistack/pkg/http"
 )
 ```
 

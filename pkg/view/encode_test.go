@@ -3,10 +3,10 @@ package view_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/proto"
+	protor4 "github.com/degoke/haistack/pkg/proto/r4"
+	"github.com/degoke/haistack/pkg/view"
 	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 )
 

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func (h *handler) handleSDCOperation(w http.ResponseWriter, r *http.Request, route parsedRoute) {

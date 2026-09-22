@@ -1,6 +1,6 @@
 # haistack-sync (`pkg/sync`)
 
-Offline-first replication library for health-ai-stack — device-to-hub push/pull with canonical Postgres acceptance.
+Offline-first replication library for haistack — device-to-hub push/pull with canonical Postgres acceptance.
 
 ## What it does
 
@@ -44,7 +44,7 @@ It does **not**:
 Alias the import when you also use the standard library `sync` package:
 
 ```go
-import hasync "github.com/degoke/health-ai-stack/pkg/sync"
+import hasync "github.com/degoke/haistack/pkg/sync"
 ```
 
 ## Usage
@@ -53,8 +53,8 @@ import hasync "github.com/degoke/health-ai-stack/pkg/sync"
 
 ```go
 import (
-    hasync "github.com/degoke/health-ai-stack/pkg/sync"
-    "github.com/degoke/health-ai-stack/pkg/core"
+    hasync "github.com/degoke/haistack/pkg/sync"
+    "github.com/degoke/haistack/pkg/core"
 )
 
 svc, err := core.NewResourceService(core.ResourceServiceConfig{

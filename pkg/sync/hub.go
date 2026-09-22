@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/conflict"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // ConflictResolutionHandler receives the result of a conflict-processing job so the

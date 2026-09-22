@@ -46,8 +46,8 @@ import (
     "context"
     "testing"
 
-    "github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
-    "github.com/degoke/health-ai-stack/pkg/testkit/synctest"
+    "github.com/degoke/haistack/pkg/testkit/fixtures"
+    "github.com/degoke/haistack/pkg/testkit/synctest"
 )
 
 func TestOfflinePatientSync(t *testing.T) {
@@ -231,7 +231,7 @@ Documented authorization scenario catalog for CI (REST, patient compartment,
 SMART token semantics, view/AI/sync/module paths, scope-vs-policy conflicts):
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/testkit/authztest"
+import "github.com/degoke/haistack/pkg/testkit/authztest"
 
 func TestAuthzScenarios(t *testing.T) {
     eng := authztest.DefaultEngine(t)

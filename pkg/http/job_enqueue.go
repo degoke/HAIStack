@@ -3,8 +3,8 @@ package http
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func enqueueJob(ctx context.Context, jobStore store.JobStore, jobType string, payload any, opts jobs.EnqueueOptions) (store.JobRecord, error) {

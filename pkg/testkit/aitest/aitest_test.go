@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/testkit/aitest"
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/testkit/aitest"
+	"github.com/degoke/haistack/pkg/testkit/fixtures"
 )
 
 func TestHarnessSeedsPatientAndBuildsExecutor(t *testing.T) {

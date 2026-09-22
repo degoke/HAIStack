@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 const blobKeyPrefix = "bulk-import"

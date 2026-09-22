@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 const cdcCursorPrefix = "analytics.cdc."

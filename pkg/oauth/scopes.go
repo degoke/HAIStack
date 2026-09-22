@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // DefaultRegisteredClientScopes is the SMART scope allow-list applied to dynamically

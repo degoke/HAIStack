@@ -3,7 +3,7 @@ package analytics
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // RowSink writes structured view rows to an export-oriented destination.

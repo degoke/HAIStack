@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
+	hahttp "github.com/degoke/haistack/pkg/http"
 )
 
 func TestHealthEndpoints(t *testing.T) {

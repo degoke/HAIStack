@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/sdc"
 )
 
 // Config wires StructureMap extraction into pkg/sdc.

@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/export"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/export"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type memoryResources struct {

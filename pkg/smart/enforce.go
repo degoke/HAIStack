@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ErrScopeFilterDenied is returned when a resource or search request falls outside

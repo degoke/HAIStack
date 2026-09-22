@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 )
 
 // JobStore persists bulk export job state.

@@ -3,8 +3,8 @@ package verily
 import (
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/proto"
+	"github.com/degoke/haistack/pkg/types"
 	rpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
 	verilyfhirpath "github.com/verily-src/fhirpath-go/fhirpath"
 	protobuf "google.golang.org/protobuf/proto"

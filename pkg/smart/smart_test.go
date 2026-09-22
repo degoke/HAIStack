@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestParseScopes_ValidPatterns(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/command"
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/cmd/haistack/command"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
 )
 
 func runCLI(t *testing.T, dir string, args ...string) (stdout, stderr string, err error) {

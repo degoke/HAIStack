@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/oauth"
 )
 
 func TestRequireBoundIssuer_RejectsEmpty(t *testing.T) {

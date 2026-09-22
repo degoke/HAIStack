@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func (h *handler) withTerminologyContext(ctx context.Context) (context.Context, error) {

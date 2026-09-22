@@ -3,7 +3,7 @@ package search_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
+	"github.com/degoke/haistack/pkg/search"
 )
 
 func TestSnapshotRegistryEnabledParams(t *testing.T) {

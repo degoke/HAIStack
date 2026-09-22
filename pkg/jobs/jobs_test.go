@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func TestInMemoryJobStoreEnqueueClaimUpdateGet(t *testing.T) {

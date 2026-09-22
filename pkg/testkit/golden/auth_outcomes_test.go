@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/testkit/golden"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/testkit/golden"
 )
 
 func TestAuthOutcomeCatalogMatchesStableDiagnostics(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/parquetfhir"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/parquetfhir"
+	"github.com/degoke/haistack/pkg/validate"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/format"
 )

@@ -3,8 +3,8 @@ package analytics
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // ConcurrencyLimiter bounds concurrent analytics job execution to protect OLTP.

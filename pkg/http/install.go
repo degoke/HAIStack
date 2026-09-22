@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func (h *handler) handleImplementationGuideInstall(w http.ResponseWriter, r *http.Request, route parsedRoute) {

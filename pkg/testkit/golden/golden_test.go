@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/golden"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/testkit/golden"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestAssertOutcomeEqualIgnoresFormatting(t *testing.T) {

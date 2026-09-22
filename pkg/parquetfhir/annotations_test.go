@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 func bundledSD(t *testing.T, resourceType string) *validate.StructureDefinition {

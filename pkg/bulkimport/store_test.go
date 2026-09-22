@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/bulkimport"
+	"github.com/degoke/haistack/pkg/bulkimport"
 )
 
 func TestInMemoryJobStoreUpdateDoesNotUncancel(t *testing.T) {

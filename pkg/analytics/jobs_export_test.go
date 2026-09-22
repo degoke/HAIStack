@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/testkit/parquettest"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestRunnerSkipsFlatExecuteForFHIRParquetExport(t *testing.T) {

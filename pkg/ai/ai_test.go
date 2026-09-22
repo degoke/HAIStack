@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
+	"github.com/degoke/haistack/pkg/ai"
 )
 
 func TestRegistry_GenericAndConvenienceTools(t *testing.T) {

@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"testing"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
-	"github.com/degoke/health-ai-stack/pkg/testkit/viewtest"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/testkit/parquettest"
+	"github.com/degoke/haistack/pkg/testkit/viewtest"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func newPatientSummaryRunHandler(t *testing.T) http.Handler {

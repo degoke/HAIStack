@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 type memBinaryBlobStore struct {
