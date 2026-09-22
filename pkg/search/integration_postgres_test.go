@@ -486,6 +486,9 @@ func TestPostgresHasReverseChain(t *testing.T) {
 	if _, err := svc.Create(ctx, patientResource(t, "pat-2", "Smith", "556")); err != nil {
 		t.Fatalf("Create patient: %v", err)
 	}
+	if _, err := svc.Create(ctx, encounterResource(t)); err != nil {
+		t.Fatalf("Create encounter: %v", err)
+	}
 	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
 		t.Fatalf("Create observation: %v", err)
 	}
@@ -514,6 +517,9 @@ func TestPostgresTwoHopChain(t *testing.T) {
 	}
 	if _, err := svc.Create(ctx, patientWithOrganization(t, "pat-1", "Doe", "org-1")); err != nil {
 		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, encounterResource(t)); err != nil {
+		t.Fatalf("Create encounter: %v", err)
 	}
 	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
 		t.Fatalf("Create observation: %v", err)
@@ -567,6 +573,9 @@ func TestPostgresUriBelowAndWildcardInclude(t *testing.T) {
 
 	if _, err := svc.Create(ctx, patientResource(t, "pat-1", "Doe", "555")); err != nil {
 		t.Fatalf("Create patient: %v", err)
+	}
+	if _, err := svc.Create(ctx, encounterResource(t)); err != nil {
+		t.Fatalf("Create encounter: %v", err)
 	}
 	if _, err := svc.Create(ctx, observationResource(t)); err != nil {
 		t.Fatalf("Create observation: %v", err)
