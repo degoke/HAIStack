@@ -3,6 +3,8 @@ name: Inferno
 on:
   workflow_dispatch:
   pull_request:
+    branches:
+      - main
     paths:
       - "pkg/oauth/**"
       - "pkg/http/**"
