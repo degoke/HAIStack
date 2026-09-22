@@ -343,7 +343,7 @@ go test ./pkg/ai/... -count=1
 
 Use `pkg/testkit/aitest` for executor harnesses with optional search, views, and approval fakes.
 
-## MVP limits
+## Limits
 
 - Generic tools only; no raw FHIR server passthrough
 - Writes use structured field maps, not full resource JSON or PATCH
@@ -352,5 +352,10 @@ Use `pkg/testkit/aitest` for executor harnesses with optional search, views, and
 - Model invocation is optional and separate from tool execution
 - No prompt orchestration bundled into every flow
 
-See [doc.go](./doc.go) for the full API, package boundaries, and integration
-points.
+## Related docs
+
+- [pkg/auth/README.md](../auth/README.md) — policy adapter
+- [pkg/view/README.md](../view/README.md) — `run_view` backend
+- [pkg/audit/README.md](../audit/README.md) — tool audit events
+- [examples/ai-authz](../../examples/ai-authz/main.go) — runnable sample
+- [doc.go](./doc.go) — integration points

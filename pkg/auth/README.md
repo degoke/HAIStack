@@ -313,7 +313,7 @@ go test ./pkg/auth/... -count=1
 
 For cross-package authorization matrices, use `pkg/testkit/authztest` (`RunAll`, YAML catalogues) — production code must not import testkit.
 
-## MVP limits
+## Limits
 
 - No OAuth2/OIDC or SMART scopes (see `pkg/smart`)
 - No consent engine or security labels
@@ -321,4 +321,10 @@ For cross-package authorization matrices, use `pkg/testkit/authztest` (`RunAll`,
 - No full ABAC attribute language
 - No DB user tables — supply principals/roles/devices from the host app
 
-See [doc.go](./doc.go) for the full API and package boundaries.
+## Related docs
+
+- [pkg/smart/README.md](../smart/README.md) — SMART scopes and token validation
+- [pkg/audit/README.md](../audit/README.md) — decision audit emit
+- [pkg/ai/README.md](../ai/README.md) — `AIPolicyAdapter`
+- [docs/smart-auth-architecture.md](../../docs/smart-auth-architecture.md)
+- [doc.go](./doc.go) — full API

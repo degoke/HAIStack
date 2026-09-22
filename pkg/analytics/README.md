@@ -282,7 +282,7 @@ View-layer errors (`ErrViewNotFound`, `ErrUnauthorized`, etc.) propagate from
 
 ---
 
-## MVP limits
+## Limits
 
 - **Postgres only** for reporting tables and `$sqlquery-run`.
 - **Incremental** uses a single `WatermarkStore` per view version; not partitioned output.

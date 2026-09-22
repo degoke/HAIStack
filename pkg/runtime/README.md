@@ -456,7 +456,7 @@ Short mode skips Postgres-dependent tests:
 go test ./pkg/runtime/... -short
 ```
 
-## Current limits
+## Limits
 
 - Library-only; no `cmd/haistack` CLI in this package
 - One Postgres tenant per runtime instance
@@ -464,4 +464,9 @@ go test ./pkg/runtime/... -short
 - HTTP hub sync depends on a remote server exposing `/sync/push` and `/sync/pull`
 - Auth middleware and SMART flows are not wired by default (use `Handler()` with custom server middleware)
 
-See [doc.go](./doc.go) for the full package documentation and file layout.
+## Related docs
+
+- [cmd/haistack/README.md](../../cmd/haistack/README.md) — CLI built on runtime
+- [pkg/http/README.md](../http/README.md) — FHIR handler from `Runtime.Handler()`
+- [docs/composition-patterns.md](../../docs/composition-patterns.md) — deployment shapes
+- [doc.go](./doc.go) — builder API and file layout

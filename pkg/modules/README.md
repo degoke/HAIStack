@@ -277,6 +277,12 @@ Deferred (declarations persisted only):
 
 ---
 
+## Limits
+
+- v1 executes registry enablement and definition install only; manifest arrays for views/AI/sync are stored but not applied automatically
+- No remote module marketplace in this package (use `pkg/packages` for NPM IGs)
+- Signature verification is optional; see README signature section for threat model
+
 ## Related docs
 
 - [pkg/registry/README.md](../registry/README.md) — snapshots and enablement

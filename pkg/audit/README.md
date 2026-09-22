@@ -196,7 +196,7 @@ _ = ev
 | **export** | Export operation auditing |
 | **terminology** | Translation audit for research/provenance |
 
-## Limits / MVP notes
+## Limits
 
 - **v1 focuses on append and list** — retention, encryption, and streaming export are backend/ops concerns.
 - **Legacy detail keys** — `FromStoreRecord` lifts `tenant`, `subject`, `viewName`, etc. from `Details` when first-class columns are empty.

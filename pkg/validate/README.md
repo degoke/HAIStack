@@ -281,7 +281,7 @@ FHIR JSON envelope
 | **core** | Optional validator hook on writes |
 | **proto** | Google R4 parsing used for structural/primitive checks |
 
-## MVP limits
+## Limits
 
 - Structural and safety checks always run; base HL7 R4 profile validation is enabled by default in `pkg/runtime`
 - Syntactic reference checks only (no existence resolution; bare IDs without slashes are accepted; typed references are not checked against the installed resource-type registry)
@@ -296,4 +296,9 @@ FHIR JSON envelope
 
 When `envelope.Proto` is populated, matches the JSON resource type, and `envelope.Hash` still matches canonical JSON, structural validation can reuse the attached proto instead of re-parsing.
 
-See [doc.go](./doc.go) for the full API and package boundaries.
+## Related docs
+
+- [pkg/core/README.md](../core/README.md) — optional validator on writes
+- [pkg/conformance/README.md](../conformance/README.md) — IG fixture validation in CI
+- [conformance/README.md](../../conformance/README.md) — FSH authoring
+- [doc.go](./doc.go) — validation modes

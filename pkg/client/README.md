@@ -568,7 +568,14 @@ go test ./pkg/client/... -count=1
 - **Unit tests** — CRUD request construction, error mapping, search builder, sync serialization, SMART PKCE/assertion, bulk export state machine, subscription CRUD
 - **Integration tests** (`integration_test.go`) — end-to-end FHIR CRUD/search/pagination and sync over `httptest.Server`
 
-## Related packages
+## Limits
+
+- R5-specific typed surfaces deferred
+- Bulk export client helpers assume server implements `$export` (check capability metadata)
+- HAIStack-private subscription delivery APIs not exposed on client
+- Sync orchestration remains in `pkg/sync.Engine`; client is HTTP transport only
+
+## Related docs
 
 | Package | Relationship |
 |---------|--------------|

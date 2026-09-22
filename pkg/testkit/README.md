@@ -423,6 +423,18 @@ Existing helpers remain in place for incremental adoption:
 
 No production package should gain a dependency on `pkg/testkit`.
 
+## Limits
+
+- Test-only; must not be imported from production `pkg/*` (except tests)
+- Fakes mirror store contracts but omit some edge-case SQL semantics
+- Scenario catalogs (`authztest`) are synthetic, not clinical fixtures
+
+## Related docs
+
+- [doc.go](./doc.go) — tree overview
+- Subpackage `doc.go` files (`authztest`, `synctest`, …) — focused APIs
+- [pkg/store/README.md](../store/README.md) — contracts implemented by fakes
+
 ## Where it fits
 
 | Package | Role |
@@ -438,5 +450,4 @@ No production package should gain a dependency on `pkg/testkit`.
 
 ## Package docs
 
-Each subpackage has a `doc.go` with godoc-oriented API notes. Start with
-[doc.go](./doc.go) for the tree overview.
+Each subpackage has a `doc.go` with godoc-oriented API notes (also linked above under Related docs).

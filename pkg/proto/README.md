@@ -237,7 +237,7 @@ Patient JSON
 | **store** | Persistence contracts using `ResourceEnvelope` |
 | **core** | Resource lifecycle (CRUD, history, bundles) |
 
-## MVP limits
+## Limits
 
 - Google FHIR Go R4 only (no R5 yet)
 - No proto blob storage in the database
@@ -246,4 +246,8 @@ Patient JSON
 - `envelope.Proto` is set on proto paths; JSON-only paths leave it nil
 - JSON→proto→JSON may reject or omit fields outside the Google R4 schema; use pkg/types for arbitrary JSON
 
-See [doc.go](./doc.go) for the full API, conversion flows, and future extension points.
+## Related docs
+
+- [pkg/types/README.md](../types/README.md) — canonical JSON envelope
+- [pkg/fhirpath/README.md](../fhirpath/README.md) — proto codec for evaluation
+- [doc.go](./doc.go) — conversion flows

@@ -12,11 +12,11 @@ In-memory FHIRPath evaluation for a **single FHIR resource at a time**.
 
 This package **runs those expressions** against a Patient, Observation, or other resource you already have in memory. It does **not** search a database or fetch resources by itself; it only reads fields from a resource you pass in.
 
-**Given this one FHIR resource, what values does this path return?**
-
 The implementation wraps [github.com/verily-src/fhirpath-go](https://github.com/verily-src/fhirpath-go) behind a stable haistack API (`Engine`, `CompiledExpression`, `Value`).
 
-## How it fits in the stack
+**Does not:** import `store`, `sqlite`, or `postgres`; evaluate across resource graphs without an optional `Resolve` backend; accept raw JSON maps as roots (use `ResourceEnvelope` or R4 proto).
+
+## How it fits in the ecosystem
 
 FHIRPath answers “what is inside this resource?” Search answers “which resources match?” ViewDefinitions project many resources into rows.
 
@@ -38,91 +38,43 @@ FHIRPath answers “what is inside this resource?” Search answers “which res
 
 | Consumer | Role of fhirpath |
 |----------|------------------|
-| **pkg/search** | `RegistryIndexer` evaluates each installed SearchParameter expression; `MatchResourceParameter` re-evaluates for subscription-style param matching |
-| **pkg/view** | `ParseDefinition` / `Registry.Register` compile filter and column expressions at parse time; `Executor` evaluates them per resource during scans |
-| **pkg/sdc** | Questionnaire `text/fhirpath` expressions (calculated, initial, constraint, toggle); `NewSDCFHIRPathEngine` adds `weight()` |
-| **pkg/subscriptions** | `Matcher.FilterFHIRPath` predicates on create/update events |
-| **pkg/structuremap** | StructureMap engine holds a shared `fhirpath.Engine` for dependent logic |
-| **pkg/smart** | Scope filter matchers can chain registry + fhirpath (see `docs/smart-auth-architecture.md`) |
-| **cmd/haistack** | `haistack fhirpath eval <file> <expression>` for local debugging |
+| **pkg/search** | `RegistryIndexer` evaluates SearchParameter expressions |
+| **pkg/view** | ViewDefinition filters and column paths at parse and scan time |
+| **pkg/sdc** | Questionnaire `text/fhirpath` items; `NewSDCFHIRPathEngine` adds `weight()` |
+| **pkg/subscriptions** | `Matcher.FilterFHIRPath` on change events |
+| **pkg/structuremap** | Shared engine for map-dependent logic |
+| **cmd/haistack** | `haistack fhirpath eval` for local debugging |
 
-This package must not import query backends (`store`, `sqlite`, `postgres`).
+## When to use it
 
-## Inputs: envelope vs proto
+- Extracting fields from a resource already loaded in memory (UI, validation, indexing)
+- Compiling hot-path expressions once (`Compile`) and reusing across many resources
+- Wiring search indexing when registry SearchParameters use FHIRPath expressions
+- Parsing ViewDefinitions or SDC questionnaires that reference FHIRPath
+- Optional: enabling `resolve()` or terminology functions when you configure resolvers
 
-Accepted evaluation roots:
+Prefer **`pkg/search`** for “find all Patients named Smith”, not FHIRPath over the whole database.
 
-- `*types.ResourceEnvelope` — preferred runtime container from `pkg/core` and stores
-- Google FHIR R4 protobuf resources recognized by `pkg/proto.IsProtoResource` (including `*ContainedResource` with a populated branch)
+## Usage modes
 
-Rejected (returns `ErrInvalidInput`): raw `[]byte`, `map[string]any`, arbitrary Go structs, nil envelopes without JSON/proto, unsupported proto versions.
+### Mode: Direct evaluation (CLI or application)
 
-**Adaptation for envelopes:**
-
-| `envelope.Proto` | Evaluation path |
-|------------------|-----------------|
-| Non-nil, supported R4 message | Proto is unwrapped and passed to the backend directly |
-| Nil | `envelope.JSON` is parsed through `Config.ProtoCodec` (default: `proto.NewGoogleR4Codec()`) |
-
-JSON remains the canonical stored form across haistack; proto is an optional fast path that must represent the same resource as `envelope.JSON`. Tests in `pkg/proto` assert proto and JSON ingestion produce identical `Hash` values on the envelope.
-
-Direct proto input (bypassing envelope) is valid for tools and tests:
-
-```go
-import patientpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/patient_go_proto"
-
-values, err := eng.Eval(ctx, "Patient.name.family", &patientpb.Patient{...})
-```
-
-## Engine API: Eval vs Compile
+One-shot or compiled evaluation against an envelope or R4 proto:
 
 ```go
 eng, err := fhirpath.NewEngine(fhirpath.Config{})
 ctx := context.Background()
 
-// One-shot: compile (or cache hit) + evaluate
 values, err := eng.Eval(ctx, "Patient.name.given", envelope)
-
-// Strict singleton coercion
 name, err := eng.EvalString(ctx, "Patient.name.given.first()", envelope)
-exists, err := eng.EvalBool(ctx, "Patient.name.exists()", envelope)
 
-// External constants / %variables (when supported by expression)
-values, err := eng.EvalWithEnv(ctx, expr, envelope, map[string]any{"ctx": "value"})
+compiled, _ := eng.Compile("Patient.telecom.where(system = 'phone').value")
+phones, _ := compiled.Eval(ctx, envelope)
 ```
 
-Reuse a compiled expression in a hot loop (index rebuild, view scan, batch eval):
+CLI: `haistack fhirpath eval patient.json 'Patient.name.family'`.
 
-```go
-compiled, err := eng.Compile("Patient.telecom.where(system = 'phone').value")
-if err != nil { /* parse error */ }
-
-for _, env := range patients {
-    phones, err := compiled.Eval(ctx, env)
-    for _, v := range phones {
-        s, _ := v.String()
-        _ = s // index or project
-    }
-}
-```
-
-`Compile` is concurrency-safe and caches by expression string (cache size default 256). `CompiledExpression` values are safe to share across goroutines.
-
-## Working with results
-
-`Eval` returns `[]Value` (a collection). An empty collection is `nil`.
-
-| Method | Use when |
-|--------|----------|
-| `v.Type()` | Stable type name (`String`, `Patient`, `HumanName`, …) |
-| `v.String()`, `v.Bool()`, `v.Float64()` | Coerce one item |
-| `v.Raw()` | Backend-native value for proto-aware integrations |
-
-`EvalBool` / `EvalString` enforce: exactly one item, correct type — otherwise `ErrEmptyResult`, `ErrNotSingleton`, or `ErrTypeMismatch`.
-
-## Usage in search
-
-Wire the indexer on the core write path:
+### Mode: Search indexing
 
 ```go
 indexer, err := search.NewRegistryIndexer(search.RegistryIndexerConfig{
@@ -131,107 +83,95 @@ indexer, err := search.NewRegistryIndexer(search.RegistryIndexerConfig{
 })
 ```
 
-For each saved resource, the indexer evaluates registry expressions, then `normalizeValues` maps `fhirpath.Value` collections into typed index keys (`token.*`, `string.*`, `date.*`, `reference.*`, …). Unsupported expressions surface as indexing skips when `ErrNotSupported` is returned.
+Param matching: `search.MatchResourceParameter(ctx, reg, engine, "Observation", envelope, "code", wantTokens)`.
 
-Runtime param matching (subscriptions criteria helpers):
-
-```go
-matched, known := search.MatchResourceParameter(ctx, reg, engine, "Observation", envelope, "code", wantTokens)
-```
-
-## Usage in view (SQL-on-FHIR ViewDefinition)
-
-Views require an engine at parse time so invalid FHIRPath fails before scan:
+### Mode: ViewDefinition execution
 
 ```go
-engine, _ := fhirpath.NewEngine(fhirpath.Config{})
 parser, _ := view.NewDefinitionParser(engine)
-spec, err := parser.Parse(viewDefinitionJSON)
-
+spec, _ := parser.Parse(viewDefinitionJSON)
 reg := view.NewRegistry()
-_, err = reg.Register(spec, engine)
-
-exec, _ := view.NewExecutor(view.Config{
-    Resources: resourceStore,
-    Engine:    engine,
-    Registry:  reg,
-})
-result, err := exec.Execute(ctx, view.ExecuteRequest{ViewName: spec.Name})
+_, _ = reg.Register(spec, engine)
+exec, _ := view.NewExecutor(view.Config{Resources: resourceStore, Engine: engine, Registry: reg})
+result, _ := exec.Execute(ctx, view.ExecuteRequest{ViewName: spec.Name})
 ```
 
-Root `where` clauses act as FHIRPath predicates; column and nested `select` trees evaluate paths per matching resource. Reference joins resolve through the resource store (not via bare `resolve()` unless you configure a resolver on the engine).
-
-## Usage in SDC and subscriptions
-
-SDC composes FHIRPath with FHIR Query and CQL via `sdc.ComposeExpressions`. Questionnaire items use `Expression{Language: "text/fhirpath", Expression: "..."}` for calculated, initial, required, and toggle fields.
-
-Production SDC engines should use SDC-aware construction:
+### Mode: SDC questionnaires
 
 ```go
 engine, err := sdc.NewSDCFHIRPathEngine(fhirpath.Config{})
-// registers weight() for answer-option scoring expressions
 ```
 
-Subscription triggers can combine search criteria with path filters:
+Use with `sdc.ComposeExpressions` for calculated, initial, and constraint fields.
+
+### Mode: Subscriptions and filters
 
 ```go
 trigger := subscriptions.Trigger{
-    ResourceType:   "Observation",
-    Event:          subscriptions.TriggerEventCreate,
+    ResourceType: "Observation", Event: subscriptions.TriggerEventCreate,
     FilterFHIRPath: "code.coding.code = '8867-4'",
 }
 matcher := &subscriptions.Matcher{Engine: engine, Registry: searchRegistry}
 ```
 
-## Custom functions
+## Examples
 
-Register application-specific functions at `NewEngine` time (immutable for the engine lifetime):
+**Envelope vs proto roots** — prefer `*types.ResourceEnvelope`; proto path used when `envelope.Proto` is set or when passing `*patient_go_proto.Patient` directly. Raw `[]byte` and `map[string]any` return `ErrInvalidInput`.
+
+**Custom functions** at engine creation:
 
 ```go
-import "github.com/verily-src/fhirpath-go/fhirpath/system"
-
-eng, err := fhirpath.NewEngine(fhirpath.Config{
-    Functions: map[string]fhirpath.Function{
-        "alwaysTrue": func(_ fhirpath.Collection, _ ...fhirpath.Collection) (fhirpath.Collection, error) {
-            return fhirpath.Collection{fhirpath.NewValue(system.Boolean(true))}, nil
-        },
-        "echoPrefix": func(_ fhirpath.Collection, args ...fhirpath.Collection) (fhirpath.Collection, error) {
-            s, err := args[0][0].String()
-            if err != nil { return nil, err }
-            return fhirpath.Collection{fhirpath.NewValue(system.String("prefix-" + s))}, nil
-        },
-    },
+eng, _ := fhirpath.NewEngine(fhirpath.Config{
+    Functions: map[string]fhirpath.Function{ /* see README tests */ },
     FunctionArity: map[string]int{"echoPrefix": 1},
 })
 ```
 
-Names that shadow built-in FHIRPath functions return `ErrShadowsBuiltin`. Maximum declared arity is `MaxCustomFunctionArity` (8).
-
-## Optional resolve() and terminology
-
-By default, expressions using `resolve()` or terminology functions may return `ErrNotSupported`. Opt in when you can supply backends:
+**Optional `resolve()` and terminology:**
 
 ```go
 eng, _ := fhirpath.NewEngine(fhirpath.Config{
-    Resolve: fhirpath.ResourceStoreResolver(func(ctx context.Context, rt, id string) (any, error) {
-        return resources.Read(ctx, rt, id)
-    }),
+    Resolve:     fhirpath.ResourceStoreResolver(resources.Read),
     Terminology: fhirpath.TerminologyServiceAdapter(myValidateCode),
 })
 ```
 
-Helpers:
+See `pkg/fhirpath/fhirpath_env_test.go` and `engine_test.go` for navigation, aggregates, and error cases.
 
-- `EnhancedResourceStoreResolver` — absolute REST URLs, `urn:uuid`, untyped ids with optional logical-id resolver
-- `WithEvaluationResource` — attaches the root resource to context for contained `#fragment` references
-- `ParseReferenceForRead` — shared reference parsing for resolver implementations
+## Configuration / key types
 
-When `Resolve` is nil, `resolve()` errors map to unsupported/unconfigured resolver errors. When `Terminology` is set, experimental terminology tables in the Verily backend are enabled for `memberOf()` and related functions.
+| Type / field | Role |
+|--------------|------|
+| `Engine` | `Eval`, `Compile`, `EvalString`, `EvalBool`, `EvalWithEnv` |
+| `Config.CacheSize` | Default 256 compiled-expression cache entries |
+| `Config.MaxExpressionLen` | Default 4096 |
+| `Config.MaxResultItems` | Default 1024 |
+| `Config.ProtoCodec` | Default `proto.NewGoogleR4Codec()` for JSON envelopes |
+| `Config.Resolve` / `Terminology` | Opt-in backends for advanced functions |
+| `Value` | Result item with `Type()`, `String()`, `Bool()`, `Raw()` |
 
-## Configuration, errors, and limits
+Stable errors: `ErrInvalidInput`, `ErrExpressionTooLong`, `ErrTooManyResults`, `ErrEmptyResult`, `ErrNotSingleton`, `ErrTypeMismatch`, `ErrNotSupported`, `ErrShadowsBuiltin`.
 
-Defaults: `CacheSize` 256, `MaxExpressionLen` 4096, `MaxResultItems` 1024, `ProtoCodec` = `proto.NewGoogleR4Codec()`. Evaluation honors `context.Context`; `DefaultTimeout` is a soft deadline when the caller context has none.
+## Where it fits
 
-Stable errors include `ErrInvalidInput`, `ErrExpressionTooLong`, `ErrTooManyResults`, `ErrEmptyResult`, `ErrNotSingleton`, `ErrTypeMismatch`, `ErrNotSupported`, and `ErrShadowsBuiltin`. Tests cover common navigation, filtering, aggregates, comparisons, and string helpers such as `contains()`; full normative compliance is not guaranteed beyond that subset.
+| Layer | Role |
+|-------|------|
+| **types** | `ResourceEnvelope` input |
+| **proto** | R4 proto codec and envelope proto field |
+| **fhirpath** | Expression engine (this package) |
+| **search / view / sdc** | Primary consumers |
 
-See [doc.go](./doc.go) for the full API and package boundaries.
+## Limits
+
+- One resource root per evaluation (no graph queries without `Resolve`)
+- Google FHIR R4 proto only for typed roots
+- Full normative FHIRPath compliance not guaranteed beyond tested subset
+- `resolve()` / `memberOf()` require explicit configuration
+- Does not persist or mutate resources
+
+## Related docs
+
+- [pkg/search/README.md](../search/README.md) — indexer and MatchResourceParameter
+- [pkg/view/README.md](../view/README.md) — ViewDefinition parser and executor
+- [pkg/sdc/README.md](../sdc/README.md) — SDC FHIRPath engine
+- [doc.go](./doc.go) — full API boundaries

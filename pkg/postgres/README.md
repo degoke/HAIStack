@@ -279,11 +279,15 @@ TEST_POSTGRES_DSN='postgres://user:pass@localhost:5432/haistack?sslmode=disable'
 
 Without Docker or `TEST_POSTGRES_DSN`, integration tests skip.
 
-## MVP limits
+## Limits
 
 - Single Postgres database per `DB` (no built-in sharding or read-replica routing)
 - Blob `Location` stores an opaque string; no object-storage SDK integration
 - Partitioning, archival, and warehouse export cursors are future work
 - FHIR validation, HTTP, and business rules live in upstream packages
 
-See [doc.go](./doc.go) for design principles, schema tables, file layout, and the full write coordinator behavior.
+## Related docs
+
+- [pkg/store/README.md](../store/README.md) — tenant-scoped contracts
+- [pkg/runtime/README.md](../runtime/README.md) — edge/cloud modes
+- [doc.go](./doc.go) — write coordinator and schema

@@ -166,7 +166,7 @@ svc, _ := core.NewResourceService(core.ResourceServiceConfig{
 
 **How:** Call `store.ResourceStore` methods directly. **Do not** use this for product CRUD — you will skip validation, versioning, referential integrity, and outbox indexing that core centralizes.
 
-## What it does not do (MVP)
+## Limits
 
 - HTTP routes or REST server
 - Search query parsing (`GET /Patient?name=...`)
@@ -310,4 +310,10 @@ outcome := core.OperationOutcomeFromError(err)
 
 Helpers `core.IsNotFound(err)` and `core.IsConflict(err)` are available for branching in handlers.
 
-See [doc.go](./doc.go) for the full API, write pipeline, bundle rules, and integration details.
+## Related docs
+
+- [pkg/store/README.md](../store/README.md) — persistence contracts
+- [pkg/types/README.md](../types/README.md) — `ResourceEnvelope`
+- [pkg/http/README.md](../http/README.md) — REST adapter over core
+- [docs/architecture.md](../../docs/architecture.md) — write path
+- [doc.go](./doc.go) — full API and bundle rules

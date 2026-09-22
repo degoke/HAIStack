@@ -227,7 +227,7 @@ _ = body
 | **modules** | Async module directory install |
 | **export** | Bulk export/import status rows |
 
-## Limits / MVP notes
+## Limits
 
 - **`MaxAttempts = 1`** (default) matches historical search/sync behavior: first handler error marks the job **failed** with no backoff.
 - **`RunLoop` swallows handler errors** and continues polling unless the context is cancelled; use `RunOnce` for fail-fast tests.

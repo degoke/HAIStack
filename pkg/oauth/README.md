@@ -117,6 +117,10 @@ When customers bring their own authorization server:
 
 Built-in OAuth is for deployments that want SMART metadata, consent, and token minting **in-process** without operating a separate auth product.
 
+### Mode: Multi-tenant issuer routes
+
+When one process serves multiple FHIR tenants, use `MultiTenantServer` with `/t/{tenantId}/oauth/*` and `MultiTenantBearerAuth` so JWT validation uses the correct issuer per tenant. See the multi-instance checklist below.
+
 ## Endpoints
 
 | Path | Description |
@@ -268,4 +272,18 @@ Embedders that previously used `oauth.NewProductionServer` should call `oauthsto
 
 Use `MultiTenantBearerAuth` (`wire.go`) when FHIR and OAuth share a mux but JWT validation must use tenant-specific issuers.
 
-See `examples/smart-oauth` for a runnable demo, or `haistack serve` for built-in OAuth with SQLite/Postgres stores (`runtime.WithBuiltinOAuth`). Operations guidance: `OPERATIONS.md`. See [doc.go](./doc.go) for `pkg/http` and `pkg/runtime` integration.
+## Limits
+
+- In-memory `oauth.NewServer` without store adapters is dev-only (no durable clients/tokens)
+- Production consent requires `UserAuthenticator` or `OAUTH_LOGIN_USERS` session login
+- SMART backend-service assertion replay stores remain in `pkg/smart`, separate from OAuth code flow storage
+- Dynamic registration should stay off unless you operate a controlled client registry
+
+## Related docs
+
+- [pkg/smart/README.md](../smart/README.md) — scope enforcement on FHIR routes
+- [pkg/runtime/README.md](../runtime/README.md) — `WithBuiltinOAuth`
+- [cmd/haistack/README.md](../../cmd/haistack/README.md) — production checklist
+- [docs/smart-auth-architecture.md](../../docs/smart-auth-architecture.md)
+- [examples/smart-oauth](../../examples/smart-oauth/main.go)
+- [doc.go](./doc.go) — HTTP and runtime integration

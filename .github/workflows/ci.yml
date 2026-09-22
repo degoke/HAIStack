@@ -37,6 +37,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check package README structure
+        run: bash scripts/check-package-readmes.sh
+
       - name: Vet
         run: go vet ./...
 

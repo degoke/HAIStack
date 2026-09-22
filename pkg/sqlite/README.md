@@ -269,7 +269,7 @@ pkg/sqlite  → actual SQLite file + tables + atomic writes
 | **postgres** | Tenant-scoped edge/cloud implementation |
 | **core** | Orchestrates write pipelines on top of store interfaces |
 
-## MVP limits
+## Limits
 
 - Pure Go driver (`modernc.org/sqlite`); no CGO
 - Canonical JSON in `ResourceEnvelope.JSON`; no proto-only storage
@@ -277,4 +277,8 @@ pkg/sqlite  → actual SQLite file + tables + atomic writes
 - Inbox, conflict, binary, and module stores persist data but omit full upstream workflows (sync apply, reconciliation, blob offload, module activation)
 - Encrypted SQLite, backup/restore, and multi-profile DBs are out of scope
 
-See [doc.go](./doc.go) for the full API, schema tables, and file layout.
+## Related docs
+
+- [pkg/store/README.md](../store/README.md) — interfaces implemented here
+- [pkg/runtime/README.md](../runtime/README.md) — `WithSQLite` wiring
+- [doc.go](./doc.go) — schema and migrations

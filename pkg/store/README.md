@@ -279,11 +279,15 @@ ids, err := search.Lookup(ctx, "string.family", "Doe")
 | **core** | Business rules and write pipelines |
 | **search** | FHIR search parsing (produces index entries for `SearchStore`) |
 
-## MVP limits
+## Limits
 
 - Contracts and record types only — no database adapters in this package
 - No FHIR search parsing, version assignment policy, or conflict reconciliation
 - No in-memory production adapter yet (`pkg/store/memory` is future work)
 - `BinaryStore`, `BlobStore`, and operational stores are defined here; not every backend implements every interface
 
-See [doc.go](./doc.go) for the full API, design principles, typical flows, and file layout.
+## Related docs
+
+- [pkg/sqlite/README.md](../sqlite/README.md) / [pkg/postgres/README.md](../postgres/README.md) — backends
+- [pkg/core/README.md](../core/README.md) — orchestration on top of stores
+- [doc.go](./doc.go) — write-session semantics and file layout

@@ -179,11 +179,16 @@ Think of it as **FHIR JSON utilities plus a standard envelope** — not a full F
 | **sync** | Device/hub replication using envelope hash and version |
 | **validate** | Verifies envelope hash matches canonical JSON |
 
-## MVP limits
+## Limits
 
 - Version-agnostic FHIR JSON only (no generated R4/R5 bindings here)
 - No bundle helpers, extension helpers, profile validation, or identifier extraction
 - `ResourceEnvelope.Proto` is set by `pkg/proto` on proto paths; JSON-only paths leave it nil
 - `JSONCodec.ToJSON` does not serialize from `Proto`; use `pkg/proto` for proto-to-JSON conversion
 
-See [doc.go](./doc.go) for the full API, canonical JSON rules, and reference parsing behavior.
+## Related docs
+
+- [pkg/core/README.md](../core/README.md) — CRUD and envelopes on the write path
+- [pkg/store/README.md](../store/README.md) — persisted envelope shape
+- [pkg/proto/README.md](../proto/README.md) — optional typed proto companion
+- [doc.go](./doc.go) — canonical JSON rules and reference parsing

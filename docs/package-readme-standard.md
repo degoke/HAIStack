@@ -20,7 +20,8 @@ Every library under `pkg/<name>/` should ship a **README.md** that stands alone 
 - **Accurate APIs** — No invented constructors; run `go doc` or read tests before documenting.
 - **Ecosystem context** — Every README answers: “If I use only this import, what else do I typically wire?”
 - **Multiple paths** — CLI, `runtime.Builder`, and manual wiring should be mentioned when all three exist.
-- **Length** — Most packages target **200+ lines**; small helper packages (e.g. `conceptmap`) may be **170+** if scope is narrow.
+- **`## Limits`** and **`## Related docs`** — use these exact headings (rename legacy `MVP limits`, `Related packages`, etc.).
+- **`## How it fits in the ecosystem`** — preferred title; **`## Where it fits`** is accepted by CI as an equivalent ecosystem section.
 
 ## Also document
 

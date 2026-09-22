@@ -251,7 +251,7 @@ Writes 148 base `StructureDefinition` and 1375 `SearchParameter` JSON files unde
 | **sqlite** / **postgres** | Backend implementations |
 | **modules** | Module-owned definitions via `ModuleName` provenance |
 
-## Limits / MVP notes
+## Limits
 
 - **MVP compiler** ingests `StructureDefinition` (resource kind) and `SearchParameter` fully; other FHIR definition types may be **stored** via `InstallDefinition` but are **ignored** when building `Snapshot` search/structure maps.
 - **`ProfilesFor` and `Operations`** return empty slices today; buckets exist for future compilation.

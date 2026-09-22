@@ -282,6 +282,13 @@ Install via `pkg/modules` / runtime `WithModules`.
 
 ---
 
+## Limits
+
+- FHIR Query population requires a configured query runtime (search-backed default when enabled)
+- StructureMap extraction requires maps resolvable from your store; not every HL7 map transform is implemented
+- Adaptive session behavior is contract-only unless you inject an adaptive adapter
+- Extraction returns bundle envelopes; persistence is always explicit via `core`
+
 ## Related docs
 
 - [pkg/cql/README.md](../cql/README.md) — CQL provider and libraries
