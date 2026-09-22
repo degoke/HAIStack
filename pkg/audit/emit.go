@@ -129,6 +129,15 @@ type AIToolCallEvent struct {
 
 // LogAIToolCall emits an execute-tool event.
 func LogAIToolCall(ctx context.Context, logger Logger, ev AIToolCallEvent) error {
+	return logAICall(ctx, logger, ev, ActionExecuteTool)
+}
+
+// LogAIModelInvoke emits an invoke-model event.
+func LogAIModelInvoke(ctx context.Context, logger Logger, ev AIToolCallEvent) error {
+	return logAICall(ctx, logger, ev, ActionInvokeModel)
+}
+
+func logAICall(ctx context.Context, logger Logger, ev AIToolCallEvent, action string) error {
 	details := cloneDetails(ev.Details)
 	if ev.ConversationID != "" {
 		details["conversationId"] = ev.ConversationID
@@ -139,7 +148,7 @@ func LogAIToolCall(ctx context.Context, logger Logger, ev AIToolCallEvent) error
 		Actor:          ev.Actor,
 		Tenant:         ev.Tenant,
 		Subject:        ev.Subject,
-		Action:         ActionExecuteTool,
+		Action:         action,
 		Outcome:        ev.Outcome,
 		ToolName:       ev.ToolName,
 		ConversationID: ev.ConversationID,

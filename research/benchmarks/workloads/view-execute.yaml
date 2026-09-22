@@ -1,0 +1,7 @@
+name: view-execute
+description: Execute pkg/view builtin observation_view over seeded observations (not Track E research_vitals_view). Each execution pages at most `limit` rows.
+operations:
+  - type: view
+    viewName: observation_view
+    count: 10
+    limit: 100

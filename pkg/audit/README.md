@@ -38,6 +38,7 @@ _ = audit.LogAIToolCall(ctx, logger, audit.AIToolCallEvent{
 | `ActionResourceWrite` | `resource.write` |
 | `ActionExecuteTool` | `execute-tool` |
 | `ActionExecuteView` | `execute-view` |
+| `ActionInvokeModel` | `invoke-model` |
 | `ActionAuthAllow` / `ActionAuthDeny` | `auth.allow` / `auth.deny` |
 | Sync/conflict | `sync.*` / `conflict.*` |
 | `ActionExport` / `ActionBlobAccess` | `export` / `blob.access` |

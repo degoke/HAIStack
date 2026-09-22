@@ -20,6 +20,7 @@ const (
 
 	ActionExecuteTool = "execute-tool"
 	ActionExecuteView = "execute-view"
+	ActionInvokeModel = "invoke-model"
 
 	ActionAuthAllow = "auth.allow"
 	ActionAuthDeny  = "auth.deny"

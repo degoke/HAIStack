@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+// RunYAML executes catalogue scenarios that carry their own engine and SMART
+// adapter from the YAML file. It does not construct Go BaseConfig fixtures.
+func RunYAML(t *testing.T, scenarios []Scenario) {
+	Run(t, scenarios, nil)
+}
+
 // Run executes every scenario, failing the test on the first error.
 func Run(t *testing.T, scenarios []Scenario, kit *Kit) {
 	t.Helper()

@@ -1,0 +1,31 @@
+{
+  "resourceType": "ConceptMap",
+  "id": "haistack-vitals-to-loinc",
+  "url": "https://example.org/ConceptMap/haistack-vitals-to-loinc",
+  "version": "1.0.0",
+  "name": "HAIStackVitalsToLOINC",
+  "status": "active",
+  "sourceCanonical": "https://example.org/CodeSystem/haistack-vitals|1.0.0",
+  "targetCanonical": "http://loinc.org",
+  "group": [
+    {
+      "source": "https://example.org/CodeSystem/haistack-vitals",
+      "sourceVersion": "1.0.0",
+      "target": "http://loinc.org",
+      "element": [
+        {"code": "hr", "display": "Heart rate", "target": [{"code": "8867-4", "display": "Heart rate", "equivalence": "equivalent"}]},
+        {"code": "sbp", "display": "Systolic BP", "target": [{"code": "8480-6", "display": "Systolic blood pressure", "equivalence": "equivalent"}]},
+        {"code": "dbp", "display": "Diastolic BP", "target": [{"code": "8462-4", "display": "Diastolic blood pressure", "equivalence": "equivalent"}]},
+        {"code": "temp", "display": "Body temperature", "target": [{"code": "8310-5", "display": "Body temperature", "equivalence": "equivalent"}]},
+        {"code": "spo2", "display": "Oxygen saturation", "target": [{"code": "2708-6", "display": "Oxygen saturation", "equivalence": "equivalent"}]},
+        {"code": "wt", "display": "Body weight", "target": [{"code": "29463-7", "display": "Body weight", "equivalence": "equivalent"}]},
+        {"code": "ht", "display": "Body height", "target": [{"code": "8302-2", "display": "Body height", "equivalence": "equivalent"}]},
+        {"code": "bmi", "display": "BMI", "target": [{"code": "39156-5", "display": "Body mass index", "equivalence": "equivalent"}]},
+        {"code": "rr", "display": "Respiratory rate", "target": [{"code": "9279-1", "display": "Respiratory rate", "equivalence": "equivalent"}]},
+        {"code": "pain", "display": "Pain (local broader scale)", "target": [{"code": "72514-3", "display": "Pain severity", "equivalence": "narrower"}]},
+        {"code": "fever", "display": "Fever (mapped broadly)", "target": [{"code": "8310-5", "display": "Body temperature", "equivalence": "wider"}]},
+        {"code": "unknown", "display": "Unmapped local code", "noMap": true}
+      ]
+    }
+  ]
+}

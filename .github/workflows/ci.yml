@@ -1,5 +1,5 @@
-# PRs targeting main: fmt, vet, lint, build, and fast tests (-short, no race).
-# Pushes to main (after merge): full suite including race detector and Postgres integration tests.
+# PRs targeting main: fmt, vet, lint, build, fast tests (-short, no race), and make research.
+# Pushes to main (after merge): full suite including race detector and Postgres integration tests, then make research.
 name: CI
 
 on:
@@ -58,3 +58,9 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+
+      # Merge-blocking research artefact checks. GitHub branch protection
+      # cannot be set from repository files; this step lives in the required
+      # `ci` job so research failures fail the existing required check.
+      - name: Research artefacts
+        run: make research
