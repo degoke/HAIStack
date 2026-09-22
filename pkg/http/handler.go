@@ -116,6 +116,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleValidateOperation(w, r, route)
 			return
 		}
+		if route.operation == "$evaluate-measure" && (route.resourceType == "Measure" || route.resourceType == "") {
+			h.handleEvaluateMeasure(w, r, route)
+			return
+		}
 		if h.handleTerminologyOperation(w, r, route) {
 			return
 		}
@@ -164,6 +168,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if route.operation == "$sqlquery-run" {
 			h.handleSQLQueryRun(w, r, parsedRoute{resourceType: "Library", operation: route.operation})
+			return
+		}
+		if route.operation == "$evaluate-measure" {
+			h.handleEvaluateMeasure(w, r, parsedRoute{resourceType: "Measure", operation: route.operation})
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {

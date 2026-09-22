@@ -6,6 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/google/fhir/go v0.7.4
 	github.com/google/uuid v1.6.0
+	github.com/iimos/ucum v0.0.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/redis/go-redis/v9 v9.22.0

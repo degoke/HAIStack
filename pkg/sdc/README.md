@@ -123,7 +123,8 @@ it. Population accepts subject and launch context through `PopulationContext`,
 supports initial values/expressions, answer expressions, and injectable
 population providers.
 
-FHIRPath is the built-in expression path:
+FHIRPath is the built-in expression path. CQL is provided by `pkg/cql` and
+wired by the default runtime:
 
 ```go
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
@@ -133,14 +134,30 @@ response, outcome := sdc.PopulateResource(ctx, questionnaire,
         Provider: sdc.FHIRPathExpressions{Engine: engine},
     },
 )
+
+cqlEngine, _ := cql.NewEngine(cql.Config{FHIRPath: engine})
+response, outcome = sdc.PopulateResource(ctx, questionnaire,
+    sdc.PopulationContext{
+        Subject: patientEnvelope,
+        Provider: sdc.ComposeExpressions(
+            sdc.FHIRPathExpressions{Engine: engine},
+            nil,
+            cql.NewProvider(cqlEngine, nil),
+        ),
+    },
+)
 ```
 
-The built-in provider adapts Questionnaire and QuestionnaireResponse
+The built-in FHIRPath provider adapts Questionnaire and QuestionnaireResponse
 projections and resource-shaped JSON maps. A subject should normally be a
 `*types.ResourceEnvelope` or supported R4 proto resource.
 
-CQL and FHIR Query are represented by safe provider interfaces. If no provider
-is installed, the operation reports an unavailable-expression diagnostic.
+CQL expressions use `text/cql`, `text/cql.identifier`, `application/cql`, or
+`application/x-cql`. Named defines are resolved from `cqf-library` canonicals,
+contained `Library` resources, or a `cql.LibraryResolver`. Missing Patient
+context or a missing library is reported as an unavailable-expression
+diagnostic. FHIR Query remains an injectable adapter; if no provider is
+installed, the operation reports an unavailable-expression diagnostic.
 
 `SearchFHIRQueryProvider` executes `application/x-fhir-query` expressions against
 `pkg/search`. `ComposeExpressions` combines FHIRPath, FHIR Query, and CQL
@@ -196,7 +213,8 @@ wired into the default runtime when `sourceStructureMap` is configured.
 
 `pkg/http` provides the transport adapter when `Config.SDCService` is set. The
 runtime wires `http.CoreSDCService` by default using the existing core resource
-service, store-backed questionnaire resolution, and runtime FHIRPath engine.
+service, store-backed questionnaire resolution, runtime FHIRPath engine, and
+`pkg/cql` CQL provider.
 
 Supported operation routes include:
 
@@ -244,19 +262,25 @@ Install it through the normal module manager or runtime `WithModules` path.
 Included:
 
 - FHIR R4 / SDC 3.0.0 questionnaire behavior
-- FHIRPath expression integration
+- FHIRPath expression integration via pkg/fhirpath
+- CQL expression integration via pkg/cql (CQL 1.5 libraries; CQF Measure evaluation is in pkg/cql / Measure/$evaluate-measure)
 - population, validation, assembly, rendering state, and extraction contracts
 - canonical transaction Bundle generation without persistence side effects
 - adaptive protocol interfaces
 
 Injected by applications:
 
-- CQL runtime
 - FHIR Query runtime (default runtime wires `SearchFHIRQueryProvider` when search is enabled)
 - terminology service and value-set expansion
-- StructureMap runtime
+- StructureMap runtime (default runtime wires `pkg/structuremap` when `sourceStructureMap` is set)
 - extraction mappings/templates
 - adaptive questionnaire selection and session policy
 
+CQL evaluation lives in `pkg/cql` and is wired by the default runtime when a
+`CQLProvider` can load libraries from the store, contained resources, or
+`cqf-library` canonicals. Applications may still replace the provider.
+
 See [`doc.go`](./doc.go) for the package-level API boundary and the tests in
-this directory for executable behavior examples.
+this directory for executable behavior examples. Example CQL questionnaires
+and libraries live in `modules/sdc/examples/cql-questionnaire.json` and
+`cql-library.json`.

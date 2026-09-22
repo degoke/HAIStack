@@ -98,7 +98,16 @@ type Provider interface {
 	Expand(context.Context, ExpandRequest) (*Expansion, error)
 	ValidateCode(context.Context, ValidateCodeRequest) (*ValidationResult, error)
 }
-type Service interface{ Provider }
+
+// SubsumptionService resolves code-system is-a relationships for CQL subsumes.
+type SubsumptionService interface {
+	Subsumes(context.Context, SubsumesRequest) (bool, error)
+}
+
+type Service interface {
+	Provider
+	SubsumptionService
+}
 type Invalidator interface {
 	InvalidateCodeSystem(ctx context.Context, system, version string)
 	InvalidateValueSet(ctx context.Context, url, version string)

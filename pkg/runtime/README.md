@@ -206,11 +206,16 @@ Build failures roll back partially opened resources before returning an error.
 | `SearchService` | When `WithSearch()` |
 | `SyncEngine` | When sync hub configured |
 | `FHIRPathEngine` | Always |
+| `BulkExportService` | When job store and blob store are wired |
+| `BulkImportService` | When job store and blob store are wired |
 | `SubscriptionManager` | Always |
 | `SubscriptionProcessor` | Always |
 | `SubscriptionMatcher` | Always (`Engine` + search `Registry`) |
+| `SubscriptionHandlers` | Always (in-process local delivery registry) |
 | `TenantDB` | Postgres modes |
 | `BlobStore`, `ExternalSearch`, `Warehouse` | Cloud mode adapters |
+
+`Runtime.Handler()` also wires HTTP-only adapters (not on `ServiceContainer`): default `SDCService` composes FHIRPath with CQL 1.5 (`pkg/cql`) for SDC operations, and `MeasureEvaluateService` for Measure/$evaluate-measure. Override with `WithSDC` on the builder when embedding custom behavior.
 
 ## Search by mode
 

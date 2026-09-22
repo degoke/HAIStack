@@ -45,7 +45,7 @@
 //   - WithExternalBlobStore, WithExternalSearch, WithExternalWarehouse — cloud adapter seams
 //   - WithFHIRPath(engine) — optional; a default engine is created when omitted
 //   - WithSDC(service) — optional SDC HTTP operation adapter; the default
-//     core/FHIRPath adapter is used when omitted
+//     core/FHIRPath/CQL adapter is used when omitted
 //   - WithSearch — enable search indexing and query execution
 //   - WithSync(hubURL), WithSyncHub(hub), WithSyncNode(nodeID) — device sync
 //   - WithSQLiteTenant, WithSQLiteTerminologyScope — local tenant namespaces

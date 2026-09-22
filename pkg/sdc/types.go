@@ -980,11 +980,38 @@ type FHIRQueryProvider interface {
 }
 type CQLExpressions struct{ Provider CQLProvider }
 
+// CQLEvalInput wraps an SDC expression evaluation so a CQLProvider receives
+// language and nested input (typically ExpressionEnvironment or a Patient).
+type CQLEvalInput struct {
+	Language string
+	Name     string
+	Input    any
+}
+
+const (
+	CQLLanguage           = "text/cql"
+	CQLIdentifierLanguage = "text/cql.identifier"
+	CQLApplicationLang    = "application/cql"
+	CQLApplicationXLang   = "application/x-cql"
+)
+
+// IsCQLLanguage reports whether lang is a CQL expression language used by SDC.
+func IsCQLLanguage(lang string) bool {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case CQLLanguage, CQLIdentifierLanguage, CQLApplicationLang, CQLApplicationXLang:
+		return true
+	}
+	return false
+}
+
 func (p CQLExpressions) Evaluate(ctx context.Context, e Expression, r any) ([]any, error) {
 	if p.Provider == nil {
 		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, r)
 	}
-	return p.Provider.EvaluateCQL(ctx, e.Expression, r)
+	if e.Language != "" && !IsCQLLanguage(e.Language) {
+		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, r)
+	}
+	return p.Provider.EvaluateCQL(ctx, e.Expression, CQLEvalInput{Language: e.Language, Name: e.Name, Input: r})
 }
 
 type FHIRQueryExpressions struct{ Provider FHIRQueryProvider }

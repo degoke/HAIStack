@@ -13,6 +13,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/health-ai-stack/pkg/cql"
 	"github.com/degoke/health-ai-stack/pkg/export"
 	"github.com/degoke/health-ai-stack/pkg/fhirpath"
 	hahttp "github.com/degoke/health-ai-stack/pkg/http"
@@ -335,6 +336,29 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	}
 
 	engine := b.fhirPathEngine
+	var term fhirpath.TerminologyValidator
+	if state.services.TerminologyService != nil {
+		termSvc := state.services.TerminologyService
+		var subsumesFn func(context.Context, string, string, string) (bool, error)
+		if subSvc, ok := termSvc.(terminology.SubsumptionService); ok {
+			subsumesFn = func(ctx context.Context, system, broad, narrow string) (bool, error) {
+				return subSvc.Subsumes(ctx, terminology.SubsumesRequest{
+					ScopeID: termScope, System: system, BroadCode: broad, NarrowCode: narrow,
+				})
+			}
+		}
+		term = fhirpath.TerminologyValidatorsAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+			result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
+				ScopeID: termScope,
+				URL:     valueSetURL,
+				Coding:  terminology.Coding{System: system, Code: code},
+			})
+			if err != nil {
+				return false, err
+			}
+			return result != nil && result.Status == terminology.Valid, nil
+		}, subsumesFn)
+	}
 	if engine == nil {
 		fpCfg := fhirpath.Config{}
 		readFn := func(ctx context.Context, resourceType, id string) (any, error) {
@@ -345,20 +369,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			Read:             readFn,
 			ResolveLogicalID: fhirpath.LookupLogicalIDAcrossTypes(readFn, fhirpath.DefaultLogicalIDResourceTypes),
 		})
-		if state.services.TerminologyService != nil {
-			termSvc := state.services.TerminologyService
-			fpCfg.Terminology = fhirpath.TerminologyServiceAdapter(func(ctx context.Context, valueSetURL, system, code string) (bool, error) {
-				result, err := termSvc.ValidateCode(ctx, terminology.ValidateCodeRequest{
-					ScopeID: termScope,
-					URL:     valueSetURL,
-					Coding:  terminology.Coding{System: system, Code: code},
-				})
-				if err != nil {
-					return false, err
-				}
-				return result != nil && result.Status == terminology.Valid, nil
-			})
-		}
+		fpCfg.Terminology = term
 		var err error
 		engine, err = fhirpath.NewEngine(fpCfg)
 		if err != nil {
@@ -366,6 +377,29 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 	state.services.FHIRPathEngine = engine
+	retriever := cql.StoreRetriever{Resources: pc.resources}
+	if adv, ok := pc.searchStore.(store.SearchAdvancedExecutor); ok {
+		retriever.References = adv
+	}
+	libResolver := &cql.StoreLibraryResolver{
+		Resources: pc.resources,
+		Registry:  pc.definitions,
+	}
+	cqlEngine, err := cql.NewEngine(cql.Config{
+		FHIRPath:    engine,
+		Retriever:   retriever,
+		Terminology: term,
+		Libraries:   libResolver,
+	})
+	if err != nil {
+		return fmt.Errorf("runtime: cql engine: %w", err)
+	}
+	libResolver.Engine = cqlEngine
+	cqlProvider := cql.Provider{
+		Engine:    cqlEngine,
+		Libraries: libResolver,
+		Retriever: retriever,
+	}
 	viewRegistry := view.NewRegistry()
 
 	if len(b.packageInstalls) > 0 {
@@ -460,11 +494,13 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		EnforceDeclaredProfiles: true,
 		Terminology:             state.services.TerminologyService,
 	})
+	fhirPath := sdc.FHIRPathExpressions{Engine: engine}
+	exprProvider := sdc.ComposeExpressions(fhirPath, nil, cqlProvider)
 	validator := &sdc.ResponseValidator{
 		Base:     baseValidator,
 		Resolver: questionnaireResolver,
 		Options: sdc.ValidationOptions{
-			Expressions: sdc.FHIRPathExpressions{Engine: engine},
+			Expressions: exprProvider,
 			Terminology: sdc.TerminologyAdapter{Service: state.services.TerminologyService, ScopeID: termScope},
 		},
 	}
@@ -722,15 +758,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 
 	sdcService := b.sdcService
 	if sdcService == nil {
-		fhirPath := sdc.FHIRPathExpressions{Engine: engine}
-		exprProvider := sdc.ExpressionProvider(fhirPath)
+		var fhirQuery sdc.FHIRQueryProvider
 		if state.services.SearchService != nil {
-			exprProvider = sdc.ComposeExpressions(
-				fhirPath,
-				sdc.NewSearchFHIRQueryProvider(state.services.SearchService),
-				nil,
-			)
+			fhirQuery = sdc.NewSearchFHIRQueryProvider(state.services.SearchService)
 		}
+		exprProvider = sdc.ComposeExpressions(fhirPath, fhirQuery, cqlProvider)
+		validator.Options.Expressions = exprProvider
 		sdcService = hahttp.CoreSDCService{
 			Resources:   state.services.ResourceService,
 			Resolver:    sdc.StoreQuestionnaireResolver{Resources: pc.resources},
@@ -786,6 +819,12 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 				Mode:                    validate.ValidationModeFull,
 				Terminology:             state.services.TerminologyService,
 			},
+		},
+		MeasureEvaluateService: hahttp.CoreMeasureService{
+			Engine:    cqlEngine,
+			Libraries: cqlProvider.Libraries,
+			Resources: pc.resources,
+			Retriever: retriever,
 		},
 		CapabilitySource:         hahttp.LiveCapabilitySource{Runtime: conformanceRuntime},
 		PatientReferenceResolver: patientRefResolver,

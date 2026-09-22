@@ -90,7 +90,7 @@ func wrapExpressionProvider(ctx context.Context, q Questionnaire, r Questionnair
 		return nil
 	}
 	engine := extractFHIRPathEngine(provider)
-	if engine == nil && extractFHIRQueryProvider(provider) == nil {
+	if engine == nil && extractFHIRQueryProvider(provider) == nil && extractCQLProvider(provider) == nil {
 		return provider
 	}
 	return contextualExpressionProvider{
@@ -105,7 +105,7 @@ func wrapPopulationExpressionProvider(ctx context.Context, q Questionnaire, pc P
 		return nil
 	}
 	engine := extractFHIRPathEngine(provider)
-	if engine == nil && extractFHIRQueryProvider(provider) == nil {
+	if engine == nil && extractFHIRQueryProvider(provider) == nil && extractCQLProvider(provider) == nil {
 		return provider
 	}
 	return contextualExpressionProvider{
@@ -135,6 +135,15 @@ func (p contextualExpressionProvider) Evaluate(ctx context.Context, e Expression
 	if isFHIRQueryExpression(e) {
 		if provider := extractFHIRQueryProvider(p.base); provider != nil {
 			return executeFHIRQueryWithConstants(ctx, provider, e.Expression, p.env.Constants, input)
+		}
+		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, input)
+	}
+	if IsCQLLanguage(e.Language) {
+		if provider := extractCQLProvider(p.base); provider != nil {
+			return provider.EvaluateCQL(ctx, e.Expression, CQLEvalInput{Language: e.Language, Name: e.Name, Input: p.env})
+		}
+		if p.base != nil {
+			return p.base.Evaluate(ctx, e, CQLEvalInput{Language: e.Language, Name: e.Name, Input: p.env})
 		}
 		return UnsupportedProvider{e.Language}.Evaluate(ctx, e, input)
 	}

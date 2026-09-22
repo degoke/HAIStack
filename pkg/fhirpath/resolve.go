@@ -49,16 +49,37 @@ func EnhancedResourceStoreResolver(cfg ResourceResolverConfig) ResolveFunc {
 
 // TerminologyServiceAdapter adapts a validate-code callback to TerminologyValidator.
 func TerminologyServiceAdapter(validate func(ctx context.Context, valueSetURL, system, code string) (bool, error)) TerminologyValidator {
-	if validate == nil {
-		return nil
-	}
-	return terminologyFunc(validate)
+	return TerminologyValidatorsAdapter(validate, nil)
 }
 
-type terminologyFunc func(ctx context.Context, valueSetURL, system, code string) (bool, error)
+// TerminologyValidatorsAdapter wires ValueSet membership and optional code-system subsumption.
+func TerminologyValidatorsAdapter(
+	memberOf func(ctx context.Context, valueSetURL, system, code string) (bool, error),
+	subsumes func(ctx context.Context, system, broadCode, narrowCode string) (bool, error),
+) TerminologyValidator {
+	if memberOf == nil && subsumes == nil {
+		return nil
+	}
+	return terminologyValidators{memberOf: memberOf, subsumes: subsumes}
+}
 
-func (f terminologyFunc) MemberOf(ctx context.Context, valueSetURL, system, code string) (bool, error) {
-	return f(ctx, valueSetURL, system, code)
+type terminologyValidators struct {
+	memberOf func(ctx context.Context, valueSetURL, system, code string) (bool, error)
+	subsumes func(ctx context.Context, system, broadCode, narrowCode string) (bool, error)
+}
+
+func (t terminologyValidators) MemberOf(ctx context.Context, valueSetURL, system, code string) (bool, error) {
+	if t.memberOf == nil {
+		return false, nil
+	}
+	return t.memberOf(ctx, valueSetURL, system, code)
+}
+
+func (t terminologyValidators) Subsumes(ctx context.Context, system, broadCode, narrowCode string) (bool, error) {
+	if t.subsumes == nil {
+		return false, nil
+	}
+	return t.subsumes(ctx, system, broadCode, narrowCode)
 }
 
 // ReferenceStringFromProto extracts a reference string from a Google FHIR Reference proto.
