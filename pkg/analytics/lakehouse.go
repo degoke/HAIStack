@@ -28,6 +28,7 @@ type LakehouseConfig struct {
 	// RootDir writes one parquet file per partition under a filesystem directory.
 	RootDir string
 	// Blob stores parquet objects when RootDir is unset.
+	// Uploads stream from a temp file via store.PutBlobFromPath (PutStream when available).
 	Blob store.BlobStore
 	// BlobPrefix is prepended to blob object keys.
 	BlobPrefix string
@@ -220,17 +221,8 @@ func writeLakehouseParquetBlob(
 	if err := tmp.Close(); err != nil {
 		return "", rowCount, err
 	}
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return "", rowCount, err
-	}
 	key := path.Join(strings.Trim(prefix, "/"), partition, filename)
-	if err := blob.Put(ctx, store.BlobObject{
-		Key:         key,
-		ContentType: view.ParquetContentType,
-		Size:        int64(len(data)),
-		Data:        data,
-	}); err != nil {
+	if err := store.PutBlobFromPath(ctx, blob, key, view.ParquetContentType, tmpPath); err != nil {
 		return "", rowCount, fmt.Errorf("put lakehouse parquet blob: %w", err)
 	}
 	return key, rowCount, nil

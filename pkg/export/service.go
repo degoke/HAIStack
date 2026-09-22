@@ -1,8 +1,10 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -148,10 +150,34 @@ func (s *Service) FileURL(jobID string) string {
 	return s.publicURL + "/$export/files/" + jobID
 }
 
+// OpenFile streams one export artifact without assembling a full []byte.
+func (s *Service) OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
+	if s == nil || s.files == nil {
+		return nil, "", fmt.Errorf("export: file store is required")
+	}
+	path := jobID + "/" + strings.TrimPrefix(filename, "/")
+	if opener, ok := s.files.(FileStoreWithStream); ok {
+		return opener.Open(ctx, path)
+	}
+	data, ct, err := s.files.Get(ctx, path)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
+}
+
 // GetFile serves one export artifact.
 func (s *Service) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
-	path := jobID + "/" + strings.TrimPrefix(filename, "/")
-	return s.files.Get(ctx, path)
+	rc, ct, err := s.OpenFile(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, ct, nil
 }
 
 // RunJob executes one export job synchronously.

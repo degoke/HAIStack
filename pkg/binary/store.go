@@ -2,6 +2,7 @@ package binary
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -17,6 +18,20 @@ type BlobStore interface {
 type BlobStoreWithOptions interface {
 	BlobStore
 	PutWithOptions(ctx context.Context, blobID string, data []byte, opts BlobWriteOptions) (*BlobDescriptor, error)
+}
+
+// BlobStoreWithStream uploads blob payloads from an io.Reader without requiring
+// the caller to materialize the full object as []byte. Size may be 0 for an
+// empty object. Backends that require Content-Length should reject a negative size.
+type BlobStoreWithStream interface {
+	BlobStore
+	PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*BlobDescriptor, error)
+}
+
+// BlobStoreWithOpen streams a blob payload without assembling a full []byte.
+type BlobStoreWithOpen interface {
+	BlobStore
+	Open(ctx context.Context, blobID string) (io.ReadCloser, *BlobDescriptor, error)
 }
 
 // ChunkStore supports chunked append/read and finalization for resumable transfer.

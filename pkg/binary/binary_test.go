@@ -77,6 +77,46 @@ func TestLocalFileBlobStorePutGetHeadDelete(t *testing.T) {
 	}
 }
 
+func TestLocalFileBlobStorePutStream(t *testing.T) {
+	root := t.TempDir()
+	files, err := binary.NewLocalFileBlobStore(root)
+	if err != nil {
+		t.Fatalf("NewLocalFileBlobStore: %v", err)
+	}
+	ctx := context.Background()
+	payload := bytes.Repeat([]byte("s"), 256*1024)
+	probe := &readSizeProbe{r: bytes.NewReader(payload)}
+	desc, err := files.PutStream(ctx, "blob-stream", probe, int64(len(payload)), "application/octet-stream")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if desc.SHA256 != binary.HashSHA256(payload) {
+		t.Fatalf("hash=%s", desc.SHA256)
+	}
+	if probe.maxRead >= len(payload) {
+		t.Fatalf("max Read dest %d equals full payload; expected streaming copy", probe.maxRead)
+	}
+	got, err := files.GetByHash(ctx, desc.SHA256)
+	if err != nil {
+		t.Fatalf("GetByHash: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch: %d bytes", len(got))
+	}
+}
+
+type readSizeProbe struct {
+	r       io.Reader
+	maxRead int
+}
+
+func (p *readSizeProbe) Read(b []byte) (int, error) {
+	if len(b) > p.maxRead {
+		p.maxRead = len(b)
+	}
+	return p.r.Read(b)
+}
+
 func TestLocalFileChunkedUploadResumeAndFinalize(t *testing.T) {
 	root := t.TempDir()
 	files, err := binary.NewLocalFileBlobStore(root)
@@ -513,6 +553,23 @@ func TestS3BlobStoreAndSignedURLs(t *testing.T) {
 	if string(got) != "s3-payload" {
 		t.Fatalf("unexpected s3 payload: %q", got)
 	}
+
+	streamPayload := bytes.Repeat([]byte("S"), 64*1024)
+	streamDesc, err := store.PutStream(ctx, "blob-s3-stream", bytes.NewReader(streamPayload), int64(len(streamPayload)), "application/octet-stream")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if streamDesc.SHA256 != binary.HashSHA256(streamPayload) || streamDesc.Size != int64(len(streamPayload)) {
+		t.Fatalf("stream desc=%+v", streamDesc)
+	}
+	gotStream, _, err := store.Get(ctx, "blob-s3-stream")
+	if err != nil {
+		t.Fatalf("Get stream: %v", err)
+	}
+	if !bytes.Equal(gotStream, streamPayload) {
+		t.Fatalf("stream payload mismatch: %d bytes", len(gotStream))
+	}
+
 	if err := store.Delete(ctx, "blob-s3"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -650,6 +707,26 @@ func TestSQLiteChunkBlobStorePutGetHeadDelete(t *testing.T) {
 	}
 	if !bytes.Equal(gotLarge, large) {
 		t.Fatalf("large payload mismatch")
+	}
+
+	streamPayload := bytes.Repeat([]byte("s"), binary.DefaultChunkSize+8)
+	probe := &readSizeProbe{r: bytes.NewReader(streamPayload)}
+	streamDesc, err := blobStore.PutStream(ctx, "blob-sqlite-stream", probe, int64(len(streamPayload)), "text/plain")
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if streamDesc.SHA256 != binary.HashSHA256(streamPayload) {
+		t.Fatalf("stream hash=%s", streamDesc.SHA256)
+	}
+	if probe.maxRead > binary.DefaultChunkSize {
+		t.Fatalf("max Read dest %d > chunk size", probe.maxRead)
+	}
+	streamCount, err := blobStore.ListChunkCount(ctx, "blob-sqlite-stream")
+	if err != nil {
+		t.Fatalf("ListChunkCount stream: %v", err)
+	}
+	if streamCount != 2 {
+		t.Fatalf("stream chunk count = %d, want 2", streamCount)
 	}
 
 	// Legacy binary_object still works.
@@ -900,6 +977,108 @@ func TestLocalFileBlobStoreAdapterWithMetadata(t *testing.T) {
 	if !bytes.Equal(got, data) || head.SHA256 != desc.SHA256 {
 		t.Fatal("adapter get mismatch")
 	}
+
+	counted := &countingStoreBlobs{inner: binary.AsStore(store)}
+	prefixed := binary.NewPrefixedFileStore(counted, "bulk-export", "export", "application/fhir+ndjson")
+	if err := prefixed.PutStream(ctx, "job/local.ndjson", bytes.NewReader(data), int64(len(data)), "application/fhir+ndjson"); err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	counted.getCalls = 0
+	counted.openCalls = 0
+	rc, _, err := prefixed.Open(ctx, "job/local.ndjson")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	if string(openData) != string(data) {
+		t.Fatalf("open = %q", openData)
+	}
+	if counted.getCalls != 0 {
+		t.Fatalf("Get called %d times; Open must not hydrate Location", counted.getCalls)
+	}
+	if counted.openCalls != 1 {
+		t.Fatalf("openCalls=%d", counted.openCalls)
+	}
+}
+
+func TestPrefixedFileStoreOpenDoesNotHydrateChunkStore(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	counted := &countingStoreBlobs{inner: binary.AsStore(db.SQLiteBlobStore())}
+	files := binary.NewPrefixedFileStore(counted, "bulk-export", "export", "application/fhir+ndjson")
+	payload := bytes.Repeat([]byte("n"), binary.DefaultChunkSize+32)
+	if err := files.PutStream(ctx, "job/big.ndjson", bytes.NewReader(payload), int64(len(payload)), "application/fhir+ndjson"); err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	counted.getCalls = 0
+	counted.openCalls = 0
+	rc, _, err := files.Open(ctx, "job/big.ndjson")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch: %d bytes", len(got))
+	}
+	if counted.getCalls != 0 {
+		t.Fatalf("Get called %d times; Open must not hydrate chunk-store Location", counted.getCalls)
+	}
+	if counted.openCalls != 1 {
+		t.Fatalf("openCalls=%d", counted.openCalls)
+	}
+}
+
+type countingStoreBlobs struct {
+	inner     store.BlobStore
+	mu        sync.Mutex
+	getCalls  int
+	openCalls int
+}
+
+func (s *countingStoreBlobs) Put(ctx context.Context, obj store.BlobObject) error {
+	return s.inner.Put(ctx, obj)
+}
+
+func (s *countingStoreBlobs) PutStream(ctx context.Context, key, contentType string, size int64, r io.Reader) error {
+	return s.inner.(store.BlobStoreWithStream).PutStream(ctx, key, contentType, size, r)
+}
+
+func (s *countingStoreBlobs) Get(ctx context.Context, key string) (*store.BlobObject, error) {
+	s.mu.Lock()
+	s.getCalls++
+	s.mu.Unlock()
+	return s.inner.Get(ctx, key)
+}
+
+func (s *countingStoreBlobs) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	s.mu.Lock()
+	s.openCalls++
+	s.mu.Unlock()
+	return s.inner.(store.BlobStoreWithOpen).Open(ctx, key)
+}
+
+func (s *countingStoreBlobs) Head(ctx context.Context, key string) (*store.BlobObject, error) {
+	return s.inner.Head(ctx, key)
+}
+
+func (s *countingStoreBlobs) Delete(ctx context.Context, key string) error {
+	return s.inner.Delete(ctx, key)
 }
 
 // Helpers for postgres tests — thin wrappers to avoid importing postgres_test package.

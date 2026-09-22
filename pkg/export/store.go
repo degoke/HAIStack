@@ -1,8 +1,10 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -21,6 +23,13 @@ type FileStore interface {
 	Put(ctx context.Context, path string, data []byte, contentType string) error
 	Get(ctx context.Context, path string) ([]byte, string, error)
 	Delete(ctx context.Context, path string) error
+}
+
+// FileStoreWithStream optionally uploads and opens artifacts without a full []byte.
+type FileStoreWithStream interface {
+	FileStore
+	PutStream(ctx context.Context, path string, r io.Reader, size int64, contentType string) error
+	Open(ctx context.Context, path string) (io.ReadCloser, string, error)
 }
 
 // InMemoryJobStore is a concurrent-safe JobStore for tests and local use.
@@ -98,7 +107,16 @@ func NewInMemoryFileStore() *InMemoryFileStore {
 	return &InMemoryFileStore{files: make(map[string]storedFile)}
 }
 
-func (s *InMemoryFileStore) Put(_ context.Context, path string, data []byte, contentType string) error {
+func (s *InMemoryFileStore) Put(ctx context.Context, path string, data []byte, contentType string) error {
+	return s.PutStream(ctx, path, bytes.NewReader(data), int64(len(data)), contentType)
+}
+
+func (s *InMemoryFileStore) PutStream(_ context.Context, path string, r io.Reader, size int64, contentType string) error {
+	_ = size
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.files[path] = storedFile{
@@ -118,12 +136,22 @@ func (s *InMemoryFileStore) Get(_ context.Context, path string) ([]byte, string,
 	return append([]byte(nil), file.data...), file.contentType, nil
 }
 
+func (s *InMemoryFileStore) Open(ctx context.Context, path string) (io.ReadCloser, string, error) {
+	data, ct, err := s.Get(ctx, path)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
+}
+
 func (s *InMemoryFileStore) Delete(_ context.Context, path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.files, path)
 	return nil
 }
+
+var _ FileStoreWithStream = (*InMemoryFileStore)(nil)
 
 // nowUTC returns the current UTC time; overridable in tests via Service.Now.
 func nowUTC(now func() time.Time) time.Time {

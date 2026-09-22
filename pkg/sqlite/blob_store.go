@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/binary"
@@ -28,25 +29,31 @@ type ChunkBlobStore = SQLiteBlobStore
 
 // Put stores a finalized blob as chunked bytes in SQLite.
 func (s *SQLiteBlobStore) Put(ctx context.Context, blobID string, data []byte, contentType string) (*binary.BlobDescriptor, error) {
+	return s.PutStream(ctx, blobID, bytes.NewReader(data), int64(len(data)), contentType)
+}
+
+// PutStream stores a finalized blob by reading r in DefaultChunkSize slices.
+func (s *SQLiteBlobStore) PutStream(ctx context.Context, blobID string, r io.Reader, size int64, contentType string) (*binary.BlobDescriptor, error) {
 	if blobID == "" {
 		return nil, fmt.Errorf("%w: blobID is required", binary.ErrInvalidArgument)
 	}
-	hash := binary.HashSHA256(data)
+	_ = size
 	now := time.Now().UTC()
 	if err := s.deleteChunks(ctx, blobID); err != nil {
 		return nil, err
 	}
-	chunks := binary.ChunkBytes(data, binary.DefaultChunkSize)
-	for i, chunk := range chunks {
-		if err := s.putChunk(ctx, blobID, i, chunk, now); err != nil {
-			return nil, err
-		}
+	hash, total, count, err := binary.CopyChunks(r, binary.DefaultChunkSize, func(index int, chunk []byte) error {
+		return s.putChunk(ctx, blobID, index, chunk, now)
+	})
+	if err != nil {
+		_ = s.deleteChunks(ctx, blobID)
+		return nil, err
 	}
 
 	desc := &binary.BlobDescriptor{
 		BlobID:      blobID,
 		SHA256:      hash,
-		Size:        int64(len(data)),
+		Size:        total,
 		ContentType: contentType,
 		Backend:     binary.BackendSQLite,
 		Pointer: binary.StoragePointer{
@@ -57,7 +64,7 @@ func (s *SQLiteBlobStore) Put(ctx context.Context, blobID string, data []byte, c
 	manifest := binary.BlobManifest{
 		Descriptor:  *desc,
 		ChunkSize:   int64(binary.DefaultChunkSize),
-		ChunkCount:  len(chunks),
+		ChunkCount:  count,
 		CreatedAt:   now,
 		FinalizedAt: &now,
 	}
@@ -69,15 +76,29 @@ func (s *SQLiteBlobStore) Put(ctx context.Context, blobID string, data []byte, c
 
 // Get reads a finalized blob by assembling stored chunks.
 func (s *SQLiteBlobStore) Get(ctx context.Context, blobID string) ([]byte, *binary.BlobDescriptor, error) {
+	rc, desc, err := s.Open(ctx, blobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, desc, nil
+}
+
+// Open streams a finalized blob one chunk at a time.
+func (s *SQLiteBlobStore) Open(ctx context.Context, blobID string) (io.ReadCloser, *binary.BlobDescriptor, error) {
 	manifest, err := s.metadata.GetManifest(ctx, blobID)
 	if err != nil {
 		return nil, nil, err
 	}
-	data, err := s.assembleChunks(ctx, blobID, manifest.ChunkCount)
-	if err != nil {
-		return nil, nil, err
-	}
-	return data, &manifest.Descriptor, nil
+	desc := manifest.Descriptor
+	r := binary.NewChunkReader(ctx, manifest.ChunkCount, func(ctx context.Context, index int) ([]byte, error) {
+		return s.ReadChunk(ctx, blobID, index)
+	})
+	return r, &desc, nil
 }
 
 // Head returns blob metadata without reading payload bytes.
@@ -175,26 +196,6 @@ func (s *SQLiteBlobStore) deleteChunks(ctx context.Context, key string) error {
 		return fmt.Errorf("delete chunks: %w", err)
 	}
 	return nil
-}
-
-func (s *SQLiteBlobStore) assembleChunks(ctx context.Context, key string, count int) ([]byte, error) {
-	if count <= 0 {
-		count, _ = s.ListChunkCount(ctx, key)
-	}
-	if count == 0 {
-		return nil, binary.ErrNotFound
-	}
-	var buf bytes.Buffer
-	for i := 0; i < count; i++ {
-		chunk, err := s.ReadChunk(ctx, key, i)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(chunk); err != nil {
-			return nil, err
-		}
-	}
-	return buf.Bytes(), nil
 }
 
 // Metadata returns the metadata store sharing this connection.

@@ -1,9 +1,12 @@
 package binary_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -36,6 +39,15 @@ func (s *memBinaryBlobStore) Put(_ context.Context, blobID string, data []byte, 
 		Backend:     binary.BackendSQLite,
 		Pointer:     binary.StoragePointer{Backend: binary.BackendSQLite, Ref: blobID},
 	}, nil
+}
+
+func (s *memBinaryBlobStore) PutStream(_ context.Context, blobID string, r io.Reader, size int64, contentType string) (*binary.BlobDescriptor, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	_ = size
+	return s.Put(context.Background(), blobID, data, contentType)
 }
 
 func (s *memBinaryBlobStore) Get(_ context.Context, blobID string) ([]byte, *binary.BlobDescriptor, error) {
@@ -112,6 +124,35 @@ func TestAsStoreNil(t *testing.T) {
 	}
 }
 
+func TestAsStorePutStream(t *testing.T) {
+	inner := &memBinaryBlobStore{}
+	blobs := binary.AsStore(inner)
+	ctx := context.Background()
+	payload := []byte("stream-me")
+	if err := store.PutBlob(ctx, blobs, "k", "text/plain", int64(len(payload)), bytes.NewReader(payload)); err != nil {
+		t.Fatalf("PutBlob: %v", err)
+	}
+	got, err := blobs.Get(ctx, "k")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(got.Data) != "stream-me" {
+		t.Fatalf("data = %q", got.Data)
+	}
+	rc, head, err := store.OpenBlob(ctx, blobs, "k")
+	if err != nil {
+		t.Fatalf("OpenBlob: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("OpenBlob read: %v", err)
+	}
+	if string(openData) != "stream-me" || head.Data != nil {
+		t.Fatalf("open %q head.Data=%v", openData, head.Data)
+	}
+}
+
 func TestFileObjectKey(t *testing.T) {
 	got, err := binary.FileObjectKey("bulk-export", "job-1/Patient..ndjson")
 	if err != nil {
@@ -179,6 +220,43 @@ func TestPrefixedFileStorePayloads(t *testing.T) {
 	if err := files.Put(ctx, "job/Patient..ndjson", []byte("{}"), ""); err != nil {
 		t.Fatalf("Put Patient..ndjson: %v", err)
 	}
+	if err := files.PutStream(ctx, "job/stream.ndjson", bytes.NewReader([]byte("streamed")), 8, "application/fhir+ndjson"); err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	gotStream, _, err := files.Get(ctx, "job/stream.ndjson")
+	if err != nil {
+		t.Fatalf("Get stream: %v", err)
+	}
+	if string(gotStream) != "streamed" {
+		t.Fatalf("stream = %q", gotStream)
+	}
+	rc, ct, err := files.Open(ctx, "job/stream.ndjson")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	if ct != "application/fhir+ndjson" || string(openData) != "streamed" {
+		t.Fatalf("open %q %q", ct, openData)
+	}
+	ptrRC, _, err := files.Open(ctx, "job/ptr.ndjson")
+	if err != nil {
+		t.Fatalf("Open ptr: %v", err)
+	}
+	t.Cleanup(func() { _ = ptrRC.Close() })
+	ptrData, err := io.ReadAll(ptrRC)
+	if err != nil {
+		t.Fatalf("Open ptr read: %v", err)
+	}
+	if string(ptrData) != "hydrated" {
+		t.Fatalf("open ptr = %q", ptrData)
+	}
+	if _, _, err := files.Open(ctx, "job/s3ptr.ndjson"); err == nil || errors.Is(err, binary.ErrNotFound) {
+		t.Fatalf("Open unresolved location should not look missing: %v", err)
+	}
 }
 
 type memStoreBlobs struct {
@@ -194,6 +272,22 @@ func (s *memStoreBlobs) Put(_ context.Context, obj store.BlobObject) error {
 	}
 	s.data[obj.Key] = obj
 	return nil
+}
+
+func (s *memStoreBlobs) PutStream(_ context.Context, key, contentType string, size int64, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return s.Put(context.Background(), store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
 }
 
 func (s *memStoreBlobs) Get(_ context.Context, key string) (*store.BlobObject, error) {
@@ -216,4 +310,39 @@ func (s *memStoreBlobs) Delete(_ context.Context, key string) error {
 	defer s.mu.Unlock()
 	delete(s.data, key)
 	return nil
+}
+
+func (s *memStoreBlobs) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	return s.open(ctx, key, nil)
+}
+
+func (s *memStoreBlobs) open(ctx context.Context, key string, seen map[string]struct{}) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	if data != nil {
+		return io.NopCloser(bytes.NewReader(data)), &head, nil
+	}
+	loc := strings.TrimSpace(obj.Location)
+	if loc == "" {
+		return io.NopCloser(bytes.NewReader(nil)), &head, nil
+	}
+	if strings.Contains(loc, "://") {
+		return nil, nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, loc)
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	if _, ok := seen[key]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", key)
+	}
+	seen[key] = struct{}{}
+	if _, ok := seen[loc]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", loc)
+	}
+	return s.open(ctx, loc, seen)
 }
