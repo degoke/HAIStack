@@ -15,24 +15,54 @@ Offline-first replication library for haistack — device-to-hub push/pull with 
 
 Think of it as: *core writes a change locally → sync pushes it to the server → sync pulls canonical truth back → devices converge.*
 
-```
-pkg/core (write)  →  outbox (sqlite)  →  sync.Engine.Push  →  PostgresHub
-                                                              ↓
-pkg/core (read)   ←  local apply      ←  sync.Engine.Pull  ←  event_log (postgres)
-```
-
 The package has two layers:
 
-1. **Outbox (write path)** — `Outbox`, `EventStoreOutbox`, `WithWriteSession` integrate with `pkg/core` so successful writes emit `store.ResourceEvent` inside the same transaction.
-2. **Sync engine (replication)** — `Engine`, `Hub`, `PostgresHub` orchestrate push/pull, cursors, inbox idempotency, conflicts, jobs, and audit.
+1. **Outbox (write path)** — `Outbox`, `EventStoreOutbox`, `SessionOutbox`, `WithWriteSession` integrate with `pkg/core` so successful writes emit `store.ResourceEvent` inside the same transaction.
+2. **Sync engine (replication)** — `Engine`, `Hub`, `PostgresHub` orchestrate push/pull, cursors, inbox idempotency, conflicts, jobs, audit, and optional search reindex on pull apply.
 
-It does **not** parse FHIR on the device-side orchestration path or assign version IDs (that is
-`pkg/core` + backends). `PostgresHub` validates pushed FHIR payloads before canonical acceptance.
+Public protocol types include `LocalEvent`, `CanonicalEvent`, `PushResult`, acknowledgement states (`AckState`), and job payloads (`ConflictJobPayload`, `ReplayJobPayload`).
 
 It does **not**:
-- Implement HTTP/MQTT transport (`Hub` is an in-process protocol boundary today)
-- Resolve merge conflicts (`haistack-conflict` is planned; v1 detects and records only)
+
+- Parse FHIR on the device-side orchestration path or assign version IDs (`pkg/core` + backends)
+- Implement mandatory HTTP/MQTT transport (`Hub` is an in-process protocol boundary; `pkg/http` exposes optional `/sync/push` and `/sync/pull`)
+- Own merge policy (`pkg/conflict` evaluates conflicts; sync detects, persists, and enqueues)
 - Replace `pkg/store` persistence (it reuses existing contracts)
+
+`PostgresHub` validates pushed FHIR payloads before canonical acceptance.
+
+## How it fits in the ecosystem
+
+```
+ pkg/core (ResourceService + optional Outbox)
+        |
+        v
+ store.EventStore (sqlite outbox / postgres event_log)
+        |
+        v
+ sync.Engine.Push  ----Hub---->  sync.PostgresHub  -->  postgres.ApplyWrite
+        ^                              |
+        |                              v
+ sync.Engine.Pull  <----Hub----  canonical event_log + hub inbox dedupe
+        |
+        v
+ local ResourceStore / HistoryStore / InboxStore / SearchStore (optional)
+        |
+        +--> store.ConflictStore + jobs (sync.conflict_processing)
+        +--> pkg/conflict.Engine (via ConflictEngine config default)
+        +--> store.AuditStore (sync audit actions)
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Upstream | **core** | Emits minimal `ResourceEvent` rows when `Outbox` is wired |
+| Upstream | **store** | Event, cursor, inbox, conflict, job, audit, resource, history contracts |
+| Upstream | **conflict** | Default `ConflictEngine`; merge/review artifacts for job handler |
+| Sidecar | **postgres** | `PostgresHub`, canonical `event_log`, hub inbox |
+| Sidecar | **sqlite** | Device outbox, inbox, cursors |
+| Downstream | **http** | Optional sync routes via `ScopedHubServer` |
+| Downstream | **search** | Optional `SearchIndexer` on pull apply |
+| Downstream | **jobs** | Retry push, scheduled pull, conflict processing, event replay |
 
 ## When to use it
 
@@ -40,6 +70,7 @@ It does **not**:
 - **Edge/cloud hubs** that accept device writes into Postgres `event_log`
 - **Workers** that replay outbox events or process sync retry jobs
 - **Tests** that need push/pull round-trips without a real network stack
+- **HTTP gateways** that expose hub push/pull to authenticated devices
 
 Alias the import when you also use the standard library `sync` package:
 
@@ -47,7 +78,7 @@ Alias the import when you also use the standard library `sync` package:
 import hasync "github.com/degoke/haistack/pkg/sync"
 ```
 
-## Usage
+## Usage modes
 
 ### 1. Enable outbox in core (local writes)
 
@@ -65,53 +96,48 @@ svc, err := core.NewResourceService(core.ResourceServiceConfig{
 })
 ```
 
-Core routes outbox appends through the active write session so resource, history, search, and outbox commit or roll back together.
+Core routes outbox appends through the active write session so resource, history, search, and outbox commit or roll back together. Use `hasync.WithWriteSession` / `SessionOutbox` when binding outbox to an explicit session.
 
-### 2. Run sync on a device node
+### 2. Device node: push, pull, or both
 
 ```go
-hub := &hasync.PostgresHub{Tenant: tdb} // or a test double implementing hasync.Hub
+hub := &hasync.PostgresHub{Tenant: tdb}
 
 engine := hasync.NewEngine(hasync.Config{
     NodeID:    "device-1",
     TenantID:  "tenant-a",
     Events:    sqliteDB.OutboxStore(),
     Cursors:   sqliteDB.CursorStore(),
-	Inbox:     sqliteDB.InboxStore(),
-	Resources: sqliteDB.ResourceStore(),
-	History:   sqliteDB.HistoryStore(),
-	Sessions:  sqliteDB,
-	Conflicts: sqliteDB.ConflictStore(),
-    Jobs:      jobStore,  // optional
-    Audit:     auditStore, // optional
+    Inbox:     sqliteDB.InboxStore(),
+    Resources: sqliteDB.ResourceStore(),
+    History:   sqliteDB.HistoryStore(),
+    Sessions:  sqliteDB,
+    Conflicts: sqliteDB.ConflictStore(),
+    Jobs:      jobStore,
+    Audit:     auditStore,
     Hub:       hub,
 })
 
-push, pull, err := engine.SyncOnce(ctx) // Push then Pull
-```
-
-Or run each pass separately:
-
-```go
+push, pull, err := engine.SyncOnce(ctx)
+// or separately:
 pushSummary, err := engine.Push(ctx)
 pullSummary, err := engine.Pull(ctx)
 ```
 
-### 3. Host a canonical hub (Postgres)
+Cursor names default to `sync.push` and `sync.pull` (`CursorPush`, `CursorPull`).
+
+### 3. Canonical hub (Postgres) without device engine
 
 ```go
 hub := &hasync.PostgresHub{Tenant: tdb}
 
-results, err := hub.Push(ctx, localEvents) // device-proposed events
+results, err := hub.Push(ctx, localEvents)
 canonical, err := hub.Pull(ctx, afterSequence, limit)
 ```
 
 `PostgresHub` dedupes push by client `event_id`, checks base versions for stale writes, applies accepted writes via `postgres.ApplyWrite`, and returns per-event acknowledgements.
 
-### 4. Optional: search on pull apply
-
-If pulls should update the local search index atomically with resource/history/inbox changes, wire
-both the database session provider and a `SearchIndexer` (for example from `pkg/search`):
+### 4. Pull apply with search index updates
 
 ```go
 engine := hasync.NewEngine(hasync.Config{
@@ -122,16 +148,79 @@ engine := hasync.NewEngine(hasync.Config{
 })
 ```
 
-### 5. Background jobs
+When both `Sessions` and `SearchIndexer` are set, pull apply can persist resource, history, inbox, and search rows atomically.
 
-Enqueue and process retry/conflict/pull jobs with `store.JobStore`:
+### 5. Conflict jobs and custom resolution handler
 
 ```go
+engine := hasync.NewEngine(hasync.Config{
+    NodeID:                    "node-a",
+    TenantID:                  "tenant-a",
+    ConflictEngine:            conflict.NewDefaultEngine(),
+    ConflictResolutionHandler: myHandler,
+    // … stores and Hub …
+})
+
 processor := &hasync.JobProcessor{Engine: engine, Jobs: jobStore}
 processed, err := processor.ProcessNext(ctx)
 ```
 
-Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`, `sync.event_replay`.
+Job types (from `pkg/jobs`, re-exported in `sync`):
+
+| Constant | Purpose |
+|----------|---------|
+| `JobTypeRetryPush` | Retry a failed push batch |
+| `JobTypeScheduledPull` | Background pull |
+| `JobTypeConflictProcessing` | Run `pkg/conflict` on a persisted conflict |
+| `JobTypeEventReplay` | Replay push or pull from a sequence |
+
+### 6. HTTP-scoped hub server
+
+Implement `ScopedHubServer` when node and tenant identity come from the HTTP request:
+
+```go
+type tenantHub struct{ Inner hasync.HubServer }
+
+func (h tenantHub) PushFor(ctx context.Context, nodeID, tenantID string, events []hasync.LocalEvent) ([]hasync.PushResult, error) {
+    return h.Inner.Push(ctx, events)
+}
+```
+
+Wire through `pkg/http` `NewRootHandlerWithSyncMiddleware` for `/sync/push` and `/sync/pull`.
+
+### 7. Test doubles implementing `Hub`
+
+In-process tests can implement `hasync.Hub` with memory stores (see `integration_test.go`) without Postgres.
+
+## Examples
+
+**Stable event IDs for idempotency:**
+
+```go
+pushID := hasync.OutboxEventID(nodeID, tenantID, outboxSequence)
+pullID := hasync.CanonicalEventID(tenantID, canonicalSequence)
+```
+
+**Inspect push acknowledgement:**
+
+```go
+for _, ack := range pushSummary.Results {
+    switch ack.State {
+    case hasync.AckAccepted, hasync.AckAlreadyProcessed:
+        // terminal — cursor may advance
+    case hasync.AckNeedsRetry:
+        // cursor does not advance; retry job may enqueue
+    case hasync.AckConflicted:
+        // conflict record + conflict_processing job
+    }
+}
+```
+
+**Enqueue scheduled pull:**
+
+```go
+err := hasync.EnqueueScheduledPull(ctx, jobStore, nodeID, tenantID, time.Now().UTC().Add(time.Minute))
+```
 
 ## Push and pull behaviour
 
@@ -158,7 +247,7 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 | Push dedupe | `OutboxEventID(nodeID, tenantID, outboxSequence)` |
 | Pull dedupe | `CanonicalEventID(tenantID, canonicalSequence)` |
 
-## Config reference
+## Configuration reference
 
 | Field | Required? | Purpose |
 |-------|-----------|---------|
@@ -167,28 +256,13 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 | `Hub` | Yes | Push/pull protocol adapter |
 | `Resources`, `History` | Yes (pull) | Local apply target |
 | `Sessions` | Recommended (pull) | Atomic resource/history/search/inbox apply |
-| `Cursors` | No | Push/pull checkpoints (`sync.push`, `sync.pull`) |
+| `Cursors` | No | Push/pull checkpoints |
 | `Inbox` | No | Pull apply idempotency |
 | `Conflicts`, `Jobs`, `Audit` | No | Side effects on push conflict/retry |
 | `Search`, `SearchIndexer` | No | Index updates on pull apply |
+| `ConflictEngine` | No | Defaults to `conflict.NewDefaultEngine()` |
+| `ConflictResolutionHandler` | No | Replay/resubmit or surface review UI |
 | `PushBatchSize`, `PullBatchSize` | No | Default 100 |
-
-## Mental model
-
-**`pkg/sync` is “how local changes become canonical and how devices catch up.”**
-
-- `pkg/core` emits minimal outbox signals on write
-- `pkg/sync` enriches, transports (via `Hub`), acknowledges, and replays
-- `pkg/postgres` stores canonical accepted events and hub inbox dedupe
-- `pkg/sqlite` stores local outbox, inbox, and cursors on device
-
-## What is deferred (v1)
-
-- Network transport adapters (HTTP, MQTT)
-- Peer-to-peer sync and encrypted/signed payloads
-- Partial sync by patient/module/facility
-- Rich merge policy and human conflict resolution
-- `ChangedPaths` / `Patch` population on `LocalEvent` (fields exist, not filled yet)
 
 ## Where it fits
 
@@ -198,6 +272,28 @@ Job types: `sync.retry_push`, `sync.scheduled_pull`, `sync.conflict_processing`,
 | **store** | EventStore, CursorStore, InboxStore, ConflictStore, JobStore, AuditStore |
 | **sqlite** | Device outbox, inbox, cursors, local apply target |
 | **postgres** | Canonical `event_log`, hub inbox, `PostgresHub` backend |
+| **conflict** | Merge policy invoked from conflict jobs |
+| **search** | Optional pull-time indexing |
+| **http** | Optional REST sync endpoints |
 | **sync** | Protocol models, engine, push/pull, scheduler hooks |
 
-See [doc.go](./doc.go) for the full API, file layout, and ownership boundaries.
+## Limits
+
+- Network transport adapters beyond in-process `Hub` and optional HTTP routes are application-owned
+- Peer-to-peer sync and encrypted/signed payloads are deferred
+- Partial sync by patient/module/facility is not implemented
+- Rich merge policy defaults to human review except safe-list paths in `pkg/conflict`
+- `ChangedPaths` / `Patch` on `LocalEvent` exist but are not populated by enrich yet
+- Push cursor does not advance on `needs_retry` — callers must retry or run jobs
+
+## Related docs
+
+- [docs/architecture.md](../../docs/architecture.md) — offline-first replication overview
+- [pkg/core/README.md](../core/README.md) — resource writes and outbox hook
+- [pkg/conflict/README.md](../conflict/README.md) — merge and review artifacts
+- [pkg/store/README.md](../store/README.md) — event, cursor, inbox stores
+- [pkg/postgres/README.md](../postgres/README.md) — hub backend and `event_log`
+- [pkg/sqlite/README.md](../sqlite/README.md) — device-side stores
+- [pkg/http/README.md](../http/README.md) — `/sync/push` and `/sync/pull` routes
+- [pkg/jobs/README.md](../jobs/README.md) — job runner for sync job types
+- [doc.go](./doc.go) — full API, file layout, and ownership boundaries
