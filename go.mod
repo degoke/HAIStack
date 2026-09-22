@@ -6,6 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/google/fhir/go v0.7.4
 	github.com/google/uuid v1.6.0
+	github.com/iimos/ucum v0.0.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/redis/go-redis/v9 v9.22.0
@@ -46,7 +47,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/iancoleman/strcase v0.3.0 // indirect
-	github.com/iimos/ucum v0.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
