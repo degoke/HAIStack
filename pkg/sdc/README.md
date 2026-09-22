@@ -3,96 +3,119 @@
 FHIR R4 Structured Data Capture (SDC 3.0.0) behavior services for
 questionnaire-driven workflows.
 
-`pkg/sdc` is deliberately renderer- and transport-neutral. It does not own
-HTTP handlers, UI widgets, database tables, or a second FHIR persistence
-model.
+Import path: `github.com/degoke/haistack/pkg/sdc`.
+
+`pkg/sdc` is deliberately **renderer- and transport-neutral**. It does not own HTTP
+handlers, UI widgets, database tables, or a second FHIR persistence model.
+
+---
+
+## What it does
+
+| Area | Primary APIs | Output |
+|------|--------------|--------|
+| Validation | `ValidateQuestionnaireResource`, `ValidateQuestionnaireResponseResource` | OperationOutcome-compatible diagnostics |
+| Populate | `PopulateResource`, `PopulationContext` | QuestionnaireResponse envelope (unsaved) |
+| Build responses | `NewResponse`, `ResponseBuilder` | QuestionnaireResponse from form values |
+| Render | `Render`, `RenderWithOptions` | Renderer-neutral `FormModel` / `FieldState` |
+| Calculated | `EvaluateCalculated` | Converged calculated answers |
+| Assembly | `Assembler`, `AssembleQuestionnaireResource` | Merged Questionnaire |
+| Extract | `ExtractResource`, `QuestionnaireExtractor` | Transaction Bundle envelope |
+
+Canonical interchange is `*types.ResourceEnvelope`, consistent with `pkg/core`,
+`pkg/store`, `pkg/http`, and `pkg/runtime`. Generated R4 protobuf types remain in
+`pkg/proto/r4`; use `sdc.ParseR4` when typed proto access is required.
+
+Compatibility projections encode polymorphic FHIR values with correct `value[x]` /
+`answer[x]` keys and SDC behavior as FHIR extensions. They are **views for behavior
+evaluation**, not persistence replacements.
+
+---
+
+## How it fits in the ecosystem
+
+```text
+Questionnaire / QuestionnaireResponse (ResourceEnvelope)
+        │
+        ▼
+     pkg/sdc
+        │
+        ├── pkg/fhirpath ──► initial, enableWhen, calculated, constraints
+        ├── pkg/cql ──► cqf-library, text/cql, text/cql.identifier
+        ├── pkg/search ──► application/x-fhir-query (optional)
+        ├── pkg/terminology ──► answerValueSet, open-choice expansion
+        ├── pkg/structuremap ──► sourceStructureMap $extract
+        └── pkg/conceptmap ──► (via structuremap translate)
+
+pkg/http ──► Questionnaire/$populate, QR/$validate, QR/$extract, …
+pkg/runtime ──► CoreSDCService (default wiring)
+modules/sdc ──► profiles, extensions, operation definitions, CQL examples
+```
+
+Extraction produces a **transaction Bundle**; applying it is an explicit caller decision
+via `core.ProcessTransactionBundle` — no silent persistence inside `pkg/sdc`.
+
+---
+
+## When to use it
+
+- **Server-side questionnaire logic** without coupling to a specific UI framework
+- **Populate** empty responses from Patient context and expressions
+- **Validate** responses before save with SDC + generic FHIR item constraints
+- **Extract** clinical resources from responses (definition, template, or StructureMap)
+- **Adaptive flows** via `SequentialAdaptiveEngine` or injected session policy (HTTP still
+  needs an application session adapter)
+
+Inject application-owned concerns: phone/email/postal formats, extraction templates,
+branching/scoring session policy, and custom adaptive HTTP adapters.
+
+---
 
 ## Boundaries
 
-Canonical FHIR resources are represented by `*types.ResourceEnvelope`, just as
-they are in `pkg/core`, `pkg/store`, `pkg/http`, and `pkg/runtime`.
-
 ```go
 q, err := svc.Read(ctx, "Questionnaire", "intake")
-if err != nil {
-    // handle core.ResourceService error
-}
-
 outcome := sdc.ValidateQuestionnaireResource(ctx, q, sdc.ValidationOptions{})
 if len(outcome.Issue) != 0 {
-    // render or return the OperationOutcome-compatible diagnostics
+    // render or return OperationOutcome-compatible diagnostics
 }
 ```
 
-The generated R4 protobuf types remain available through `pkg/proto/r4`. Use
-`sdc.ParseR4` or the existing `pkg/proto` codec when typed protobuf access is
-needed; canonical JSON and `ResourceEnvelope` remain the interchange and
-storage boundary.
+Storage, auth, and transport live outside this package. Tier-5 extraction metadata
+(`sourceStructureMap`, item definitions, `observationExtract`) drives
+`QuestionnaireExtractor`; HTTP `$populate` and `$validate` parse Parameters for
+`subject` and launch context.
 
-The compatibility projections encode polymorphic FHIR values with their
-correct `value[x]`/`answer[x]` keys and encode SDC behavior fields as FHIR
-extensions. Projection envelopes are therefore hash-stable across a
-decode/encode round trip.
+---
 
-The small questionnaire projection structs retained in the package are
-compatibility views for behavior evaluation. They are not replacements for
-`pkg/proto/r4` resources and should not be persisted directly.
+## Usage modes
 
-## Core operations
+### 1. Validation
 
-### Validation
+`ValidateQuestionnaireResource` checks structure, duplicate linkIds, item types,
+enablement declarations, generic constraints (`maxLength`, `regex`,
+`questionnaire-constraint`), and required SDC fields.
 
-`ValidateQuestionnaireResource` checks questionnaire structure, duplicate
-linkIds, item types, enablement declarations, generic item constraints
-(`maxLength`, `regex`, `questionnaire-constraint`), and required SDC fields.
-`ValidateQuestionnaireResponseResource` checks response identity, required and
-disabled items, repeats/cardinality, answer types, answer options, terminology,
-value constraints (`maxLength`, `regex`), questionnaire-constraint invariants,
-and calculated/enablement constraints.
+`ValidateQuestionnaireResponseResource` checks identity, required/disabled items,
+repeats/cardinality, answer types/options, terminology, value constraints,
+questionnaire-constraint invariants, and calculated/enablement constraints.
 
-Diagnostics are OperationOutcome-compatible and retain renderer field paths.
+SDC presentation extensions (`questionnaire-itemControl`, `questionnaire-entryFormat`,
+choice orientation, option exclusive, usage mode, display category, support links,
+reference/unit extensions, launch context/variables) surface on `FieldState` for renderers.
 
-Generic FHIR item constraints (`maxLength`, `minLength`, `regex`,
-`questionnaire-constraint`, `questionnaire-minValue`, `questionnaire-maxValue`,
-`questionnaire-minOccurs`, `questionnaire-maxOccurs`) are preserved on the
-questionnaire model and enforced during response validation.
+`answerValueSet` validation uses the configured terminology service (including expansion
+for `open-choice` string answers). Reference answers honor `referenceProfile` and
+`referenceFilter` when `ReferenceResolver` is supplied. `usageMode` ties to response
+status (capture for in-progress, display for completed/amended).
 
-SDC and FHIR presentation extensions (`questionnaire-itemControl`,
-`questionnaire-entryFormat`, `questionnaire-choiceOrientation`,
-`questionnaire-optionExclusive`, `questionnaire-usageMode`,
-`questionnaire-displayCategory`, `questionnaire-supportLink`, reference and
-unit extensions, questionnaire-level launch context/variables, and
-QuestionnaireResponse workflow extensions) are modeled on the projection and
-exposed on `FieldState` for renderers.
+Tests: `gaps_test.go` (`TestReferenceProfileAndFilterValidation`, `TestLaunchContextValidation`,
+`TestUsageModeSemantics`, `TestVariableContextInValidation`, …).
 
-`answerValueSet` validation uses the configured terminology service (including
-expansion for `open-choice` string answers). Reference answers honor
-`referenceProfile` and `referenceFilter` when a `ReferenceResolver` is supplied.
-Validation accepts launch context, subject, and evaluates questionnaire
-variables in FHIRPath expressions. `usageMode` is tied to response status (capture
-for in-progress, display for completed/amended) in validation and `Render`.
-Tier-5 extraction metadata drives `QuestionnaireExtractor` (`sourceStructureMap`,
-item definitions, `observationExtract`). HTTP `$populate` and `$validate` parse
-Parameters for `subject` and launch context; the default runtime wires
-`ReferenceResolver` and `QuestionnaireExtractor`.
-phone-number standards, email rules, or country-specific postal-code formats
-remain application-owned.
-
-### Response builder
-
-`NewResponse` constructs a `QuestionnaireResponse` from rendered form values.
-The builder sets `QuestionnaireResponse.questionnaire` to `Canonical(q)`,
-emits the correct FHIR `value[x]` field for each item type, resolves choice
-codes to declared `answerOption` codings, and preserves nested and repeated
-items. Unknown linkIds and invalid values are reported as structured issues
-through `ValidationError`.
+### 2. Response builder
 
 ```go
 builder, err := sdc.NewResponse(questionnaire)
-if err != nil {
-    // invalid questionnaire structure
-}
-
 response, err := builder.
     Set("name", "Ada").
     SetCoding("color", "red").
@@ -108,23 +131,15 @@ if err != nil {
 }
 ```
 
-Use `SetAt` / `AppendAnswerAt` when a linkId appears at multiple nesting
-levels, `InGroup` to target a repeating-group instance during auto-placement,
-and `SetAtAnswer` / `AppendAnswerAtAnswer` for item-controlled nesting under
-`answer[n].item`. Use `SetCodingWithSystem` when answer options share the same
-code in different code systems. Already-formed FHIR answer values (for example
-a `Coding` struct) are stored without modification; SDC validation still
+Use `SetAt` / `AppendAnswerAt` for duplicate linkIds, `InGroup` for repeating groups,
+`SetAtAnswer` for item-controlled nesting. `SetCodingWithSystem` disambiguates codes
+across systems. Pre-formed FHIR answer values are stored as-is; validation still
 enforces answer options.
 
-### Population
+### 3. Population (FHIRPath + CQL + FHIR Query)
 
-`PopulateResource` returns a new QuestionnaireResponse envelope without saving
-it. Population accepts subject and launch context through `PopulationContext`,
-supports initial values/expressions, answer expressions, and injectable
-population providers.
-
-FHIRPath is the built-in expression path. CQL is provided by `pkg/cql` and
-wired by the default runtime:
+`PopulateResource` returns a new QuestionnaireResponse without saving. Supports subject,
+launch context, initial values/expressions, answer expressions, and injectable providers.
 
 ```go
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
@@ -148,50 +163,40 @@ response, outcome = sdc.PopulateResource(ctx, questionnaire,
 )
 ```
 
-The built-in FHIRPath provider adapts Questionnaire and QuestionnaireResponse
-projections and resource-shaped JSON maps. A subject should normally be a
-`*types.ResourceEnvelope` or supported R4 proto resource.
+CQL languages: `text/cql`, `text/cql.identifier`, `application/cql`, `application/x-cql`.
+Libraries resolve from `cqf-library` canonicals, contained `Library` resources, or
+`cql.LibraryResolver`. Missing Patient or library → unavailable-expression diagnostic.
 
-CQL expressions use `text/cql`, `text/cql.identifier`, `application/cql`, or
-`application/x-cql`. Named defines are resolved from `cqf-library` canonicals,
-contained `Library` resources, or a `cql.LibraryResolver`. Missing Patient
-context or a missing library is reported as an unavailable-expression
-diagnostic. FHIR Query remains an injectable adapter; if no provider is
-installed, the operation reports an unavailable-expression diagnostic.
+`SearchFHIRQueryProvider` runs `application/x-fhir-query` against `pkg/search`.
+`ComposeExpressions` merges FHIRPath, FHIR Query, and CQL for populate, validate, and
+render. `RenderWithOptions` evaluates `contextExpression` extensions into
+`FieldState.ContextResources`. FHIR Query substitution: `%subject`, `%patient`, launch
+context, questionnaire variables, `%qitem`. Default runtime wires FHIR Query only when
+search is enabled.
 
-`SearchFHIRQueryProvider` executes `application/x-fhir-query` expressions against
-`pkg/search`. `ComposeExpressions` combines FHIRPath, FHIR Query, and CQL
-providers for populate, validate, and render. `RenderWithOptions` evaluates
-`contextExpression` extensions and attaches results to `FieldState.ContextResources`.
-FHIR Query substitution supports `%subject`, `%patient` (alias), launch context,
-questionnaire variables, and `%qitem` (current item linkId). When no FHIR Query
-provider is configured, context expressions remain metadata-only and render a
-field-level diagnostic. The default runtime only wires FHIR Query when search is
-enabled.
+Executable CQL examples: `pkg/cql/sdc_test.go`, `modules/sdc/examples/cql-questionnaire.json`.
 
-### Calculated expressions and rendering
+### 4. Calculated expressions and rendering
 
-`EvaluateCalculated` iterates calculated expressions with a convergence limit,
-dependency inspection, and explicit cycle diagnostics. `Render` produces a
-renderer-neutral `FormModel` containing field visibility, enabled/read-only
-state, answers, options, media, item-control metadata, issues, and navigation
-hints. Use `RenderWithOptions` when expression-based enablement or validation
-issues should be evaluated during rendering.
+`EvaluateCalculated` iterates calculated expressions with convergence limits, dependency
+inspection, and cycle diagnostics.
 
-### Modular assembly
+`Render` / `RenderWithOptions` produce `FormModel`: visibility, enabled/read-only state,
+answers, options, media, item-control metadata, issues, navigation hints. Expression-based
+enablement and validation issues can be evaluated during rendering.
 
-`Assembler` resolves questionnaire references through a caller-supplied
-`QuestionnaireResolver`. It does not perform network access itself. A
-store-backed resolver, `StoreQuestionnaireResolver`, uses the existing
-`store.ResourceStore` and canonical JSON resources.
+Tests: `TestCandidateExpressionOnRender`, `TestAnswerOptionToggleExpression`,
+`TestItemPopulationContextScopesDescendants`.
 
-Envelope-first callers can use `AssembleQuestionnaireResource` to perform the
-same operation without manually decoding the projection.
+### 5. Modular assembly
 
-### Extraction
+`Assembler` resolves questionnaire references via caller-supplied `QuestionnaireResolver`
+(no network I/O inside the assembler). `StoreQuestionnaireResolver` uses
+`store.ResourceStore` and canonical JSON.
 
-Definition, template, and StructureMap extractor contracts produce a canonical
-transaction Bundle envelope:
+`AssembleQuestionnaireResource` is the envelope-first entry point.
+
+### 6. Extraction
 
 ```go
 bundle, diagnostics, err := sdc.ExtractResource(ctx, questionnaire,
@@ -199,24 +204,22 @@ bundle, diagnostics, err := sdc.ExtractResource(ctx, questionnaire,
 if err != nil {
     // no resource was persisted or applied
 }
-
-// Applying it is an explicit caller decision:
 result, err := coreService.ProcessTransactionBundle(ctx, bundle)
 ```
 
-Definition extraction supports deterministic mappings, repeated answers,
-resource identities, POST-versus-PUT request generation, and extraction
-diagnostics. StructureMap execution is provided by `pkg/structuremap` and
-wired into the default runtime when `sourceStructureMap` is configured.
+Definition/template extractors support deterministic mappings, repeated answers,
+resource identities, POST vs PUT generation, and extraction diagnostics. StructureMap
+execution is provided by `pkg/structuremap` when `sourceStructureMap` is set (see
+[pkg/structuremap/README.md](../structuremap/README.md)).
 
-## HTTP and runtime
+Tests: `TestDefinitionExtractionFromItemDefinition`, `TestTemplateExtractUsesContainedResource`,
+`TestQuestionnaireExtractorUsesMetadata`.
 
-`pkg/http` provides the transport adapter when `Config.SDCService` is set. The
-runtime wires `http.CoreSDCService` by default using the existing core resource
-service, store-backed questionnaire resolution, runtime FHIRPath engine, and
-`pkg/cql` CQL provider.
+### 7. HTTP and runtime adapter
 
-Supported operation routes include:
+`pkg/http` exposes operations when `Config.SDCService` is set. Default runtime wires
+`http.CoreSDCService` with core resource service, store-backed questionnaire resolution,
+FHIRPath engine, CQL provider, StructureMap extractor, and optional search FHIR Query.
 
 ```text
 POST /fhir/Questionnaire/{id}/$populate
@@ -230,14 +233,7 @@ POST /fhir/Questionnaire/$next
 POST /fhir/Questionnaire/$answer
 ```
 
-Populate, validate, and assemble work with the default adapter. Extraction
-requires application mappings/templates. Package-level adaptive callers can
-use the bundled `SequentialAdaptiveEngine` for deterministic
-questionnaire-order flow or inject a session policy for branching/scoring
-behavior. The HTTP adapter still requires an application session adapter.
-Unavailable capabilities return FHIR OperationOutcome errors.
-
-Applications can replace or extend the adapter through the runtime builder:
+Replace or extend the adapter:
 
 ```go
 rt, err := runtime.New().
@@ -247,40 +243,49 @@ rt, err := runtime.New().
     Build(ctx)
 ```
 
+Populate, validate, and assemble work with the default adapter. Extraction requires
+application mappings/templates unless StructureMap or definition extractors are configured.
+Adaptive HTTP requires an application session adapter; package-level callers may use
+`SequentialAdaptiveEngine` for deterministic questionnaire-order flow.
+
+Unavailable capabilities return FHIR OperationOutcome errors (not empty success).
+
+---
+
 ## Module bundle
 
-`modules/sdc` is an installable module containing SDC-specific profiles,
-extensions, operation/capability definitions, terminology artifacts, and
-examples. Base FHIR R4 definitions such as `Questionnaire`,
-`QuestionnaireResponse`, and `Bundle` come from the embedded registry bundle;
-the SDC module does not duplicate them.
+`modules/sdc` installs SDC-specific profiles, extensions, operation/capability definitions,
+terminology artifacts, and examples. Base R4 types (`Questionnaire`, `QuestionnaireResponse`,
+`Bundle`) come from the embedded registry bundle — the SDC module does not duplicate them.
 
-Install it through the normal module manager or runtime `WithModules` path.
+Install via `pkg/modules` / runtime `WithModules`.
 
-## Scope and adapters
+---
 
-Included:
+## Scope summary
+
+**Included:**
 
 - FHIR R4 / SDC 3.0.0 questionnaire behavior
-- FHIRPath expression integration via pkg/fhirpath
-- CQL expression integration via pkg/cql (CQL 1.5 libraries; CQF Measure evaluation is in pkg/cql / Measure/$evaluate-measure)
-- population, validation, assembly, rendering state, and extraction contracts
-- canonical transaction Bundle generation without persistence side effects
-- adaptive protocol interfaces
+- FHIRPath via `pkg/fhirpath`; CQL via `pkg/cql` (CQL 1.5; Measure in `pkg/cql`)
+- Population, validation, assembly, rendering, extraction contracts
+- Canonical transaction Bundle generation without persistence side effects
+- Adaptive protocol interfaces
 
-Injected by applications:
+**Injected by applications:**
 
-- FHIR Query runtime (default runtime wires `SearchFHIRQueryProvider` when search is enabled)
-- terminology service and value-set expansion
-- StructureMap runtime (default runtime wires `pkg/structuremap` when `sourceStructureMap` is set)
-- extraction mappings/templates
-- adaptive questionnaire selection and session policy
+- FHIR Query runtime (default when search enabled)
+- Terminology service and value-set expansion
+- StructureMap runtime (default when `sourceStructureMap` set)
+- Extraction mappings/templates beyond bundled definition extractors
+- Adaptive selection and HTTP session policy
 
-CQL evaluation lives in `pkg/cql` and is wired by the default runtime when a
-`CQLProvider` can load libraries from the store, contained resources, or
-`cqf-library` canonicals. Applications may still replace the provider.
+---
 
-See [`doc.go`](./doc.go) for the package-level API boundary and the tests in
-this directory for executable behavior examples. Example CQL questionnaires
-and libraries live in `modules/sdc/examples/cql-questionnaire.json` and
-`cql-library.json`.
+## Related docs
+
+- [pkg/cql/README.md](../cql/README.md) — CQL provider and libraries
+- [pkg/structuremap/README.md](../structuremap/README.md) — StructureMap $extract
+- [pkg/fhirpath/README.md](../fhirpath/README.md) — expression evaluation
+- [pkg/http/README.md](../http/README.md) — operation routes
+- [doc.go](./doc.go) — package-level API boundary
