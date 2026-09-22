@@ -181,6 +181,5 @@ go test ./pkg/structuremap/... -count=1
 - [pkg/conceptmap/README.md](../conceptmap/README.md)
 - [pkg/fhirpath/README.md](../fhirpath/README.md)
 - [Composition patterns — SDC](../../docs/composition-patterns.md#questionnaire--sdc-workflow)
-- [Package README standard](../../docs/package-readme-standard.md)
 - [modules/sdc/examples/](../../modules/sdc/examples/)
 - [HL7 StructureMap](https://hl7.org/fhir/structuremap.html)
