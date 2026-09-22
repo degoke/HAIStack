@@ -188,6 +188,8 @@ matcher := &subscriptions.Matcher{Engine: engine, Registry: searchRegistry}
 Register application-specific functions at `NewEngine` time (immutable for the engine lifetime):
 
 ```go
+import "github.com/verily-src/fhirpath-go/fhirpath/system"
+
 eng, err := fhirpath.NewEngine(fhirpath.Config{
     Functions: map[string]fhirpath.Function{
         "alwaysTrue": func(_ fhirpath.Collection, _ ...fhirpath.Collection) (fhirpath.Collection, error) {
