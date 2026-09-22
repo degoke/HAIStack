@@ -1,5 +1,5 @@
 // Package audit implements haistack-audit, the shared audit event library for
-// Health AI Stack.
+// HAIStack.
 //
 // # Scope
 //

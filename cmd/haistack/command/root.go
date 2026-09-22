@@ -40,9 +40,9 @@ func NewRootCommand() *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "haistack",
-		Short: "Health AI Stack developer and operator CLI",
+		Short: "HAIStack developer and operator CLI",
 		Long: `haistack is the command-line interface for local development and operations
-against a Health AI Stack runtime. Configure storage and capabilities in haistack.yaml.`,
+against a HAIStack runtime. Configure storage and capabilities in haistack.yaml.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

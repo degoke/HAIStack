@@ -1,6 +1,6 @@
 # haistack-testkit (`pkg/testkit`)
 
-Shared importable test support for Health AI Stack: FHIR fixtures, in-memory store
+Shared importable test support for HAIStack: FHIR fixtures, in-memory store
 fakes, sync and conflict scenario runners, OperationOutcome golden helpers,
 FHIRPath assertions, and AI executor harnesses.
 

@@ -1,5 +1,5 @@
 // Package runtime implements haistack-runtime, the composition and lifecycle
-// library for Health AI Stack. It wires persistence, registry, modules, core,
+// library for HAIStack. It wires persistence, registry, modules, core,
 // search, sync, and HTTP into three explicit deployment modes and owns startup,
 // background workers, managed HTTP serving, and deterministic shutdown.
 //

@@ -4,7 +4,7 @@ FHIR REST API adapter for the haistack monorepo.
 
 ## What it does
 
-**haistack-http** is the **HTTP transport layer** for Health AI Stack. It exposes a FHIR REST surface over existing services without absorbing lifecycle, storage, indexing, sync, or AI behavior.
+**haistack-http** is the **HTTP transport layer** for HAIStack. It exposes a FHIR REST surface over existing services without absorbing lifecycle, storage, indexing, sync, or AI behavior.
 
 | Concern | Owner |
 |---------|-------|

@@ -8,7 +8,7 @@
   "status": "active",
   "date": "2026-01-01",
   "publisher": "HAIStack",
-  "description": "Patient profile for Health AI Stack core. At least one identifier\nwith both system and value is required so edge and offline deployments can\ncorrelate records without relying on a central MPI.",
+  "description": "Patient profile for HAIStack core. At least one identifier\nwith both system and value is required so edge and offline deployments can\ncorrelate records without relying on a central MPI.",
   "fhirVersion": "4.0.1",
   "kind": "resource",
   "abstract": false,

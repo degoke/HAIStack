@@ -4,7 +4,7 @@ Generic-first Go SDK for FHIR REST and HAIStack sync endpoints.
 
 ## What it does
 
-**haistack-client** is the **outbound HTTP SDK** for Health AI Stack. It mirrors the FHIR REST surface exposed by `pkg/http` and adds focused sub-clients for sync, SMART, bulk export, and subscriptions.
+**haistack-client** is the **outbound HTTP SDK** for HAIStack. It mirrors the FHIR REST surface exposed by `pkg/http` and adds focused sub-clients for sync, SMART, bulk export, and subscriptions.
 
 Think of it as the client-side inverse of the server adapter:
 

@@ -4,7 +4,7 @@ Registry-driven FHIR search for the haistack monorepo.
 
 ## What it does
 
-**haistack-search** is the **FHIR search library** for Health AI Stack. It turns registry `SearchParameter` definitions into typed index rows, parses FHIR query strings, plans lookups against those rows, and returns bundle-ready results.
+**haistack-search** is the **FHIR search library** for HAIStack. It turns registry `SearchParameter` definitions into typed index rows, parses FHIR query strings, plans lookups against those rows, and returns bundle-ready results.
 
 Think of it as two pipelines:
 

@@ -1,7 +1,7 @@
 // Package app wires haistack CLI commands to pkg/runtime and related services.
 //
 // This package is the shared bootstrap layer between cobra commands and the
-// Health AI Stack libraries. It avoids duplicating pkg/runtime wiring inside
+// HAIStack libraries. It avoids duplicating pkg/runtime wiring inside
 // each command handler.
 //
 // # Session lifecycle

@@ -1,5 +1,5 @@
 // Package testkit implements haistack-testkit, the shared importable test-support
-// library for Health AI Stack.
+// library for HAIStack.
 //
 // haistack-testkit consolidates FHIR resource fixtures, in-memory store fakes, sync and
 // conflict scenario runners, OperationOutcome golden helpers, FHIRPath assertion wrappers,

@@ -1,6 +1,6 @@
 # Examples
 
-Runnable example applications for different ways to use Health AI Stack.
+Runnable example applications for different ways to use HAIStack.
 
 Each example is a small standalone `main` package that can be run from the
 repository root with `go run`.

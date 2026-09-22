@@ -3,7 +3,7 @@
 //
 // # Architecture
 //
-// haistack-search is the FHIR search library for Health AI Stack. It keeps reusable
+// haistack-search is the FHIR search library for HAIStack. It keeps reusable
 // lower-level components in this package while exposing search.Service as the main
 // entrypoint for advanced search execution.
 //

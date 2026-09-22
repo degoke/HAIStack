@@ -1,6 +1,6 @@
 # haistack-ai (`pkg/ai`)
 
-Policy-governed FHIR AI gateway for Health AI Stack. LLMs call typed,
+Policy-governed FHIR AI gateway for HAIStack. LLMs call typed,
 audited tools — not arbitrary FHIR server commands.
 
 ## What it does

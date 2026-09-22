@@ -1,5 +1,5 @@
 // Package smart implements haistack-smart, an optional SMART on FHIR library for
-// Health AI Stack.
+// HAIStack.
 //
 // # Scope
 //

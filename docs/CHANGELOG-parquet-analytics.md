@@ -26,7 +26,7 @@
 
 ### Known limitations
 
-- INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/haistack/issues/42).
+- INT96 date annotation columns use INT64 TIMESTAMP(MILLIS); tracked in [issue #42](https://github.com/degoke/HAIStack/issues/42).
 - Postgres `store.BlobStore` (`hai_binary_object.data` BYTEA) still materializes streaming uploads for INSERT; object-store adapters and chunk stores stream.
 - HTTP `$viewdefinition-run` / `$viewdefinition-export` Parameters parsing accepts `valueString` only (see `pkg/view/README.md`).
 

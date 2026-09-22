@@ -1,4 +1,4 @@
-// Package hooks is a small FHIR intercept SPI for Health AI Stack.
+// Package hooks is a small FHIR intercept SPI for HAIStack.
 //
 // HAPI's interceptor bus has dozens of pointcuts. This package keeps four:
 //

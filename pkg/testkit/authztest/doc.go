@@ -1,5 +1,5 @@
 // Package authztest provides a reusable authorization scenario test kit for
-// Health AI Stack. It exercises pkg/auth, pkg/smart, pkg/view, pkg/ai, and
+// HAIStack. It exercises pkg/auth, pkg/smart, pkg/view, pkg/ai, and
 // related seams with documented principal/policy fixtures and table-driven
 // allow/deny expectations.
 //

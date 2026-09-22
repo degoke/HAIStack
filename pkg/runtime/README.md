@@ -4,7 +4,7 @@ Composition and lifecycle glue for the haistack monorepo.
 
 ## What it does
 
-**haistack-runtime** is the **runtime composition library** for Health AI Stack. It turns lower-level packages into a single runnable service graph with managed startup, background workers, optional HTTP serving, and deterministic shutdown.
+**haistack-runtime** is the **runtime composition library** for HAIStack. It turns lower-level packages into a single runnable service graph with managed startup, background workers, optional HTTP serving, and deterministic shutdown.
 
 Think of it as the layer that answers: *which stores, which tenant, which capabilities, and how do they start and stop together?*
 

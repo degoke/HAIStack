@@ -1,6 +1,6 @@
 # haistack-conflict (`pkg/conflict`)
 
-FHIR-aware conflict policy and merge library for Health AI Stack.
+FHIR-aware conflict policy and merge library for HAIStack.
 
 ## What it does
 

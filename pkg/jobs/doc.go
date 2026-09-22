@@ -1,5 +1,5 @@
 // Package jobs implements haistack-jobs, the shared background job runtime for
-// Health AI Stack.
+// HAIStack.
 //
 // # Scope
 //
