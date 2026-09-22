@@ -160,10 +160,27 @@ Examples: [modules/sdc/examples/](../../modules/sdc/examples/).
 
 ---
 
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---------|----------------|
+| `questionnaire has no sourceStructureMap` | Questionnaire missing SDC extension URL |
+| `StructureMap resolver is unavailable` | Nil `Config.Resolver` on extractor |
+| Empty output | Entry group name does not match `StructureMap.name` |
+| `translate` errors | ConceptMap missing from resolver — see [conceptmap](../conceptmap/README.md) |
+
+```bash
+go test ./pkg/structuremap/... -count=1
+```
+
+---
+
 ## Related docs
 
 - [pkg/sdc/README.md](../sdc/README.md)
 - [pkg/conceptmap/README.md](../conceptmap/README.md)
 - [pkg/fhirpath/README.md](../fhirpath/README.md)
+- [Composition patterns — SDC](../../docs/composition-patterns.md#questionnaire--sdc-workflow)
+- [Package README standard](../../docs/package-readme-standard.md)
 - [modules/sdc/examples/](../../modules/sdc/examples/)
 - [HL7 StructureMap](https://hl7.org/fhir/structuremap.html)
