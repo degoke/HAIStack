@@ -79,6 +79,15 @@ func (l *lexer) lookahead() token {
 	return t
 }
 
+func (l *lexer) checkpoint() int {
+	return l.pos
+}
+
+func (l *lexer) rewind(pos int) {
+	l.pos = pos
+	l.peek = nil
+}
+
 func (l *lexer) scan() token {
 	l.skipIgnored()
 	if l.pos >= len(l.src) {

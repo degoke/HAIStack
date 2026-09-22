@@ -3306,6 +3306,20 @@ func TestLetRetrieveExpressionNotInnerQuery(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error for retrieve glued to return in expression")
 	}
+	_, err = eng.ParseExpression("[Observation] O where O.status = 'final'")
+	if err != nil {
+		t.Fatalf("expression-level aliased query: %v", err)
+	}
+	_, err = eng.ParseLibrary(`
+library R version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Bad":
+  from {1} X let L: [Observation] O return L
+`)
+	if err == nil {
+		t.Fatal("expected parse error for let operand [Observation] O")
+	}
 	lib, err := eng.ParseLibrary(`
 library R version '1.0.0'
 using FHIR version '4.0.1'
@@ -3326,6 +3340,23 @@ define "Q":
 	inner, ok := got[0].([]any)
 	if !ok || len(inner) != 1 {
 		t.Fatalf("expected nested observation list: %#v", got[0])
+	}
+	lib2, err := eng.ParseLibrary(`
+library R version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Q":
+  from {1} X let L: [Observation] return L
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2, err := eng.EvalDefine(context.Background(), lib2, "Q", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2) != 1 {
+		t.Fatalf("let retrieve without alias: %#v", got2)
 	}
 }
 

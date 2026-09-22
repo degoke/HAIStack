@@ -117,14 +117,41 @@ func parseExpression(src string) (Node, error) {
 		return nil, ErrEmptyExpression
 	}
 	p := &parser{lex: newLexer(src), src: src}
-	n, err := p.parseExpr()
+	n, err := p.tryParseBracketQuery()
 	if err != nil {
 		return nil, err
+	}
+	if n == nil {
+		n, err = p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if p.lex.lookahead().kind != tEOF {
 		return nil, parseError(src, p.lex.lookahead().pos, "unexpected token %q after expression", p.lex.lookahead().text)
 	}
 	return n, nil
+}
+
+// tryParseBracketQuery parses expression-level queries such as [Observation] O where ...
+// without treating them as queries inside let operands or other parseExpr contexts.
+func (p *parser) tryParseBracketQuery() (Node, error) {
+	br := p.lex.lookahead()
+	if br.kind != tLBrack {
+		return nil, nil
+	}
+	cp := br.pos
+	n, err := p.parseRetrieve()
+	if err != nil {
+		return nil, err
+	}
+	t := p.lex.lookahead()
+	if t.kind == tQuotedIdent || (t.kind == tIdent && !isReservedAlias(t.text)) {
+		p.lex.next()
+		return p.parseQuery(querySource{expr: n, alias: t.text})
+	}
+	p.lex.rewind(cp)
+	return nil, nil
 }
 
 func (p *parser) parseInclude() (Include, error) {
@@ -1281,16 +1308,7 @@ func (p *parser) parsePrimary() (Node, error) {
 		}
 		return n, nil
 	case tLBrack:
-		n, err := p.parseRetrieve()
-		if err != nil {
-			return nil, err
-		}
-		t := p.lex.lookahead()
-		if t.kind == tQuotedIdent || (t.kind == tIdent && !isReservedAlias(t.text)) {
-			p.lex.next()
-			return p.parseQuery(querySource{expr: n, alias: t.text})
-		}
-		return n, nil
+		return p.parseRetrieve()
 	case tLBrace:
 		return p.parseBrace()
 	}
