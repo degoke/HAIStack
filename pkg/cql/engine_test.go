@@ -3422,6 +3422,13 @@ func TestAsDateDateTimePromotion(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("1.5 as Integer must be null: %#v", got)
 	}
+	got, err = eng.Eval(context.Background(), "5 '1' as Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(5) && got[0] != 5 {
+		t.Fatalf("dimensionless quantity as Integer: %#v", got)
+	}
 }
 
 func TestFunctionReturnsListType(t *testing.T) {

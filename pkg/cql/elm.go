@@ -264,7 +264,40 @@ func parseELMFunction(def map[string]any, name, access string) (Function, error)
 		return Function{}, err
 	}
 	fn.Body = expr
+	fn.ReturnType = elmFunctionReturnType(def)
 	return fn, nil
+}
+
+func elmFunctionReturnType(def map[string]any) string {
+	return elmTypeSpecifierName(def["resultTypeSpecifier"])
+}
+
+func elmTypeSpecifierName(v any) string {
+	if v == nil {
+		return ""
+	}
+	m, ok := asObject(v)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(elmType(m)) {
+	case "listtype":
+		if elem := elmTypeSpecifierName(m["elementType"]); elem != "" {
+			return "List<" + elem + ">"
+		}
+		return "List"
+	case "intervaltype":
+		if pt := elmTypeSpecifierName(m["pointType"]); pt != "" {
+			return "Interval<" + pt + ">"
+		}
+		return "Interval"
+	}
+	return firstNonEmpty(
+		elmTypeBare(elmString(m["name"])),
+		elmTypeBare(elmString(m["resultTypeName"])),
+		elmTypeSpecifierName(m["elementType"]),
+		elmTypeSpecifierName(m["pointType"]),
+	)
 }
 
 func recoverCQLFromELM(raw []byte) string {
@@ -414,10 +447,10 @@ func elmTypeName(v any) string {
 	if s, ok := v.(string); ok {
 		return elmTypeBare(s)
 	}
-	if m, ok := asObject(v); ok {
-		return firstNonEmpty(elmTypeBare(elmString(m["name"])), elmTypeBare(elmString(m["resultTypeName"])), elmTypeName(m["elementType"]), elmTypeName(m["pointType"]))
+	if v == nil {
+		return ""
 	}
-	return ""
+	return elmTypeSpecifierName(v)
 }
 
 func elmTypeBare(s string) string {

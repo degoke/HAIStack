@@ -37,7 +37,7 @@ expressions should share named clinical logic, or when evaluating a Measure.
 - queries: `from` / `where` / `return` / `sort by` / `with` / `without` / `let`
 - **Bracket-query shorthand** (top-level `define` bodies and `Engine.Eval` / `ParseExpression` only): `[Observation] O where O.status = 'final'` is equivalent to `from [Observation] O where O.status = 'final'`. Inside a `let` operand, `[Observation]` is only a retrieve (not a query); use `from [Observation] O …` or `let L: [Observation]` when you need an aliased source in a query clause.
 - `define function` optional `returns` type (e.g. `returns List<Integer>`) for list-valued results in `in` / tuple fields
-- `as` promotions: `Integer`↔`Decimal`, `Date`↔`DateTime`, whole `Decimal`→`Integer`/`Long`, `DateTime`↔`Time`
+- `as` promotions: `Integer`↔`Decimal`, `Date`↔`DateTime`, whole `Decimal`→`Integer`/`Long`, `DateTime`↔`Time`, dimensionless `Quantity`→`Integer`/`Decimal`
 - `Interval` values and operators (`in`, `contains`, `during`, `includes`, `overlaps`, …)
 - Quantity literals (`5 'mg'`, `1 year`) and `duration in years between`; quantity `+`/`-` convert compatible units via `Config.UCUM`
 - List `in` / `contains` / `distinct` / `intersect` / `except` / `union` dedupe / `IndexOf` / `Mode` use equivalence (`~`) for membership, not strict `=`
@@ -49,6 +49,18 @@ Unsupported (clear error): empty ELM payloads, `application/elm+xml`, or an
 unimplemented operator. `application/elm+json` Libraries compile into this
 package's AST. Prefer attaching `text/cql` with `AttachLibraryCQL` when the
 original source is available.
+
+## Tests as examples
+
+These tests double as executable examples for common patterns:
+
+| Topic | Go test (in this package) |
+|-------|---------------------------|
+| Bracket-query shorthand in a `define` | `TestDefineBracketQueryShorthand` (`engine_test.go`) |
+| Measure → MeasureReport | `TestEvaluateMeasureIndividualAndSummary`, `TestEvaluateMeasureListMembershipAndStratifierAndSDE` (`measure_test.go`) |
+| `define function … returns List<T>` | `TestFunctionReturnsListType` (`engine_test.go`) |
+| ELM `FunctionDef` + `resultTypeSpecifier` | `TestELMFunctionReturnType` (`elm_test.go`) |
+| List parameters / defines / `in` | `TestListParameterIdentSemantics`, `TestDefineListIdentSemantics` |
 
 ## Usage
 

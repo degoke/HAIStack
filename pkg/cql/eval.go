@@ -3316,6 +3316,15 @@ func typeCompatible(v any, target string) bool {
 	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Time") {
 		return true
 	}
+	if q, ok := asQuantity(unwrapPrimitive(v)); ok {
+		if strings.EqualFold(target, "Decimal") && isDimensionlessUnit(q.Unit) {
+			return true
+		}
+		if (strings.EqualFold(target, "Integer") || strings.EqualFold(target, "Long")) &&
+			isDimensionlessUnit(q.Unit) && isWholeNumber(q.Value) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -3363,6 +3372,14 @@ func promoteAsValue(v any, target string) any {
 				loc = time.UTC
 			}
 			return time.Date(1, 1, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+		}
+	}
+	if q, ok := asQuantity(unwrapPrimitive(v)); ok && isDimensionlessUnit(q.Unit) {
+		if strings.EqualFold(target, "Decimal") {
+			return q.Value
+		}
+		if (strings.EqualFold(target, "Integer") || strings.EqualFold(target, "Long")) && isWholeNumber(q.Value) {
+			return int64(q.Value)
 		}
 	}
 	return v

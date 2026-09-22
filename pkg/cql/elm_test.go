@@ -195,6 +195,58 @@ func TestParseELMLibraryEvaluatesDefines(t *testing.T) {
 	}
 }
 
+func TestELMFunctionReturnType(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseELM([]byte(`{
+  "library": {
+    "identifier": {"id": "Fn", "version": "1.0.0"},
+    "statements": {"def": [
+      {
+        "type": "FunctionDef",
+        "name": "Ones",
+        "accessLevel": "Public",
+        "resultTypeSpecifier": {
+          "type": "ListType",
+          "elementType": {"name": "{urn:hl7-org:elm-types:r1}Integer"}
+        },
+        "expression": {
+          "type": "Query",
+          "source": [{
+            "alias": "X",
+            "expression": {"type": "List", "element": [{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}]}
+          }],
+          "return": {"expression": {"type": "AliasRef", "name": "X"}}
+        }
+      },
+      {
+        "name": "In",
+        "context": "Patient",
+        "expression": {
+          "type": "In",
+          "operand": [
+            {"type": "FunctionRef", "name": "Ones"},
+            {"type": "List", "element": [{"type": "List", "element": [{"type": "Literal", "valueType": "{urn:hl7-org:elm-types:r1}Integer", "value": "1"}]}]}
+          ]
+        }
+      }
+    ]}
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.Functions) != 1 || lib.Functions[0].ReturnType != "List<Integer>" {
+		t.Fatalf("functions: %#v", lib.Functions)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "In", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ELM list function in: %#v", got)
+	}
+}
+
 func TestCompileELMLibraryResource(t *testing.T) {
 	eng := testEngine(t)
 	env := elmLibraryEnvelope(t, demoELMJSON())
