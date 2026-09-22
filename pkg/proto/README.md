@@ -22,6 +22,103 @@ Important rules:
 
 It does **not** store data, persist proto blobs, or replace JSON in the database. It only converts between JSON and typed proto values in memory.
 
+## How it fits in the ecosystem
+
+`pkg/proto` is an **optional typed companion** to `pkg/types`. Storage, APIs, and sync continue to exchange canonical JSON in `ResourceEnvelope.JSON`; proto values live in `envelope.Proto` for in-memory validation, transformation, and tooling.
+
+```mermaid
+flowchart LR
+  subgraph sources["Inputs"]
+    JSON["FHIR JSON bytes"]
+    PB["Google R4 proto messages"]
+  end
+
+  subgraph proto_pkg["pkg/proto"]
+    CODEC["GoogleR4Codec / ProtoCodec"]
+    HELP["ToEnvelope / ParseJSONToEnvelope"]
+  end
+
+  subgraph types_pkg["pkg/types"]
+    ENV["ResourceEnvelope JSON Hash meta"]
+  end
+
+  subgraph consumers["Downstream consumers"]
+    VAL["pkg/validate structural checks"]
+    CORE["pkg/core optional paths"]
+    APP["App transforms / codegen"]
+  end
+
+  JSON --> CODEC
+  PB --> CODEC
+  CODEC --> ENV
+  HELP --> ENV
+  ENV --> VAL
+  ENV --> CORE
+  ENV --> APP
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| **Upstream** | Callers / CLI | Supply JSON or typed `pkg/proto/r4` builders |
+| **Foundation** | `pkg/types` | All metadata (`Hash`, `ID`, `VersionID`) derived from canonical JSON via `JSONCodec` |
+| **Downstream** | `pkg/validate` | Reuses attached proto when hash matches JSON to skip re-parse |
+| **Downstream** | `pkg/core` | Accepts envelopes with or without `Proto`; persistence stores JSON only |
+| **Downstream** | `pkg/store` | Persists `ResourceEnvelope.JSON`; proto not written in MVP |
+| **External** | `github.com/google/fhir/go` | R4 jsonformat + generated messages (pinned version) |
+| **Subpackage** | `pkg/proto/r4` | Ergonomic aliases and helpers (`NewPatient`, etc.) |
+
+JSON→proto conversion **rejects unknown JSON fields** relative to the Google R4 schema. Vendor extensions that must round-trip unchanged should stay on the `pkg/types` JSON-only path.
+
+## Usage modes
+
+### JSON-only envelopes (default stack path)
+
+**When:** Storage, sync, and APIs already normalize JSON through `pkg/types` and you do not need typed structs in process.
+
+**How:** Skip `pkg/proto` entirely. `envelope.Proto` remains `nil`. Validation still works via JSON parse inside `pkg/validate`.
+
+### Parse JSON to typed proto for inspection
+
+**When:** Tools or tests want compile-time-friendly structs and Google’s parser validation without persisting proto.
+
+**How:** `codec := proto.NewGoogleR4Codec()` then `ParseJSONToProto("Patient", data)`. Use `ResourceTypeOfProto` before branching on message type.
+
+### Build resources in Go, export canonical JSON
+
+**When:** Server-side builders, codegen, or migrations construct FHIR programmatically.
+
+**How:** Use `pkg/proto/r4` helpers, then `proto.ToEnvelope` or `proto.ToJSON`:
+
+```go
+patient := protor4.NewPatient("pat-1")
+jsonBytes, err := proto.ToJSON(patient)
+envelope, err := proto.ToEnvelope(patient)
+```
+
+### One-step JSON envelope with proto attached
+
+**When:** Ingest pipeline wants both canonical envelope fields and typed proto for downstream validators.
+
+**How:** `proto.ParseJSONToEnvelope("Patient", patientJSON)` or `codec.ParseJSONToEnvelope`. Hash and meta match the JSON-only codec path; `Proto` holds `ContainedResource`.
+
+### Unwrap proto from stored envelopes
+
+**When:** A resource was loaded from DB as JSON-only but you re-parse for analysis, or envelope was built on the proto path earlier in the request.
+
+**How:** `cr, err := proto.ContainedResourceFromEnvelope(envelope)` then `cr.GetPatient()`. Guard with `proto.IsProtoResource(envelope.Proto)`.
+
+### Validation fast path with proto reuse
+
+**When:** `pkg/validate` runs on envelopes that already carry consistent proto + hash from ingest.
+
+**How:** Populate envelope via proto path before calling `validate.Engine.Validate` — structural validation may skip jsonformat re-parse when hash matches canonical JSON.
+
+### Round-trip JSON → proto → JSON for strict R4 subsets
+
+**When:** You need normalized output that drops non-schema fields (interop with strict Google R4 tooling).
+
+**How:** `ParseJSONToProto` → `ProtoToJSON`. Expect field loss for extensions not modeled in Google R4; compare hash with `types` normalization expectations before save.
+
 ## When to use it
 
 Use `pkg/proto` when you want to:
@@ -101,6 +198,18 @@ if proto.IsProtoResource(envelope.Proto) {
 ```
 
 When `resourceType` is non-empty, it must match the payload (for example `"Patient"`). Pass `""` to accept whatever type is in the JSON or proto.
+
+**Wrap an individual R4 message as ContainedResource:**
+
+```go
+cr, err := proto.AsContainedResource(patientMsg)
+```
+
+**Detect type mismatch early:**
+
+```go
+_, err := codec.ParseJSONToEnvelope("Observation", patientJSON) // error: type mismatch
+```
 
 ## Mental model
 
