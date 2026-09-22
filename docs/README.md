@@ -28,6 +28,8 @@ This directory is the entry point for project documentation. The [root README](.
 
 Each library under `pkg/` has a dedicated README: purpose, ecosystem role, usage modes, examples, and limits. Import path: `github.com/degoke/haistack/pkg/<name>`.
 
+Maintainers: follow the [package README standard](package-readme-standard.md) when adding or updating library docs.
+
 ### Foundation
 
 | Package | README | Role |
