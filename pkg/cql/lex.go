@@ -79,10 +79,6 @@ func (l *lexer) lookahead() token {
 	return t
 }
 
-func (l *lexer) checkpoint() int {
-	return l.pos
-}
-
 func (l *lexer) rewind(pos int) {
 	l.pos = pos
 	l.peek = nil

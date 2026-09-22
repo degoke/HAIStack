@@ -64,12 +64,12 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
 | `GET` | `/fhir/$export/files/{jobId}/{file}` | Download NDJSON artifact | 200 |
-| `GET`/`POST` | `/fhir/Measure/{id}/$evaluate-measure` | CQF Measure evaluation (`MeasureEvaluateService`) | 200 + MeasureReport |
-| `GET`/`POST` | `/fhir/Measure/$evaluate-measure` | Type-level measure evaluation (`measure` canonical) | 200 + MeasureReport |
 | `POST` | `/fhir/$import` | System bulk import kickoff (`Prefer: respond-async`, Parameters + NDJSON) | 202 + `Content-Location` when `BulkImportService` configured |
 | `GET` | `/fhir/$import/status/{jobId}` | Poll import status or fetch manifest | 202 in progress, 200 complete |
 | `DELETE` | `/fhir/$import/status/{jobId}` | Cancel import | 202 |
 | `GET` | `/fhir/$import/files/{jobId}/{file}` | Download import error NDJSON artifact | 200 |
+| `GET`/`POST` | `/fhir/Measure/{id}/$evaluate-measure` | CQF Measure evaluation (`MeasureEvaluateService`) | 200 + MeasureReport |
+| `GET`/`POST` | `/fhir/Measure/$evaluate-measure` | Type-level measure evaluation (`measure` canonical) | 200 + MeasureReport |
 | `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
 | `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
 | `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
@@ -167,7 +167,10 @@ func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.
 | `AuthMiddleware` | no | nil | Custom outer middleware |
 | `PrincipalResolver` | no | nil | Identity extraction when auth enabled |
 | `AuthChecker` | no | nil | Read/write/search authorization |
+| `SDCService` | no | nil | SDC operations on Questionnaire / QuestionnaireResponse (`$populate`, `$assemble`, …) |
 | `MeasureEvaluateService` | no | nil | Measure/$evaluate-measure (MeasureReport) |
+| `BulkExportService` | no | nil | FHIR Bulk Data `$export` kickoff and status |
+| `BulkImportService` | no | nil | FHIR Bulk Data `$import` kickoff and status |
 | `OperationService` | no | nil | Generic custom `$operation` execution |
 | `RateLimit` | no | disabled | Process-local fixed-window request limiter |
 
