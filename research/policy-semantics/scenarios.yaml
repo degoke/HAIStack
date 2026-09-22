@@ -4,8 +4,9 @@ version: "1"
 # Policy documents, roles, and principals live in this file (portable pkg/auth DSL).
 # observation-only grants clinician *.read so SMART user/*.read satisfies
 # RequiredPermissions; policy rules still narrow the allowed resource types.
-# Patient overlay is examples 6–7 (action: read + patientId). The runner
-# supports action: patient-access; this catalogue does not use it.
+# Patient overlay: examples 6–7 (Patient read + patientId); 15–16
+# (Observation read + patientId + resource.subject). The runner supports
+# action: patient-access; this catalogue does not use it.
 # Device push and module install are pkg/auth engine paths, not catalogue
 # actions (the runner rejects push-device-event and install-module).
 roles:
@@ -242,4 +243,42 @@ scenarios:
     action: read
     resourceType: Appointment
     resourceId: a1
+    expectAllow: false
+
+  - name: patient_overlay_allows_observation_in_compartment
+    doc: "Example 15 — launch patient pat-1 may read Observation whose subject is pat-1."
+    principal: clinician
+    scopes: launch/patient user/Observation.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-1
+    patientId: pat-1
+    resource:
+      resourceType: Observation
+      id: obs-1
+      status: final
+      subject:
+        reference: Patient/pat-1
+      code:
+        text: toy
+    expectAllow: true
+
+  - name: patient_overlay_denies_observation_other_compartment
+    doc: "Example 16 — launch patient pat-1 cannot read Observation whose subject is pat-2."
+    principal: clinician
+    scopes: launch/patient user/Observation.read
+    policy: observation-only
+    action: read
+    resourceType: Observation
+    resourceId: obs-2
+    patientId: pat-1
+    resource:
+      resourceType: Observation
+      id: obs-2
+      status: final
+      subject:
+        reference: Patient/pat-2
+      code:
+        text: toy
     expectAllow: false

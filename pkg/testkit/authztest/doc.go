@@ -22,8 +22,10 @@
 // scopes, action, resourceType, and policy are required (no clinician /
 // user/*.read / read / Patient / base fallbacks).
 //
-// Optional JSON catalogues can be loaded with LoadDeclarativeFile and
-// RunDeclarative (consent overlays skipped).
+// Optional JSON fixtures under testdata/ (declarative-scenarios.json) can be
+// loaded with LoadDeclarativeFile and RunDeclarative for compartment overlay
+// and legacy BaseConfig cases; consent overlays are skipped. Track C publishes
+// scenarios.yaml only.
 //
 // This package is for tests and the Track C research CLI
 // (research/policy-semantics), which issue #11 places in authztest. Other

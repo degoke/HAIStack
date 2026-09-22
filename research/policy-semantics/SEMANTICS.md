@@ -89,7 +89,7 @@ allowed = ScopeImplies(resource, verb) && engine.Can*(...).Allowed
 ## Worked examples
 
 The machine-readable catalogue is [`scenarios.yaml`](scenarios.yaml).
-Narrative copies of all fourteen cases. Where `user/*.read` would require
+Narrative copies of all sixteen cases. Where `user/*.read` would require
 clinician `*.read` for SMART `RequiredPermissions`, the YAML overlays that
 permission (`policyRoleGrants` on `observation-only`, or per-scenario
 `roleGrants`) so the interesting gate is still scope ∩ policy:
@@ -130,9 +130,16 @@ permission (`policyRoleGrants` on `observation-only`, or per-scenario
 13. **Backend system scope allow.** `system/*.read` on a service principal ∩
     observation-only → Observation allow.
 14. **Backend system scope deny.** Same token ∩ observation-only →
-    Appointment deny (policy narrowing). Patient-compartment overlay is
-    examples 6–7 (`action: read` plus `patientId`), not a separate
-    `patient-access` catalogue case.
+    Appointment deny (policy narrowing).
+15. **Observation compartment allow.** `launch/patient user/Observation.read`
+    with `patientId: pat-1` reading an Observation whose `subject` is
+    `Patient/pat-1` → allow (policy and overlay agree).
+16. **Observation compartment deny.** Same launch patient reading an
+    Observation whose `subject` is `Patient/pat-2` → deny (compartment
+    mismatch). Patient reads use `Patient.id` (examples 6–7); other types
+    may include an optional `resource` body so the runner resolves
+    `Observation.subject` / `Appointment.participant.actor`. This catalogue
+    does not use a separate `patient-access` action.
 
 ## Consent overlay (not a second engine)
 

@@ -28,8 +28,8 @@ func TestCatalogSize(t *testing.T) {
 	}
 }
 
-func TestResearchDeclarativeCatalog(t *testing.T) {
-	path, err := authztest.ResearchCatalogPath()
+func TestDeclarativeFixtureCatalog(t *testing.T) {
+	path, err := authztest.DeclarativeFixturePath()
 	if err != nil {
 		t.Skip(err)
 	}

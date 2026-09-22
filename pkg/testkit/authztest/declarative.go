@@ -11,9 +11,11 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
-// DeclarativeScenario is a portable principal+policy+request case. It matches
-// the JSON published under research/policy-semantics/testdata/scenarios.json.
-// Consent overlays are research-only and skipped by RunDeclarative.
+// DeclarativeScenario is a portable principal+policy+request case for tests.
+// The canonical Track C artefact is research/policy-semantics/scenarios.yaml.
+// JSON fixtures (testdata/declarative-scenarios.json) exercise compartment
+// overlay via resource bodies and legacy BaseConfig policies in tests only.
+// Consent overlays are skipped by RunDeclarative.
 type DeclarativeScenario struct {
 	ID            string          `json:"id"`
 	Doc           string          `json:"doc"`
@@ -37,7 +39,7 @@ type declarativeFile struct {
 	Scenarios []DeclarativeScenario `json:"scenarios"`
 }
 
-// LoadDeclarativeFile reads a published scenario catalogue.
+// LoadDeclarativeFile reads a JSON scenario fixture from disk.
 func LoadDeclarativeFile(path string) ([]DeclarativeScenario, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -237,14 +239,13 @@ func findGoMod(start string) string {
 	return ""
 }
 
-// ResearchCatalogPath returns the published policy-semantics JSON catalogue
-// when this checkout contains research/policy-semantics/testdata/scenarios.json.
-func ResearchCatalogPath() (string, error) {
+// DeclarativeFixturePath returns the authztest JSON compartment-overlay fixture.
+func DeclarativeFixturePath() (string, error) {
 	root := findGoMod(".")
 	if root == "" {
 		return "", fmt.Errorf("authztest: go.mod not found from working directory")
 	}
-	path := filepath.Join(root, "research", "policy-semantics", "testdata", "scenarios.json")
+	path := filepath.Join(root, "pkg", "testkit", "authztest", "testdata", "declarative-scenarios.json")
 	if _, err := os.Stat(path); err != nil {
 		return "", err
 	}
