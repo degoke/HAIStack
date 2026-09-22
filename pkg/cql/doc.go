@@ -31,7 +31,8 @@
 //   - retrieve [ResourceType] (optional terminology) and related-context aliases
 //   - queries: from / where / return / sort / with / without / let
 //   - Interval values and operators (in, contains, during, includes, overlaps, starts, ends, before, after)
-//   - Quantity literals (5 'mg', 1 year) and duration in years/months/days
+//   - Quantity literals (5 'mg', 1 year), UCUM-aware quantity +/-, and duration in years/months/days
+//   - List membership helpers (in, contains, distinct, intersect, except, IndexOf, Mode) use equivalence (~)
 //   - codesystem / valueset / code declarations
 //   - retrieve and `in` filters against Coding/CodeableConcept (MemberOf when Config.Terminology is set)
 //   - First, Last, Count, Exists, AgeInYears, ToString, ToInterval, Min/Max/Sum and related helpers

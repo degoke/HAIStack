@@ -843,10 +843,22 @@ func intervalWidth(iv Interval) ([]any, error) {
 	return nil, nil
 }
 
-func evalQuantityArith(op string, a, b Quantity) ([]any, error) {
+func evalQuantityArith(op string, a, b Quantity, conv UCUMConverter) ([]any, error) {
+	if conv == nil {
+		conv = defaultUCUM
+	}
 	if !sameUnit(a.Unit, b.Unit) && !isTimeUnit(a.Unit) {
 		if op == "+" || op == "-" {
-			return nil, nil
+			if !quantitySameDimension(a.Unit, b.Unit, conv) {
+				return nil, nil
+			}
+			if convB, ok := convertQuantityValue(b, a.Unit, conv); ok {
+				b = convB
+			} else if convA, ok := convertQuantityValue(a, b.Unit, conv); ok {
+				a = convA
+			} else {
+				return nil, nil
+			}
 		}
 	}
 	ua, ub := a.Value, b.Value

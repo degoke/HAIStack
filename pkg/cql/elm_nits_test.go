@@ -1459,6 +1459,38 @@ func TestReviewNitsRound8(t *testing.T) {
 	}
 }
 
+func TestReviewNitsRound11(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "5 'mg' + 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := asQuantity(got[0])
+	if !ok || q.Unit != "mg" || q.Value != 10 {
+		t.Fatalf("quantity add UCUM: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "10 'mg' - 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Unit != "mg" || q.Value != 5 {
+		t.Fatalf("quantity subtract UCUM: %#v", got)
+	}
+	mul, err := eng.Eval(context.Background(), "(1 'mg' : 1 'mL') * (1 'mg' : 1000 'mL')", EvalContext{})
+	if err != nil || len(mul) != 1 {
+		t.Fatalf("ratio multiply with same-dimension UCUM factors: %#v err=%v", mul, err)
+	}
+	got, err = eng.Eval(context.Background(), "5 'mg' ~ 5000 'ug'", EvalContext{})
+	if err != nil || len(got) != 1 || got[0] != true {
+		t.Fatalf("equivalence after fast-path removal: %#v err=%v", got, err)
+	}
+	got, err = eng.Eval(context.Background(), "5 'mg' = 5000 'ug'", EvalContext{})
+	if err != nil || len(got) != 1 || got[0] != false {
+		t.Fatalf("strict quantity = unchanged: %#v err=%v", got, err)
+	}
+}
+
 func TestReviewNitsRound10(t *testing.T) {
 	eng := testEngine(t)
 	got, err := eng.Eval(context.Background(), "IndexOf({5 'mg'}, 5000 'ug')", EvalContext{})

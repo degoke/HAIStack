@@ -1366,8 +1366,8 @@ func evalRatioArith(op string, a, b Ratio, conv UCUMConverter) ([]any, error) {
 		}
 		return []any{simplifyRatio(out)}, nil
 	case "*":
-		numVal, ok1 := multiplyQuantityValues(a.Numerator, b.Denominator)
-		denVal, ok2 := multiplyQuantityValues(a.Denominator, b.Numerator)
+		numVal, ok1 := quantityRatioTerm(a.Numerator, b.Denominator, conv)
+		denVal, ok2 := quantityRatioTerm(a.Denominator, b.Numerator, conv)
 		if !ok1 || !ok2 || denVal == 0 {
 			return nil, nil
 		}
@@ -1379,8 +1379,13 @@ func evalRatioArith(op string, a, b Ratio, conv UCUMConverter) ([]any, error) {
 		if b.Numerator.Value == 0 {
 			return nil, nil
 		}
-		num := Quantity{Value: a.Numerator.Value * b.Denominator.Value, Unit: a.Numerator.Unit}
-		den := Quantity{Value: a.Denominator.Value * b.Numerator.Value, Unit: a.Denominator.Unit}
+		numV, ok1 := quantityRatioTerm(a.Numerator, b.Denominator, conv)
+		denV, ok2 := quantityRatioTerm(a.Denominator, b.Numerator, conv)
+		if !ok1 || !ok2 || denV == 0 {
+			return nil, nil
+		}
+		num := Quantity{Value: numV, Unit: a.Numerator.Unit}
+		den := Quantity{Value: denV, Unit: a.Denominator.Unit}
 		if isDimensionlessUnit(num.Unit) {
 			num.Unit = a.Numerator.Unit
 		}

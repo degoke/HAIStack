@@ -36,7 +36,8 @@ expressions should share named clinical logic, or when evaluating a Measure.
 - retrieve `[ResourceType]` and related-context aliases (`[Observation] O`)
 - queries: `from` / `where` / `return` / `sort by` / `with` / `without` / `let`
 - `Interval` values and operators (`in`, `contains`, `during`, `includes`, `overlaps`, …)
-- Quantity literals (`5 'mg'`, `1 year`) and `duration in years between`
+- Quantity literals (`5 'mg'`, `1 year`) and `duration in years between`; quantity `+`/`-` convert compatible units via `Config.UCUM`
+- List `in` / `contains` / `distinct` / `intersect` / `except` / `union` dedupe / `IndexOf` / `Mode` use equivalence (`~`) for membership, not strict `=`
 - `codesystem` / `valueset` / `code` declarations
 - retrieve and `in` filters against FHIR `Coding` / `CodeableConcept` (value-set `MemberOf` when `Config.Terminology` is set)
 - `First`, `Last`, `Count`, `Exists`, `AgeInYears`, `ToString`, `ToInterval`, `Min` / `Max` / `Sum` and related helpers
