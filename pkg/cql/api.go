@@ -63,12 +63,13 @@ type Library struct {
 
 // Function is a named CQL function (define function / define fluent function).
 type Function struct {
-	Name   string
-	Access string
-	Fluent bool
-	Params []FunctionParam
-	Body   Node
-	Source string
+	Name       string
+	Access     string
+	Fluent     bool
+	Params     []FunctionParam
+	ReturnType string
+	Body       Node
+	Source     string
 }
 
 // FunctionParam is a CQL function operand.

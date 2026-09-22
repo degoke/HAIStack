@@ -3408,6 +3408,61 @@ func TestAsDateDateTimePromotion(t *testing.T) {
 	if !ok || tm.Year() != 2020 || tm.Month() != time.January || tm.Day() != 1 {
 		t.Fatalf("promoted DateTime: %#v", got[0])
 	}
+	got, err = eng.Eval(context.Background(), "1.0 as Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != int64(1) && got[0] != 1 {
+		t.Fatalf("1.0 as Integer: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "1.5 as Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("1.5 as Integer must be null: %#v", got)
+	}
+}
+
+func TestFunctionReturnsListType(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library P version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define function "Ones"() returns List<Integer>:
+  {1}
+define "T":
+  {id: Ones()}
+define "In":
+  Ones() in {{1}}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.Functions) != 1 || lib.Functions[0].ReturnType != "List<Integer>" {
+		t.Fatalf("return type: %#v", lib.Functions)
+	}
+	ctx := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "T", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, ok := asObject(got[0])
+	if !ok {
+		t.Fatalf("T: %#v", got)
+	}
+	id, ok := obj["id"].([]any)
+	if !ok || len(id) != 1 {
+		t.Fatalf("T id: %#v", obj["id"])
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "In", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("In: %#v", got)
+	}
 }
 
 func TestZeroArgFunctionListTyping(t *testing.T) {

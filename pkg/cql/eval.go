@@ -2515,16 +2515,21 @@ func (st *evalState) isListValuedExprVisit(n Node, listLets map[string]bool, vis
 			visiting[key] = true
 			return st.isListValuedExprVisit(def.Expression, listLets, visiting)
 		}
-		if fn, _ := st.lookupFunction(x.name); fn != nil && len(fn.Params) == 0 && fn.Body != nil {
-			key := "fn:" + strings.ToLower(x.name)
-			if visiting != nil && visiting[key] {
-				return false
+		if fn, _ := st.lookupFunction(x.name); fn != nil && len(fn.Params) == 0 {
+			if isListParameterType(fn.ReturnType) {
+				return true
 			}
-			if visiting == nil {
-				visiting = map[string]bool{}
+			if fn.Body != nil {
+				key := "fn:" + strings.ToLower(x.name)
+				if visiting != nil && visiting[key] {
+					return false
+				}
+				if visiting == nil {
+					visiting = map[string]bool{}
+				}
+				visiting[key] = true
+				return st.isListValuedExprVisit(fn.Body, listLets, visiting)
 			}
-			visiting[key] = true
-			return st.isListValuedExprVisit(fn.Body, listLets, visiting)
 		}
 		return false
 	case *binaryNode:
@@ -2537,16 +2542,21 @@ func (st *evalState) isListValuedExprVisit(n Node, listLets map[string]bool, vis
 		if !ok {
 			return false
 		}
-		if fn, _ := st.lookupFunction(name); fn != nil && len(fn.Params) == len(x.args) && fn.Body != nil {
-			key := "fn:" + strings.ToLower(name)
-			if visiting != nil && visiting[key] {
-				return false
+		if fn, _ := st.lookupFunction(name); fn != nil && len(fn.Params) == len(x.args) {
+			if isListParameterType(fn.ReturnType) {
+				return true
 			}
-			if visiting == nil {
-				visiting = map[string]bool{}
+			if fn.Body != nil {
+				key := "fn:" + strings.ToLower(name)
+				if visiting != nil && visiting[key] {
+					return false
+				}
+				if visiting == nil {
+					visiting = map[string]bool{}
+				}
+				visiting[key] = true
+				return st.isListValuedExprVisit(fn.Body, listLets, visiting)
 			}
-			visiting[key] = true
-			return st.isListValuedExprVisit(fn.Body, listLets, visiting)
 		}
 	}
 	return false
@@ -2983,6 +2993,13 @@ func isIntLike(v any) bool {
 	return false
 }
 
+func isWholeNumber(f float64) bool {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return false
+	}
+	return f == math.Trunc(f)
+}
+
 // cqlEqual is the package-default strict equality helper (default UCUM for ratios/interval bounds).
 func cqlEqual(a, b any) bool {
 	return cqlEqualWithUCUM(a, b, defaultUCUM)
@@ -3289,11 +3306,29 @@ func typeCompatible(v any, target string) bool {
 	if strings.EqualFold(target, "Date") && typeEquals(v, "DateTime") {
 		return true
 	}
+	if (strings.EqualFold(target, "Integer") || strings.EqualFold(target, "Long")) && typeEquals(v, "Decimal") {
+		f, ok := asFloat(unwrapPrimitive(v))
+		return ok && isWholeNumber(f)
+	}
+	if strings.EqualFold(target, "Time") && typeEquals(v, "DateTime") {
+		return true
+	}
+	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Time") {
+		return true
+	}
 	return false
 }
 
 func promoteAsValue(v any, target string) any {
 	v = unwrapPrimitive(v)
+	if strings.EqualFold(target, "Integer") || strings.EqualFold(target, "Long") {
+		if typeEquals(v, "Decimal") {
+			f, ok := asFloat(v)
+			if ok && isWholeNumber(f) {
+				return int64(f)
+			}
+		}
+	}
 	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Date") {
 		if t, ok := asTime(v); ok && isDateOnlyTime(t) {
 			loc := t.Location()
@@ -3310,6 +3345,24 @@ func promoteAsValue(v any, target string) any {
 				loc = time.UTC
 			}
 			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	if strings.EqualFold(target, "Time") && typeEquals(v, "DateTime") {
+		if t, ok := asTime(v); ok {
+			loc := t.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
+			return time.Date(1, 1, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+		}
+	}
+	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Time") {
+		if t, ok := asTime(v); ok && isTimeOnlyTime(t) {
+			loc := t.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
+			return time.Date(1, 1, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
 		}
 	}
 	return v

@@ -253,6 +253,17 @@ func (p *parser) parseFunction(access string, fluent bool) (Function, error) {
 			break
 		}
 	}
+	retType := ""
+	if p.acceptKeyword("returns") {
+		retType = p.parseOptionalTypeName()
+		if retType == "" {
+			rt, err := p.requireName("function return type")
+			if err != nil {
+				return Function{}, err
+			}
+			retType = rt
+		}
+	}
 	if !p.acceptKind(tColon) {
 		return Function{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' after function %s", name)
 	}
@@ -269,12 +280,13 @@ func (p *parser) parseFunction(access string, fluent bool) (Function, error) {
 		end = len(p.src)
 	}
 	return Function{
-		Name:   name,
-		Access: access,
-		Fluent: fluent,
-		Params: params,
-		Body:   body,
-		Source: strings.TrimSpace(p.src[start:end]),
+		Name:       name,
+		Access:     access,
+		Fluent:     fluent,
+		Params:     params,
+		ReturnType: retType,
+		Body:       body,
+		Source:     strings.TrimSpace(p.src[start:end]),
 	}, nil
 }
 
