@@ -466,14 +466,6 @@ func intervalBound(v any) any {
 	return v
 }
 
-func intervalContainsResult(iv Interval, point any, properly bool, vcmp compareCtx) ([]any, error) {
-	ok, comparable := intervalContains(iv, point, properly, vcmp)
-	if !comparable {
-		return nil, nil
-	}
-	return []any{ok}, nil
-}
-
 func intervalContainsAll(iv Interval, points []any, vcmp compareCtx) ([]any, error) {
 	unknown := false
 	for _, item := range points {

@@ -1784,10 +1784,6 @@ func TestRetrieveCodeCaseIsExact(t *testing.T) {
 	if len(got) != 1 || got[0] != int64(1) {
 		t.Fatalf("exact code: %#v", got)
 	}
-	got, err = eng.Eval(context.Background(), `[Observation: '8867-4'].count()`, env)
-	if err != nil {
-		t.Fatal(err)
-	}
 	got, err = eng.Eval(context.Background(), `[Observation: code = '8867-4'].count()`, env)
 	if err != nil {
 		t.Fatal(err)

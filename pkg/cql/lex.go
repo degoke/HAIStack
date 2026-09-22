@@ -201,7 +201,7 @@ func (l *lexer) skipIgnored() {
 				continue
 			case '*':
 				l.pos += 2
-				for l.pos+1 < len(l.src) && !(l.src[l.pos] == '*' && l.src[l.pos+1] == '/') {
+				for l.pos+1 < len(l.src) && (l.src[l.pos] != '*' || l.src[l.pos+1] != '/') {
 					l.pos++
 				}
 				if l.pos+1 < len(l.src) {

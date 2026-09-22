@@ -2148,10 +2148,6 @@ func (st *evalState) evalDateComponent(v []any, component string) ([]any, error)
 	if !ok {
 		return nil, nil
 	}
-	loc := tm.Location()
-	if loc == nil {
-		loc = time.UTC
-	}
 	switch strings.ToLower(strings.TrimSpace(component)) {
 	case "date":
 		return []any{time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, dateOnlyLoc)}, nil
@@ -2365,13 +2361,6 @@ func singletonOrList(v []any) any {
 		return v[0]
 	}
 	return v
-}
-
-func singletonOrEmpty(v []any) any {
-	if len(v) == 0 {
-		return ""
-	}
-	return unwrapPrimitive(v[0])
 }
 
 func asBool(v []any) *bool {
@@ -3047,10 +3036,6 @@ func existsNonNull(v []any) bool {
 	return false
 }
 
-func cqlEquivalent(a, b any) bool {
-	return cqlEquivalentUCUM(a, b, nil)
-}
-
 func asCodeLike(v any) (fhirCoding, bool) {
 	switch x := v.(type) {
 	case Code:
@@ -3096,10 +3081,6 @@ func clockInZone(t time.Time) time.Time {
 		return t.UTC()
 	}
 	return t
-}
-
-func cqlCompare(a, b any) (int, bool) {
-	return cqlCompareUCUM(a, b, nil)
 }
 
 func (st *evalState) containsMember(list []any, item any) bool {

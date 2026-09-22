@@ -412,30 +412,6 @@ func (p *parser) parseNamedURL(kind string) (name, url string, err error) {
 	return name, url, nil
 }
 
-func (p *parser) skipNamedDeclaration() error {
-	if _, err := p.requireName("declaration name"); err != nil {
-		return err
-	}
-	if !p.acceptKind(tColon) {
-		return parseError(p.src, p.lex.lookahead().pos, "expected ':' in declaration")
-	}
-	if p.lex.lookahead().kind == tString {
-		p.lex.next()
-	} else if _, err := p.requireName("declaration value"); err != nil {
-		return err
-	}
-	_ = p.acceptKeyword("from")
-	if p.lex.lookahead().kind == tQuotedIdent || p.lex.lookahead().kind == tIdent {
-		p.lex.next()
-	}
-	if p.acceptKeyword("display") {
-		if p.lex.lookahead().kind == tString {
-			p.lex.next()
-		}
-	}
-	return nil
-}
-
 func resolveTerminologyDecls(lib *Library) {
 	if lib == nil {
 		return
@@ -617,7 +593,7 @@ func (p *parser) parseTypeSuffix(n Node) (Node, error) {
 	for {
 		if p.acceptKeyword("is") {
 			not := p.acceptKeyword("not")
-			target := "null"
+			var target string
 			if p.acceptKeyword("null") {
 				target = "null"
 			} else {

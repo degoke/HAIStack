@@ -1334,7 +1334,7 @@ func TestELMToTimeAndCoalesce(t *testing.T) {
 		t.Fatalf("Coalesce: %#v", got)
 	}
 	got = evalELMExpr(t, map[string]any{"type": "Coalesce", "operand": []any{map[string]any{"type": "Null"}}})
-	if got != nil && len(got) != 0 {
+	if len(got) != 0 {
 		t.Fatalf("Coalesce all null: %#v", got)
 	}
 	eng := testEngine(t)

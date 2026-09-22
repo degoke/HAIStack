@@ -265,10 +265,7 @@ func withCurrent(libs []*Library, current *Library) []*Library {
 }
 
 func requiresPatient(env EvalContext, libs []*Library) bool {
-	if strings.EqualFold(envLanguageContext(env, libs), "Patient") {
-		return true
-	}
-	return false
+	return strings.EqualFold(envLanguageContext(env, libs), "Patient")
 }
 
 func envLanguageContext(env EvalContext, libs []*Library) string {
