@@ -21,7 +21,7 @@ The CLI loads `scenarios.yaml` (≥10 cases) and executes them against
 | File | Contents |
 |------|----------|
 | [SEMANTICS.md](SEMANTICS.md) | Decision algorithm, first-match, deny-by-default, patient overlay, scope ∩ policy |
-| [scenarios.yaml](scenarios.yaml) | Machine-readable cases: principal + scopes + policy + request → expected decision (no consent-state field) |
+| [scenarios.yaml](scenarios.yaml) | Machine-readable cases: principal + scopes + policy + request → expected decision (optional `resource` for compartment overlay; no consent-state field) |
 | [consent-patterns.md](consent-patterns.md) | R4 Consent / R5 Permission compile sketches; not an in-engine Consent suite |
 
 ## Runner
@@ -46,6 +46,12 @@ Catalogue actions are `read`, `write`, `execute-view`, and
 `read`; this catalogue does not use it. Track C is the exception to
 “testkit is tests-only”: the YAML catalogue is the artefact. Tracks A and E
 do **not** import `pkg/testkit`.
+
+Compartment overlay for non-Patient reads uses optional `resource` bodies in
+YAML (examples 15–16). Additional JSON fixtures under
+`pkg/testkit/authztest/testdata/` exercise the same overlay helpers with
+legacy `BaseConfig` policies in unit tests only; they are not a second
+published catalogue.
 
 This catalogue is vendor-neutral: the YAML does not mention HAPI, Firely,
 or other servers. Adapters can replay the same principal/scope/request

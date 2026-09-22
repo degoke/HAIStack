@@ -18,7 +18,7 @@ import (
 )
 
 func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {
-	return openPostgresSearchHarnessTypes(t, "Patient", "Observation")
+	return openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Encounter")
 }
 
 func openPostgresSearchHarnessTypes(t *testing.T, types ...string) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {
@@ -508,7 +508,7 @@ func TestPostgresTwoHopChain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres integration test in short mode")
 	}
-	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Organization")
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Organization", "Encounter")
 	defer cleanup()
 	ctx := context.Background()
 
@@ -540,7 +540,7 @@ func TestPostgresUriBelowAndWildcardInclude(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping postgres integration test in short mode")
 	}
-	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Questionnaire")
+	svc, searchSvc, _, _, cleanup := openPostgresSearchHarnessTypes(t, "Patient", "Observation", "Questionnaire", "Encounter")
 	defer cleanup()
 	ctx := context.Background()
 

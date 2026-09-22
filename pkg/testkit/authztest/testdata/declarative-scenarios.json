@@ -1,0 +1,293 @@
+{
+  "version": "1",
+  "scenarios": [
+    {
+      "id": "deny_by_default_unmatched_resource",
+      "doc": "Clinician without a matching rule is denied MedicationRequest read.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "read",
+      "resourceType": "MedicationRequest",
+      "resourceId": "rx-1",
+      "expectAllow": false
+    },
+    {
+      "id": "first_match_deny_wins",
+      "doc": "First matching deny rule wins even when a later allow would match.",
+      "principal": "clinician",
+      "policy": "deny-first",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "expectAllow": false
+    },
+    {
+      "id": "first_match_allow",
+      "doc": "Base policy allows clinician Appointment read on first match.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "expectAllow": true
+    },
+    {
+      "id": "patient_scope_same_patient",
+      "doc": "Patient-scoped principal may read their own Patient resource.",
+      "principal": "clinician",
+      "policy": "base",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Patient",
+      "resourceId": "pat-1",
+      "expectAllow": true
+    },
+    {
+      "id": "patient_scope_other_patient",
+      "doc": "Patient-scoped principal cannot read a different Patient id.",
+      "principal": "clinician",
+      "policy": "base",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Patient",
+      "resourceId": "pat-2",
+      "expectAllow": false
+    },
+    {
+      "id": "patient_scope_observation_same_compartment",
+      "doc": "Patient-scoped principal may read an Observation whose subject is their patient.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
+      "expectAllow": true
+    },
+    {
+      "id": "patient_scope_observation_other_compartment",
+      "doc": "Patient-scoped principal cannot read an Observation whose subject is a different patient.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-2",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-2" },
+        "code": { "text": "toy" }
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "patient_scope_appointment_other_compartment",
+      "doc": "Patient-scoped principal cannot read an Appointment whose participant is a different patient.",
+      "principal": "clinician",
+      "policy": "base",
+      "patientScope": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a2",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a2",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-2" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "smart_patient_scope_appointment_other_compartment",
+      "doc": "SMART launch patient cannot read an Appointment whose participant is a different patient.",
+      "principal": "clinician",
+      "policy": "base",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a2",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a2",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-2" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "smart_scope_allows_policy_denies",
+      "doc": "SMART patient/*.read is narrowed by an Observation-only policy.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "smart_scope_and_policy_allow_observation",
+      "doc": "SMART patient/*.read with Observation-only policy allows Observation read.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
+      "expectAllow": true
+    },
+    {
+      "id": "smart_scope_denies_policy_would_allow",
+      "doc": "Observation-only SMART scope cannot read Appointment even when policy would allow.",
+      "principal": "clinician",
+      "policy": "base",
+      "scopes": "patient/Observation.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "smart_scope_denies_write",
+      "doc": "Appointment.read SMART scope cannot write Appointment even when policy allows write.",
+      "principal": "clinician",
+      "policy": "base",
+      "scopes": "patient/Appointment.read",
+      "launchPatient": "pat-1",
+      "action": "write",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a1",
+        "status": "booked",
+        "participant": [{ "actor": { "reference": "Patient/pat-1" }, "status": "accepted" }]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "cross_tenant_denied",
+      "doc": "Principal bound to tenant-a cannot act in tenant-b.",
+      "principal": "clinician",
+      "policy": "base",
+      "tenant": "tenant-b",
+      "action": "read",
+      "resourceType": "Appointment",
+      "resourceId": "a1",
+      "expectAllow": false
+    },
+    {
+      "id": "purpose_of_use_mismatch",
+      "doc": "Treat-only rule does not match ETREAT purpose of use.",
+      "principal": "clinician",
+      "policy": "treat-only",
+      "purposeOfUse": "ETREAT",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-1",
+      "expectAllow": false
+    },
+    {
+      "id": "consent_permit_observation",
+      "doc": "Active Consent permit on Observation does not block an otherwise allowed read.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
+      "consent": {
+        "status": "active",
+        "patientId": "pat-1",
+        "provisionType": "permit",
+        "resourceTypes": ["Observation"],
+        "actions": ["read"]
+      },
+      "expectAllow": true
+    },
+    {
+      "id": "consent_deny_observation",
+      "doc": "Active Consent deny on Observation blocks a read that scopes and policy would allow.",
+      "principal": "clinician",
+      "policy": "narrow-observation",
+      "scopes": "patient/*.read",
+      "launchPatient": "pat-1",
+      "action": "read",
+      "resourceType": "Observation",
+      "resourceId": "obs-1",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1",
+        "status": "final",
+        "subject": { "reference": "Patient/pat-1" },
+        "code": { "text": "toy" }
+      },
+      "consent": {
+        "status": "active",
+        "patientId": "pat-1",
+        "provisionType": "deny",
+        "resourceTypes": ["Observation"],
+        "actions": ["read"]
+      },
+      "expectAllow": false
+    },
+    {
+      "id": "ai_tool_run_view_allowed",
+      "doc": "Base policy allows the run_view AI tool.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "execute-ai-tool",
+      "toolName": "run_view",
+      "expectAllow": true
+    },
+    {
+      "id": "ai_tool_write_denied",
+      "doc": "write_fhir_resource is denied by default.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "execute-ai-tool",
+      "toolName": "write_fhir_resource",
+      "expectAllow": false
+    }
+  ]
+}

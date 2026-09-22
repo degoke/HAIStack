@@ -63,9 +63,16 @@ func (f AuditLoggerFunc) LogModelInvoke(ctx context.Context, rec AuditRecord) er
 // AuditStoreAdapter writes AI audit records through pkg/audit into a
 // store.AuditStore. Action naming is owned by pkg/audit: ExecuteTool maps to
 // execute-tool, and InvokeModel maps to invoke-model.
+// Set NewID for deterministic event IDs (research provenance bundles);
+// the default is a UUID.
 type AuditStoreAdapter struct {
 	Store store.AuditStore
 	Now   func() time.Time
+	NewID func() string
+}
+
+func (a *AuditStoreAdapter) storeLogger() *audit.StoreAdapter {
+	return &audit.StoreAdapter{Store: a.Store, Now: a.Now, NewID: a.NewID}
 }
 
 // LogToolAccess converts an ExecuteTool ai.AuditRecord to execute-tool.
@@ -73,7 +80,7 @@ func (a *AuditStoreAdapter) LogToolAccess(ctx context.Context, rec AuditRecord) 
 	if a == nil || a.Store == nil {
 		return nil
 	}
-	return audit.LogAIToolCall(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, toolCallEvent(rec))
+	return audit.LogAIToolCall(ctx, a.storeLogger(), toolCallEvent(rec))
 }
 
 // LogModelInvoke converts an InvokeModel ai.AuditRecord to invoke-model.
@@ -84,7 +91,7 @@ func (a *AuditStoreAdapter) LogModelInvoke(ctx context.Context, rec AuditRecord)
 	if rec.Action == "" {
 		rec.Action = audit.ActionInvokeModel
 	}
-	return audit.LogAIModelInvoke(ctx, &audit.StoreAdapter{Store: a.Store, Now: a.Now}, toolCallEvent(rec))
+	return audit.LogAIModelInvoke(ctx, a.storeLogger(), toolCallEvent(rec))
 }
 
 func toolCallEvent(rec AuditRecord) audit.AIToolCallEvent {

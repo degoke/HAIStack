@@ -12,11 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/audit"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
-type Coding struct{ System, Version, Code, Display string }
+type Coding struct {
+	System, Version, Code, Display, Equivalence string
+}
 type CodeableConcept struct {
 	Coding []Coding
 	Text   string
@@ -116,6 +119,10 @@ type LocalService struct {
 	MaxExpansion      int
 	NegativeLookupTTL time.Duration
 	RemoteTranslate   conceptmap.RemoteTranslateClient
+	translateAudit    audit.Logger
+	translateActor    string
+	translateTenant   string
+	translateNow      func() time.Time
 	mu                sync.RWMutex
 	lookupCache       map[string]lookupCacheEntry
 	expandCache       map[string]*Expansion
@@ -128,6 +135,17 @@ type LocalServiceOption func(*LocalService)
 func WithMaxExpansion(max int) LocalServiceOption {
 	return func(s *LocalService) {
 		s.MaxExpansion = max
+	}
+}
+
+// WithTranslateAudit emits terminology.translate events from Translate using
+// the ConceptMap the translator resolved.
+func WithTranslateAudit(logger audit.Logger, actor, tenant string, now func() time.Time) LocalServiceOption {
+	return func(s *LocalService) {
+		s.translateAudit = logger
+		s.translateActor = actor
+		s.translateTenant = tenant
+		s.translateNow = now
 	}
 }
 

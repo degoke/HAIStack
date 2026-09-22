@@ -2,6 +2,7 @@ package authztest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -56,6 +57,7 @@ type YAMLScenario struct {
 	ToolName       string                       `yaml:"toolName"`
 	PatientID      string                       `yaml:"patientId"`
 	PatientScope   string                       `yaml:"patientScope"`
+	Resource       map[string]interface{}       `yaml:"resource,omitempty"`
 	Tenant         string                       `yaml:"tenant"`
 	ExpectAllow    bool                         `yaml:"expectAllow"`
 }
@@ -178,12 +180,14 @@ func evaluateYAMLIntersection(ctx context.Context, eng *auth.Engine, adapter *sm
 		scopeOK = adapter.ScopeImplies(bundle, spec.ResourceType, smart.VerbRead)
 		req := adapter.ToReadRequest(bundle, spec.ResourceType, spec.ResourceID)
 		req.Tenant = overlayTenant(req.Tenant, spec)
+		req.PatientID = yamlOverlayPatientID(spec)
 		decision, err = eng.CanReadResource(ctx, req)
 		return scopeOK, decision, err
 	case auth.ActionWrite:
 		scopeOK = adapter.ScopeImplies(bundle, spec.ResourceType, smart.VerbWrite)
 		req := adapter.ToWriteRequest(bundle, "update", spec.ResourceType, spec.ResourceID)
 		req.Tenant = overlayTenant(req.Tenant, spec)
+		req.PatientID = yamlOverlayPatientID(spec)
 		decision, err = eng.CanWriteResource(ctx, req)
 		return scopeOK, decision, err
 	case auth.ActionExecuteView:
@@ -211,6 +215,21 @@ func evaluateYAMLIntersection(ctx context.Context, eng *auth.Engine, adapter *sm
 	default:
 		return false, auth.Decision{}, fmt.Errorf("unsupported action %q", action)
 	}
+}
+
+// yamlOverlayPatientID applies SEMANTICS gate 2: Patient.id for Patient reads,
+// else compartment patient from optional resource body (Observation.subject, …).
+func yamlOverlayPatientID(spec YAMLScenario) string {
+	compartment := spec.PatientID
+	if len(spec.Resource) > 0 {
+		raw, err := json.Marshal(spec.Resource)
+		if err == nil {
+			if id := auth.CompartmentPatientFromJSON(spec.ResourceType, raw); id != "" {
+				compartment = id
+			}
+		}
+	}
+	return auth.OverlayPatientID(spec.ResourceType, spec.ResourceID, compartment)
 }
 
 func overlayTenant(tenant auth.TenantContext, spec YAMLScenario) auth.TenantContext {

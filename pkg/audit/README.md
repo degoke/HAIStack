@@ -42,6 +42,7 @@ _ = audit.LogAIToolCall(ctx, logger, audit.AIToolCallEvent{
 | `ActionAuthAllow` / `ActionAuthDeny` | `auth.allow` / `auth.deny` |
 | Sync/conflict | `sync.*` / `conflict.*` |
 | `ActionExport` / `ActionBlobAccess` | `export` / `blob.access` |
+| `ActionTerminologyTranslate` | `terminology.translate` |
 
 ## Where it fits
 

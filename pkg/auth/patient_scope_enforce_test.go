@@ -46,3 +46,44 @@ func TestCheckResourcePatientScope_PatientRead(t *testing.T) {
 		t.Fatal("expected deny for other patient")
 	}
 }
+
+func TestCompartmentPatientFromJSON(t *testing.T) {
+	if got := auth.CompartmentPatientFromJSON("Observation", []byte(`{"subject":{"reference":"Patient/pat-2"}}`)); got != "pat-2" {
+		t.Fatalf("Observation.subject = %q", got)
+	}
+	if got := auth.CompartmentPatientFromJSON("Appointment", []byte(`{"participant":[{"actor":{"reference":"Patient/pat-9"}}]}`)); got != "pat-9" {
+		t.Fatalf("Appointment.participant.actor = %q", got)
+	}
+	if got := auth.OverlayPatientID("Patient", "pat-1", "pat-9"); got != "pat-1" {
+		t.Fatalf("Patient.id = %q", got)
+	}
+	if got := auth.OverlayPatientID("Appointment", "a1", ""); got != "" {
+		t.Fatalf("missing compartment must not use a stand-in, got %q", got)
+	}
+}
+
+func TestCanReadResource_AppointmentCompartmentPatient(t *testing.T) {
+	eng := mustEngine(t, baseConfig())
+	scoped := auth.TenantContext{TenantID: "tenant-a", PatientScope: "pat-1", RoleBindings: []string{"clinician"}}
+	own, err := eng.CanReadResource(context.Background(), auth.ReadRequest{
+		Principal: clinician(), Tenant: scoped, ResourceType: "Appointment", ID: "a1", PatientID: "pat-1",
+	})
+	if err != nil || !own.Allowed {
+		t.Fatalf("same compartment: %#v err=%v", own, err)
+	}
+	other, err := eng.CanReadResource(context.Background(), auth.ReadRequest{
+		Principal: clinician(), Tenant: scoped, ResourceType: "Appointment", ID: "a2", PatientID: "pat-2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Allowed {
+		t.Fatal("other compartment must deny")
+	}
+	unresolved, err := eng.CanReadResource(context.Background(), auth.ReadRequest{
+		Principal: clinician(), Tenant: scoped, ResourceType: "Appointment", ID: "a1",
+	})
+	if err != nil || !unresolved.Allowed {
+		t.Fatalf("empty PatientID remains unrestricted: %#v err=%v", unresolved, err)
+	}
+}
