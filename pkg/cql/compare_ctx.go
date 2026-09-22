@@ -36,6 +36,116 @@ func (c compareCtx) Equivalent(a, b any) bool {
 	return cqlEquivalentUCUM(a, b, c.ucum())
 }
 
+// Equal implements CQL = with engine UCUM settings (notably ratio cross-unit equality).
+func (c compareCtx) Equal(a, b any) bool {
+	return cqlEqualWithUCUM(a, b, c.ucum())
+}
+
+// MemberEqual implements list membership / distinct / intersect using CQL ~ semantics.
+func (c compareCtx) MemberEqual(a, b any) bool {
+	return c.Equivalent(a, b)
+}
+
+func boundEqual(a, b any, vcmp compareCtx) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	ord, ok := vcmp.Compare(a, b)
+	if ok {
+		return ord == 0
+	}
+	return cqlEqual(a, b)
+}
+
+func cqlEqualWithUCUM(a, b any, conv UCUMConverter) bool {
+	if conv == nil {
+		conv = defaultUCUM
+	}
+	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if ra, ok := resourceIdentity(a); ok {
+		if rb, ok := resourceIdentity(b); ok {
+			return ra == rb
+		}
+	}
+	if ra, ok := asRatio(a); ok {
+		if rb, ok := asRatio(b); ok {
+			return ratioEqualWithUCUM(ra, rb, conv)
+		}
+	}
+	if qa, ok := asQuantity(a); ok {
+		if qb, ok := asQuantity(b); ok {
+			return qa.Value == qb.Value && sameUnit(qa.Unit, qb.Unit)
+		}
+	}
+	if ia, ok := isCQLInterval(a); ok {
+		if ib, ok := isCQLInterval(b); ok {
+			return cqlEqualWithUCUM(ia.Low, ib.Low, conv) &&
+				cqlEqualWithUCUM(ia.High, ib.High, conv) &&
+				ia.LowClosed == ib.LowClosed && ia.HighClosed == ib.HighClosed
+		}
+	}
+	if ta, aok := asTemporal(a, temporalLocation(b)); aok {
+		if tb, bok := asTemporal(b, temporalLocation(a)); bok {
+			return ta.Equal(tb)
+		}
+	}
+	if fa, ok := asFloat(a); ok {
+		if fb, ok := asFloat(b); ok {
+			return fa == fb
+		}
+	}
+	if la, ok := a.([]any); ok {
+		lb, ok := b.([]any)
+		if !ok || len(la) != len(lb) {
+			return false
+		}
+		for i := range la {
+			if !cqlEqualWithUCUM(la[i], lb[i], conv) {
+				return false
+			}
+		}
+		return true
+	}
+	if ma, ok := asObject(a); ok {
+		if mb, ok := asObject(b); ok {
+			if len(ma) != len(mb) {
+				return false
+			}
+			for k, va := range ma {
+				vb, ok := mb[k]
+				if !ok || !cqlEqualWithUCUM(va, vb, conv) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	if ca, ok := a.(Code); ok {
+		if cb, ok := b.(Code); ok {
+			return ca.System == cb.System && ca.Code == cb.Code
+		}
+		return false
+	}
+	if sa, ok := a.(string); ok {
+		sb, ok := b.(string)
+		return ok && sa == sb
+	}
+	if ba, ok := a.(bool); ok {
+		bb, ok := b.(bool)
+		return ok && ba == bb
+	}
+	return false
+}
+
 func cqlCompareUCUM(a, b any, conv UCUMConverter) (int, bool) {
 	if conv == nil {
 		conv = defaultUCUM

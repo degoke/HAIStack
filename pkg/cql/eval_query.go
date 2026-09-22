@@ -123,7 +123,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		return out, nil
 	}
 	if q.distinct {
-		rows = distinctQueryRows(rows)
+		rows = st.distinctQueryRows(rows)
 	}
 	if len(q.sort) > 0 {
 		if err := st.sortQuery(rows, q.sort); err != nil {
@@ -145,11 +145,11 @@ func copyQueryLocals(locals map[string][]any) map[string][]any {
 	return out
 }
 
-func distinctQueryRows(rows []queryRow) []queryRow {
+func (st *evalState) distinctQueryRows(rows []queryRow) []queryRow {
 	var out []queryRow
 	var seen []any
 	for _, row := range rows {
-		if containsValue(seen, row.item) {
+		if st.containsMember(seen, row.item) {
 			continue
 		}
 		seen = append(seen, row.item)
@@ -284,32 +284,6 @@ func flattenValues(v []any) []any {
 			out = append(out, flattenValues(x)...)
 		default:
 			out = append(out, item)
-		}
-	}
-	return out
-}
-
-func listIntersect(left, right []any) []any {
-	if left == nil || right == nil {
-		return nil
-	}
-	out := []any{}
-	for _, el := range left {
-		if containsValue(right, el) && !containsValue(out, el) {
-			out = append(out, el)
-		}
-	}
-	return out
-}
-
-func listExcept(left, right []any) []any {
-	if left == nil {
-		return nil
-	}
-	out := []any{}
-	for _, el := range left {
-		if !containsValue(right, el) && !containsValue(out, el) {
-			out = append(out, el)
 		}
 	}
 	return out
@@ -509,7 +483,7 @@ func (st *evalState) evalCase(n *caseNode) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			eq := cqlEqual3Value(tv, singletonOrList(when))
+			eq := st.cqlEqual3Value(tv, singletonOrList(when), st.compareContext())
 			if len(eq) == 1 && eq[0] == true {
 				return st.eval(w.then)
 			}

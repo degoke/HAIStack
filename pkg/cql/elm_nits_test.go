@@ -1459,6 +1459,31 @@ func TestReviewNitsRound8(t *testing.T) {
 	}
 }
 
+func TestReviewNitsRound9(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "1 'mg' : 2 'mL' = 2 'mg' : 4 'mL'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("ratio proportional equality with engine UCUM: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{5 'mg'} contains 5000 'ug'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("list contains via UCUM equivalence: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "5 'mg' in {5000 'ug', 1 'g'}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("list in via UCUM equivalence: %#v", got)
+	}
+}
+
 func TestReviewNitsRound7(t *testing.T) {
 	eng := testEngine(t)
 	got, err := eng.Eval(context.Background(), "ConvertQuantity(500 'ml', 'L')", EvalContext{})

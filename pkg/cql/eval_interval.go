@@ -128,7 +128,7 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			return listSubsetIncludes(left, right, strings.HasPrefix(base, "properly")), nil
+			return st.listSubsetIncludes(left, right, strings.HasPrefix(base, "properly")), nil
 		case "included in", "properly included in":
 			left, err := st.eval(n.left)
 			if err != nil {
@@ -138,7 +138,7 @@ func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			return listSubsetIncludes(right, left, strings.HasPrefix(base, "properly")), nil
+			return st.listSubsetIncludes(right, left, strings.HasPrefix(base, "properly")), nil
 		}
 	}
 	left, err := st.eval(n.left)
@@ -227,11 +227,11 @@ func intervalRelOne(base string, lv, rv any, vcmp compareCtx) []any {
 		}
 	case "meets before":
 		if lok && rok {
-			return []any{intervalMeetsBefore(li, ri)}
+			return []any{intervalMeetsBefore(li, ri, vcmp)}
 		}
 	case "meets after":
 		if lok && rok {
-			return []any{intervalMeetsAfter(li, ri)}
+			return []any{intervalMeetsAfter(li, ri, vcmp)}
 		}
 	case "before":
 		if lok && rok {
@@ -291,9 +291,10 @@ func splitTimingOp(op string) (base, unit string) {
 	return op, ""
 }
 
-func listSubsetIncludes(superset, subset []any, proper bool) []any {
+func (st *evalState) listSubsetIncludes(superset, subset []any, proper bool) []any {
+	cmp := st.compareContext()
 	for _, item := range subset {
-		if !listContainsEqual(superset, item) {
+		if !listContainsMember(superset, item, cmp) {
 			return []any{false}
 		}
 	}
@@ -301,16 +302,16 @@ func listSubsetIncludes(superset, subset []any, proper bool) []any {
 		return []any{true}
 	}
 	for _, item := range superset {
-		if !listContainsEqual(subset, item) {
+		if !listContainsMember(subset, item, cmp) {
 			return []any{true}
 		}
 	}
 	return []any{false}
 }
 
-func listContainsEqual(list []any, item any) bool {
+func listContainsMember(list []any, item any, cmp compareCtx) bool {
 	for _, el := range list {
-		if cqlEqual(el, item) {
+		if cmp.MemberEqual(el, item) {
 			return true
 		}
 	}
@@ -506,7 +507,7 @@ func intervalIncludes(outer, inner Interval, properly bool, vcmp compareCtx) boo
 	if !intervalBoundIncludesLow(outer, inner, vcmp) || !intervalBoundIncludesHigh(outer, inner, vcmp) {
 		return false
 	}
-	if properly && intervalBoundsEqual(outer, inner) {
+	if properly && intervalBoundsEqual(outer, inner, vcmp) {
 		return false
 	}
 	return true
@@ -552,8 +553,9 @@ func intervalBoundIncludesHigh(outer, inner Interval, vcmp compareCtx) bool {
 	return false
 }
 
-func intervalBoundsEqual(a, b Interval) bool {
-	return cqlEqual(a.Low, b.Low) && cqlEqual(a.High, b.High) && a.LowClosed == b.LowClosed && a.HighClosed == b.HighClosed
+func intervalBoundsEqual(a, b Interval, vcmp compareCtx) bool {
+	return boundEqual(a.Low, b.Low, vcmp) && boundEqual(a.High, b.High, vcmp) &&
+		a.LowClosed == b.LowClosed && a.HighClosed == b.HighClosed
 }
 
 func intervalOverlaps(a, b Interval, vcmp compareCtx) bool {
@@ -615,26 +617,26 @@ func intervalEndsAfter(a, b Interval, vcmp compareCtx) bool {
 }
 
 func intervalStarts(a, b Interval, vcmp compareCtx) bool {
-	return cqlEqual(a.Low, b.Low) && intervalIncludes(b, a, false, vcmp)
+	return boundEqual(a.Low, b.Low, vcmp) && intervalIncludes(b, a, false, vcmp)
 }
 
 func intervalEnds(a, b Interval, vcmp compareCtx) bool {
-	return cqlEqual(a.High, b.High) && intervalIncludes(b, a, false, vcmp)
+	return boundEqual(a.High, b.High, vcmp) && intervalIncludes(b, a, false, vcmp)
 }
 
 func intervalMeets(a, b Interval, vcmp compareCtx) bool {
-	return intervalMeetsBefore(a, b) || intervalMeetsAfter(a, b)
+	return intervalMeetsBefore(a, b, vcmp) || intervalMeetsAfter(a, b, vcmp)
 }
 
-func intervalMeetsBefore(a, b Interval) bool {
-	if a.High != nil && b.Low != nil && cqlEqual(a.High, b.Low) {
+func intervalMeetsBefore(a, b Interval, vcmp compareCtx) bool {
+	if a.High != nil && b.Low != nil && boundEqual(a.High, b.Low, vcmp) {
 		return a.HighClosed != b.LowClosed || (a.HighClosed && b.LowClosed)
 	}
 	return false
 }
 
-func intervalMeetsAfter(a, b Interval) bool {
-	if b.High != nil && a.Low != nil && cqlEqual(b.High, a.Low) {
+func intervalMeetsAfter(a, b Interval, vcmp compareCtx) bool {
+	if b.High != nil && a.Low != nil && boundEqual(b.High, a.Low, vcmp) {
 		return b.HighClosed != a.LowClosed || (b.HighClosed && a.LowClosed)
 	}
 	return false

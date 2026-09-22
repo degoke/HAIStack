@@ -553,7 +553,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				}
 			}
 		}
-		return distinctValues(append(append([]any{}, left...), right...)), nil
+		return st.distinctValues(append(append([]any{}, left...), right...)), nil
 	case "&":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -629,10 +629,10 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return []any{ok}, nil
 		}
 		if n.op == "all in" {
-			return allContainsResult(right, left), nil
+			return st.allContainsResult(right, left), nil
 		}
 		if n.op == "any in" {
-			return anyContainsResult(right, left), nil
+			return st.anyContainsResult(right, left), nil
 		}
 		if n.op == "in" && len(left) == 1 && len(right) == 1 {
 			ls, lok := unwrapPrimitive(left[0]).(string)
@@ -650,7 +650,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			if pointsVersusIntervals(left, right) {
 				return st.allPointsInAnyInterval(left, right), nil
 			}
-			return containsResult(right, membershipItem(n.left, left)), nil
+			return st.containsResult(right, membershipItem(n.left, left)), nil
 		}
 		return st.containsResultWithIntervals(right, membershipItem(n.left, left)), nil
 	case "contains":
@@ -681,7 +681,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			if pointsVersusIntervals(right, left) {
 				return st.allPointsInAnyInterval(right, left), nil
 			}
-			return containsResult(left, membershipItem(n.right, right)), nil
+			return st.containsResult(left, membershipItem(n.right, right)), nil
 		}
 		return st.containsResultWithIntervals(left, membershipItem(n.right, right)), nil
 	case "intersect":
@@ -704,7 +704,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				}
 			}
 		}
-		return listIntersect(left, right), nil
+		return st.listIntersect(left, right), nil
 	case "except":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -721,7 +721,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				}
 			}
 		}
-		return listExcept(left, right), nil
+		return st.listExcept(left, right), nil
 	}
 	if strings.HasPrefix(n.op, "same") {
 		return st.evalSameAs(n)
@@ -761,7 +761,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 	}
 	switch n.op {
 	case "=":
-		return cqlEqualResult(left, right), nil
+		return st.cqlEqualResult(left, right), nil
 	case "!=":
 		if neq := st.cqlNotEqualResult(left, right); neq != nil {
 			return neq, nil
@@ -993,7 +993,7 @@ func (st *evalState) evalMethod(name string, recv []any, rawArgs []Node, args []
 		}
 		return []any{recv[0]}, nil
 	case "distinct":
-		return distinctValues(recv), nil
+		return st.distinctValues(recv), nil
 	case "indexer":
 		return st.evalIndexer(append([][]any{recv}, args...), nil)
 	case "value":
@@ -1318,7 +1318,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		if len(args) == 0 {
 			return nil, nil
 		}
-		return distinctValues(args[0]), nil
+		return st.distinctValues(args[0]), nil
 	case "singletonfrom":
 		if len(args) == 0 {
 			return nil, nil
@@ -1441,7 +1441,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 	case "repeat":
 		return listRepeat(args)
 	case "times":
-		return listTimes(args)
+		return st.listTimes(args)
 	case "contains":
 		return stringContains(args)
 	case "in":
@@ -2020,7 +2020,8 @@ func codingInCodeSystem(item any, cs CodeSystem) bool {
 	return false
 }
 
-func allContainsResult(haystack, needles []any) []any {
+func (st *evalState) allContainsResult(haystack, needles []any) []any {
+	cmp := st.compareContext()
 	if len(needles) == 0 {
 		return []any{true}
 	}
@@ -2030,7 +2031,7 @@ func allContainsResult(haystack, needles []any) []any {
 		}
 		found := false
 		for _, h := range haystack {
-			if cqlEqual(h, n) {
+			if cmp.MemberEqual(h, n) {
 				found = true
 				break
 			}
@@ -2042,7 +2043,8 @@ func allContainsResult(haystack, needles []any) []any {
 	return []any{true}
 }
 
-func anyContainsResult(haystack, needles []any) []any {
+func (st *evalState) anyContainsResult(haystack, needles []any) []any {
+	cmp := st.compareContext()
 	if len(needles) == 0 {
 		return []any{false}
 	}
@@ -2051,7 +2053,7 @@ func anyContainsResult(haystack, needles []any) []any {
 			continue
 		}
 		for _, h := range haystack {
-			if cqlEqual(h, n) {
+			if cmp.MemberEqual(h, n) {
 				return []any{true}
 			}
 		}
@@ -2422,11 +2424,11 @@ func listValueResult(v any) []any {
 	return []any{v}
 }
 
-func cqlEqualResult(left, right []any) []any {
+func (st *evalState) cqlEqualResult(left, right []any) []any {
 	if left == nil || right == nil {
 		return nil
 	}
-	return cqlEqual3List(left, right)
+	return st.cqlEqual3List(left, right)
 }
 
 func (st *evalState) cqlNotEqualResult(left, right []any) []any {
@@ -2441,20 +2443,21 @@ func (st *evalState) cqlNotEqualResult(left, right []any) []any {
 			}
 		}
 	}
-	eq := cqlEqualResult(left, right)
+	eq := st.cqlEqualResult(left, right)
 	if len(eq) == 0 {
 		return nil
 	}
 	return []any{eq[0] != true}
 }
 
-func cqlEqual3List(left, right []any) []any {
+func (st *evalState) cqlEqual3List(left, right []any) []any {
+	cmp := st.compareContext()
 	if len(left) != len(right) {
 		return []any{false}
 	}
 	unknown := false
 	for i := range left {
-		eq := cqlEqual3Value(left[i], right[i])
+		eq := st.cqlEqual3Value(left[i], right[i], cmp)
 		if eq == nil {
 			unknown = true
 			continue
@@ -2469,7 +2472,7 @@ func cqlEqual3List(left, right []any) []any {
 	return []any{true}
 }
 
-func cqlEqual3Value(a, b any) []any {
+func (st *evalState) cqlEqual3Value(a, b any, cmp compareCtx) []any {
 	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
 	if a == nil || b == nil {
 		return nil
@@ -2479,12 +2482,47 @@ func cqlEqual3Value(a, b any) []any {
 		if !ok {
 			return []any{false}
 		}
-		return cqlEqual3List(la, lb)
+		return st.cqlEqual3List(la, lb)
 	}
 	if _, ok := b.([]any); ok {
 		return []any{false}
 	}
-	return []any{cqlEqual(a, b)}
+	return []any{cmp.Equal(a, b)}
+}
+
+func (st *evalState) cqlMember3Value(a, b any, cmp compareCtx) []any {
+	a, b = unwrapPrimitive(a), unwrapPrimitive(b)
+	if a == nil || b == nil {
+		return nil
+	}
+	if la, ok := a.([]any); ok {
+		lb, ok := b.([]any)
+		if !ok {
+			return []any{false}
+		}
+		if len(la) != len(lb) {
+			return []any{false}
+		}
+		unknown := false
+		for i := range la {
+			eq := st.cqlMember3Value(la[i], lb[i], cmp)
+			if eq == nil {
+				unknown = true
+				continue
+			}
+			if eq[0] != true {
+				return []any{false}
+			}
+		}
+		if unknown {
+			return nil
+		}
+		return []any{true}
+	}
+	if _, ok := b.([]any); ok {
+		return []any{false}
+	}
+	return []any{cmp.MemberEqual(a, b)}
 }
 
 func (st *evalState) cqlEquivalentResult(left, right []any) []any {
@@ -2836,22 +2874,24 @@ func cqlCompare(a, b any) (int, bool) {
 	return cqlCompareUCUM(a, b, nil)
 }
 
-func containsValue(list []any, item any) bool {
+func (st *evalState) containsMember(list []any, item any) bool {
+	cmp := st.compareContext()
 	for _, el := range list {
-		if cqlEqual(el, item) {
+		if cmp.MemberEqual(el, item) {
 			return true
 		}
 	}
 	return false
 }
 
-func containsResult(list []any, item any) []any {
+func (st *evalState) containsResult(list []any, item any) []any {
 	if item == nil {
 		return nil
 	}
+	cmp := st.compareContext()
 	unknown := false
 	for _, el := range list {
-		eq := cqlEqual3Value(el, item)
+		eq := st.cqlMember3Value(el, item, cmp)
 		if eq == nil {
 			unknown = true
 			continue
@@ -2871,7 +2911,7 @@ func (st *evalState) containsResultWithIntervals(list []any, item any) []any {
 		return nil
 	}
 	if _, ok := asInterval(item); ok {
-		return containsResult(list, item)
+		return st.containsResult(list, item)
 	}
 	cmp := st.compareContext()
 	unknown := false
@@ -2887,7 +2927,7 @@ func (st *evalState) containsResultWithIntervals(list []any, item any) []any {
 			}
 			continue
 		}
-		eq := cqlEqual3Value(el, item)
+		eq := st.cqlMember3Value(el, item, cmp)
 		if eq == nil {
 			unknown = true
 			continue
@@ -3049,16 +3089,42 @@ func listOrStringLength(args [][]any) ([]any, error) {
 	return []any{int64(len(v))}, nil
 }
 
-func distinctValues(in []any) []any {
+func (st *evalState) distinctValues(in []any) []any {
 	if in == nil {
 		return nil
 	}
 	out := []any{}
 	for _, item := range in {
-		if containsValue(out, item) {
+		if st.containsMember(out, item) {
 			continue
 		}
 		out = append(out, item)
+	}
+	return out
+}
+
+func (st *evalState) listIntersect(left, right []any) []any {
+	if left == nil || right == nil {
+		return nil
+	}
+	out := []any{}
+	for _, el := range left {
+		if st.containsMember(right, el) && !st.containsMember(out, el) {
+			out = append(out, el)
+		}
+	}
+	return out
+}
+
+func (st *evalState) listExcept(left, right []any) []any {
+	if left == nil {
+		return nil
+	}
+	out := []any{}
+	for _, el := range left {
+		if !st.containsMember(right, el) && !st.containsMember(out, el) {
+			out = append(out, el)
+		}
 	}
 	return out
 }

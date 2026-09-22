@@ -213,9 +213,6 @@ func (p *RemoteProvider) Subsumes(ctx context.Context, r SubsumesRequest) (bool,
 		"version": optionalQuery(r.Version),
 	})
 	if err != nil {
-		if isUnavailable(err) {
-			return false, err
-		}
 		return false, err
 	}
 	if params == nil {

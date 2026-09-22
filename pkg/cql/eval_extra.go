@@ -284,7 +284,7 @@ func (st *evalState) evalAggregate(rows []queryRow, q *queryNode) ([]any, error)
 		acc = next
 	}
 	if agg.distinct {
-		acc = distinctValues(acc)
+		acc = st.distinctValues(acc)
 	}
 	return acc, nil
 }
@@ -348,23 +348,23 @@ func collapseMergeable(a, b Interval, per *Quantity, vcmp compareCtx) bool {
 	if per == nil {
 		return false
 	}
-	if ae, ok := intervalExpandHigh(a, *per); ok && (intervalOverlaps(ae, b, vcmp) || intervalMeets(ae, b, vcmp) || intervalSuccessorMeets(ae, b)) {
+	if ae, ok := intervalExpandHigh(a, *per); ok && (intervalOverlaps(ae, b, vcmp) || intervalMeets(ae, b, vcmp) || intervalSuccessorMeets(ae, b, vcmp)) {
 		return true
 	}
-	if be, ok := intervalExpandHigh(b, *per); ok && (intervalOverlaps(a, be, vcmp) || intervalMeets(a, be, vcmp) || intervalSuccessorMeets(a, be)) {
+	if be, ok := intervalExpandHigh(b, *per); ok && (intervalOverlaps(a, be, vcmp) || intervalMeets(a, be, vcmp) || intervalSuccessorMeets(a, be, vcmp)) {
 		return true
 	}
 	return false
 }
 
-func intervalSuccessorMeets(a, b Interval) bool {
+func intervalSuccessorMeets(a, b Interval, vcmp compareCtx) bool {
 	if a.High != nil && b.Low != nil {
-		if next, ok := successorValue(a.High, false); ok && cqlEqual(next, b.Low) {
+		if next, ok := successorValue(a.High, false); ok && boundEqual(next, b.Low, vcmp) {
 			return true
 		}
 	}
 	if b.High != nil && a.Low != nil {
-		if next, ok := successorValue(b.High, false); ok && cqlEqual(next, a.Low) {
+		if next, ok := successorValue(b.High, false); ok && boundEqual(next, a.Low, vcmp) {
 			return true
 		}
 	}
@@ -1380,7 +1380,8 @@ func listRepeat(args [][]any) ([]any, error) {
 	return out, nil
 }
 
-func listTimes(args [][]any) ([]any, error) {
+func (st *evalState) listTimes(args [][]any) ([]any, error) {
+	ucum := st.ucumConv()
 	if len(args) < 2 || args[0] == nil || len(args[1]) == 0 {
 		return nil, nil
 	}
@@ -1414,8 +1415,8 @@ func listTimes(args [][]any) ([]any, error) {
 			}
 			if lq, lok := asQuantity(lv); lok {
 				if rq, rok := asQuantity(rv); rok {
-					if conv, ok := convertQuantityValue(rq, lq.Unit, defaultUCUM); ok {
-						lq.Value *= conv.Value
+					if scaled, ok := convertQuantityValue(rq, lq.Unit, ucum); ok {
+						lq.Value *= scaled.Value
 						out = append(out, lq)
 						continue
 					}
