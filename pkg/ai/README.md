@@ -19,7 +19,152 @@ pre-registered in `Registry`.
 In short: **given policy rules and typed tool input, produce safe structured
 context with citations and audit records.**
 
-## Usage
+## What it does not do
+
+- Expose raw FHIR REST or arbitrary SQL to models
+- Own OAuth, conversation storage, or prompt templates (host app responsibility)
+- Replace `pkg/auth` — use `AIPolicyAdapter` or `AllowListPolicy` for decisions
+- Guarantee model output safety beyond tool boundaries and policy
+
+## How it fits in the ecosystem
+
+```text
+  LLM / agent orchestrator
+            |
+            v
+     ai.Executor.ExecuteTool / InvokeModel
+            |
+    +-------+-------+-------+-------+
+    |       |       |       |       |
+    v       v       v       v       v
+ Policy  core   search  view   validate
+    |                       |
+    v                       v
+ pkg/auth              pkg/fhirpath (via view)
+ (AIPolicyAdapter)          |
+                            v
+                      structured rows + citations
+                            |
+                            v
+                      pkg/audit (AuditStoreAdapter)
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Upstream | **core** | Validated writes for `write_fhir_resource` |
+| Upstream | **search** | Parameterized lookup for `search_fhir_resources` |
+| Upstream | **view** | `run_view` executes registered ViewDefinitions |
+| Upstream | **validate** | Structural checks on write field maps |
+| Peer | **auth** | `AIPolicyAdapter` implements `PolicyEngine` |
+| Peer | **audit** | Tool/model events via `AuditStoreAdapter` |
+| Downstream | **testkit/aitest** | Harness for executor tests (test-only) |
+
+## When to use it
+
+- Building an agent that needs FHIR context with enforceable allow-lists
+- Exposing tool descriptors to models (`Registry.AllToolDescriptors`)
+- Requiring human approval before sensitive writes
+- De-identifying reads/search/view rows when policy flags demand it
+- Auditing every tool invocation with actor, subject, and outcome
+
+## Usage modes
+
+### 1. Allow-list policy (tests and prototypes)
+
+Configure `AllowListPolicy` maps directly when you do not need principal/tenant auth yet:
+
+```go
+policy := ai.NewAllowListPolicy()
+policy.Read["Patient"] = ai.ReadTypePolicy{}
+policy.Search["Patient"] = ai.SearchTypePolicy{
+    AllowedParams: []string{"name"},
+    MaxCount:      50,
+}
+exec, err := ai.NewExecutor(ai.Config{
+    Resources: resourceStore,
+    Search:    searchSvc,
+    Views:     viewExec,
+    Core:      coreSvc,
+    Policy:    policy,
+})
+```
+
+### 2. Auth-backed policy (`AIPolicyAdapter`)
+
+Use when decisions must match human users, roles, and tenant policy DSL:
+
+```go
+exec, err := ai.NewExecutor(ai.Config{
+    Policy: &auth.AIPolicyAdapter{
+        Engine: authEngine,
+        TenantID: "tenant-a",
+        Resolve: resolveActor,
+        Constraints: aiConstraints,
+    },
+    Audit: &ai.AuditStoreAdapter{Store: auditStore},
+    AuditRequired: true,
+})
+```
+
+### 3. Approval-gated writes
+
+Enable `CreateApproval` / `UpdateApproval` on write policies and wire `Approval` + `ApprovalStore`:
+
+```go
+exec, err := ai.NewExecutor(ai.Config{
+    Policy:        policyWithApproval,
+    Approval:      myApprovalHook,
+    ApprovalStore: tokenStore,
+    RequireConversationID: true,
+})
+res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
+    ToolName: ai.ToolWriteFhirResource,
+    Input: map[string]any{
+        "operation": "create",
+        "resourceType": "Patient",
+        "fields": map[string]any{"name": []any{map[string]any{"family": "Smith"}}},
+    },
+})
+// res may indicate approval-required with a pending token
+```
+
+### 4. De-identified context
+
+Set `Deidentify: true` on read/search/view policies and provide an explicit `Deidentifier`:
+
+```go
+exec, err := ai.NewExecutor(ai.Config{
+    Policy:       deidPolicy,
+    Deidentifier: myDeidentifier,
+})
+```
+
+The executor refuses to silently pass through PHI when de-identification is required.
+
+### 5. Model routing (optional)
+
+Tools work without a router; add `ModelRouter` when some prompts should hit local vs cloud adapters:
+
+```go
+exec, err := ai.NewExecutor(ai.Config{
+    ModelRouter: &ai.ModelRouter{Local: localLLM, Cloud: cloudLLM},
+})
+resp, err := exec.InvokeModel(ctx, ai.ToolRequest{ModelHint: "cloud"}, prompt, toolResult.Context)
+```
+
+### 6. Registry-only discovery
+
+Enumerate descriptors without constructing a full executor:
+
+```go
+reg := ai.NewRegistry()
+for _, tool := range reg.AllToolDescriptors() {
+    _ = tool.Name
+    _ = tool.InputKeys
+}
+```
+
+## Examples
 
 **Configure policy and executor:**
 
@@ -67,27 +212,41 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 // res.Data, res.Context, res.Citations, res.AuditMeta
 ```
 
-**Discover tools for a model:**
+**Search with bounded paging:**
 
 ```go
-reg := ai.NewRegistry()
-for _, tool := range reg.AllToolDescriptors() {
-    // tool.Name, tool.Description, tool.Generic, tool.InputKeys
-}
-```
-
-**Optional model routing (tools work without this):**
-
-```go
-exec, err := ai.NewExecutor(ai.Config{
-    // ...
-    ModelRouter: &ai.ModelRouter{
-        Local: localAdapter,
-        Cloud: cloudAdapter,
+res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
+    ToolName: ai.ToolSearchFhirResources,
+    Actor:    "agent-1",
+    Input: map[string]any{
+        "resourceType": "Patient",
+        "params":       map[string]any{"name": "Jane"},
+        "count":        25,
     },
 })
+```
 
-resp, err := exec.InvokeModel(ctx, ai.ToolRequest{ModelHint: "cloud"}, prompt, res.Context)
+**Run a view for structured rows:**
+
+```go
+res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
+    ToolName: ai.ToolRunView,
+    Actor:    "agent-1",
+    Input: map[string]any{
+        "viewName": "patient_summary_view",
+        "limit":    10,
+    },
+})
+```
+
+**Convenience wrapper:**
+
+```go
+res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
+    ToolName: "get_patient_summary",
+    Actor:    "agent-1",
+    Input:    map[string]any{"patientId": "pat-1"},
+})
 ```
 
 ## Tool input reference
@@ -175,6 +334,14 @@ Outcomes include `success`, `denied`, `validation-failed`, and
 | **validate** | Structural validation on write path |
 | **auth** | `AIPolicyAdapter` implements `PolicyEngine` with principal/tenant decisions; optional decision audit via `pkg/audit` |
 | **audit** | Shared audit event library used by AI `AuditStoreAdapter` |
+
+## Testing
+
+```bash
+go test ./pkg/ai/... -count=1
+```
+
+Use `pkg/testkit/aitest` for executor harnesses with optional search, views, and approval fakes.
 
 ## MVP limits
 

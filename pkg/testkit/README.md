@@ -7,6 +7,119 @@ FHIRPath assertions, and AI executor harnesses.
 **This package is for tests only.** Production code must not import `pkg/testkit` or
 any subpackage.
 
+## How it fits in the ecosystem
+
+```text
+  pkg/* tests (_test.go)
+        |
+        v
+  pkg/testkit/<subpackage>
+        |
+   +----+----+----+----+----+----+----+
+   |    |    |    |    |    |    |    |
+   v    v    v    v    v    v    v    v
+fixtures store synctest conflict golden fhirpath aitest authztest
+   |    test              |                    infernotest
+   |                      |
+   v                      v
+ pkg/types            pkg/sync / pkg/conflict
+ pkg/store            pkg/ai / pkg/auth (authz scenarios)
+ pkg/fhirpath
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Exercises | **store** | `storetest` implements interface contracts |
+| Exercises | **sync** | `synctest` fakes `Hub` and device push/pull |
+| Exercises | **conflict** | `conflicttest` builds two-node stale-base paths |
+| Exercises | **ai** | `aitest` wires `Executor` with policy fakes |
+| Exercises | **auth** | `authztest` catalogs REST/view/AI/sync decisions |
+| Peer | **types** | Fixtures/factories emit `ResourceEnvelope` |
+| Forbidden | **production** | No import from non-`_test` packages |
+
+Testkit **consolidates duplicated `_test` helpers**; it does not ship runtime behavior or durable storage.
+
+## Usage modes
+
+### 1. Fixture-first scenarios
+
+Stable ids and envelopes across packages — prefer `fixtures` when tests must align:
+
+```go
+patient := fixtures.PatientJane(t)
+appt := fixtures.AppointmentForPatient(t, patient.ID)
+```
+
+### 2. Parameterized factories
+
+Use `factories` when ids, telecom, status, or meta tags vary per case:
+
+```go
+patient, err := factories.NewPatient(
+    factories.WithPatientID("pat-custom"),
+    factories.WithFamilyName("Smith"),
+)
+```
+
+### 3. In-memory store contract tests
+
+`storetest.Backend` bundles resources, history, search, events, jobs:
+
+```go
+backend := storetest.NewStrictBackend()
+_ = backend.Resources.Seed(ctx, patient)
+```
+
+Choose **strict** vs **lenient** `ResourceStore` to match core vs sync semantics.
+
+### 4. Sync and offline replication scenarios
+
+`synctest.Scenario` coordinates hub + device clocks and push/pull summaries:
+
+```go
+scenario := synctest.NewScenario("tenant-a", synctest.FixedClock(synctest.At(2026, 7, 6, 12, 0, 0)))
+result, err := synctest.OfflineCreateAndSync(ctx, scenario, patient)
+```
+
+### 5. Conflict classification and merge paths
+
+`conflicttest` evaluates concurrent edits and auto-merge vs review-required:
+
+```go
+result, err := conflicttest.NewScenario("tenant-a", clock).RunTwoNodeStaleBaseConflict(ctx, edits)
+```
+
+### 6. HTTP and validation goldens
+
+Compare canonical `OperationOutcome` JSON without brittle string contains:
+
+```go
+outcome := golden.DecodeOutcome(t, body)
+golden.AssertOutcomeCode(t, outcome, "not-found")
+```
+
+### 7. AI executor harness
+
+`aitest` enables only the subsystems under test (search, views, approval):
+
+```go
+h := aitest.NewHarness(t, aitest.Options{
+    SeedPatients: true,
+    WithSearch:   true,
+    AllowPatientRead: true,
+})
+res, err := h.Executor.ExecuteTool(ctx, req)
+```
+
+### 8. Authorization matrices (Go + YAML)
+
+Run the full catalog or load machine-readable policy-semantics fixtures:
+
+```go
+authztest.RunAll(t, authztest.NewDefaultKit(authztest.DefaultEngine(t)))
+authztest.RunYAML(t, yamlBytes)
+```
+
 ## What it does
 
 `pkg/testkit` consolidates helpers that were duplicated across package-local `_test.go`
@@ -251,6 +364,51 @@ and `policy`. Omitting them is an error, not a fallback to `TenantA` / `user` /
 `SMART.ScopeImplies ∩ pkg/auth policy`. YAML view/AI actions call
 `CanExecuteView` / `CanExecuteAITool` on the auth engine; they do not
 load ViewDefinitions or run `pkg/view` / `pkg/ai` executors.
+
+## More examples
+
+**FHIRPath assertions on fixtures:**
+
+```go
+eng := fhirpathtest.DefaultEngine(t)
+patient := fixtures.PatientJane(t)
+fhirpathtest.AssertString(t, eng, patient, "Patient.name.family", "Doe")
+fhirpathtest.AssertContains(t, eng, patient, "Patient.telecom.value", "555")
+```
+
+**Reference resolution after sync:**
+
+```go
+resolved, err := synctest.ReferenceResolved(ctx, scenario.DeviceB, appt,
+    "participant.0.actor", "Patient", "pat-jane")
+if err != nil || !resolved {
+    t.Fatal("expected participant to resolve to hub patient")
+}
+```
+
+**Inferno-oriented SMART host (tests only):**
+
+```go
+srv, meta, cleanup, err := infernotest.StartReferenceServer(ctx, ":0")
+defer cleanup()
+infernotest.AssertStandaloneLaunchFlow(t, meta.BaseURL, meta.FHIRBaseURL, "haistack-app", redirectURI, scope)
+```
+
+**Table-driven store tests with paged IDs:**
+
+```go
+backend := storetest.NewDeviceBackend()
+_ = backend.Resources.Seed(ctx, fixtures.PatientJane(t))
+ids, err := backend.Resources.ListIDs(ctx, "Patient", 10, 0)
+```
+
+## Testing
+
+```bash
+go test ./pkg/testkit/... -count=1
+```
+
+Subpackages are tested independently; importing only what a test needs keeps compile times down.
 
 ## Migration
 

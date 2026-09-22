@@ -37,6 +37,144 @@ It does **not**:
 
 Prefer manual wiring when you need only one package (e.g. core-only or search-only unit tests).
 
+## How it fits in the ecosystem
+
+```text
+  cmd/haistack serve (or custom main)
+              |
+              v
+       pkg/runtime.Builder -> Build/Start/Shutdown
+              |
+    +---------+---------+---------+---------+
+    |         |         |         |         |
+    v         v         v         v         v
+ sqlite/   registry  modules    core     search
+ postgres            install             + jobs
+    |         |         |         |         |
+    +---------+---------+---------+---------+
+                        |
+                        v
+                  pkg/http.Handler()
+                        |
+            optional managed http.Server
+                        |
+            optional pkg/oauth (WithBuiltinOAuth)
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Downstream | **http** | FHIR REST handler built from wired services |
+| Downstream | **client** | Remote sync hub URL uses client sync sub-API |
+| Peer | **sqlite** / **postgres** | Storage opened and migrated during `Build` |
+| Peer | **modules** | Filesystem installs at build time |
+| Peer | **sync** | Device engine when hub configured |
+| Peer | **jobs** | Reindex and sync background processors |
+| Peer | **oauth** | Optional built-in SMART authorization server |
+| Out of scope | **auth** middleware | Use `WithHTTPAuth` / custom middleware on `Handler()` |
+
+Runtime answers **composition and lifecycle**; it does not implement FHIR business rules or SQL schemas.
+
+## Usage modes
+
+These are **how you embed runtime** in a process. They complement [Deployment modes](#deployment-modes) (storage topology), which are inferred from builder flags.
+
+### 1. Managed HTTP server (default CLI shape)
+
+`WithHTTP(addr)` starts and stops `http.Server` inside `Start` / `Shutdown`:
+
+```go
+rt, err := runtime.New().
+    WithSQLite("/data/haistack.db").
+    WithSearch().
+    WithHTTP(":8080").
+    Build(ctx)
+err = rt.Start(ctx)
+defer rt.Shutdown(ctx)
+```
+
+### 2. Embed handler only (custom server or multi-tenant gateway)
+
+Skip `WithHTTP` and mount `rt.Handler()` on your own mux:
+
+```go
+rt, err := runtime.New().
+    WithPostgresAllInOne(dsn, "tenant-a").
+    WithSearch().
+    Build(ctx)
+mux := http.NewServeMux()
+mux.Handle("/fhir/", rt.Handler())
+```
+
+Use `HTTPAddr()` only when the managed server is enabled.
+
+### 3. Build without start (tests and init probes)
+
+`Build` performs migrations, module install, and service wiring — safe for tests that call services directly:
+
+```go
+rt, err := runtime.New().WithSQLite(":memory:").WithSearch().Build(ctx)
+svc := rt.Services().ResourceService
+// no Start required for in-process CRUD tests
+```
+
+### 4. Offline SQLite device + HTTP sync hub
+
+Local SQLite node with remote hub replication:
+
+```go
+rt, err := runtime.New().
+    WithSQLite("/data/device.db").
+    WithSQLiteTenant("tenant-a").
+    WithSync("https://hub.example.com").
+    WithSyncNode("clinic-tablet-1").
+    Build(ctx)
+```
+
+Hub must expose `/sync/push` and `/sync/pull` compatible with `pkg/client`.
+
+### 5. Postgres hub with in-process `sync.PostgresHub`
+
+Use `WithSyncHub` when the hub is co-located (integration tests, edge hub):
+
+```go
+rt, err := runtime.New().
+    WithPostgresAllInOne(dsn, "tenant-a").
+    WithSyncHub(sync.NewPostgresHub(/* ... */)).
+    WithSyncNode("device-1").
+    Build(ctx)
+```
+
+### 6. Cloud seams without implementing providers here
+
+Register adapter interfaces; provider SDKs live outside `pkg/runtime`:
+
+```go
+rt, err := runtime.New().
+    WithPostgresAllInOne(dsn, "tenant-a").
+    WithExternalBlobStore(myBlobAdapter).
+    WithExternalSearch(mySearchAdapter).
+    WithSearch().
+    Build(ctx)
+blobs := rt.Services().BlobStore
+```
+
+### 7. Built-in OAuth reference host
+
+Enable SMART authorization server routes for local Inferno-style testing:
+
+```go
+rt, err := runtime.New().
+    WithSQLite("/data/haistack.db").
+    WithHTTP(":8080").
+    WithBuiltinOAuth(runtime.BuiltinOAuthConfig{
+        IssuerURL: "https://auth.example.test",
+        TenantID:  "local",
+    }).
+    Build(ctx)
+```
+
+See `pkg/oauth/OPERATIONS.md` for production vs reference profiles.
+
 ## Deployment modes
 
 Modes are **inferred at `Build` time** from builder selections:

@@ -2,6 +2,109 @@
 
 Generic-first Go SDK for FHIR REST and HAIStack sync endpoints.
 
+## How it fits in the ecosystem
+
+```text
+  Application / CLI / device agent
+              |
+              v
+        pkg/client (this SDK)
+              |
+    +---------+---------+---------+
+    |         |         |         |
+    v         v         v         v
+ FHIR REST  /sync/*   SMART     Bulk $export
+    |         |      (outbound)   Subscription REST
+    v         v         |         |
+ pkg/http   pkg/http   IdP       pkg/http
+ (server)   sync       (external) (server)
+    |         |
+    v         v
+ pkg/core   pkg/sync.Engine (orchestration on server/device)
+ pkg/search
+ pkg/types  ◄── envelopes, OperationOutcome, JSON codec
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Downstream | **http** | Server-side inverse of this client’s FHIR routes |
+| Peer | **types** | `ResourceEnvelope`, codecs, `OperationOutcome` parsing |
+| Peer | **sync** | Wire models for push/pull; engine lives on hub/device |
+| Peer | **smart** | Server validates inbound tokens; client obtains them |
+| Peer | **runtime** | Managed servers expose URLs this SDK calls |
+| Peer | **testkit** | `httptest` + client for integration-style tests |
+| Out of scope | **core** / **search** | Server-only persistence and query execution |
+
+The client is **transport and contract**: it builds requests, attaches auth, retries transient failures, and maps FHIR error bodies. It never opens tenant databases or runs sync scheduling loops.
+
+## Usage modes
+
+Pick a mode by how the process authenticates and what surface it needs. All modes share the same `client.New` + `Config` foundation.
+
+### 1. Static bearer token (service or long-lived PAT)
+
+Best for backend jobs, cron exports, and tests with a preissued token:
+
+```go
+c, err := client.New(client.Config{
+    BaseURL:       "https://fhir.example.com",
+    TokenProvider: client.StaticTokenProvider{Token: accessToken},
+})
+```
+
+### 2. SMART interactive (auth code + PKCE)
+
+Best for user-facing apps that launch from an EHR or standalone SMART app:
+
+```go
+cfg, _ := c.SMART().Discover(ctx, issuer)
+pkce, _ := client.NewPKCEChallenge()
+authURL, _ := c.SMART().BuildAuthURL(/* AuthCodeRequest */)
+// user completes browser flow; then ExchangeAuthCode + TokenProviderFromResponse
+```
+
+See [SMART auth-code + PKCE](#smart-auth-code--pkce) below for the full exchange and refresh flow.
+
+### 3. SMART backend (client assertion JWT)
+
+Best for system accounts and batch integrators without a browser:
+
+```go
+tokens, err := c.SMART().ExchangeClientAssertion(ctx, client.ClientAssertionRequest{
+    TokenEndpoint: cfg.TokenEndpoint,
+    ClientID:      "backend-app",
+    Scope:         "system/*.read",
+    PrivateKey:    rsaPrivateKey,
+})
+```
+
+### 4. Unauthenticated or custom auth (metadata, local dev)
+
+Omit `TokenProvider` when the server allows anonymous reads, or implement `TokenProvider` for API keys, mTLS proxies, or rotating vault secrets:
+
+```go
+c, err := client.New(client.Config{BaseURL: "http://127.0.0.1:8080"})
+meta, err := c.Metadata(ctx)
+```
+
+### 5. Sync device bridge (HTTP hub)
+
+Device nodes use the same `Client` with `Sync()` for `/sync/push` and `/sync/pull` while FHIR CRUD uses the generic REST methods:
+
+```go
+pushResp, err := c.Sync().Push(ctx, client.ToPushRequest(nodeID, tenantID, events))
+pullResp, err := c.Sync().Pull(ctx, client.PullRequest{NodeID: nodeID, TenantID: tenantID, After: cursor})
+```
+
+### 6. Bulk export and subscription clients
+
+Sub-clients share the underlying HTTP pipeline and token provider:
+
+```go
+job, _ := c.BulkExport().Kickoff(ctx, client.ExportKickoffRequest{ResourceTypes: []string{"Patient"}})
+sub, _ := c.Subscriptions().Create(ctx, subscriptionEnvelope)
+```
+
 ## What it does
 
 **haistack-client** is the **outbound HTTP SDK** for HAIStack. It mirrors the FHIR REST surface exposed by `pkg/http` and adds focused sub-clients for sync, SMART, bulk export, and subscriptions.
