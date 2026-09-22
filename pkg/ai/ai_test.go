@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/degoke/health-ai-stack/pkg/ai"
+	"github.com/degoke/health-ai-stack/pkg/audit"
 )
 
 func TestRegistry_GenericAndConvenienceTools(t *testing.T) {
@@ -758,6 +759,93 @@ func TestExecutor_InvokeModelUsesRouter(t *testing.T) {
 	if resp == nil || resp.Adapter != "cloud" {
 		t.Fatalf("resp = %#v", resp)
 	}
+}
+
+func TestExecutor_InvokeModelAudits(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{})
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Policy: h.policy,
+		Audit:  h.audit,
+		ModelRouter: &ai.ModelRouter{
+			Local: &fakeModelAdapter{name: "stub-v1"},
+		},
+		Now: h.clock.Now,
+	})
+	resp, err := h.exec.InvokeModel(context.Background(), ai.ToolRequest{
+		Actor:          "user-clinician",
+		TenantID:       "tenant-research",
+		ConversationID: "conv-1",
+		ModelHint:      "local",
+	}, "summarize", "{}")
+	if err != nil {
+		t.Fatalf("InvokeModel: %v", err)
+	}
+	if resp == nil || resp.Adapter != "stub-v1" {
+		t.Fatalf("resp = %#v", resp)
+	}
+	recs := h.audit.Records()
+	if len(recs) != 1 {
+		t.Fatalf("audit records = %#v", recs)
+	}
+	if recs[0].Action != audit.ActionInvokeModel || recs[0].CanonicalAction() != audit.ActionInvokeModel || recs[0].ToolName != "stub-v1" || recs[0].Outcome != "success" {
+		t.Fatalf("audit = %#v", recs[0])
+	}
+	if recs[0].Actor != "user-clinician" || recs[0].ConversationID != "conv-1" {
+		t.Fatalf("audit identity = %#v", recs[0])
+	}
+	if h.audit.tools != 0 || h.audit.models != 1 {
+		t.Fatalf("tools=%d models=%d, want InvokeModel to call only LogModelInvoke", h.audit.tools, h.audit.models)
+	}
+}
+
+func TestAuditStoreAdapter_InvokeModelAction(t *testing.T) {
+	mem := audit.NewMemoryStore()
+	adapter := &ai.AuditStoreAdapter{Store: mem}
+	if err := adapter.LogModelInvoke(context.Background(), ai.AuditRecord{
+		ToolName: "stub-v1",
+		Actor:    "user-clinician",
+		Outcome:  audit.OutcomeSuccess,
+	}); err != nil {
+		t.Fatalf("LogModelInvoke: %v", err)
+	}
+	recs := mem.Records()
+	if len(recs) != 1 || recs[0].Action != audit.ActionInvokeModel || recs[0].ToolName != "stub-v1" {
+		t.Fatalf("records = %#v", recs)
+	}
+}
+
+func TestExecutor_InvokeModelCallsLogModelInvoke(t *testing.T) {
+	logger := &splitAuditLogger{}
+	exec, err := ai.NewExecutor(ai.Config{
+		Policy: ai.NewAllowListPolicy(),
+		Audit:  logger,
+		ModelRouter: &ai.ModelRouter{
+			Local: &fakeModelAdapter{name: "stub-v1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.InvokeModel(context.Background(), ai.ToolRequest{ModelHint: "local"}, "p", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if logger.tools != 0 || logger.models != 1 {
+		t.Fatalf("tools=%d models=%d, want InvokeModel to call only LogModelInvoke", logger.tools, logger.models)
+	}
+}
+
+type splitAuditLogger struct {
+	tools, models int
+}
+
+func (s *splitAuditLogger) LogToolAccess(context.Context, ai.AuditRecord) error {
+	s.tools++
+	return nil
+}
+
+func (s *splitAuditLogger) LogModelInvoke(context.Context, ai.AuditRecord) error {
+	s.models++
+	return nil
 }
 
 func TestRegistry_DuplicateRegistration(t *testing.T) {

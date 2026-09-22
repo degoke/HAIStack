@@ -1,0 +1,23 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "research_vitals_view",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Final vital-sign observations for the HAIStack research AI pipeline",
+  "resource": "Observation",
+  "select": [{
+    "column": [
+      {"name": "id", "path": "Observation.id", "type": "string"},
+      {"name": "status", "path": "Observation.status", "type": "string"},
+      {"name": "code", "path": "Observation.code.coding.first().code", "type": "string"},
+      {"name": "display", "path": "Observation.code.text", "type": "string"},
+      {"name": "patient", "path": "Observation.subject.reference", "type": "string"},
+      {"name": "value", "path": "Observation.value.ofType(Quantity).value", "type": "decimal"},
+      {"name": "unit", "path": "Observation.value.ofType(Quantity).unit", "type": "string"}
+    ]
+  }],
+  "where": [
+    {"path": "Observation.status = 'final'", "description": "Only final results"}
+  ],
+  "permissions": ["observation.read"]
+}

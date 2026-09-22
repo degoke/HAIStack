@@ -66,7 +66,7 @@ func TestHTTPAuthz_ScopeFilterReadDenied(t *testing.T) {
 	golden.AssertOutcomeEqual(t, outcome, golden.AuthOutcomeCatalog["forbidden_scope_filter"])
 }
 
-func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
+func TestHTTPAuthz_ScopeFilterSearchRewritesQueryAndStripsOutOfScopeMatches(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	bearer := smartBearerConfig(now)
 	token := validUserObservationScopeToken(now)
@@ -77,9 +77,11 @@ func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
 			if params.Get("category") != "laboratory" {
 				t.Fatalf("expected category filter injected, got %#v", params)
 			}
+			total := 2
 			return search.AssembleBundle(&search.Result{
 				ResourceType: resourceType,
 				Resources:    []*types.ResourceEnvelope{lab, vital},
+				Total:        &total,
 			}), nil
 		},
 	}
@@ -96,7 +98,10 @@ func TestHTTPAuthz_ScopeFilterSearchPostFilter(t *testing.T) {
 	}
 	entries, _ := bundle["entry"].([]any)
 	if len(entries) != 1 {
-		t.Fatalf("expected 1 filtered entry, got %d", len(entries))
+		t.Fatalf("expected out-of-scope match stripped, got %d", len(entries))
+	}
+	if got, ok := bundle["total"].(float64); !ok || got != 2 {
+		t.Fatalf("total = %v, want query-time 2", bundle["total"])
 	}
 }
 

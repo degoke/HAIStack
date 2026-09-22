@@ -11,9 +11,11 @@ import (
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
+	"github.com/degoke/health-ai-stack/pkg/oauth"
 	"github.com/degoke/health-ai-stack/pkg/postgres"
 	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/health-ai-stack/pkg/subscriptions"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 )
 
@@ -32,11 +34,12 @@ type Runtime struct {
 	httpServer *http.Server
 	httpAddr   net.Addr
 
-	jobRunner     *jobs.Runner
-	syncProcessor *hasync.JobProcessor
-	analyticsCDC  *analytics.CDCProcessor
-	reindexWorker *search.ReindexWorker
-	syncEngine    *hasync.Engine
+	jobRunner             *jobs.Runner
+	syncProcessor         *hasync.JobProcessor
+	analyticsCDC          *analytics.CDCProcessor
+	subscriptionProcessor *subscriptions.Processor
+	reindexWorker         *search.ReindexWorker
+	syncEngine            *hasync.Engine
 
 	jobCtx    context.Context
 	jobCancel context.CancelFunc
@@ -52,6 +55,8 @@ type Runtime struct {
 	shutdownErr  error
 
 	backgroundErr error
+
+	oauthAuthStore oauth.AuthorizationStore
 }
 
 // Build constructs a wired runtime from the builder configuration.
@@ -111,12 +116,21 @@ func (rt *Runtime) Start(ctx context.Context) error {
 	}
 	rt.starting = true
 
-	if rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil {
+	if rt.hasJobLoop() || rt.oauthAuthStore != nil {
 		rt.jobCtx, rt.jobCancel = context.WithCancel(ctx)
+	}
+	if rt.hasJobLoop() {
 		rt.jobWG.Add(1)
 		go func() {
 			defer rt.jobWG.Done()
 			rt.runJobLoop(rt.jobCtx)
+		}()
+	}
+	if rt.oauthAuthStore != nil {
+		rt.jobWG.Add(1)
+		go func() {
+			defer rt.jobWG.Done()
+			oauth.RunPendingAuthorizationCleanup(rt.jobCtx, rt.oauthAuthStore, oauth.DefaultPendingAuthorizationCleanupInterval)
 		}()
 	}
 
@@ -227,6 +241,10 @@ func (rt *Runtime) Shutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
+func (rt *Runtime) hasJobLoop() bool {
+	return rt.jobRunner != nil || rt.syncProcessor != nil || rt.analyticsCDC != nil || rt.subscriptionProcessor != nil
+}
+
 func (rt *Runtime) runJobLoop(ctx context.Context) {
 	for {
 		select {
@@ -254,6 +272,13 @@ func (rt *Runtime) runJobLoop(ctx context.Context) {
 			n, err := rt.analyticsCDC.RunOnce(ctx)
 			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				rt.recordBackgroundError(fmt.Errorf("%w: analytics cdc: %v", ErrBackgroundWorker, err))
+			}
+			processed = processed || n > 0
+		}
+		if rt.subscriptionProcessor != nil {
+			n, err := rt.subscriptionProcessor.RunOnce(ctx)
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				rt.recordBackgroundError(fmt.Errorf("%w: subscriptions: %v", ErrBackgroundWorker, err))
 			}
 			processed = processed || n > 0
 		}

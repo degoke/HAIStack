@@ -6,6 +6,12 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/smart"
 )
 
+// ClientRegistry stores registered OAuth clients.
+type ClientRegistry interface {
+	Get(clientID string) (Client, bool)
+	Register(client Client) error
+}
+
 // Client describes a registered OAuth client.
 type Client struct {
 	ClientID                string
@@ -56,6 +62,16 @@ func (s *ClientStore) Get(clientID string) (Client, bool) {
 	client, ok := s.clients[clientID]
 	s.mu.RUnlock()
 	return client, ok
+}
+
+// IssuerScopedClientRegistry can return an issuer-isolated client registry view.
+type IssuerScopedClientRegistry interface {
+	ForIssuer(issuer string) ClientRegistry
+}
+
+// ForIssuer returns an empty in-memory registry so tenants do not share clients.
+func (s *ClientStore) ForIssuer(string) ClientRegistry {
+	return NewClientStore()
 }
 
 // ToBackendClient converts client key metadata for backend assertion validation.

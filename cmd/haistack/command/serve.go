@@ -44,11 +44,22 @@ until interrupted and prints the bound listen address on startup.`,
 				"address": rt.HTTPAddr().String(),
 				"search":  cfg.Runtime.EnableSearch,
 			}
+			if cfg.OAuthEnabled() {
+				startMsg["oauth"] = true
+				if issuer := rt.Config().OAuthIssuer; issuer != "" {
+					startMsg["oauthDiscovery"] = issuer + "/fhir/.well-known/smart-configuration"
+				}
+			}
 			if printer.Format == app.OutputJSON {
 				_ = printer.Print(startMsg)
 			} else {
 				writeStdout(printer, fmt.Sprintf("listening on http://%s (mode=%s, search=%v)",
 					rt.HTTPAddr().String(), rt.Mode(), cfg.Runtime.EnableSearch))
+				if cfg.OAuthEnabled() {
+					if issuer := rt.Config().OAuthIssuer; issuer != "" {
+						writeStdout(printer, fmt.Sprintf("oauth discovery: %s/fhir/.well-known/smart-configuration", issuer))
+					}
+				}
 			}
 
 			sigCh := make(chan os.Signal, 1)

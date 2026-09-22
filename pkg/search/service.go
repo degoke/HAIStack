@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -93,8 +94,15 @@ func (s *Service) SearchRequest(ctx context.Context, req Request) (*Result, erro
 
 	var included []IncludedEntry
 	for _, ref := range execResult.Included {
+		if !s.registry.IsResourceEnabled(ref.ResourceType) {
+			continue
+		}
 		res, err := s.resources.Read(ctx, ref.ResourceType, ref.ID)
 		if err != nil {
+			// FHIR _include/_revinclude: missing targets are omitted, not a search failure.
+			if isResourceNotFound(err) {
+				continue
+			}
 			return nil, fmt.Errorf("search: read included %s/%s: %w", ref.ResourceType, ref.ID, err)
 		}
 		projected, err := applyProjection(res, plan.Summary, plan.Elements)
@@ -154,4 +162,19 @@ func (s *Service) EnabledResourceTypes() []string {
 		return nil
 	}
 	return s.registry.EnabledResourceTypes()
+}
+
+func isResourceNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return true
+	}
+	// core.ServiceError (and similar) without importing pkg/core, which imports search.
+	var kinded interface{ Kind() string }
+	if errors.As(err, &kinded) && kinded.Kind() == "not-found" {
+		return true
+	}
+	return false
 }

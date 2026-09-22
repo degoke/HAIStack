@@ -11,7 +11,10 @@ Production-capable OAuth2/OIDC authorization server for SMART on FHIR.
 | `/oauth/authorize` | Authorization code + PKCE |
 | `/oauth/token` | Token exchange (auth code, client credentials, refresh) |
 | `/oauth/revoke` | Revoke refresh tokens and JWT access tokens (by `jti`) |
+| `/oauth/introspect` | RFC 7662 token introspection (confidential clients only) |
 | `/oauth/jwks` | Signing key set |
+| `/oauth/login` | Session login for production consent (when `UserAuthenticator` is configured) |
+| `/t/{tenantId}/oauth/*` | Tenant-scoped OAuth routes (via `MultiTenantServer`) |
 | `/oauth/register` | Dynamic client registration (opt-in) |
 | `/oauth/consent` | Built-in HTML consent form |
 | `/oauth/launch` | EHR launch context (JSON) |
@@ -19,20 +22,21 @@ Production-capable OAuth2/OIDC authorization server for SMART on FHIR.
 
 ## Production deployment (recommended: Postgres)
 
-Use `oauthpostgres.NewServer` for multi-instance clusters. Postgres provides transactional
-`DELETE … RETURNING` consume semantics and row-level locking — no shared filesystem required.
+Use `oauthstore.NewPostgresServer` (or `ApplyPostgresStores` + `oauth.NewServer`) for
+multi-instance clusters. Postgres provides transactional `DELETE … RETURNING` consume
+semantics and row-level locking — no shared filesystem required.
 
 ```go
 import (
     "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
+    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
     "github.com/degoke/health-ai-stack/pkg/postgres"
 )
 
 db, _ := postgres.Open(ctx, dsn)
 _ = db.Migrate(ctx)
 
-server, err := oauthpostgres.NewServer(oauth.Config{
+server, err := oauthstore.NewPostgresServer(oauth.Config{
     Issuer:             "https://auth.example",
     FHIRAudience:       "https://fhir.example",
     RequireConsentForm: true,
@@ -41,44 +45,35 @@ server, err := oauthpostgres.NewServer(oauth.Config{
 }, db.Pool())
 ```
 
-`oauthpostgres.Stores` wires:
+`oauthstore.PostgresStores` wires:
 
 - `AuthorizationStore` — auth codes, refresh tokens, consent sessions
 - `ClientRegistry` — clients with bcrypt-hashed secrets
 - `ReplayStore` — backend/client-assertion `jti` replay protection
 - `RevocationStore` — revoked access-token `jti` denylist
+- `TokenRateLimiter` / `RegisterRateLimiter` — DB-backed endpoint rate limits
+- DB signing keys via `ApplyPostgresSigningKey` / `ApplySQLiteSigningKey` when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set
 
-Schema: migration `0015_oauth.sql`.
+Schema: migrations `0017_oauth.sql` + `0018_oauth_rate_limit.sql` + `0019_oauth_signing_key.sql` + `0020_oauth_issuer_binding.sql` + `0021_oauth_issuer_pk.sql` + `0022_oauth_client_issuer.sql` (Postgres), or `0014_oauth.sql` + `0015_oauth_rate_limit.sql` + `0016_oauth_signing_key.sql` + `0017_oauth_issuer_binding.sql` + `0018_oauth_issuer_pk.sql` + `0019_oauth_client_issuer.sql` (SQLite).
 
-### Why file stores existed
-
-Early iterations used `FileAuthorizationStore` for a **zero-dependency** way to share
-OAuth state across a few AS replicas on a mounted volume. That works for dev/small
-deployments but is a poor fit for production:
-
-- No cross-host locking (NFS latency and corruption risk)
-- Full-file rewrite on every token operation
-- No HA failover semantics
-
-`NewProductionServer` (file-backed) remains for single-node and test environments.
-**Postgres is the recommended production path.**
+Auth codes, refresh tokens, and pending consent rows store an `issuer` column (and JSON `issuer` field) so a shared SQL store can enforce that tokens minted under `/t/{tenantId}/` are only consumed by the matching tenant issuer.
 
 ### Redis (ephemeral token state)
 
 Use `oauthredis.NewServer` for TTL-backed auth codes, refresh tokens, replay JTIs, and
-revocation denylist. **Client registration stays on Postgres or file** — pass a durable
+revocation denylist. **Client registration stays on Postgres or SQLite** — pass a durable
 `cfg.Clients` registry; Redis does not store clients.
 
 ```go
 import (
     "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthpostgres "github.com/degoke/health-ai-stack/pkg/oauth/postgres"
+    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
     oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
     goredis "github.com/redis/go-redis/v9"
 )
 
 db, _ := postgres.Open(ctx, dsn)
-_, clientStore, _, _ := oauthpostgres.Stores(db.Pool())
+_, clientStore, _, _ := oauthstore.PostgresStores(db.Pool())
 rdb := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
 server, err := oauthredis.NewServer(oauth.Config{
     Issuer:  "https://auth.example",
@@ -87,13 +82,6 @@ server, err := oauthredis.NewServer(oauth.Config{
 ```
 
 `oauthredis.EphemeralStores` wires the three ephemeral interfaces with TTL-based keys.
-
-### File-backed alternative (single node / dev)
-
-```go
-paths := oauth.DefaultProductionPaths("/var/lib/haistack/oauth")
-server, err := oauth.NewProductionServer(oauth.Config{...}, paths)
-```
 
 ## Client authentication at the token endpoint
 
@@ -126,12 +114,28 @@ form.Set("code_verifier", pkceVerifier)
 Revoked access tokens are rejected by `server.BearerAuthConfig()` via `TokenValidateOptions.IsJWTRevoked`.
 All access tokens include a `client_id` claim; revoke rejects tokens without it.
 
+## Production environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OAUTH_REGISTRATION_TOKEN` | Bearer token for `POST /oauth/register` |
+| `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` | AES key for DB-stored signing keys (required for `haistack serve` production) |
+| `OAUTH_SESSION_SECRET` | HMAC secret for `/oauth/login` session cookies (required for production consent) |
+| `OAUTH_LOGIN_USERS` | Production login directory: `username:password` or `username:$2a$...` (newline or `;` separated) |
+
+When `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is unset, signing keys fall back to PEM at `{state-dir}/oauth-signing.pem` (`oauth.DefaultSigningKeyPaths`). Set `OAUTH_SIGNING_KEY_ROTATE=1` before restart to rotate the active DB key.
+
+Embedders that previously used `oauth.NewProductionServer` should call `oauthstore.NewSQLiteServer` or `oauthstore.NewPostgresServer` instead. Those APIs persist clients, authorization codes, refresh tokens, replay JTIs, and revocation across process restarts. `oauth.NewServer` without a store is in-memory only.
+
+`pkg/smart` still has `FileBackendClientStore` / `FileReplayStore` for **SMART backend-service assertion** clients and `jti` replay — they are not the OAuth authorization-server stores.
+
 ## Multi-instance checklist
 
-1. Use `oauthpostgres.NewServer` (recommended) or shared file stores for dev only.
-2. Persist `oauth-signing.pem` across restarts (`LoadKeySetFromPEM`).
-3. Set `UserAuthenticator` for end-user consent binding.
+1. Use `oauthstore.NewPostgresServer` (recommended) or `oauthstore.NewSQLiteServer` for single-node.
+2. Persist signing keys in DB (`OAUTH_SIGNING_KEY_ENCRYPTION_SECRET`) or `oauth-signing.pem` across restarts.
+3. Set `UserAuthenticator` with a real user directory (or `haistack serve` production session login via `OAUTH_LOGIN_USERS`) for end-user consent binding.
 4. Keep `AutoApprove: false` in production.
 5. Enable `AllowDynamicRegistration` only when required.
+6. Mount tenant routes at `/t/{tenantId}/` when using `MultiTenantServer`.
 
-See `examples/smart-oauth` for a runnable demo.
+See `examples/smart-oauth` for a runnable demo, or `haistack serve` for built-in OAuth with SQLite/Postgres stores (`runtime.WithBuiltinOAuth`). Operations guidance: `OPERATIONS.md`.

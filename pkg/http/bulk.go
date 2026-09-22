@@ -3,11 +3,14 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/degoke/health-ai-stack/pkg/binary"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
 )
@@ -21,6 +24,7 @@ type BulkExportService interface {
 	Manifest(job *export.Job) *export.Manifest
 	StatusURL(jobID string) string
 	GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error)
+	OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error)
 }
 
 func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route parsedRoute) {
@@ -34,7 +38,7 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 			writeError(w, err)
 			return
 		}
-		if strings.ToLower(r.Header.Get("Prefer")) != "respond-async" {
+		if !prefersRespondAsync(r.Header.Get("Prefer")) {
 			writeError(w, invalidRequest("Prefer: respond-async is required for bulk export kickoff", nil))
 			return
 		}
@@ -55,6 +59,13 @@ func (h *handler) handleBulkExport(w http.ResponseWriter, r *http.Request, route
 		}
 		if route.resourceType == "Group" && route.id != "" {
 			req.GroupID = route.id
+		}
+		if route.resourceType == "Patient" {
+			if route.id != "" {
+				req.PatientID = route.id
+			} else {
+				req.PatientExport = true
+			}
 		}
 		if principal, tenant, ok := identityFromContext(r.Context()); ok {
 			req.TenantID = tenant.TenantID
@@ -132,17 +143,12 @@ func (h *handler) handleBulkExportFile(w http.ResponseWriter, r *http.Request, j
 		writeError(w, err)
 		return
 	}
-	data, contentType, err := h.cfg.BulkExportService.GetFile(r.Context(), jobID, filename)
+	data, contentType, err := h.cfg.BulkExportService.OpenFile(r.Context(), jobID, filename)
 	if err != nil {
-		writeError(w, notFound("export file not found"))
+		writeFileError(w, err, "export file not found")
 		return
 	}
-	if contentType == "" {
-		contentType = "application/fhir+ndjson"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	writeFileBody(w, data, contentType, "application/fhir+ndjson")
 }
 
 func parseCSVParam(raw string) []string {
@@ -160,9 +166,47 @@ func parseCSVParam(raw string) []string {
 	return out
 }
 
+// prefersRespondAsync reports whether a Prefer header requests async processing.
+// It accepts the FHIR Bulk Data token by itself or as one comma-separated
+// preference, for example "respond-async, wait=10".
+func prefersRespondAsync(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		token := strings.TrimSpace(part)
+		if i := strings.IndexAny(token, "; "); i >= 0 {
+			token = token[:i]
+		}
+		if strings.EqualFold(token, "respond-async") {
+			return true
+		}
+	}
+	return false
+}
+
 func notFound(message string, args ...any) error {
 	return &core.ServiceError{
 		Kind:    core.ErrorKindNotFound,
 		Message: fmt.Sprintf(message, args...),
 	}
+}
+
+func writeFileError(w http.ResponseWriter, err error, missing string) {
+	if errors.Is(err, binary.ErrNotFound) {
+		writeError(w, notFound("%s", missing))
+		return
+	}
+	if errors.Is(err, binary.ErrInvalidArgument) {
+		writeError(w, invalidRequest(err.Error(), err))
+		return
+	}
+	writeError(w, err)
+}
+
+func writeFileBody(w http.ResponseWriter, rc io.ReadCloser, contentType, fallback string) {
+	defer func() { _ = rc.Close() }()
+	if contentType == "" {
+		contentType = fallback
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, rc)
 }

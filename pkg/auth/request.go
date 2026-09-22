@@ -2,20 +2,26 @@ package auth
 
 // ReadRequest asks whether a principal may read a FHIR resource.
 type ReadRequest struct {
-	Principal           Principal
-	Tenant              TenantContext
-	ResourceType        string
-	ID                  string
+	Principal    Principal
+	Tenant       TenantContext
+	ResourceType string
+	ID           string
+	// PatientID is the compartment patient of a non-Patient resource
+	// (Observation.subject, Appointment.participant.actor, …). Empty skips
+	// overlay for non-Patient types. Patient resources use ID.
+	PatientID           string
 	RequiredPermissions []string
 }
 
 // WriteRequest asks whether a principal may write a FHIR resource.
 type WriteRequest struct {
-	Principal           Principal
-	Tenant              TenantContext
-	Operation           string // create | update
-	ResourceType        string
-	ID                  string
+	Principal    Principal
+	Tenant       TenantContext
+	Operation    string // create | update | patch
+	ResourceType string
+	ID           string
+	// PatientID is the compartment patient of a non-Patient resource.
+	PatientID           string
 	RequiredPermissions []string
 }
 

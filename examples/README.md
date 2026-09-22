@@ -101,9 +101,11 @@ go run ./examples/smart-authz
 
 Production-shaped SMART OAuth + FHIR demo:
 
-- `oauth.NewProductionServer` with file-backed client/token/replay stores
+- `oauthstore.ApplySQLiteStores` + `oauth.NewServer` (JSON payload tables)
 - HTML consent with CSRF, EHR launch resolver, and end-user identity
 - PKCE auth-code flow and FHIR read via issued bearer token
+
+For zero-config local serving with the same stack, use `haistack serve` (see `cmd/haistack/README.md`).
 
 ```bash
 go run ./examples/smart-oauth
@@ -131,3 +133,4 @@ go run ./examples/ai-authz
 - The SQLite-only examples do not require Docker or Postgres.
 - The Postgres deployment examples require either Docker or `TEST_POSTGRES_DSN`.
 - The runtime example loads the local `modules/core` module from this repository.
+- Research-grade FHIR → AI provenance (stub model, synthetic data) lives in `research/ai-pipeline` (`make research-ai-pipeline`).

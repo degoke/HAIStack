@@ -94,6 +94,7 @@
 //   - fhirpath.Engine for registry-driven search indexing
 //   - core.ResourceService with validator, indexer, and outbox as available
 //   - search.Service when WithSearch is enabled
+//   - subscriptions.Matcher (Engine + Registry) and Processor
 //   - sync.Engine when sync is configured
 //   - FHIR HTTP handler via pkg/http adapters (always built for Handler access)
 //
@@ -101,6 +102,7 @@
 //
 //   - RegistryManager, RegistrySnapshot, ModuleManager
 //   - ResourceService, SearchService, SyncEngine, FHIRPathEngine
+//   - SubscriptionManager, SubscriptionProcessor, SubscriptionMatcher
 //   - TenantDB (Postgres modes only)
 //   - BlobStore, ExternalSearch, Warehouse (cloud mode adapters)
 //
@@ -127,6 +129,10 @@
 // runtime-facing interfaces for future cloud integrations. Concrete provider
 // implementations live outside pkg/runtime. Adapters need only the methods
 // required for dependency registration and future wiring in this phase.
+// Bulk $export/$import files use the blob adapter's store.BlobStore when it is
+// non-nil; otherwise they use the chunked Postgres blob store or the SQLite blob
+// store. Job status records persist in store.JobStore. Wiring fails if neither
+// an adapter nor a database blob store is available.
 //
 // Adapters may implement CloseableAdapter to participate in Shutdown.
 //
@@ -136,6 +142,7 @@
 //
 //   - search.ReindexWorker via jobs.Runner (Postgres + WithSearch)
 //   - sync.JobProcessor for retry push, scheduled pull, conflict, and replay jobs
+//   - subscriptions.Processor for event matching and delivery enqueue
 //
 // Workers start on Start and stop on Shutdown context cancellation.
 //

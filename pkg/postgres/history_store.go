@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -107,4 +108,50 @@ func (s *HistoryStore) GetHistory(ctx context.Context, resourceType, id string) 
 		return nil, fmt.Errorf("iterate history: %w", err)
 	}
 	return out, nil
+}
+
+func (s *HistoryStore) GetVersion(ctx context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	row := s.exec.QueryRow(ctx, `
+		SELECT action, timestamp, hash, deleted, json
+		FROM hai_resource_history
+		WHERE tenant_id = $1 AND resource_type = $2 AND resource_id = $3 AND version_id = $4`,
+		s.tenantID, resourceType, id, versionID,
+	)
+	var (
+		action    string
+		timestamp time.Time
+		hash      *string
+		deleted   bool
+		jsonData  []byte
+	)
+	if err := row.Scan(&action, &timestamp, &hash, &deleted, &jsonData); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
+		}
+		return store.ResourceVersion{}, fmt.Errorf("get history version: %w", err)
+	}
+	version := store.ResourceVersion{
+		ResourceType: resourceType,
+		ID:           id,
+		VersionID:    versionID,
+		Action:       store.VersionAction(action),
+		Timestamp:    timestamp,
+		Deleted:      deleted,
+	}
+	if hash != nil {
+		version.Hash = *hash
+	}
+	if len(jsonData) > 0 {
+		version.Resource = &types.ResourceEnvelope{
+			ResourceType: resourceType,
+			ID:           id,
+			VersionID:    versionID,
+			LastUpdated:  timestamp,
+			JSON:         jsonData,
+		}
+		if hash != nil {
+			version.Resource.Hash = *hash
+		}
+	}
+	return version, nil
 }

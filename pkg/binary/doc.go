@@ -30,6 +30,8 @@
 // # Store interfaces
 //
 //   - BlobStore: Put, Get, Head, Delete finalized blob payloads.
+//   - BlobStoreWithStream: PutStream from io.Reader without a full in-memory []byte.
+//   - BlobStoreWithOpen: Open streams a blob without assembling a full []byte.
 //   - ChunkStore: chunk append/read/finalize for resumable transfer.
 //   - MetadataStore: manifest, link, and sync-status persistence.
 //   - TransferStore: upload/download session state.
@@ -38,10 +40,14 @@
 //
 // MVP backends:
 //
-//   - LocalFileBlobStore: hash-addressed files on disk.
-//   - SQLiteBlobStore: full blob bytes in SQLite via chunk and manifest tables.
-//   - PostgresBlobStore: full blob bytes in Postgres via chunk and manifest tables.
-//   - S3BlobStore: S3-compatible object storage with signed URL support.
+//   - LocalFileBlobStore: hash-addressed files on disk (PutStream copies via io.Copy; OpenBlob streams).
+//   - SQLiteBlobStore: full blob bytes in SQLite via chunk and manifest tables (PutStream
+//     writes DefaultChunkSize slices; Open reads one chunk at a time).
+//   - PostgresBlobStore: full blob bytes in Postgres via chunk and manifest tables (same).
+//   - S3BlobStore: S3-compatible object storage with signed URL support and streaming PUT/GET.
+//     PutStream rejects a successful PUT whose hashed size differs from Content-Length.
+//   - PrefixedFileStore: path-keyed files over store.BlobStore. Open returns the backend
+//     stream; Location pointer hydration is Get-only. Postgres BYTEA Open follows in-store pointers.
 //
 // Legacy store.BinaryStore and store.BlobStore remain for simple inline storage;
 // pkg/binary is the richer public API for new blob work.

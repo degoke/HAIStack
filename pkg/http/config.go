@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/health-ai-stack/pkg/hooks"
 	"github.com/degoke/health-ai-stack/pkg/smart"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -136,6 +137,9 @@ type Config struct {
 	// BulkExportService handles FHIR Bulk Data export when configured.
 	BulkExportService BulkExportService
 
+	// BulkImportService handles FHIR Bulk Data import when configured.
+	BulkImportService BulkImportService
+
 	// ViewMaterializeService handles ViewDefinition/$materialize when configured.
 	ViewMaterializeService ViewMaterializeService
 
@@ -156,6 +160,11 @@ type Config struct {
 	// are configured. Use a distributed gateway limiter for multi-instance
 	// deployments, or provide equivalent protection before this handler.
 	RateLimit RateLimitConfig
+
+	// Hooks is an optional four-point intercept SPI (incoming, pre-storage,
+	// post-commit, outgoing). HTTP runs incoming after routing and outgoing
+	// before a resource envelope is written. Core runs pre-storage and post-commit.
+	Hooks hooks.Hooks
 }
 
 // NewHandler constructs a FHIR REST http.Handler from Config.
@@ -186,7 +195,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.AuthMiddleware != nil {
 		handler = cfg.AuthMiddleware(handler)
 	} else if cfg.PrincipalResolver != nil && cfg.AuthChecker != nil {
-		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker, cfg.AuthBundleResolver)
+		handler = withAuth(handler, cfg.PrincipalResolver, cfg.AuthChecker, cfg.AuthBundleResolver, cfg.BasePath)
 	}
 	if cfg.RateLimit.Requests > 0 && cfg.RateLimit.Window > 0 {
 		handler = NewRateLimitMiddleware(cfg.RateLimit)(handler)

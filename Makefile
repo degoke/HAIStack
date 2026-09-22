@@ -1,8 +1,9 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock
+.PHONY: help fmt format fmt-check format-check vet lint test test-short test-race build tidy clean ci ci-pr all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
 GO_TEST_TIMEOUT ?= 30m
+GO_TEST_SHORT_TIMEOUT ?= 20m
 ifneq ($(wildcard $(GOPATH_BIN)/golangci-lint),)
 GOLANGCI_LINT ?= $(GOPATH_BIN)/golangci-lint
 else
@@ -36,7 +37,10 @@ lint: ## Run golangci-lint
 test: ## Run unit and integration tests
 	$(GO) test ./...
 
-test-race: ## Run tests with the race detector
+test-short: ## Run tests like PR CI (skips most Postgres integration tests)
+	$(GO) test -short -count=1 -timeout $(GO_TEST_SHORT_TIMEOUT) ./...
+
+test-race: ## Run full tests with race detector (matches post-merge main CI)
 	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 build: ## Build all packages
@@ -58,11 +62,34 @@ validate-ig: ig ## Build the IG and validate examples with the Go validator
 conformance-lock: ## Record current git commit and toolchain pins in conformance-lock.json
 	bash conformance/scripts/write-lock.sh
 
+research: research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks ## Exit-status check for all research tracks (CLI stdout discarded)
+
+research-ai-pipeline: ## Track E — FHIR → view → AI tool provenance pipeline
+	$(GO) test ./research/ai-pipeline
+	$(GO) run ./research/ai-pipeline >/dev/null
+
+research-policy: ## Track C — policy semantics catalogue (≥10 scope ∩ policy examples)
+	$(GO) test ./research/policy-semantics
+	$(GO) run ./research/policy-semantics >/dev/null
+
+research-conversion: ## Track B — R4→R5 semantic conversion corpus scorer
+	$(GO) test ./research/semantic-conversion
+	$(GO) run ./research/semantic-conversion >/dev/null
+
+research-terminology: ## Track D — ConceptMap gold vs planted scorer fixture
+	$(GO) test ./research/terminology-evaluation
+	$(GO) run ./research/terminology-evaluation >/dev/null
+
+research-benchmarks: ## Track A — vendor-neutral FHIR benchmark runner (small size)
+	$(GO) test ./research/benchmarks
+	HAISTACK_BENCH_SIZE=small $(GO) run ./research/benchmarks >/dev/null
+
 clean: ## Remove build artifacts and test binaries
 	$(GO) clean -testcache
 	rm -f coverage.out coverage.html
 	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
-ci: fmt-check vet lint test-race build ## Run all Go CI checks locally
+ci-pr: fmt-check vet lint test-short build tidy research ## Run PR CI checks locally (matches .github/workflows/ci.yml on pull_request)
+ci: fmt-check vet lint test-race build tidy research ## Run post-merge main CI checks locally (full)
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

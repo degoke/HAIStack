@@ -451,6 +451,17 @@ func (m *memBackend) GetHistory(_ context.Context, resourceType, id string) ([]s
 	return append([]store.ResourceVersion(nil), m.history[m.key(resourceType, id)]...), nil
 }
 
+func (m *memBackend) GetVersion(_ context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, version := range m.history[m.key(resourceType, id)] {
+		if version.VersionID == versionID {
+			return version, nil
+		}
+	}
+	return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
+}
+
 func (m *memBackend) AppendVersion(_ context.Context, version store.ResourceVersion) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -477,11 +488,22 @@ func (s *memWriteSession) Rollback(context.Context) error     { return nil }
 type fakeAuditLogger struct {
 	mu      sync.Mutex
 	records []ai.AuditRecord
+	tools   int
+	models  int
 }
 
 func (a *fakeAuditLogger) LogToolAccess(_ context.Context, rec ai.AuditRecord) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.tools++
+	a.records = append(a.records, rec)
+	return nil
+}
+
+func (a *fakeAuditLogger) LogModelInvoke(_ context.Context, rec ai.AuditRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.models++
 	a.records = append(a.records, rec)
 	return nil
 }

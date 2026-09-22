@@ -234,6 +234,30 @@ func TestAuthAdapter_ToAuthRequestsAndPatientScope(t *testing.T) {
 	}
 }
 
+func TestAuthAdapter_ToViewAndAIToolRequestSetsRequiredPermissions(t *testing.T) {
+	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{DefaultTenantID: "tenant-a", DefaultUserRoles: []string{"clinician"}})
+	scopes, err := smart.ParseScopes("user/*.read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := adapter.ToAuthRequests(smart.TokenClaims{
+		Subject: "user-1",
+		Scope:   scopes.SpaceSeparated(),
+		Scopes:  scopes,
+	}, smart.LaunchContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewReq := adapter.ToViewRequest(bundle, "patient_summary_view", "Patient")
+	if len(viewReq.RequiredPermissions) == 0 {
+		t.Fatal("view request missing RequiredPermissions")
+	}
+	toolReq := adapter.ToAIToolRequest(bundle, "run_view", "Observation", "patient_summary_view")
+	if len(toolReq.RequiredPermissions) == 0 {
+		t.Fatal("AI tool request missing RequiredPermissions")
+	}
+}
+
 func TestAuthAdapter_ToAuthRequests_ParsesClaimScopesIntoBundleAndLaunch(t *testing.T) {
 	adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{
 		DefaultTenantID:  "tenant-a",
@@ -851,6 +875,30 @@ func TestAllowsResourceWithFiltersReadOrSearch_ReadOnlyInclude(t *testing.T) {
 	}
 	if len(bundle.Entries) != 1 {
 		t.Fatalf("entries = %d", len(bundle.Entries))
+	}
+}
+
+func TestFilterSearchBundleScopeFilters_StripsOutOfScopeMatch(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab := observationEnvelope("obs-lab", "laboratory")
+	vital := observationEnvelope("obs-vital", "vital-signs")
+	total := 2
+	bundle := search.AssembleBundle(&search.Result{
+		ResourceType: "Observation",
+		Resources:    []*types.ResourceEnvelope{lab, vital},
+		Total:        &total,
+	})
+	if err := smart.FilterSearchBundleScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Entries) != 1 || bundle.Entries[0].Resource.ID != "obs-lab" {
+		t.Fatalf("entries = %#v", bundle.Entries)
+	}
+	if bundle.Total == nil || *bundle.Total != 2 {
+		t.Fatalf("Total = %v, want query-time 2", bundle.Total)
 	}
 }
 

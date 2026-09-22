@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/degoke/health-ai-stack/pkg/auth"
 	"github.com/degoke/health-ai-stack/pkg/jobs"
@@ -21,8 +22,12 @@ type requestIdentity struct {
 	Tenant    auth.TenantContext
 }
 
-func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker, bundleResolver AuthBundleResolver) http.Handler {
+func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker, bundleResolver AuthBundleResolver, basePath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicFHIRPath(basePath, r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		format, err := negotiateResponseFormat(r)
 		if err != nil {
 			writeError(w, err)
@@ -47,6 +52,15 @@ func withAuth(next http.Handler, resolver PrincipalResolver, checker AuthChecker
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func isPublicFHIRPath(basePath, path string) bool {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(path), "/")
+	base := strings.TrimSuffix(strings.TrimSpace(basePath), "/")
+	if base == "" {
+		base = defaultBasePath
+	}
+	return trimmed == base+"/metadata"
 }
 
 func identityFromContext(ctx context.Context) (auth.Principal, auth.TenantContext, bool) {

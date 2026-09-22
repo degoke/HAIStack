@@ -7,6 +7,7 @@ import (
 var (
 	ErrNilStore          = errors.New("subscriptions: store is nil")
 	ErrNilEngine         = errors.New("subscriptions: fhirpath engine is nil")
+	ErrNilRegistry       = errors.New("subscriptions: search registry is nil")
 	ErrNotFound          = errors.New("subscriptions: not found")
 	ErrInvalidTrigger    = errors.New("subscriptions: invalid trigger")
 	ErrInvalidChannel    = errors.New("subscriptions: invalid channel")

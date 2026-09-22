@@ -37,6 +37,14 @@ func (a CoreResourceService) History(ctx context.Context, resourceType, id strin
 	return a.Svc.History(ctx, resourceType, id)
 }
 
+func (a CoreResourceService) VRead(ctx context.Context, resourceType, id, versionID string) (*types.ResourceEnvelope, error) {
+	return a.Svc.VRead(ctx, resourceType, id, versionID)
+}
+
+func (a CoreResourceService) Everything(ctx context.Context, patientID string, q core.EverythingQuery) ([]*types.ResourceEnvelope, error) {
+	return a.Svc.Everything(ctx, patientID, q)
+}
+
 func (a CoreResourceService) ProcessTransactionBundle(ctx context.Context, bundle *types.ResourceEnvelope) (*types.ResourceEnvelope, error) {
 	return a.Svc.ProcessTransactionBundle(ctx, bundle)
 }
@@ -78,7 +86,8 @@ func (a SearchServiceAdapter) SearchBundle(ctx context.Context, resourceType str
 }
 
 // SearchBundleForPatient injects a patient relationship filter into search params
-// before executing the query so unauthorized rows are excluded at query time.
+// before executing the query so unauthorized rows are excluded at query time
+// rather than fetched and hidden after the fact.
 func (a SearchServiceAdapter) SearchBundleForPatient(ctx context.Context, resourceType, patientID string, params url.Values) (*search.SearchBundle, error) {
 	scoped, err := auth.ApplyPatientSearchScopeToParams(params, resourceType, patientID, a.PatientSearchParamResolver)
 	if err != nil {

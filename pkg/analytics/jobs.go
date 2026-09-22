@@ -21,14 +21,15 @@ type RefreshPayload struct {
 
 // ExportPayload is the job payload for analytics export runs.
 type ExportPayload struct {
-	ViewName      string             `json:"viewName"`
-	Version       string             `json:"version"`
-	Actor         string             `json:"actor,omitempty"`
-	Subject       string             `json:"subject,omitempty"`
-	Since         time.Time          `json:"since,omitempty"`
-	Parameters    map[string]any     `json:"parameters,omitempty"`
-	Format        ExportFormat       `json:"format,omitempty"`
-	ParquetLayout view.ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName          string                 `json:"viewName"`
+	Version           string                 `json:"version"`
+	Actor             string                 `json:"actor,omitempty"`
+	Subject           string                 `json:"subject,omitempty"`
+	Since             time.Time              `json:"since,omitempty"`
+	Parameters        map[string]any         `json:"parameters,omitempty"`
+	Format            ExportFormat           `json:"format,omitempty"`
+	ParquetLayout     view.ParquetLayout     `json:"parquetLayout,omitempty"`
+	TimestampEncoding view.TimestampEncoding `json:"timestampEncoding,omitempty"`
 }
 
 // Job type constants re-exported for analytics orchestration.
@@ -98,7 +99,7 @@ func ExportHandlerWithConfig(runner *Runner, cfg ExportHandlerConfig, watermark 
 		if format == "" {
 			format = FormatNDJSON
 		}
-		sink, err := cfg.buildSink(format, payload.ParquetLayout)
+		sink, err := cfg.buildSink(format, payload.ParquetLayout, payload.TimestampEncoding)
 		if err != nil {
 			return err
 		}
@@ -112,8 +113,13 @@ func runExportJob(ctx context.Context, runner *Runner, sink RowSink, watermark *
 		version = "1.0.0"
 	}
 	if payload.Format == FormatParquet {
-		if typed, ok := sink.(*ParquetFileSink); ok && payload.ParquetLayout != "" {
-			typed.layout = payload.ParquetLayout
+		if typed, ok := sink.(*ParquetFileSink); ok {
+			if payload.ParquetLayout != "" {
+				typed.layout = payload.ParquetLayout
+			}
+			if payload.TimestampEncoding != "" {
+				typed.encoding = payload.TimestampEncoding
+			}
 		}
 	}
 	since := payload.Since
@@ -157,7 +163,7 @@ type ExportHandlerConfig struct {
 	Actor    string
 }
 
-func (cfg ExportHandlerConfig) buildSink(format ExportFormat, layout view.ParquetLayout) (RowSink, error) {
+func (cfg ExportHandlerConfig) buildSink(format ExportFormat, layout view.ParquetLayout, encoding view.TimestampEncoding) (RowSink, error) {
 	if cfg.Writer == nil {
 		return nil, fmt.Errorf("%w: export writer is required", ErrUnsupportedDestination)
 	}
@@ -169,10 +175,11 @@ func (cfg ExportHandlerConfig) buildSink(format ExportFormat, layout view.Parque
 			layout = view.ParquetLayoutFlat
 		}
 		return NewParquetFileSinkWithConfig(ParquetFileSinkConfig{
-			Writer:   cfg.Writer,
-			Layout:   layout,
-			Executor: cfg.Executor,
-			Actor:    cfg.Actor,
+			Writer:            cfg.Writer,
+			Layout:            layout,
+			TimestampEncoding: encoding,
+			Executor:          cfg.Executor,
+			Actor:             cfg.Actor,
 		}), nil
 	default:
 		return NewNDJSONSink(cfg.Writer), nil

@@ -9,4 +9,7 @@
 //   - /oauth/token
 //   - /oauth/jwks
 //   - /oauth/register
+//
+// Durable state is provided by pkg/oauth/store (Postgres or SQLite). haistack serve
+// wires builtin OAuth via runtime.WithBuiltinOAuth when oauth.enabled is true.
 package oauth

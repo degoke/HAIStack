@@ -9,6 +9,7 @@ type Map struct {
 	Version      string  `json:"version,omitempty"`
 	Status       string  `json:"status,omitempty"`
 	Name         string  `json:"name,omitempty"`
+	SourceURI    string  `json:"sourceUri,omitempty"`
 	Group        []Group `json:"group,omitempty"`
 }
 

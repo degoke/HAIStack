@@ -10,6 +10,7 @@
 //   - serve — start managed HTTP runtime
 //   - validate — structural FHIR validation
 //   - import — create or update one JSON resource file with an explicit conflict policy
+//   - backup, restore — NDJSON dump and reload of stored resources
 //   - read, delete, export — resource inspection and file-safe data operations
 //   - search — FHIR search with key=value parameters
 //   - fhirpath eval — evaluate a FHIRPath expression

@@ -22,7 +22,8 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **golden** | Canonical `OperationOutcome` JSON comparison (inline goldens) |
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
-| **authztest** | Authorization scenario catalog (≥30 cases) across auth, SMART, view, AI, sync |
+| **authztest** | Authorization scenario catalog (≥30 Go cases) plus YAML catalogues (`ParseYAML` / `ScenariosFromYAML`) that assert SMART scope ∩ policy |
+| **infernotest** | Inferno STU2 discovery + standalone SMART launch helpers and reference host |
 
 It does **not**:
 
@@ -240,6 +241,16 @@ func TestAuthzScenarios(t *testing.T) {
 
 `AllScenarios()` returns ≥30 named cases with `Doc` strings suitable for
 conformance matrices. OAuth success is not tested — only authorization outcomes.
+
+Machine-readable YAML catalogues (used by `research/policy-semantics`) load
+through `ParseYAML` / `ScenariosFromYAML` and run with `RunYAML` (no Go
+`BaseConfig` kit). Every YAML principal must declare `tenant` and `kind`;
+every scenario must declare `principal`, `scopes`, `action`, `resourceType`,
+and `policy`. Omitting them is an error, not a fallback to `TenantA` / `user` /
+`clinician` / `user/*.read` / `read` / `Patient` / `base`. Those cases assert
+`SMART.ScopeImplies ∩ pkg/auth policy`. YAML view/AI actions call
+`CanExecuteView` / `CanExecuteAITool` on the auth engine; they do not
+load ViewDefinitions or run `pkg/view` / `pkg/ai` executors.
 
 ## Migration
 

@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -39,6 +40,18 @@ func (s *HistoryStore) GetHistory(_ context.Context, resourceType, id string) ([
 		out[i].Resource = cloneEnvelope(out[i].Resource)
 	}
 	return out, nil
+}
+
+func (s *HistoryStore) GetVersion(_ context.Context, resourceType, id, versionID string) (store.ResourceVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, version := range s.data[ResourceKey(resourceType, id)] {
+		if version.VersionID == versionID {
+			version.Resource = cloneEnvelope(version.Resource)
+			return version, nil
+		}
+	}
+	return store.ResourceVersion{}, fmt.Errorf("resource not found: %s/%s/_history/%s", resourceType, id, versionID)
 }
 
 func (s *HistoryStore) clone() *HistoryStore {

@@ -1,12 +1,14 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/types"
@@ -37,6 +39,12 @@ func (h *handler) handleTerminologyOperation(w http.ResponseWriter, r *http.Requ
 		default:
 			return false
 		}
+	case "$translate":
+		if route.resourceType != "ConceptMap" {
+			return false
+		}
+		h.handleConceptMapTranslate(w, r, route)
+		return true
 	default:
 		return false
 	}
@@ -151,6 +159,139 @@ func (h *handler) handleValidateCode(w http.ResponseWriter, r *http.Request, rou
 		return
 	}
 	writeEnvelope(w, http.StatusOK, validateCodeParameters(result), nil)
+}
+
+func (h *handler) handleConceptMapTranslate(w http.ResponseWriter, r *http.Request, route parsedRoute) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, r.Method, http.MethodGet, http.MethodPost)
+		return
+	}
+	if err := h.authorizeRead(r.Context(), route.resourceType, route.id); err != nil {
+		writeError(w, err)
+		return
+	}
+	translator, ok := h.cfg.TerminologyService.(interface {
+		Translate(context.Context, terminology.ConceptMapTranslateRequest) ([]terminology.Coding, error)
+	})
+	if !ok {
+		writeError(w, notImplementedEndpoint("ConceptMap/$translate"))
+		return
+	}
+	req, err := translateRequest(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ctx, err := h.withTerminologyInstalls(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	codings, err := translator.Translate(ctx, req)
+	if err != nil {
+		writeError(w, mapTerminologyError(err))
+		return
+	}
+	writeEnvelope(w, http.StatusOK, translateParameters(codings), nil)
+}
+
+func translateRequest(r *http.Request) (terminology.ConceptMapTranslateRequest, error) {
+	q := r.URL.Query()
+	req := terminology.ConceptMapTranslateRequest{
+		URL:          strings.TrimSpace(q.Get("url")),
+		Version:      strings.TrimSpace(q.Get("conceptMapVersion")),
+		TargetSystem: strings.TrimSpace(q.Get("targetsystem")),
+		Coding: terminology.Coding{
+			System:  strings.TrimSpace(q.Get("system")),
+			Code:    strings.TrimSpace(q.Get("code")),
+			Display: strings.TrimSpace(q.Get("display")),
+		},
+	}
+	if req.Version == "" {
+		req.Version = strings.TrimSpace(q.Get("version"))
+	}
+	if req.URL != "" && req.Coding.Code != "" {
+		return req, nil
+	}
+	body, err := readBodyAllowEmpty(r)
+	if err != nil {
+		return req, err
+	}
+	if len(body) == 0 {
+		if req.URL == "" || req.Coding.Code == "" {
+			return req, invalidRequest("url and code are required for $translate", nil)
+		}
+		return req, nil
+	}
+	var params map[string]any
+	if err := json.Unmarshal(body, &params); err != nil {
+		return req, invalidRequest("parse $translate input", err)
+	}
+	for _, p := range parameterList(params) {
+		name, _ := p["name"].(string)
+		switch name {
+		case "url":
+			req.URL = parameterString(p, "valueUri", "valueUrl", "valueString")
+		case "conceptMapVersion", "version":
+			if req.Version == "" {
+				req.Version = parameterString(p, "valueString")
+			}
+		case "system":
+			req.Coding.System = parameterString(p, "valueUri", "valueUrl", "valueString")
+		case "code":
+			req.Coding.Code = parameterString(p, "valueCode", "valueString")
+		case "display":
+			req.Coding.Display = parameterString(p, "valueString")
+		case "targetsystem", "targetSystem":
+			req.TargetSystem = parameterString(p, "valueUri", "valueUrl", "valueString")
+		case "coding":
+			if part, ok := p["part"].([]any); ok {
+				for _, pv := range part {
+					pm, _ := pv.(map[string]any)
+					switch pm["name"] {
+					case "system":
+						req.Coding.System = parameterString(pm, "valueUri", "valueUrl", "valueString")
+					case "code":
+						req.Coding.Code = parameterString(pm, "valueCode", "valueString")
+					case "display":
+						req.Coding.Display = parameterString(pm, "valueString")
+					}
+				}
+			}
+		}
+	}
+	if req.URL == "" || req.Coding.Code == "" {
+		return req, invalidRequest("url and code are required for $translate", nil)
+	}
+	return req, nil
+}
+
+func translateParameters(codings []terminology.Coding) *types.ResourceEnvelope {
+	params := []map[string]any{{"name": "result", "valueBoolean": len(codings) > 0}}
+	for _, coding := range codings {
+		params = append(params, map[string]any{
+			"name": "match",
+			"part": []map[string]any{
+				{"name": "equivalence", "valueCode": "equivalent"},
+				{"name": "concept", "valueCoding": map[string]any{
+					"system":  coding.System,
+					"code":    coding.Code,
+					"display": coding.Display,
+				}},
+			},
+		})
+	}
+	return parametersEnvelope(params)
+}
+
+func mapTerminologyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if conceptmap.IsNotFound(err) {
+		return &core.ServiceError{Kind: core.ErrorKindNotFound, Message: err.Error(), Cause: err}
+	}
+	return err
 }
 
 func lookupParams(r *http.Request) (system, version, code string) {
@@ -377,6 +518,22 @@ func atoiDefault(raw string, fallback int) int {
 		return fallback
 	}
 	return v
+}
+
+func terminologyHasTranslate(svc TerminologyService) bool {
+	if svc == nil {
+		return false
+	}
+	if chain, ok := svc.(terminology.Chain); ok {
+		return chain.HasTranslate()
+	}
+	if chain, ok := svc.(*terminology.Chain); ok {
+		return chain != nil && chain.HasTranslate()
+	}
+	_, ok := svc.(interface {
+		Translate(context.Context, terminology.ConceptMapTranslateRequest) ([]terminology.Coding, error)
+	})
+	return ok
 }
 
 // TerminologyService is the terminology provider surface exposed over HTTP.

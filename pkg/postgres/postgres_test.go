@@ -2,7 +2,9 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,6 +34,8 @@ var (
 	_ store.IDRegistryStore           = (*postgres.IDRegistry)(nil)
 	_ store.BinaryStore               = (*postgres.BinaryStore)(nil)
 	_ store.BlobStore                 = (*postgres.BlobStore)(nil)
+	_ store.BlobStoreWithStream       = (*postgres.BlobStore)(nil)
+	_ store.BlobStoreWithOpen         = (*postgres.BlobStore)(nil)
 	_ store.AuditStore                = (*postgres.AuditStore)(nil)
 	_ store.SubscriptionStore         = (*postgres.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
@@ -50,6 +54,8 @@ var (
 	_ binary.MetadataStore            = (*postgres.BlobMetadataStore)(nil)
 	_ binary.TransferStore            = (*postgres.BlobMetadataStore)(nil)
 	_ binary.BlobStore                = (*postgres.BlobChunkStore)(nil)
+	_ binary.BlobStoreWithStream      = (*postgres.BlobChunkStore)(nil)
+	_ binary.BlobStoreWithOpen        = (*postgres.BlobChunkStore)(nil)
 	_ binary.ChunkStore               = (*postgres.BlobChunkStore)(nil)
 	_ binary.WriteSessionExtension    = (*postgres.Session)(nil)
 )
@@ -440,6 +446,18 @@ func TestHistoryStoreAppendAndGet(t *testing.T) {
 	if last.Action != store.VersionActionDelete || !last.Deleted {
 		t.Fatalf("last entry = %+v, want delete tombstone", last)
 	}
+
+	got, err := history.GetVersion(ctx, "Patient", "pat-1", "1")
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if got.VersionID != "1" || got.Action != store.VersionActionCreate {
+		t.Fatalf("GetVersion = %+v", got)
+	}
+	_, err = history.GetVersion(ctx, "Patient", "pat-1", "missing")
+	if err == nil || !strings.Contains(err.Error(), "resource not found") {
+		t.Fatalf("missing version err = %v", err)
+	}
 }
 
 func TestEventStoreAppendAndReadSince(t *testing.T) {
@@ -699,6 +717,88 @@ func TestSearchStoreIndexLookupRemove(t *testing.T) {
 	}
 }
 
+func TestSearchStoreUriBelowAndAboveHierarchical(t *testing.T) {
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	tdb := testTenant(t, db, "search-uri")
+	searchStore := tdb.SearchStore()
+
+	entries := []store.SearchIndexEntry{
+		{ResourceType: "Questionnaire", ID: "q-prefix", Fields: map[string]string{"uri.url": "http://example.org/fhir"}},
+		{ResourceType: "Questionnaire", ID: "q-child", Fields: map[string]string{"uri.url": "http://example.org/fhir/Questionnaire/q-1"}},
+		{ResourceType: "Questionnaire", ID: "q-extra", Fields: map[string]string{"uri.url": "http://example.org/fhirExtra"}},
+		{ResourceType: "Questionnaire", ID: "q-under", Fields: map[string]string{"uri.url": "http://example.org/fhir_x/child"}},
+		{ResourceType: "Questionnaire", ID: "q-wild", Fields: map[string]string{"uri.url": "http://example.org/fhirZx/child"}},
+	}
+	for _, entry := range entries {
+		if err := searchStore.Index(ctx, entry); err != nil {
+			t.Fatalf("Index %s: %v", entry.ID, err)
+		}
+	}
+
+	below, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "below",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch below: %v", err)
+	}
+	got := map[string]bool{}
+	for _, id := range below {
+		got[id] = true
+	}
+	if !got["q-prefix"] || !got["q-child"] || got["q-extra"] {
+		t.Fatalf("uri:below = %v, want prefix and prefix/child, not prefixExtra", below)
+	}
+
+	under, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir_x",
+		Operator:     "below",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch below underscore: %v", err)
+	}
+	gotUnder := map[string]bool{}
+	for _, id := range under {
+		gotUnder[id] = true
+	}
+	if !gotUnder["q-under"] || gotUnder["q-wild"] {
+		t.Fatalf("uri:below with _ = %v, want literal underscore (not LIKE wildcard)", under)
+	}
+
+	above, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir/Questionnaire/q-1",
+		Operator:     "above",
+	})
+	if err != nil {
+		t.Fatalf("LookupMatch above: %v", err)
+	}
+	gotAbove := map[string]bool{}
+	for _, id := range above {
+		gotAbove[id] = true
+	}
+	if !gotAbove["q-prefix"] || !gotAbove["q-child"] || gotAbove["q-extra"] {
+		t.Fatalf("uri:above = %v, want prefix and self, not prefixExtra", above)
+	}
+
+	_, err = searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "gt",
+	})
+	if !errors.Is(err, store.ErrUnsupportedFeature) {
+		t.Fatalf("LookupMatch gt = %v, want store.ErrUnsupportedFeature", err)
+	}
+}
+
 func TestCursorStoreUpsertGetDelete(t *testing.T) {
 	db, cleanup := openTestDB(t)
 	defer cleanup()
@@ -779,6 +879,35 @@ func TestBinaryBlobAuditModuleStores(t *testing.T) {
 	head, err := tdb.BlobStore().Head(ctx, "blob-1")
 	if err != nil || head.Location != "s3://bucket/key" {
 		t.Fatalf("Blob Head = %+v, %v", head, err)
+	}
+	if _, _, err := tdb.BlobStore().Open(ctx, "blob-1"); err == nil {
+		t.Fatal("expected Open of URI location without payload to fail")
+	}
+
+	if err := tdb.BlobStore().Put(ctx, store.BlobObject{
+		Key: "blob-payload", ContentType: "text/plain", Size: 7, Data: []byte("payload"), CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("Blob payload Put: %v", err)
+	}
+	if err := tdb.BlobStore().Put(ctx, store.BlobObject{
+		Key: "blob-ptr", Size: 7, Location: "blob-payload", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("Blob pointer Put: %v", err)
+	}
+	rc, head, err := tdb.BlobStore().Open(ctx, "blob-ptr")
+	if err != nil {
+		t.Fatalf("Open pointer: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+	if head.Data != nil {
+		t.Fatal("Open head included payload")
+	}
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Open pointer read: %v", err)
+	}
+	if string(openData) != "payload" {
+		t.Fatalf("Open pointer = %q", openData)
 	}
 
 	auditID := uuid.NewString()

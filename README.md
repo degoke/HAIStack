@@ -1,12 +1,12 @@
 # HAIStack
 
-[![CI](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/health-ai-stack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/degoke/HAIStack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/HAIStack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **Health AI Stack is a collection of modular Go libraries for building FHIR-native health data infrastructure with safe AI access.**
 
 The libraries can be used independently or composed together to create offline-first local runtimes, edge FHIR servers, cloud repositories, sync engines, analytics layers, and health data tools. It is not a single monolithic FHIR server — it is building blocks for health data systems that run locally, at the edge, on-premise, or in the cloud.
 
-**Module:** `github.com/degoke/health-ai-stack` · **Go:** 1.26+
+**Module:** `github.com/degoke/health-ai-stack` · **Repo:** [degoke/HAIStack](https://github.com/degoke/HAIStack) · **Go:** 1.26+
 
 ---
 
@@ -66,11 +66,23 @@ Early-stage, under active development.
 
 | | |
 |---|---|
-| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `subscriptions`, `http`, `runtime`, `client` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (scopes, tokens, auth adapters), change-triggered workflows with webhook/local delivery, FHIR REST HTTP adapter, runtime composition, and Go client SDK |
-| **Partial** | `cli` (operator surface usable; backup/restore and conflict drill-down remain) |
-| **Next (Stage 1)** | `testkit`, CLI backup/restore and conflict drill-down |
+| **Done** | `types`, `proto`, `store`, `sqlite`, `postgres`, `core`, `validate`, `fhirpath`, `registry`, `sync`, `modules`, `view`, `ai`, `auth`, `jobs`, `audit`, `smart`, `oauth`, `structuremap`, `subscriptions`, `http`, `runtime`, `client`, `export`, `analytics`, `testkit` — CRUD, history, transaction bundles, atomic writes, structural validation, FHIRPath, FHIR definition catalog, device-to-hub push/pull, manifest-driven module installer, ViewDefinition execution, policy-governed AI tool harness, shared identity and policy library, shared job runtime, shared audit event library, optional SMART on FHIR (including 2.2 granular scopes), built-in OAuth/SMART authorization server, StructureMap SDC extraction, Bulk Data `$export`/`$import`, analytics/Parquet paths, authorization scenario testkit, change-triggered workflows with webhook/local delivery, FHIR REST HTTP adapter, runtime composition, and Go client SDK |
+| **Partial** | `cli` (operator surface usable; conflict drill-down remains) |
+| **Next** | CQL execution library, Inferno SMART App Launch test-kit CI, proof-of-conformance/scale harness |
 
 Durable job and audit persistence is available via `pkg/postgres` and `pkg/sqlite`. Shared runtime helpers live in `pkg/jobs` and `pkg/audit`. See [Roadmap](#roadmap) for the full plan.
+
+---
+
+## Research artefacts
+
+[`research/`](research/README.md) publishes vendor-neutral, fully synthetic artefacts for the five FHIR/clinical-AI gaps HAIStack is positioned to address: a portable benchmark suite, an R4→R5 conversion corpus, computable policy/consent semantics, a terminology mapping scorer harness (planted fixture with audit provenance, not a mapping-quality study), and a reproducible FHIR → ViewDefinition → AI tool pipeline.
+
+```bash
+make research
+```
+
+Cite the software and artefacts with [`CITATION.cff`](CITATION.cff). Datasets contain no PHI.
 
 ---
 
@@ -180,13 +192,15 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 | haistack-cql | `pkg/cql` | Done | CQL 1.5 engine for SDC questionnaires and CQF Measure evaluation |
 | haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
 | haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
-| haistack-modules | `pkg/modules` | Planned | Installable capability modules |
+| haistack-modules | `pkg/modules` | Done | Installable capability modules |
 | haistack-view | `pkg/view` | Done | ViewDefinition execution |
 | haistack-ai | `pkg/ai` | Done | Policy-governed AI tool harness |
-| haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, view/AI adapters |
+| haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, patient-compartment checks, view/AI adapters |
 | haistack-jobs | `pkg/jobs` | Done | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
 | haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
-| haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — scopes, launch context, token/backend-service validation, auth adapters |
+| haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — 1.x and 2.2 granular scopes, launch context, token/backend-service validation, auth adapters |
+| haistack-oauth | `pkg/oauth` | Done | Built-in OAuth2/SMART authorization server for self-contained deployments |
+| haistack-structuremap | `pkg/structuremap` | Done | StructureMap runtime for SDC questionnaire extraction |
 | haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
 | haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
 | haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV/Parquet export, incremental cursors |
@@ -195,7 +209,7 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 | haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
 | haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
 | haistack-cli | `cmd/haistack` | Partial | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |
-| haistack-testkit | `pkg/testkit` | Planned | Fixtures, fakes, scenario runners |
+| haistack-testkit | `pkg/testkit` | Done | Fixtures, fakes, authz scenario catalog, store/sync/view helpers |
 
 ---
 
@@ -214,8 +228,8 @@ Import only the packages you need, for example `github.com/degoke/health-ai-stac
 To work on this repository:
 
 ```bash
-git clone https://github.com/degoke/health-ai-stack.git
-cd health-ai-stack
+git clone https://github.com/degoke/HAIStack.git
+cd HAIStack
 go test ./...
 ```
 
@@ -375,8 +389,10 @@ See **[cmd/haistack/README.md](cmd/haistack/README.md)** for the full command re
 ```bash
 go build -o bin/haistack ./cmd/haistack
 haistack init
-haistack serve
+haistack serve   # builtin SMART OAuth enabled by default; see oauth.* in haistack.yaml
 ```
+
+For Inferno conformance checks, run `go test ./pkg/testkit/infernotest/...` or `go run ./cmd/inferno-reference`.
 
 ## Examples
 
@@ -389,6 +405,18 @@ go run ./examples/edge-postgres
 go run ./examples/cloud-postgres
 go run ./examples/sync-two-nodes
 go run ./examples/ai-authz
+```
+
+## Research artefacts
+
+Reproducible evaluation artefacts live in [research/README.md](research/README.md):
+vendor-neutral benchmarks, an R4→R5 conversion corpus, SMART scope ∩ policy
+semantics, a ConceptMap scorer harness (planted fixture, not a quality
+study), and a FHIR → ViewDefinition → AI tool provenance pipeline. Cite via
+[`CITATION.cff`](CITATION.cff).
+
+```bash
+make research
 ```
 
 ---
@@ -429,10 +457,13 @@ The public `Manager` API supports `Install`, `Upgrade`, `Uninstall`, `List`, `In
 - **modules** — manifest-driven bundles of resources, profiles, search params, views, AI tools, permissions
 - **view** — SQL-on-FHIR-style ViewDefinitions → structured rows for AI and analytics
 - **ai** — typed tool registry; LLMs call tools, not arbitrary FHIR commands; audit via `pkg/audit`
-- **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; patient-scope stub; optional decision emit via `AuditingEngine` + `pkg/audit` (auth does not own audit storage); SMART stays in `smart`
+- **auth** — Done in v1: principals/roles/permissions, tenant/device context, policy DSL, view/AI adapters; production `CheckPatientScope` compartment enforcement; optional decision emit via `AuditingEngine` + `pkg/audit` (auth does not own audit storage); SMART stays in `smart`
 - **jobs** — Done in v1: handler/runner, retry/backoff, enqueue helpers, `InMemoryJobStore`; SQLite + Postgres `JobStore` backends
 - **audit** — Done in v1: canonical events, emit helpers, `StoreAdapter`; SQLite + Postgres `AuditStore` backends
-- **smart** — Done in v1: SMART scope parsing/matching, launch context, token claim validation, backend-service assertions, `AuthAdapter` into `pkg/auth`; no EHR/standalone launch runtime, dynamic registration, or refresh-token lifecycle
+- **smart** — Done in v1: SMART 1.x and 2.2 granular scope parsing/enforcement (CRUDS + search-parameter filters), launch context, token claim validation, backend-service assertions, `AuthAdapter` into `pkg/auth`
+- **oauth** — Done: embeddable OAuth2/SMART authorization server (`/authorize`, `/token`, discovery, PKCE, refresh, revoke); hosts may still use an external IdP
+- **structuremap** — Done: SDC `sourceStructureMap` extraction engine wired through `pkg/sdc`
+- **testkit** — Done: `authztest` scenario catalog and shared fixtures/fakes
 - **http** — thin REST over core/search: CRUD, `_history`, `_search`, `metadata`
 - **runtime** — wires stores, core, sync, modules, HTTP into local/edge/cloud modes
 - **cli** — `init`, `serve`, `validate`, `import`, `read`, `delete`, `export`, `search`, `fhirpath eval`, `sync push/pull/status`, module lifecycle, config inspection, audit inspection, and reindex dry-run; YAML config with flag/env overrides; SQLite-first with Postgres support

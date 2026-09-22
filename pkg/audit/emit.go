@@ -129,6 +129,15 @@ type AIToolCallEvent struct {
 
 // LogAIToolCall emits an execute-tool event.
 func LogAIToolCall(ctx context.Context, logger Logger, ev AIToolCallEvent) error {
+	return logAICall(ctx, logger, ev, ActionExecuteTool)
+}
+
+// LogAIModelInvoke emits an invoke-model event.
+func LogAIModelInvoke(ctx context.Context, logger Logger, ev AIToolCallEvent) error {
+	return logAICall(ctx, logger, ev, ActionInvokeModel)
+}
+
+func logAICall(ctx context.Context, logger Logger, ev AIToolCallEvent, action string) error {
 	details := cloneDetails(ev.Details)
 	if ev.ConversationID != "" {
 		details["conversationId"] = ev.ConversationID
@@ -139,7 +148,7 @@ func LogAIToolCall(ctx context.Context, logger Logger, ev AIToolCallEvent) error
 		Actor:          ev.Actor,
 		Tenant:         ev.Tenant,
 		Subject:        ev.Subject,
-		Action:         ActionExecuteTool,
+		Action:         action,
 		Outcome:        ev.Outcome,
 		ToolName:       ev.ToolName,
 		ConversationID: ev.ConversationID,
@@ -270,6 +279,58 @@ type ViewAccessEvent struct {
 	Details   map[string]string
 	Timestamp time.Time
 	ID        string
+}
+
+// TerminologyTranslateEvent describes a ConceptMap translation for audit and
+// provenance research. Details should include map version, source CodeSystem
+// version, and equivalence class when known.
+type TerminologyTranslateEvent struct {
+	Actor        string
+	Tenant       string
+	Subject      string
+	Outcome      string
+	Details      map[string]string
+	Timestamp    time.Time
+	ID           string
+	MapURL       string
+	MapVersion   string
+	SourceSystem string
+	SourceCode   string
+	TargetCode   string
+}
+
+// LogTerminologyTranslate emits a terminology.translate event.
+func LogTerminologyTranslate(ctx context.Context, logger Logger, ev TerminologyTranslateEvent) error {
+	details := cloneDetails(ev.Details)
+	if ev.MapURL != "" {
+		details["conceptMapUrl"] = ev.MapURL
+	}
+	if ev.MapVersion != "" {
+		details["conceptMapVersion"] = ev.MapVersion
+	}
+	if ev.SourceSystem != "" {
+		details["sourceSystem"] = ev.SourceSystem
+	}
+	if ev.SourceCode != "" {
+		details["sourceCode"] = ev.SourceCode
+	}
+	if ev.TargetCode != "" {
+		details["targetCode"] = ev.TargetCode
+	}
+	outcome := ev.Outcome
+	if outcome == "" {
+		outcome = OutcomeSuccess
+	}
+	return emit(ctx, logger, Event{
+		ID:        ev.ID,
+		Timestamp: ev.Timestamp,
+		Actor:     ev.Actor,
+		Tenant:    ev.Tenant,
+		Subject:   ev.Subject,
+		Action:    ActionTerminologyTranslate,
+		Outcome:   outcome,
+		Details:   details,
+	})
 }
 
 // LogViewAccess emits an execute-view event.

@@ -30,8 +30,21 @@ func TestTranslatorMapsSourceCoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(codings) != 1 || codings[0]["code"] != "male" {
+	if len(codings) != 1 || codings[0]["code"] != "male" || codings[0]["equivalence"] != "equivalent" {
 		t.Fatalf("unexpected translation: %#v", codings)
+	}
+	codings, resolved, err := translator.TranslateResolved(context.Background(), TranslateRequest{
+		MapCanonical: m.URL,
+		Source:       map[string]any{"system": "http://example.org/source", "code": "M"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.URL != m.URL {
+		t.Fatalf("resolved map URL = %q", resolved.URL)
+	}
+	if len(codings) != 1 || codings[0]["code"] != "male" {
+		t.Fatalf("TranslateResolved coding = %#v", codings)
 	}
 }
 
@@ -47,7 +60,7 @@ func TestTranslatorRejectsNoMap(t *testing.T) {
 		MapCanonical: m.URL,
 		Source:       map[string]any{"code": "M"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "no-map") {
+	if err == nil || !IsNoMap(err) {
 		t.Fatalf("expected no-map error, got %v", err)
 	}
 }
