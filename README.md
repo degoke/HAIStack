@@ -12,6 +12,21 @@ The module path is lowercase (Go convention). It resolves against the `HAIStack`
 
 ---
 
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| **[Documentation hub](docs/README.md)** | Index of guides and every `pkg/*` README |
+| [Overview](docs/overview.md) | What HAIStack is, core ideas, repo layout |
+| [Architecture](docs/architecture.md) | Layers, write path, OLTP vs analytics |
+| [Composition patterns](docs/composition-patterns.md) | Package sets for offline, edge, SDC, AI, bulk |
+| [Examples](examples/README.md) | Runnable sample programs |
+| [CLI](cmd/haistack/README.md) | `haistack` commands and configuration |
+
+Each library under `pkg/` has its own README (purpose, ecosystem role, usage examples, limits). Start from the [package reference table](docs/README.md#package-reference) in the docs hub.
+
+---
+
 ## Why it exists
 
 Healthcare infrastructure is usually always-online and centralized. That breaks down when internet is unreliable, clinics need local-first workflows, field workers capture data offline, hospitals want on-premise control, and AI tools need structured, permissioned access — without a heavy platform just to store, sync, query, or process FHIR data.
@@ -147,7 +162,7 @@ Cite the software and artefacts with [`CITATION.cff`](CITATION.cff). Datasets co
 
 **Write path:** validate (optional) → assign id/version → persist resource + history → compile terminology projection when applicable → append outbox event (optional) → update search index (optional) — all in one `WriteSession` transaction.
 
-Package-level detail lives in each `pkg/*/doc.go`.
+Package-level detail lives in each [`pkg/*/README.md`](docs/README.md#package-reference) and `pkg/*/doc.go`.
 
 ---
 
@@ -177,41 +192,47 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 
 ## Packages
 
-| Library | Package | Status | Role |
-|---------|---------|--------|------|
-| haistack-types | `pkg/types` | Done | FHIR JSON envelopes, canonical normalization, hashing, OperationOutcome |
-| haistack-proto | `pkg/proto` | Done | Google FHIR R4 proto adapter; JSON remains canonical |
-| haistack-store | `pkg/store` | Done | Storage interfaces — resource, history, search, events, definition catalog, blobs, jobs, audit, `WriteSession` |
-| haistack-sqlite | `pkg/sqlite` | Done | Embedded offline DB (pure Go, WAL, migrations, atomic local writes) |
-| haistack-postgres | `pkg/postgres` | Done | Tenant-scoped server store; accepted/rejected/conflicted writes; ID registry |
-| haistack-registry | `pkg/registry` | Done | Bundled R4 definitions, enablement overlay, compiled snapshot, capability metadata |
-| haistack-core | `pkg/core` | Done | FHIR runtime kernel — CRUD, history, transaction bundles, ID policy, errors |
-| haistack-sync | `pkg/sync` | Done | Outbox, Engine push/pull, PostgresHub, inbox idempotency, conflict/job hooks |
-| haistack-search | `pkg/search` | Done | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
-| haistack-validate | `pkg/validate` | Done | Built-in structural validation engine; core `Validator` adapter |
-| haistack-terminology | `pkg/terminology` | Done | Tenant-scoped CodeSystem lookup, ValueSet expansion, provider chain, and opt-in terminology validation |
-| haistack-fhirpath | `pkg/fhirpath` | Done | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
-| haistack-cql | `pkg/cql` | Done | CQL 1.5 engine for SDC questionnaires and CQF Measure evaluation |
-| haistack-sdc | `pkg/sdc` | Done | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
-| haistack-conflict | `pkg/conflict` | Done | FHIR-aware conflict detection and merge |
-| haistack-modules | `pkg/modules` | Done | Installable capability modules |
-| haistack-view | `pkg/view` | Done | ViewDefinition execution |
-| haistack-ai | `pkg/ai` | Done | Policy-governed AI tool harness |
-| haistack-auth | `pkg/auth` | Done | Principals, roles, permissions, tenant/device context, policy DSL, patient-compartment checks, view/AI adapters |
-| haistack-jobs | `pkg/jobs` | Done | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
-| haistack-audit | `pkg/audit` | Done | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
-| haistack-smart | `pkg/smart` | Done | Optional SMART on FHIR — 1.x and 2.2 granular scopes, launch context, token/backend-service validation, auth adapters |
-| haistack-oauth | `pkg/oauth` | Done | Built-in OAuth2/SMART authorization server for self-contained deployments |
-| haistack-structuremap | `pkg/structuremap` | Done | StructureMap runtime for SDC questionnaire extraction |
-| haistack-binary | `pkg/binary` | Done | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
-| haistack-subscriptions | `pkg/subscriptions` | Done | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
-| haistack-analytics | `pkg/analytics` | Done | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV/Parquet export, incremental cursors |
-| haistack-export | `pkg/export` | Done | FHIR Bulk Data export — async jobs, NDJSON artifacts, manifest polling |
-| haistack-http | `pkg/http` | Done | FHIR REST API adapter (includes Bulk Data `$export`) |
-| haistack-client | `pkg/client` | Done | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
-| haistack-runtime | `pkg/runtime` | Done | Composition and lifecycle glue |
-| haistack-cli | `cmd/haistack` | Partial | Developer/operator CLI — see [cmd/haistack/README.md](cmd/haistack/README.md) |
-| haistack-testkit | `pkg/testkit` | Done | Fixtures, fakes, authz scenario catalog, store/sync/view helpers |
+| Library | Package | Status | Docs | Role |
+|---------|---------|--------|------|------|
+| haistack-types | `pkg/types` | Done | [README](pkg/types/README.md) | FHIR JSON envelopes, canonical normalization, hashing, OperationOutcome |
+| haistack-proto | `pkg/proto` | Done | [README](pkg/proto/README.md) | Google FHIR R4 proto adapter; JSON remains canonical |
+| haistack-store | `pkg/store` | Done | [README](pkg/store/README.md) | Storage interfaces — resource, history, search, events, definition catalog, blobs, jobs, audit, `WriteSession` |
+| haistack-sqlite | `pkg/sqlite` | Done | [README](pkg/sqlite/README.md) | Embedded offline DB (pure Go, WAL, migrations, atomic local writes) |
+| haistack-postgres | `pkg/postgres` | Done | [README](pkg/postgres/README.md) | Tenant-scoped server store; accepted/rejected/conflicted writes; ID registry |
+| haistack-registry | `pkg/registry` | Done | [README](pkg/registry/README.md) | Bundled R4 definitions, enablement overlay, compiled snapshot, capability metadata |
+| haistack-core | `pkg/core` | Done | [README](pkg/core/README.md) | FHIR runtime kernel — CRUD, history, transaction bundles, ID policy, errors |
+| haistack-hooks | `pkg/hooks` | Done | [README](pkg/hooks/README.md) | HTTP and core write intercept SPI (four pointcuts) |
+| haistack-sync | `pkg/sync` | Done | [README](pkg/sync/README.md) | Outbox, Engine push/pull, PostgresHub, inbox idempotency, conflict/job hooks |
+| haistack-search | `pkg/search` | Done | [README](pkg/search/README.md) | Registry-driven indexing, FHIR search parser/executor (Postgres), reindex jobs |
+| haistack-validate | `pkg/validate` | Done | [README](pkg/validate/README.md) | Built-in structural validation engine; core `Validator` adapter |
+| haistack-terminology | `pkg/terminology` | Done | [README](pkg/terminology/README.md) | Tenant-scoped CodeSystem lookup, ValueSet expansion, provider chain, and opt-in terminology validation |
+| haistack-fhirpath | `pkg/fhirpath` | Done | [README](pkg/fhirpath/README.md) | In-memory FHIRPath engine (Verily-backed); compile, eval, custom functions |
+| haistack-cql | `pkg/cql` | Done | [README](pkg/cql/README.md) | CQL 1.5 engine for SDC questionnaires and CQF Measure evaluation |
+| haistack-sdc | `pkg/sdc` | Done | [README](pkg/sdc/README.md) | FHIR R4 SDC questionnaire behavior — population, validation, assembly, renderer-neutral state, extraction, and adaptive contracts |
+| haistack-conflict | `pkg/conflict` | Done | [README](pkg/conflict/README.md) | FHIR-aware conflict detection and merge |
+| haistack-modules | `pkg/modules` | Done | [README](pkg/modules/README.md) | Installable capability modules |
+| haistack-packages | `pkg/packages` | Done | [README](pkg/packages/README.md) | NPM package install from packages.fhir.org into the registry |
+| haistack-view | `pkg/view` | Done | [README](pkg/view/README.md) | ViewDefinition execution |
+| haistack-ai | `pkg/ai` | Done | [README](pkg/ai/README.md) | Policy-governed AI tool harness |
+| haistack-auth | `pkg/auth` | Done | [README](pkg/auth/README.md) | Principals, roles, permissions, tenant/device context, policy DSL, patient-compartment checks, view/AI adapters |
+| haistack-jobs | `pkg/jobs` | Done | [README](pkg/jobs/README.md) | Shared job runtime on `store.JobStore` — handlers, runner, retry/backoff, in-memory store |
+| haistack-audit | `pkg/audit` | Done | [README](pkg/audit/README.md) | Shared audit events on `store.AuditStore` — actions, emit helpers, store adapter |
+| haistack-smart | `pkg/smart` | Done | [README](pkg/smart/README.md) | Optional SMART on FHIR — 1.x and 2.2 granular scopes, launch context, token/backend-service validation, auth adapters |
+| haistack-oauth | `pkg/oauth` | Done | [README](pkg/oauth/README.md) | Built-in OAuth2/SMART authorization server for self-contained deployments |
+| haistack-structuremap | `pkg/structuremap` | Done | [README](pkg/structuremap/README.md) | StructureMap runtime for SDC questionnaire extraction |
+| haistack-conceptmap | `pkg/conceptmap` | Done | [README](pkg/conceptmap/README.md) | ConceptMap translation for StructureMap `translate()` |
+| haistack-binary | `pkg/binary` | Done | [README](pkg/binary/README.md) | Blob/file behavior, chunked/resumable transfer, Binary resources, and DocumentReference attachment linking |
+| haistack-subscriptions | `pkg/subscriptions` | Done | [README](pkg/subscriptions/README.md) | Change-triggered workflows on `EventStore` with webhook/local delivery, FHIRPath filters, `pkg/jobs` retry, and SQLite/Postgres persistence |
+| haistack-analytics | `pkg/analytics` | Done | [README](pkg/analytics/README.md) | Postgres-first analytics and reporting engine — ViewDefinition refresh into reporting tables, CSV/Parquet export, incremental cursors |
+| haistack-parquetfhir | `pkg/parquetfhir` | Done | [README](pkg/parquetfhir/README.md) | Parquet-on-FHIR nested layouts for analytics export |
+| haistack-export | `pkg/export` | Done | [README](pkg/export/README.md) | FHIR Bulk Data `$export` — async jobs, NDJSON artifacts, manifest polling |
+| haistack-bulkimport | `pkg/bulkimport` | Done | [README](pkg/bulkimport/README.md) | FHIR Bulk Data `$import` — NDJSON ingest via async jobs |
+| haistack-http | `pkg/http` | Done | [README](pkg/http/README.md) | FHIR REST API adapter (Bulk Data, SDC operations, sync routes) |
+| haistack-client | `pkg/client` | Done | [README](pkg/client/README.md) | Go SDK for FHIR REST, HAIStack sync, SMART, bulk export, and subscriptions |
+| haistack-runtime | `pkg/runtime` | Done | [README](pkg/runtime/README.md) | Composition and lifecycle glue |
+| haistack-conformance | `pkg/conformance` | Done | [README](pkg/conformance/README.md) | IG example validation wiring for CI |
+| haistack-cli | `cmd/haistack` | Partial | [README](cmd/haistack/README.md) | Developer/operator CLI |
+| haistack-testkit | `pkg/testkit` | Done | [README](pkg/testkit/README.md) | Fixtures, fakes, authz scenario catalog, store/sync/view helpers |
 
 ---
 
@@ -409,18 +430,6 @@ go run ./examples/sync-two-nodes
 go run ./examples/ai-authz
 ```
 
-## Research artefacts
-
-Reproducible evaluation artefacts live in [research/README.md](research/README.md):
-vendor-neutral benchmarks, an R4→R5 conversion corpus, SMART scope ∩ policy
-semantics, a ConceptMap scorer harness (planted fixture, not a quality
-study), and a FHIR → ViewDefinition → AI tool provenance pipeline. Cite via
-[`CITATION.cff`](CITATION.cff).
-
-```bash
-make research
-```
-
 ---
 
 ## Modules
@@ -476,4 +485,4 @@ Target layout when complete: `cmd/haistack*`, `pkg/*`, `modules/*`, `examples/*`
 
 ## License
 
-License not yet specified in this repository. Add a `LICENSE` file before public distribution.
+[Apache License 2.0](LICENSE).
