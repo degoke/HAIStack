@@ -2,9 +2,11 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +41,8 @@ var (
 	_ binary.MetadataStore            = (*sqlite.BlobMetadataStore)(nil)
 	_ binary.TransferStore            = (*sqlite.BlobMetadataStore)(nil)
 	_ binary.BlobStore                = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.BlobStoreWithStream      = (*sqlite.ChunkBlobStore)(nil)
+	_ binary.BlobStoreWithOpen        = (*sqlite.ChunkBlobStore)(nil)
 	_ binary.ChunkStore               = (*sqlite.ChunkBlobStore)(nil)
 	_ binary.WriteSessionExtension    = (*sqlite.Session)(nil)
 )
@@ -204,6 +208,18 @@ func TestHistoryStoreAppendAndGet(t *testing.T) {
 	}
 	if last.Resource != nil {
 		t.Error("delete tombstone should not carry resource payload")
+	}
+
+	got, err := history.GetVersion(ctx, "Patient", "pat-1", "1")
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if got.VersionID != "1" || got.Action != store.VersionActionCreate {
+		t.Fatalf("GetVersion = %+v", got)
+	}
+	_, err = history.GetVersion(ctx, "Patient", "pat-1", "missing")
+	if err == nil || !strings.Contains(err.Error(), "resource not found") {
+		t.Fatalf("missing version err = %v", err)
 	}
 }
 
@@ -490,6 +506,40 @@ func TestSearchStoreIndexLookupRemove(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Fatalf("Lookup after remove = %v, want empty", ids)
+	}
+}
+
+func TestSearchStoreLookupMatchRejectsUnsupportedOperators(t *testing.T) {
+	db := openTestDB(t, tempDBPath(t))
+	ctx := context.Background()
+	searchStore := db.SearchStore()
+
+	if err := searchStore.Index(ctx, store.SearchIndexEntry{
+		ResourceType: "Questionnaire",
+		ID:           "q-1",
+		Fields:       map[string]string{"uri.url": "http://example.org/fhir/Questionnaire/q-1"},
+	}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	ids, err := searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir/Questionnaire/q-1",
+		Operator:     "eq",
+	})
+	if err != nil || len(ids) != 1 || ids[0] != "q-1" {
+		t.Fatalf("LookupMatch eq = %v, %v", ids, err)
+	}
+
+	_, err = searchStore.LookupMatch(ctx, store.SearchMatch{
+		ResourceType: "Questionnaire",
+		FieldKey:     "uri.url",
+		Value:        "http://example.org/fhir",
+		Operator:     "below",
+	})
+	if !errors.Is(err, store.ErrUnsupportedFeature) {
+		t.Fatalf("LookupMatch below = %v, want store.ErrUnsupportedFeature", err)
 	}
 }
 

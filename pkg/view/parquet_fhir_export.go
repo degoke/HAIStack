@@ -119,7 +119,7 @@ func WriteParquetFHIRExport(ctx context.Context, w io.Writer, exec *Executor, re
 		var matchErr error
 		stats.Written, stats, matchErr = exec.forEachMatchingResourcePlan(ctx, plan, yield)
 		return matchErr
-	})
+	}, parquetfhir.WithTimestampEncoding(req.TimestampEncoding))
 	if err != nil {
 		return written, stats, err
 	}

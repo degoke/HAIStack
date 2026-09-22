@@ -90,6 +90,8 @@ against a Health AI Stack runtime. Configure storage and capabilities in haistac
 		newReadCommand(opts, printer),
 		newDeleteCommand(opts, printer),
 		newExportCommand(opts, printer),
+		newBackupCommand(opts, printer),
+		newRestoreCommand(opts, printer),
 		newSearchCommand(opts, printer),
 		newFHIRPathCommand(opts, printer),
 		newSyncCommand(opts, printer),

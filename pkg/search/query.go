@@ -56,12 +56,24 @@ type ValueClause struct {
 	Operator MatchOperator
 }
 
-// ChainClause is a single-hop chained search parameter (e.g. subject.name).
+// ChainClause is a chained search parameter (e.g. subject.name or subject.organization.name).
+// Nested is set for multi-hop chains; Param is the terminal predicate on the last hop.
 type ChainClause struct {
 	RefCode     string
 	RefFieldKey string
 	TargetType  string
 	Param       ParamClause
+	Nested      *ChainClause
+}
+
+// HasClause is a reverse-chained _has search (e.g. _has:Observation:subject:code=8867-4).
+type HasClause struct {
+	SourceType  string
+	RefCode     string
+	RefFieldKey string
+	Param       ParamClause
+	Chain       *ChainClause
+	Nested      *HasClause
 }
 
 // IncludeDirective requests direct include expansion for one reference parameter.
@@ -95,6 +107,7 @@ type Query struct {
 	ResourceType string
 	Params       []ParamClause
 	Chains       []ChainClause
+	Has          []HasClause
 	Includes     []IncludeDirective
 	RevIncludes  []RevIncludeDirective
 	Count        int
@@ -129,12 +142,23 @@ const (
 	combineAnd
 )
 
-// ChainPlan is a single-hop chained search execution stage.
+// ChainPlan is a chained search execution stage. Nested walks one more hop.
 type ChainPlan struct {
 	RefCode     string
 	RefFieldKey string
 	TargetType  string
 	ParamPlan   ParamPlan
+	Nested      *ChainPlan
+}
+
+// HasPlan is a reverse-chained _has execution stage.
+type HasPlan struct {
+	SourceType  string
+	RefCode     string
+	RefFieldKey string
+	ParamPlan   ParamPlan
+	ChainPlan   *ChainPlan
+	Nested      *HasPlan
 }
 
 // IncludePlan describes direct include expansion after primary search.
@@ -158,6 +182,7 @@ type Plan struct {
 	ResourceType string
 	ParamPlans   []ParamPlan
 	ChainPlans   []ChainPlan
+	HasPlans     []HasPlan
 	Includes     []IncludePlan
 	RevIncludes  []RevIncludePlan
 	Count        int

@@ -1,8 +1,10 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -30,13 +32,14 @@ const (
 
 // ViewExportRequest captures one ViewDefinition export operation.
 type ViewExportRequest struct {
-	Views         []ViewExportTarget `json:"views"`
-	Since         time.Time          `json:"since"`
-	Format        OutputFormat       `json:"format"`
-	ParquetLayout ParquetLayout      `json:"parquetLayout,omitempty"`
-	Actor         string             `json:"actor,omitempty"`
-	Subject       string             `json:"subject,omitempty"`
-	Parameters    map[string]any     `json:"parameters,omitempty"`
+	Views             []ViewExportTarget `json:"views"`
+	Since             time.Time          `json:"since"`
+	Format            OutputFormat       `json:"format"`
+	ParquetLayout     ParquetLayout      `json:"parquetLayout,omitempty"`
+	TimestampEncoding TimestampEncoding  `json:"timestampEncoding,omitempty"`
+	Actor             string             `json:"actor,omitempty"`
+	Subject           string             `json:"subject,omitempty"`
+	Parameters        map[string]any     `json:"parameters,omitempty"`
 }
 
 // ViewExportTarget identifies one view to export.
@@ -61,13 +64,14 @@ type ViewExportJob struct {
 
 // ExportFile describes one exported artifact.
 type ExportFile struct {
-	ViewName      string        `json:"viewName"`
-	Version       string        `json:"version"`
-	OutputName    string        `json:"outputName"`
-	Filename      string        `json:"filename"`
-	RowCount      int           `json:"rowCount"`
-	Format        string        `json:"format"`
-	ParquetLayout ParquetLayout `json:"parquetLayout,omitempty"`
+	ViewName          string            `json:"viewName"`
+	Version           string            `json:"version"`
+	OutputName        string            `json:"outputName"`
+	Filename          string            `json:"filename"`
+	RowCount          int               `json:"rowCount"`
+	Format            string            `json:"format"`
+	ParquetLayout     ParquetLayout     `json:"parquetLayout,omitempty"`
+	TimestampEncoding TimestampEncoding `json:"timestampEncoding,omitempty"`
 }
 
 // ViewExportJobStore persists export jobs.
@@ -232,12 +236,33 @@ func (s *ExportService) FileURL(jobID, filename string) string {
 	return fmt.Sprintf("%s/ViewDefinition/$viewdefinition-export/files/%s/%s", s.basePath, jobID, filename)
 }
 
-// GetFile returns one exported artifact.
-func (s *ExportService) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+// OpenFile streams one exported artifact without assembling a full []byte.
+func (s *ExportService) OpenFile(ctx context.Context, jobID, filename string) (io.ReadCloser, string, error) {
 	if s == nil || s.files == nil {
 		return nil, "", fmt.Errorf("view: export file store is required")
 	}
-	return s.files.Get(ctx, jobID, filename)
+	if opener, ok := s.files.(ExportFileStoreWithStream); ok {
+		return opener.Open(ctx, jobID, filename)
+	}
+	data, ct, err := s.files.Get(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), ct, nil
+}
+
+// GetFile returns one exported artifact.
+func (s *ExportService) GetFile(ctx context.Context, jobID, filename string) ([]byte, string, error) {
+	rc, ct, err := s.OpenFile(ctx, jobID, filename)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, ct, nil
 }
 
 // StatusURL returns the polling URL for a job.
@@ -338,6 +363,9 @@ func (s *ExportService) RunJob(ctx context.Context, jobID string) error {
 				layout = ParquetLayoutFlat
 			}
 			file.ParquetLayout = layout
+			if layout == ParquetLayoutFHIR {
+				file.TimestampEncoding = NormalizeTimestampEncoding(job.Request.TimestampEncoding)
+			}
 		}
 		files = append(files, file)
 		job.Progress = fmt.Sprintf("%d%%", (i+1)*100/len(job.Request.Views))
@@ -392,12 +420,13 @@ func (s *ExportService) writeParquetExportFile(
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	execReq := ExecuteRequest{
-		ViewName:   target.ViewName,
-		Version:    target.Version,
-		Actor:      req.Actor,
-		Subject:    req.Subject,
-		Parameters: req.Parameters,
-		Since:      since,
+		ViewName:          target.ViewName,
+		Version:           target.Version,
+		Actor:             req.Actor,
+		Subject:           req.Subject,
+		Parameters:        req.Parameters,
+		Since:             since,
+		TimestampEncoding: req.TimestampEncoding,
 	}
 	var exportResult ParquetExportResult
 	if layout == ParquetLayoutFHIR {
@@ -417,11 +446,7 @@ func (s *ExportService) writeParquetExportFile(
 	if err := tmp.Close(); err != nil {
 		return exportResult, err
 	}
-	data, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return exportResult, err
-	}
-	if err := s.files.Put(ctx, jobID, filename, data, ParquetContentType); err != nil {
+	if err := putExportFileFromPath(ctx, s.files, jobID, filename, tmpPath, ParquetContentType); err != nil {
 		return exportResult, err
 	}
 	return exportResult, nil

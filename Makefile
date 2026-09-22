@@ -1,8 +1,9 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-race build tidy clean ci all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
+.PHONY: help fmt format fmt-check format-check vet lint test test-short test-race build tidy clean ci ci-pr all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
 GO_TEST_TIMEOUT ?= 30m
+GO_TEST_SHORT_TIMEOUT ?= 20m
 ifneq ($(wildcard $(GOPATH_BIN)/golangci-lint),)
 GOLANGCI_LINT ?= $(GOPATH_BIN)/golangci-lint
 else
@@ -36,7 +37,10 @@ lint: ## Run golangci-lint
 test: ## Run unit and integration tests
 	$(GO) test ./...
 
-test-race: ## Run tests with the race detector
+test-short: ## Run tests like PR CI (skips most Postgres integration tests)
+	$(GO) test -short -count=1 -timeout $(GO_TEST_SHORT_TIMEOUT) ./...
+
+test-race: ## Run full tests with race detector (matches post-merge main CI)
 	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 build: ## Build all packages
@@ -85,6 +89,7 @@ clean: ## Remove build artifacts and test binaries
 	rm -f coverage.out coverage.html
 	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
-ci: fmt-check vet lint test-race build research ## Run all Go CI checks locally
+ci-pr: fmt-check vet lint test-short build tidy ## Run PR CI checks locally (fast)
+ci: fmt-check vet lint test-race build tidy research ## Run post-merge main CI checks locally (full)
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

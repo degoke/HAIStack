@@ -33,10 +33,26 @@ type Config struct {
 	RequireConsentForm bool
 	// AllowDynamicRegistration enables POST /oauth/register. Disabled by default.
 	AllowDynamicRegistration bool
+	// RegistrationAccessToken protects POST /oauth/register when set.
+	RegistrationAccessToken string
 	// LaunchResolver resolves EHR launch tokens for /oauth/launch and authorize.
 	LaunchResolver LaunchResolver
 	// UserAuthenticator identifies the end user approving access in production flows.
 	UserAuthenticator UserAuthenticator
+	// LoginPath redirects unauthenticated authorize requests when UserAuthenticator is set.
+	LoginPath string
+	// RateLimit configures token and registration endpoint rate limits.
+	RateLimit RateLimitConfig
+	// TokenRateLimiter overrides the default in-memory token endpoint limiter.
+	TokenRateLimiter RateLimitStore
+	// RegisterRateLimiter overrides the default in-memory registration limiter.
+	RegisterRateLimiter RateLimitStore
+	// VerificationKeys are additional public keys exposed via JWKS (for rotation).
+	VerificationKeys []*KeySet
+	// RequirePKCEForAllClients requires code_challenge for every client at authorize.
+	RequirePKCEForAllClients bool
+	// RegisteredClientScopes limits scopes for dynamic client registration.
+	RegisteredClientScopes []string
 }
 
 // Server is a SMART-compatible OAuth2/OIDC authorization server.
@@ -46,6 +62,10 @@ type Server struct {
 	replayStore     smart.ReplayStore
 	revocationStore TokenRevocationStore
 	backendAuth     *smart.BackendServiceAuth
+	tokenLimiter    RateLimitStore
+	registerLimiter RateLimitStore
+	loginLimiter    RateLimitStore
+	loginIPLimiter  RateLimitStore
 }
 
 // NewServer constructs an authorization server.
@@ -99,13 +119,15 @@ func NewServer(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	srv := &Server{
 		cfg:             cfg,
 		authStore:       cfg.AuthorizationStore,
 		replayStore:     replayStore,
 		revocationStore: cfg.RevocationStore,
 		backendAuth:     backendAuth,
-	}, nil
+	}
+	applyRateLimitConfig(srv, cfg.RateLimit, cfg.TokenRateLimiter, cfg.RegisterRateLimiter)
+	return srv, nil
 }
 
 // Issuer returns the configured issuer URL.
@@ -139,16 +161,52 @@ func (s *Server) authenticatedUser(r *http.Request) (UserIdentity, bool) {
 	return s.cfg.UserAuthenticator.AuthenticateUser(r)
 }
 
-// BearerAuthConfig returns SMART bearer validation wired to this server's signing key.
+func (s *Server) tokenVerifier() smart.SignatureVerifier {
+	var verifiers []smart.SignatureVerifier
+	for _, keySet := range s.verificationKeySets() {
+		if keySet == nil {
+			continue
+		}
+		pem, err := keySet.PublicKeyPEM()
+		if err != nil {
+			continue
+		}
+		verifiers = append(verifiers, smart.PEMVerifier{
+			PublicKeyPEM: pem,
+			Algorithm:    keySet.Algorithm,
+		})
+	}
+	if len(verifiers) == 0 {
+		panic("oauth: no verification keys")
+	}
+	if len(verifiers) == 1 {
+		return verifiers[0]
+	}
+	return multiSignatureVerifier(verifiers)
+}
+
+type multiSignatureVerifier []smart.SignatureVerifier
+
+func (m multiSignatureVerifier) Verify(headerSegment, payloadSegment string, signature []byte, alg string) error {
+	var last error
+	for _, verifier := range m {
+		if verifier == nil {
+			continue
+		}
+		if err := verifier.Verify(headerSegment, payloadSegment, signature, alg); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+	}
+	if last != nil {
+		return last
+	}
+	return fmt.Errorf("oauth: signature verification failed")
+}
+
+// BearerAuthConfig returns SMART bearer validation wired to this server's signing and verification keys.
 func (s *Server) BearerAuthConfig(adapter *smart.AuthAdapter) smart.BearerAuthConfig {
-	pem, err := s.cfg.SigningKey.PublicKeyPEM()
-	if err != nil {
-		panic(err)
-	}
-	verifier := smart.PEMVerifier{
-		PublicKeyPEM: pem,
-		Algorithm:    s.cfg.SigningKey.Algorithm,
-	}
 	opts := smart.TokenValidateOptions{
 		ExpectedIssuer:   s.cfg.Issuer,
 		ExpectedAudience: s.cfg.FHIRAudience,
@@ -162,7 +220,7 @@ func (s *Server) BearerAuthConfig(adapter *smart.AuthAdapter) smart.BearerAuthCo
 		opts.IsJWTRevoked = s.revocationStore.IsRevoked
 	}
 	return smart.BearerAuthConfig{
-		Validator: &smart.TokenValidator{Verifier: verifier},
+		Validator: &smart.TokenValidator{Verifier: s.tokenVerifier()},
 		Adapter:   adapter,
 		Options:   opts,
 	}
@@ -190,14 +248,42 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/.well-known/openid-configuration", s.handleOpenIDConfiguration)
 	mux.HandleFunc("/.well-known/smart-configuration", s.handleSMARTConfiguration)
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
-	mux.HandleFunc("/oauth/token", s.handleToken)
+	mux.HandleFunc("/oauth/token", s.wrapTokenRateLimit(s.handleToken))
 	mux.HandleFunc("/oauth/revoke", s.handleRevoke)
+	mux.HandleFunc("/oauth/introspect", s.handleIntrospect)
 	mux.HandleFunc("/oauth/jwks", s.handleJWKS)
-	mux.HandleFunc("/oauth/register", s.handleRegister)
+	if s.cfg.AllowDynamicRegistration {
+		mux.HandleFunc("/oauth/register", s.wrapRegisterRateLimit(s.handleRegister))
+	} else {
+		mux.HandleFunc("/oauth/register", s.handleRegister)
+	}
 	mux.HandleFunc("/oauth/consent", s.handleConsent)
 	mux.HandleFunc("/oauth/launch", s.handleLaunch)
 	mux.HandleFunc("/oauth/launch/ui", s.handleLaunchUI)
+	if s.cfg.LoginPath != "" {
+		mux.HandleFunc(s.cfg.LoginPath, s.handleSessionLogin)
+	}
 	return mux
+}
+
+func (s *Server) wrapTokenRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	tokenLimit, _, _, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.rateLimitOAuth(w, r, "token", s.tokenRateLimiter(tokenLimit, window), tokenLimit, window) {
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) wrapRegisterRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	_, registerLimit, _, _, window := rateLimitConfigFrom(s.cfg.RateLimit)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.rateLimitOAuth(w, r, "register", s.registerRateLimiter(registerLimit, window), registerLimit, window) {
+			return
+		}
+		next(w, r)
+	}
 }
 
 func randomToken() string {

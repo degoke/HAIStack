@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/degoke/health-ai-stack/pkg/validate"
-	"github.com/parquet-go/parquet-go"
 )
 
 const (
@@ -18,8 +17,8 @@ const (
 )
 
 // WriteResources encodes FHIR resources as one Parquet-on-FHIR file.
-func WriteResources(w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, resources []map[string]any) error {
-	_, err := writeResourcesBatch(context.Background(), w, sd, catalog, resources)
+func WriteResources(w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, resources []map[string]any, opts ...WriteOption) error {
+	_, err := writeResourcesBatch(context.Background(), w, sd, catalog, resources, opts...)
 	return err
 }
 
@@ -27,7 +26,7 @@ func WriteResources(w io.Writer, sd *validate.StructureDefinition, catalog valid
 // resource, spills raw resources to a temp NDJSON file, then encodes parquet in
 // bounded batches without holding all resources in memory. The supplied fn is
 // invoked once.
-func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error) (int, error) {
+func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, fn func(yield func(map[string]any) error) error, opts ...WriteOption) (int, error) {
 	builder, err := NewSchemaBuilder(sd, catalog)
 	if err != nil {
 		return 0, err
@@ -58,13 +57,14 @@ func WriteResourcesStreaming(ctx context.Context, w io.Writer, sd *validate.Stru
 		return 0, fmt.Errorf("parquetfhir: close resource spill file: %w", err)
 	}
 
-	return encodeResourcesFromSpill(ctx, w, sd, builder, spillPath)
+	return encodeResourcesFromSpill(ctx, w, sd, builder, spillPath, opts...)
 }
 
-func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, builder *SchemaBuilder, spillPath string) (int, error) {
+func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, builder *SchemaBuilder, spillPath string, opts ...WriteOption) (int, error) {
+	cfg := newWriteConfig(opts)
 	index := builder.Index()
-	schema := builder.BuildSchema()
-	writer := parquet.NewGenericWriter[map[string]any](w, schema, parquet.MaxRowsPerRowGroup(DefaultRowGroupSize))
+	schema := builder.BuildSchemaWith(cfg.timestampEncoding)
+	writer := newResourceWriter(w, schema, cfg)
 	defer func() { _ = writer.Close() }()
 
 	spill, err := os.Open(spillPath)
@@ -74,12 +74,12 @@ func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.Str
 	defer func() { _ = spill.Close() }()
 
 	written := 0
-	batch := make([]map[string]any, 0, DefaultRowGroupSize)
+	batch := make([]map[string]any, 0, cfg.rowGroupSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if _, err := writer.Write(batch); err != nil {
+		if err := writer.Write(batch); err != nil {
 			return fmt.Errorf("parquetfhir: write rows: %w", err)
 		}
 		written += len(batch)
@@ -102,12 +102,12 @@ func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.Str
 			return written, fmt.Errorf("parquetfhir: read spilled resource: %w", err)
 		}
 		resourceCount++
-		row, err := PrepareRow(resource, index)
+		row, err := prepareEncodedRow(resource, index, cfg.timestampEncoding)
 		if err != nil {
 			return written, err
 		}
 		batch = append(batch, row)
-		if len(batch) >= DefaultRowGroupSize {
+		if len(batch) >= cfg.rowGroupSize {
 			if err := flush(); err != nil {
 				return written, err
 			}
@@ -115,7 +115,7 @@ func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.Str
 	}
 
 	if resourceCount == 0 {
-		row, err := PrepareRow(map[string]any{"resourceType": sd.Type}, index)
+		row, err := prepareEncodedRow(map[string]any{"resourceType": sd.Type}, index, cfg.timestampEncoding)
 		if err != nil {
 			return 0, err
 		}
@@ -127,7 +127,8 @@ func encodeResourcesFromSpill(ctx context.Context, w io.Writer, sd *validate.Str
 	return written, writer.Close()
 }
 
-func writeResourcesBatch(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, resources []map[string]any) (int, error) {
+func writeResourcesBatch(ctx context.Context, w io.Writer, sd *validate.StructureDefinition, catalog validate.ProfileCatalog, resources []map[string]any, opts ...WriteOption) (int, error) {
+	cfg := newWriteConfig(opts)
 	builder, err := NewSchemaBuilder(sd, catalog)
 	if err != nil {
 		return 0, err
@@ -139,17 +140,17 @@ func writeResourcesBatch(ctx context.Context, w io.Writer, sd *validate.Structur
 		builder.ObserveResource(resource)
 	}
 	index := builder.Index()
-	schema := builder.BuildSchema()
-	writer := parquet.NewGenericWriter[map[string]any](w, schema, parquet.MaxRowsPerRowGroup(DefaultRowGroupSize))
+	schema := builder.BuildSchemaWith(cfg.timestampEncoding)
+	writer := newResourceWriter(w, schema, cfg)
 	defer func() { _ = writer.Close() }()
 
 	written := 0
-	batch := make([]map[string]any, 0, DefaultRowGroupSize)
+	batch := make([]map[string]any, 0, cfg.rowGroupSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if _, err := writer.Write(batch); err != nil {
+		if err := writer.Write(batch); err != nil {
 			return fmt.Errorf("parquetfhir: write rows: %w", err)
 		}
 		written += len(batch)
@@ -158,7 +159,7 @@ func writeResourcesBatch(ctx context.Context, w io.Writer, sd *validate.Structur
 	}
 
 	if len(resources) == 0 {
-		row, err := PrepareRow(map[string]any{"resourceType": sd.Type}, index)
+		row, err := prepareEncodedRow(map[string]any{"resourceType": sd.Type}, index, cfg.timestampEncoding)
 		if err != nil {
 			return 0, err
 		}
@@ -173,12 +174,12 @@ func writeResourcesBatch(ctx context.Context, w io.Writer, sd *validate.Structur
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		row, err := PrepareRow(resource, index)
+		row, err := prepareEncodedRow(resource, index, cfg.timestampEncoding)
 		if err != nil {
 			return written, err
 		}
 		batch = append(batch, row)
-		if len(batch) >= DefaultRowGroupSize {
+		if len(batch) >= cfg.rowGroupSize {
 			if err := flush(); err != nil {
 				return written, err
 			}
@@ -204,4 +205,12 @@ func ResolveStructureDefinition(catalog validate.ProfileCatalog, resourceType st
 		return nil, validate.ErrProfileNotFound
 	}
 	return sd, nil
+}
+
+func prepareEncodedRow(resource map[string]any, index *elementIndex, enc TimestampEncoding) (map[string]any, error) {
+	row, err := PrepareRow(resource, index)
+	if err != nil {
+		return nil, err
+	}
+	return applyTimestampEncoding(row, enc), nil
 }

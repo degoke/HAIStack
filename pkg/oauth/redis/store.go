@@ -28,40 +28,50 @@ func NewAuthorizationStore(client goredis.Cmdable, keyPrefix string) *Authorizat
 	return &AuthorizationStore{client: client, prefix: keyPrefix, now: time.Now}
 }
 
-func (s *AuthorizationStore) key(parts ...string) string {
-	return s.prefix + parts[0]
-}
-
 func (s *AuthorizationStore) SaveAuthorizationCode(code string, entry oauth.AuthorizationCode) error {
-	payload, err := json.Marshal(entry)
+	iss, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
+	entry.Issuer = iss
+	key, err := authCodeRedisKey(s.prefix, iss, code)
+	if err != nil {
+		return err
+	}
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode auth code: %w", err)
 	}
 	ttl := ttlUntil(entry.ExpiresAt, s.now())
-	return s.client.Set(context.Background(), s.key("authcode:"+code), payload, ttl).Err()
+	return s.client.Set(context.Background(), key, payload, ttl).Err()
 }
 
-func (s *AuthorizationStore) ConsumeAuthorizationCode(code string) (oauth.AuthorizationCode, bool) {
-	payload, ok := consumeJSONValue(s.client, s.key("authcode:"+code))
-	if !ok {
+func (s *AuthorizationStore) ConsumeAuthorizationCode(issuer, code string) (oauth.AuthorizationCode, bool) {
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	var entry oauth.AuthorizationCode
-	if err := json.Unmarshal(payload, &entry); err != nil {
+	key, err := authCodeRedisKey(s.prefix, bound, code)
+	if err != nil {
 		return oauth.AuthorizationCode{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
-		return oauth.AuthorizationCode{}, false
-	}
-	return entry, true
+	return consumeBound[oauth.AuthorizationCode](s.client, key, bound, s.now(), peekBoundJSONValue, deleteBoundJSONIfMatch)
 }
 
 func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshTokenEntry) error {
-	payload, err := json.Marshal(entry)
+	iss, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
+	entry.Issuer = iss
+	key, err := refreshRedisKey(s.prefix, iss, token)
+	if err != nil {
+		return err
+	}
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode refresh token: %w", err)
 	}
-	key := s.key("refresh:" + token)
 	ttl := ttlUntil(entry.ExpiresAt, s.now())
 	_, err = saveRefreshTokenScript.Run(
 		context.Background(),
@@ -74,71 +84,166 @@ func (s *AuthorizationStore) SaveRefreshToken(token string, entry oauth.RefreshT
 	return err
 }
 
-func (s *AuthorizationStore) ConsumeRefreshToken(token string) (oauth.RefreshTokenEntry, bool) {
-	key := s.key("refresh:" + token)
-	payload, err := consumeRefreshTokenScript.Run(context.Background(), s.client, []string{key}).Text()
-	if err != nil || payload == "" {
+func (s *AuthorizationStore) ConsumeRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	key, err := refreshRedisKey(s.prefix, bound, token)
+	if err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	return consumeBound[oauth.RefreshTokenEntry](s.client, key, bound, s.now(), peekBoundRefreshValue, deleteBoundRefreshIfMatch)
+}
+
+func (s *AuthorizationStore) LookupRefreshToken(issuer, token string) (oauth.RefreshTokenEntry, bool) {
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	key, err := refreshRedisKey(s.prefix, bound, token)
+	if err != nil {
+		return oauth.RefreshTokenEntry{}, false
+	}
+	payload, ok := peekBoundRefreshValue(s.client, key, bound, s.now())
+	if !ok {
 		return oauth.RefreshTokenEntry{}, false
 	}
 	var entry oauth.RefreshTokenEntry
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return oauth.RefreshTokenEntry{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
-		return oauth.RefreshTokenEntry{}, false
-	}
 	return entry, true
 }
 
 func (s *AuthorizationStore) SavePendingAuthorization(id string, entry oauth.PendingAuthorization) error {
-	payload, err := json.Marshal(entry)
+	iss, err := oauth.RequireBoundIssuer(entry.Issuer)
+	if err != nil {
+		return err
+	}
+	entry.Issuer = iss
+	key, err := pendingRedisKey(s.prefix, iss, id)
+	if err != nil {
+		return err
+	}
+	payload, err := marshalBoundJSON(entry, entry.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("encode pending auth: %w", err)
 	}
 	ttl := ttlUntil(entry.ExpiresAt, s.now())
-	return s.client.Set(context.Background(), s.key("pending:"+id), payload, ttl).Err()
+	return s.client.Set(context.Background(), key, payload, ttl).Err()
 }
 
-func (s *AuthorizationStore) GetPendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
-	payload, err := s.client.Get(context.Background(), s.key("pending:"+id)).Bytes()
-	if err == goredis.Nil || err != nil {
+func (s *AuthorizationStore) GetPendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	var entry oauth.PendingAuthorization
-	if err := json.Unmarshal(payload, &entry); err != nil {
+	key, err := pendingRedisKey(s.prefix, bound, id)
+	if err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
-	if s.now().After(entry.ExpiresAt) {
-		return oauth.PendingAuthorization{}, false
-	}
-	return entry, true
-}
-
-func (s *AuthorizationStore) ConsumePendingAuthorization(id string) (oauth.PendingAuthorization, bool) {
-	payload, ok := consumeJSONValue(s.client, s.key("pending:"+id))
+	payload, ok := peekBoundJSONValue(s.client, key, bound, s.now())
 	if !ok {
 		return oauth.PendingAuthorization{}, false
 	}
 	var entry oauth.PendingAuthorization
-	if err := json.Unmarshal(payload, &entry); err != nil {
-		return oauth.PendingAuthorization{}, false
-	}
-	if s.now().After(entry.ExpiresAt) {
+	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return oauth.PendingAuthorization{}, false
 	}
 	return entry, true
 }
 
-func consumeJSONValue(client goredis.Cmdable, key string) ([]byte, bool) {
-	payload, err := consumeJSONValueScript.Run(context.Background(), client, []string{key}).Text()
-	if err != nil || payload == "" {
-		return nil, false
-	}
-	return []byte(payload), true
+func (s *AuthorizationStore) PurgeExpiredPendingAuthorizations() int {
+	return 0
 }
 
-func (s *AuthorizationStore) DeleteRefreshTokenForClient(token, clientID string) bool {
-	key := s.key("refresh:" + token)
+func (s *AuthorizationStore) ConsumePendingAuthorization(issuer, id string) (oauth.PendingAuthorization, bool) {
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
+		return oauth.PendingAuthorization{}, false
+	}
+	key, err := pendingRedisKey(s.prefix, bound, id)
+	if err != nil {
+		return oauth.PendingAuthorization{}, false
+	}
+	return consumeBound[oauth.PendingAuthorization](s.client, key, bound, s.now(), peekBoundJSONValue, deleteBoundJSONIfMatch)
+}
+
+func consumeBound[T any](
+	client goredis.Cmdable,
+	key, issuer string,
+	now time.Time,
+	peek func(goredis.Cmdable, string, string, time.Time) (string, bool),
+	del func(goredis.Cmdable, string, string) bool,
+) (T, bool) {
+	var zero T
+	payload, ok := peek(client, key, issuer, now)
+	if !ok {
+		return zero, false
+	}
+	var entry T
+	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+		return zero, false
+	}
+	if !del(client, key, payload) {
+		return zero, false
+	}
+	return entry, true
+}
+
+func peekBoundJSONValue(client goredis.Cmdable, key, issuer string, now time.Time) (string, bool) {
+	payload, err := peekBoundJSONValueScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli()).Text()
+	if err != nil || payload == "" {
+		return "", false
+	}
+	return payload, true
+}
+
+func peekBoundRefreshValue(client goredis.Cmdable, key, issuer string, now time.Time) (string, bool) {
+	payload, err := peekBoundRefreshTokenScript.Run(context.Background(), client, []string{key}, issuer, now.UnixMilli()).Text()
+	if err != nil || payload == "" {
+		return "", false
+	}
+	return payload, true
+}
+
+func deleteBoundJSONIfMatch(client goredis.Cmdable, key, payload string) bool {
+	n, err := deleteBoundJSONIfMatchScript.Run(context.Background(), client, []string{key}, payload).Int()
+	return err == nil && n > 0
+}
+
+func deleteBoundRefreshIfMatch(client goredis.Cmdable, key, payload string) bool {
+	n, err := deleteBoundRefreshIfMatchScript.Run(context.Background(), client, []string{key}, payload).Int()
+	return err == nil && n > 0
+}
+
+func marshalBoundJSON(v any, expiresAt time.Time) ([]byte, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	obj["exp"] = expiresAt.UnixMilli()
+	return json.Marshal(obj)
+}
+
+func (s *AuthorizationStore) DeleteRefreshTokenForClient(issuer, token, clientID string) bool {
+	entry, ok := s.LookupRefreshToken(issuer, token)
+	if !ok || entry.ClientID != clientID {
+		return false
+	}
+	bound, err := oauth.RequireBoundIssuer(issuer)
+	if err != nil {
+		return false
+	}
+	key, err := refreshRedisKey(s.prefix, bound, token)
+	if err != nil {
+		return false
+	}
 	n, err := deleteRefreshTokenForClientScript.Run(context.Background(), s.client, []string{key}, clientID).Int()
 	return err == nil && n > 0
 }

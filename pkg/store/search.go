@@ -1,6 +1,12 @@
 package store
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrUnsupportedFeature indicates a search index operation the backend does not implement.
+var ErrUnsupportedFeature = errors.New("store: unsupported search feature")
 
 // SearchIndexEntry holds indexed metadata or prepared search tokens for one resource.
 // Backends may persist extracted fields, token sets, or other index-oriented data.

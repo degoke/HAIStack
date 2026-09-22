@@ -878,6 +878,30 @@ func TestAllowsResourceWithFiltersReadOrSearch_ReadOnlyInclude(t *testing.T) {
 	}
 }
 
+func TestFilterSearchBundleScopeFilters_StripsOutOfScopeMatch(t *testing.T) {
+	scopes, err := smart.ParseScopes("patient/Observation.rs?category=laboratory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab := observationEnvelope("obs-lab", "laboratory")
+	vital := observationEnvelope("obs-vital", "vital-signs")
+	total := 2
+	bundle := search.AssembleBundle(&search.Result{
+		ResourceType: "Observation",
+		Resources:    []*types.ResourceEnvelope{lab, vital},
+		Total:        &total,
+	})
+	if err := smart.FilterSearchBundleScopeFilters(context.Background(), scopes, smart.ActorPatient, "Observation", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Entries) != 1 || bundle.Entries[0].Resource.ID != "obs-lab" {
+		t.Fatalf("entries = %#v", bundle.Entries)
+	}
+	if bundle.Total == nil || *bundle.Total != 2 {
+		t.Fatalf("Total = %v, want query-time 2", bundle.Total)
+	}
+}
+
 func TestResolveBearerTokenCachedOncePerContext(t *testing.T) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	cfg := smart.BearerAuthConfig{

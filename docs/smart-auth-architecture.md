@@ -37,12 +37,23 @@ Policy deny always overrides an apparently valid SMART scope.
 ### Built-in authorization server (`pkg/oauth`)
 
 ```go
-oauthServer, _ := oauth.NewServer(oauth.Config{Issuer: issuer, FHIRAudience: fhirBaseURL})
-http.Handle("/", oauthServer.Handler()) // authorize, token, jwks, register, discovery
+oauthServer, _ := oauth.NewServer(oauth.Config{
+    Issuer: issuer,
+    FHIRAudience: fhirBaseURL,
+    UserAuthenticator: sessionAuth, // production consent login
+    LoginPath: "/oauth/login",
+})
+http.Handle("/", oauthServer.Handler()) // authorize, token, introspect, jwks, register, discovery, login
+
+// Tenant-scoped issuer:
+multi, _ := oauth.NewMultiTenantServer(oauth.MultiTenantConfig{Base: cfg, Tenants: registry})
+http.Handle("/t/", multi.Handler())
 
 adapter := smart.NewAuthAdapter(smart.AuthAdapterConfig{...})
 bearer := oauthServer.BearerAuthConfig(adapter)
 ```
+
+Production hosts store signing keys in the database when `OAUTH_SIGNING_KEY_ENCRYPTION_SECRET` is set (see `oauthstore.ApplyPostgresSigningKey`). PEM fallback remains for development.
 
 ### FHIR resource server
 
@@ -94,7 +105,7 @@ and `pkg/oauth` authorization-server tests.
 
 ## Built-in OAuth server (`pkg/oauth`)
 
-Production deployment uses `oauthpostgres.NewServer` (`pkg/oauth/postgres`) with Postgres-backed client, token, replay, and revocation stores. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and persist `oauth-signing.pem` across restarts. File-backed `oauth.NewProductionServer` remains for single-node dev. See `pkg/oauth/README.md`.
+Production deployment uses `oauthstore.ApplyPostgresStores` or `ApplySQLiteStores` (`pkg/oauth/store`) for clients, tokens, replay, and revocation. `haistack serve` wires builtin OAuth via `runtime.WithBuiltinOAuth`. Set `UserAuthenticator` for end-user consent, `LaunchResolver` for EHR launch, and DB-backed signing keys (or PEM fallback via `oauth.DefaultSigningKeyPaths`). `pkg/smart` file stores (`FileBackendClientStore`, `FileReplayStore`) are for SMART backend assertions only, not the authorization server. See `pkg/oauth/README.md`.
 
 ## Non-goals
 
@@ -105,4 +116,4 @@ Production deployment uses `oauthpostgres.NewServer` (`pkg/oauth/postgres`) with
 - `pkg/smart/README.md` — scope formats and v1→v2 mapping
 - `pkg/auth/README.md` — policy DSL
 - `examples/smart-authz` — runnable restricted vs unrestricted principals
-- `examples/smart-oauth` — built-in OAuth server + FHIR read with consent and file-backed tokens
+- `examples/smart-oauth` — built-in OAuth server + FHIR read with consent

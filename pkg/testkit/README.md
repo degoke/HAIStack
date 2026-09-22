@@ -23,6 +23,7 @@ files into importable Go packages (not `_test.go` sources). Downstream tests can
 | **fhirpathtest** | FHIRPath evaluation and assertion wrappers |
 | **aitest** | Reusable `ai.Executor` harness with optional search/views/core |
 | **authztest** | Authorization scenario catalog (≥30 Go cases) plus YAML catalogues (`ParseYAML` / `ScenariosFromYAML`) that assert SMART scope ∩ policy |
+| **infernotest** | Inferno STU2 discovery + standalone SMART launch helpers and reference host |
 
 It does **not**:
 

@@ -20,8 +20,8 @@
 //     adapters. CSV, NDJSON, flat Parquet, and Parquet-on-FHIR nested exports are supported.
 //
 // Warehouse refresh, lakehouse partitioning, and manifest export sinks are implemented
-// for Postgres analytics mode. Use ParquetLayout and Executor on parquet sinks for
-// _parquetLayout=fhir nested resource exports.
+// for Postgres analytics mode. Use ParquetLayout, TimestampEncoding, and Executor on parquet sinks for
+// _parquetLayout=fhir nested resource exports (INT96 date annotations when TimestampEncoding is int96).
 //
 // # Public API
 //

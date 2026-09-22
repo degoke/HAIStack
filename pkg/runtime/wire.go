@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/analytics"
+	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/health-ai-stack/pkg/bulkimport"
 	"github.com/degoke/health-ai-stack/pkg/conceptmap"
 	"github.com/degoke/health-ai-stack/pkg/core"
 	"github.com/degoke/health-ai-stack/pkg/export"
@@ -24,6 +26,7 @@ import (
 	"github.com/degoke/health-ai-stack/pkg/sqlite"
 	"github.com/degoke/health-ai-stack/pkg/store"
 	"github.com/degoke/health-ai-stack/pkg/structuremap"
+	"github.com/degoke/health-ai-stack/pkg/subscriptions"
 	hasync "github.com/degoke/health-ai-stack/pkg/sync"
 	"github.com/degoke/health-ai-stack/pkg/terminology"
 	"github.com/degoke/health-ai-stack/pkg/validate"
@@ -31,16 +34,17 @@ import (
 )
 
 type wireState struct {
-	services      *ServiceContainer
-	httpHandler   http.Handler
-	jobRunner     *jobs.Runner
-	syncProcessor *hasync.JobProcessor
-	analyticsCDC  *analytics.CDCProcessor
-	reindexWorker *search.ReindexWorker
-	syncEngine    *hasync.Engine
-	sqliteDB      *sqlite.DB
-	postgresDB    *postgres.DB
-	cleanup       cleanupStack
+	services              *ServiceContainer
+	httpHandler           http.Handler
+	jobRunner             *jobs.Runner
+	syncProcessor         *hasync.JobProcessor
+	analyticsCDC          *analytics.CDCProcessor
+	subscriptionProcessor *subscriptions.Processor
+	reindexWorker         *search.ReindexWorker
+	syncEngine            *hasync.Engine
+	sqliteDB              *sqlite.DB
+	postgresDB            *postgres.DB
+	cleanup               cleanupStack
 }
 
 type cleanupStack struct {
@@ -92,14 +96,20 @@ func (b *Builder) wire(ctx context.Context, rt *Runtime) error {
 	}
 
 	rt.services = state.services
+	if b.oauthIssuerURL != "" {
+		rt.config.OAuthEnabled = true
+		rt.config.OAuthIssuer = b.oauthIssuerURL
+	}
 	rt.handler = hahttp.WithHealthEndpoints(state.httpHandler, rt.IsStarted)
 	rt.jobRunner = state.jobRunner
 	rt.syncProcessor = state.syncProcessor
 	rt.analyticsCDC = state.analyticsCDC
+	rt.subscriptionProcessor = state.subscriptionProcessor
 	rt.reindexWorker = state.reindexWorker
 	rt.syncEngine = state.syncEngine
 	rt.sqliteDB = state.sqliteDB
 	rt.postgresDB = state.postgresDB
+	rt.oauthAuthStore = b.oauthAuthStore
 	// Transfer only the cleanup functions. Copying cleanupStack itself would
 	// copy its sync.Once state, which is both unsafe and rejected by vet.
 	rt.cleanup.fns = state.cleanup.fns
@@ -133,6 +143,7 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		installs:                  db.RegistryInstallStore(),
 		moduleStore:               db.ModuleStore(),
 		jobStore:                  db.JobStore(),
+		blobStore:                 b.resolveBulkBlobStore(state),
 		resources:                 db.ResourceStore(),
 		history:                   db.HistoryStore(),
 		searchStore:               db.SearchStore(),
@@ -150,6 +161,8 @@ func (b *Builder) wireSQLite(ctx context.Context, state *wireState) error {
 		terminologyInstalls:       db.TerminologyInstallStore(syncTenantID),
 		terminologyInstallFactory: sqlite.NewTerminologyInstallStoreFactory(db),
 		reindexJobs:               false,
+		subscriptions:             db.SubscriptionStore(),
+		subscriptionDeliveries:    db.SubscriptionDeliveryStore(),
 	})
 }
 
@@ -188,6 +201,7 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		installs:                  tdb.RegistryInstallStore(),
 		moduleStore:               tdb.ModuleStore(),
 		jobStore:                  tdb.JobStore(),
+		blobStore:                 b.resolveBulkBlobStore(state),
 		resources:                 tdb.ResourceStore(),
 		history:                   tdb.HistoryStore(),
 		searchStore:               tdb.SearchStore(),
@@ -205,6 +219,8 @@ func (b *Builder) wirePostgres(ctx context.Context, state *wireState) error {
 		terminologyInstalls:       tdb.TerminologyInstallStore(),
 		terminologyInstallFactory: postgres.NewTerminologyInstallStoreFactory(db),
 		reindexJobs:               b.searchEnabled,
+		subscriptions:             tdb.SubscriptionStore(),
+		subscriptionDeliveries:    tdb.SubscriptionDeliveryStore(),
 	})
 }
 
@@ -214,6 +230,7 @@ type persistenceContext struct {
 	installs                  store.RegistryInstallStore
 	moduleStore               store.ModuleStore
 	jobStore                  store.JobStore
+	blobStore                 store.BlobStore
 	resources                 store.ResourceStore
 	history                   store.HistoryStore
 	searchStore               store.SearchStore
@@ -231,6 +248,8 @@ type persistenceContext struct {
 	terminologyInstalls       store.TerminologyInstallStore
 	terminologyInstallFactory store.TerminologyInstallStoreFactory
 	terminologyScope          string
+	subscriptions             store.SubscriptionStore
+	subscriptionDeliveries    store.SubscriptionDeliveryStore
 }
 
 func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persistenceContext) error {
@@ -385,9 +404,8 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 	state.services.RegistrySnapshot = snapshot
 
 	var indexer search.Indexer
-	var searchRegistry *search.SnapshotRegistry
+	searchRegistry := search.NewSnapshotRegistry(snapshot)
 	if b.searchEnabled {
-		searchRegistry = search.NewSnapshotRegistry(snapshot)
 		indexer, err = search.NewRegistryIndexer(search.RegistryIndexerConfig{
 			Registry: searchRegistry,
 			Engine:   engine,
@@ -464,6 +482,7 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		GlobalTerminologyScope: terminology.GlobalScopeID,
 		TerminologyCache:       terminologyCache,
 		DefinitionIngestor:     regManager,
+		Hooks:                  b.hooks,
 		ConformanceRefresh: func(ctx context.Context) error {
 			snap, err := conformanceRuntime.Refresh(ctx)
 			if err != nil {
@@ -550,6 +569,10 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		}
 	}
 
+	if err := b.wireSubscriptions(state, pc, engine, searchRegistry, runner); err != nil {
+		return fmt.Errorf("runtime: subscriptions: %w", err)
+	}
+
 	packageInstaller := b.newPackageInstaller(regManager, conformanceRuntime, engine, viewRegistry)
 	state.services.ViewRegistry = packageInstaller.ViewRegistry
 	viewCtx := wireAnalyticsContext{
@@ -580,8 +603,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		if err := runner.Register(jobs.TypeRegistryPackageInstall, jobs.HandlerFunc(packageWorker.HandleJob)); err != nil {
 			return fmt.Errorf("runtime: register package install handler: %w", err)
 		}
-		exportFiles := export.NewInMemoryFileStore()
-		exportJobs := export.NewInMemoryJobStore()
+		if pc.blobStore == nil {
+			return fmt.Errorf("runtime: bulk file store requires a blob store")
+		}
+		exportFiles := export.NewBlobFileStore(pc.blobStore)
+		exportJobs := export.NewDurableJobStore(pc.jobStore)
 		exportExecutor := &export.Executor{
 			Resources: pc.resources,
 			Files:     exportFiles,
@@ -603,6 +629,27 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			return fmt.Errorf("runtime: register bulk export handler: %w", err)
 		}
 		state.services.BulkExportService = exportSvc
+		importFiles := bulkimport.NewBlobFileStore(pc.blobStore)
+		importJobs := bulkimport.NewDurableJobStore(pc.jobStore)
+		importExecutor := &bulkimport.Executor{
+			Resources: state.services.ResourceService,
+			Files:     importFiles,
+		}
+		importSvc, err := bulkimport.NewService(bulkimport.Config{
+			Jobs:     importJobs,
+			Files:    importFiles,
+			Executor: importExecutor,
+			JobQueue: pc.jobStore,
+			Loader:   bulkimport.NewHTTPLoader(),
+			BasePath: "/fhir",
+		})
+		if err != nil {
+			return fmt.Errorf("runtime: bulk import service: %w", err)
+		}
+		if err := runner.Register(jobs.TypeImportBulk, importSvc.JobHandler()); err != nil {
+			return fmt.Errorf("runtime: register bulk import handler: %w", err)
+		}
+		state.services.BulkImportService = importSvc
 		moduleWorker := &modules.InstallWorker{
 			Manager:                    modManager,
 			Store:                      pc.jobStore,
@@ -709,6 +756,11 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 			state.services.RegistrySnapshot = snap
 		}
 	})
+	if b.builtinOAuth != nil {
+		if err := b.wireBuiltinOAuth(ctx, state); err != nil {
+			return err
+		}
+	}
 	handler, err := hahttp.NewHandler(hahttp.Config{
 		ResourceService:            hahttp.CoreResourceService{Svc: state.services.ResourceService},
 		SearchService:              httpSearchSvc,
@@ -739,13 +791,16 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		PatientReferenceResolver: patientRefResolver,
 		AuthMiddleware:           b.httpMiddleware,
 		PrincipalResolver:        b.httpPrincipalResolver,
+		AuthBundleResolver:       b.httpAuthBundleResolver,
 		AuthChecker:              b.httpAuthChecker,
 		BulkExportService:        state.services.BulkExportService,
+		BulkImportService:        state.services.BulkImportService,
 		ViewMaterializeService:   state.services.MaterializeService,
 		ViewRunService:           state.services.ViewRunService,
 		SQLQueryService:          state.services.SQLQueryService,
 		ViewExportService:        state.services.ViewExportService,
 		RateLimit:                b.httpRateLimit,
+		Hooks:                    b.hooks,
 		ServerMetadata: hahttp.ServerMetadata{
 			SoftwareName:    "haistack-runtime",
 			SoftwareVersion: "1.0.0",
@@ -762,7 +817,60 @@ func (b *Builder) wireCommon(ctx context.Context, state *wireState, pc persisten
 		rootCfg.Sync = b.syncServer
 		rootCfg.SyncMiddleware = b.syncMiddleware
 	}
+	if b.oauthHandler != nil {
+		rootCfg.OAuth = b.oauthHandler
+	}
 	state.httpHandler = hahttp.NewRootHandlerFromConfig(rootCfg)
+	return nil
+}
+
+func (b *Builder) wireSubscriptions(
+	state *wireState,
+	pc persistenceContext,
+	engine fhirpath.Engine,
+	searchRegistry search.Registry,
+	runner *jobs.Runner,
+) error {
+	matcher := &subscriptions.Matcher{
+		Engine:   engine,
+		Registry: searchRegistry,
+	}
+	state.services.SubscriptionMatcher = matcher
+
+	if pc.subscriptions != nil {
+		state.services.SubscriptionManager = &subscriptions.Manager{Store: pc.subscriptions}
+	}
+
+	if pc.outboxEvents != nil && pc.syncCursors != nil && pc.subscriptions != nil && pc.jobStore != nil {
+		processor := &subscriptions.Processor{
+			Events:        pc.outboxEvents,
+			Cursors:       pc.syncCursors,
+			Subscriptions: pc.subscriptions,
+			Jobs:          pc.jobStore,
+			Resources:     pc.resources,
+			History:       pc.history,
+			Matcher:       matcher,
+			Scope:         pc.syncTenantID,
+		}
+		state.subscriptionProcessor = processor
+		state.services.SubscriptionProcessor = processor
+	}
+
+	handlers := subscriptions.NewHandlerRegistry()
+	state.services.SubscriptionHandlers = handlers
+	if runner != nil && pc.subscriptions != nil {
+		worker := &subscriptions.DeliveryWorker{
+			Subscriptions: pc.subscriptions,
+			Deliveries:    pc.subscriptionDeliveries,
+			Resources:     pc.resources,
+			History:       pc.history,
+			Webhook:       &subscriptions.WebhookDispatcher{},
+			Local:         &subscriptions.LocalDispatcher{Registry: handlers},
+		}
+		if err := runner.Register(jobs.TypeSubscriptionsDeliver, jobs.HandlerFunc(worker.HandleJob)); err != nil {
+			return fmt.Errorf("register delivery handler: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -959,6 +1067,21 @@ func (b *Builder) resolveReportingStore(state *wireState) store.ReportingTableSt
 	}
 	if state.services.TenantDB != nil {
 		return state.services.TenantDB.ReportingTableStore()
+	}
+	return nil
+}
+
+func (b *Builder) resolveBulkBlobStore(state *wireState) store.BlobStore {
+	if b.blobStore != nil {
+		if blobs := b.blobStore.BlobStore(); blobs != nil {
+			return blobs
+		}
+	}
+	if state.services != nil && state.services.TenantDB != nil {
+		return binary.AsStore(state.services.TenantDB.PostgresBlobStore())
+	}
+	if state.sqliteDB != nil {
+		return binary.AsStore(state.sqliteDB.SQLiteBlobStore())
 	}
 	return nil
 }

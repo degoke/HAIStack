@@ -32,6 +32,16 @@ func ParseQuery(resourceType string, params url.Values) (*Query, error) {
 		}
 
 		switch baseKey {
+		case "_has":
+			if !hasModifier {
+				return nil, fmt.Errorf("%w: _has", ErrInvalidQuery)
+			}
+			hasClause, err := parseHasKey(modifier, values)
+			if err != nil {
+				return nil, err
+			}
+			q.Has = append(q.Has, hasClause)
+			continue
 		case "_count":
 			if err := parseCount(values, q); err != nil {
 				return nil, err
@@ -50,6 +60,9 @@ func ParseQuery(resourceType string, params url.Values) (*Query, error) {
 			q.Sort = sortFields
 			continue
 		case "_include":
+			if hasModifier {
+				return nil, fmt.Errorf("%w: _include modifier %q", ErrUnsupportedFeature, modifier)
+			}
 			for _, raw := range values {
 				directive, err := parseIncludeValue(resourceType, raw)
 				if err != nil {
@@ -59,6 +72,9 @@ func ParseQuery(resourceType string, params url.Values) (*Query, error) {
 			}
 			continue
 		case "_revinclude":
+			if hasModifier {
+				return nil, fmt.Errorf("%w: _revinclude modifier %q", ErrUnsupportedFeature, modifier)
+			}
 			for _, raw := range values {
 				directive, err := parseRevIncludeValue(resourceType, raw)
 				if err != nil {
@@ -138,8 +154,10 @@ func ParseQuery(resourceType string, params url.Values) (*Query, error) {
 }
 
 const (
-	defaultCount = 20
-	maxCount     = 100
+	defaultCount  = 20
+	maxCount      = 100
+	maxChainHops  = 2
+	maxHasNesting = 2
 )
 
 func parseCount(values []string, q *Query) error {
@@ -204,12 +222,18 @@ func splitORValues(rawValue string) ([]ValueClause, error) {
 }
 
 func parseChainKey(key, modifier string, hasModifier bool, values []string) (ChainClause, error) {
-	parts := strings.SplitN(key, ".", 2)
-	if len(parts) != 2 {
+	parts := strings.Split(key, ".")
+	if len(parts) < 2 {
 		return ChainClause{}, fmt.Errorf("%w: chained search %q", ErrUnsupportedFeature, key)
 	}
-	if strings.Contains(parts[1], ".") {
-		return ChainClause{}, fmt.Errorf("%w: chain depth > 1 for %q", ErrUnsupportedFeature, key)
+	hops := len(parts) - 1
+	if hops > maxChainHops {
+		return ChainClause{}, fmt.Errorf("%w: chain depth > %d for %q", ErrUnsupportedFeature, maxChainHops, key)
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return ChainClause{}, fmt.Errorf("%w: chained search %q", ErrInvalidQuery, key)
+		}
 	}
 	if hasModifier && modifier == "missing" {
 		return ChainClause{}, fmt.Errorf("%w: modifier %q on chain", ErrUnsupportedFeature, modifier)
@@ -222,46 +246,135 @@ func parseChainKey(key, modifier string, hasModifier bool, values []string) (Cha
 		}
 		valueClauses = append(valueClauses, orValues...)
 	}
+	return buildChainClause(parts, modifier, valueClauses), nil
+}
+
+func buildChainClause(parts []string, modifier string, values []ValueClause) ChainClause {
+	if len(parts) == 2 {
+		return ChainClause{
+			RefCode: parts[0],
+			Param: ParamClause{
+				Code:     parts[1],
+				Modifier: modifier,
+				Values:   values,
+			},
+		}
+	}
+	nested := buildChainClause(parts[1:], modifier, values)
 	return ChainClause{
 		RefCode: parts[0],
+		Nested:  &nested,
+	}
+}
+
+func parseHasKey(rest string, values []string) (HasClause, error) {
+	return parseHasRest(rest, values, 1)
+}
+
+func parseHasRest(rest string, values []string, depth int) (HasClause, error) {
+	if depth > maxHasNesting {
+		return HasClause{}, fmt.Errorf("%w: _has nesting > %d", ErrUnsupportedFeature, maxHasNesting)
+	}
+	parts := strings.SplitN(rest, ":", 3)
+	if len(parts) < 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return HasClause{}, fmt.Errorf("%w: _has %q", ErrInvalidQuery, rest)
+	}
+	sourceType, refCode, remainder := parts[0], parts[1], parts[2]
+	if strings.HasPrefix(remainder, "_has:") {
+		nested, err := parseHasRest(strings.TrimPrefix(remainder, "_has:"), values, depth+1)
+		if err != nil {
+			return HasClause{}, err
+		}
+		return HasClause{
+			SourceType: sourceType,
+			RefCode:    refCode,
+			Nested:     &nested,
+		}, nil
+	}
+
+	paramKey, paramMod, hasMod := splitParamKey(remainder)
+	if hasMod && paramMod == "missing" {
+		return HasClause{}, fmt.Errorf("%w: modifier %q on _has", ErrUnsupportedFeature, paramMod)
+	}
+	if strings.Contains(paramKey, ".") {
+		chain, err := parseChainKey(paramKey, paramMod, hasMod, values)
+		if err != nil {
+			return HasClause{}, err
+		}
+		return HasClause{
+			SourceType: sourceType,
+			RefCode:    refCode,
+			Chain:      &chain,
+		}, nil
+	}
+
+	var valueClauses []ValueClause
+	for _, rawValue := range values {
+		orValues, err := splitORValues(rawValue)
+		if err != nil {
+			return HasClause{}, err
+		}
+		valueClauses = append(valueClauses, orValues...)
+	}
+	return HasClause{
+		SourceType: sourceType,
+		RefCode:    refCode,
 		Param: ParamClause{
-			Code:     parts[1],
-			Modifier: modifier,
+			Code:     paramKey,
+			Modifier: paramMod,
 			Values:   valueClauses,
 		},
 	}, nil
 }
 
 func parseIncludeValue(sourceType, raw string) (IncludeDirective, error) {
-	parts := strings.Split(raw, ":")
-	if len(parts) != 2 {
-		return IncludeDirective{}, fmt.Errorf("%w: _include %q", ErrInvalidQuery, raw)
+	src, param, target, err := parseIncludeParts("_include", raw)
+	if err != nil {
+		return IncludeDirective{}, err
 	}
-	if parts[0] == "*" || parts[1] == "*" {
-		return IncludeDirective{}, fmt.Errorf("%w: wildcard _include", ErrUnsupportedFeature)
+	if src == "*" {
+		src = sourceType
 	}
-	if parts[0] != sourceType {
-		return IncludeDirective{}, fmt.Errorf("%w: _include source type %q does not match search type %q", ErrInvalidQuery, parts[0], sourceType)
+	if src != sourceType {
+		return IncludeDirective{}, fmt.Errorf("%w: _include source type %q does not match search type %q", ErrInvalidQuery, src, sourceType)
 	}
 	return IncludeDirective{
-		SourceType: parts[0],
-		ParamCode:  parts[1],
+		SourceType: src,
+		ParamCode:  param,
+		TargetType: target,
 	}, nil
 }
 
 func parseRevIncludeValue(searchType, raw string) (RevIncludeDirective, error) {
-	parts := strings.Split(raw, ":")
-	if len(parts) != 2 {
-		return RevIncludeDirective{}, fmt.Errorf("%w: _revinclude %q", ErrInvalidQuery, raw)
+	src, param, target, err := parseIncludeParts("_revinclude", raw)
+	if err != nil {
+		return RevIncludeDirective{}, err
 	}
-	if parts[0] == "*" || parts[1] == "*" {
-		return RevIncludeDirective{}, fmt.Errorf("%w: wildcard _revinclude", ErrUnsupportedFeature)
+	if target != "" && target != searchType && target != "*" {
+		return RevIncludeDirective{}, fmt.Errorf("%w: _revinclude target type %q does not match search type %q", ErrInvalidQuery, target, searchType)
 	}
 	return RevIncludeDirective{
-		SourceType: parts[0],
-		ParamCode:  parts[1],
+		SourceType: src,
+		ParamCode:  param,
 		TargetType: searchType,
 	}, nil
+}
+
+func parseIncludeParts(kind, raw string) (source, param, target string, err error) {
+	parts := strings.Split(raw, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return "", "", "", fmt.Errorf("%w: %s %q", ErrInvalidQuery, kind, raw)
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return "", "", "", fmt.Errorf("%w: %s %q", ErrInvalidQuery, kind, raw)
+		}
+	}
+	source, param = parts[0], parts[1]
+	if len(parts) == 3 {
+		target = parts[2]
+	}
+	return source, param, target, nil
 }
 
 func parseSortValues(values []string) ([]SortField, error) {

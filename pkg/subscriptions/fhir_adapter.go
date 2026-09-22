@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
+	"github.com/degoke/health-ai-stack/pkg/search"
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
 
@@ -77,15 +79,93 @@ func triggerFromFHIR(criteria string, extensions []map[string]any) (Trigger, err
 	}
 	trigger := Trigger{
 		ResourceType: resourceType,
-		Event:        TriggerEventCreate,
+		Event:        TriggerEventChange,
+		Criteria:     criteria,
 	}
 	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-		return Trigger{}, fmt.Errorf("%w: advanced search criteria are not supported yet", ErrUnsupportedFHIR)
+		values, err := url.ParseQuery(parts[1])
+		if err != nil {
+			return Trigger{}, fmt.Errorf("%w: invalid criteria query: %v", ErrUnsupportedFHIR, err)
+		}
+		parsed, err := search.ParseQuery(resourceType, values)
+		if err != nil {
+			return Trigger{}, fmt.Errorf("%w: parse criteria: %v", ErrUnsupportedFHIR, err)
+		}
+		if err := rejectUnsupportedCriteria(parsed); err != nil {
+			return Trigger{}, err
+		}
+		trigger.FilterParams = parsed.Params
 	}
 	if filter := fhirPathFromExtensions(extensions); filter != "" {
 		trigger.FilterFHIRPath = filter
 	}
 	return trigger, nil
+}
+
+func rejectUnsupportedCriteria(parsed *search.Query) error {
+	if parsed == nil {
+		return nil
+	}
+	if len(parsed.Includes) > 0 || len(parsed.RevIncludes) > 0 || len(parsed.Chains) > 0 {
+		return fmt.Errorf("%w: criteria includes, revincludes, and chained parameters are not supported", ErrUnsupportedFHIR)
+	}
+	if parsed.FullText != "" {
+		return fmt.Errorf("%w: full-text criteria are not supported", ErrUnsupportedFHIR)
+	}
+	for _, clause := range parsed.Params {
+		if strings.TrimSpace(clause.Modifier) != "" {
+			return fmt.Errorf("%w: criteria modifiers are not supported", ErrUnsupportedFHIR)
+		}
+		for _, value := range clause.Values {
+			if err := rejectUnsupportedPrefix(value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// fhirSearchPrefixes are FHIR search comparator prefixes (date/number/quantity).
+// ParseQuery leaves them glued to ValueClause.Raw with Operator OpEqual, so
+// registration has to detect them from the raw value.
+var fhirSearchPrefixes = []string{"eq", "ne", "gt", "lt", "ge", "le", "sa", "eb", "ap"}
+
+func rejectUnsupportedPrefix(value search.ValueClause) error {
+	if strings.TrimSpace(value.Prefix) != "" {
+		return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
+	}
+	if value.Operator != "" && value.Operator != search.OpEqual {
+		return fmt.Errorf("%w: criteria operators other than eq are not supported", ErrUnsupportedFHIR)
+	}
+	if prefix := fhirSearchPrefix(value.Raw); prefix != "" {
+		return fmt.Errorf("%w: criteria prefixes are not supported", ErrUnsupportedFHIR)
+	}
+	return nil
+}
+
+func fhirSearchPrefix(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, prefix := range fhirSearchPrefixes {
+		if len(raw) <= len(prefix) || !strings.HasPrefix(raw, prefix) {
+			continue
+		}
+		if fhirPrefixedValueRemainder(raw[len(prefix):]) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func fhirPrefixedValueRemainder(rest string) bool {
+	if rest == "" {
+		return false
+	}
+	switch rest[0] {
+	case '+', '-':
+		return len(rest) > 1 && rest[1] >= '0' && rest[1] <= '9'
+	default:
+		return rest[0] >= '0' && rest[0] <= '9'
+	}
 }
 
 func channelFromFHIR(ch FHIRSubscriptionChannel, payload string) (Channel, error) {

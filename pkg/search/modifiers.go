@@ -10,7 +10,6 @@ var deferredParams = map[string]struct{}{
 	"_containedType": {},
 	"_filter":        {},
 	"_list":          {},
-	"_has":           {},
 	"_type":          {},
 }
 
@@ -27,6 +26,11 @@ var tokenModifiers = map[string]MatchOperator{
 var referenceModifiers = map[string]MatchOperator{
 	"identifier": OpIdentifier,
 	"type":       OpType,
+}
+
+var uriModifiers = map[string]MatchOperator{
+	"below": OpBelow,
+	"above": OpAbove,
 }
 
 var dateNumberPrefixes = map[string]MatchOperator{
@@ -59,7 +63,9 @@ func validateModifier(paramType, modifier string) (MatchOperator, error) {
 			return op, nil
 		}
 	case "uri":
-		return "", fmt.Errorf("%w: modifier %q on type %q", ErrUnsupportedFeature, modifier, paramType)
+		if op, ok := uriModifiers[modifier]; ok {
+			return op, nil
+		}
 	}
 	return "", fmt.Errorf("%w: modifier %q on type %q", ErrUnsupportedFeature, modifier, paramType)
 }

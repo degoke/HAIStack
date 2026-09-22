@@ -74,6 +74,8 @@
 //   - IDRegistry            → store.IDRegistryStore       — resource_id_registry reserve/check/register
 //   - BinaryStore           → store.BinaryStore           — inline binary_object payloads
 //   - BlobStore             → store.BlobStore             — binary_object with optional Location
+//     (PutStream/Open materialize BYTEA; Open follows in-store Location pointers and
+//     errors on a URI Location with no payload. Use an object-store adapter for multi-GB payloads)
 //   - AuditStore            → store.AuditStore            — append-only audit_log
 //   - ModuleStore           → store.ModuleStore           — module_registry metadata
 //   - MaterializedViewStore → store.MaterializedViewStore — materialized_view projections
@@ -147,6 +149,7 @@
 //   - date.<name>                      → hai_search_date
 //   - number.<name>                    → hai_search_number
 //   - reference.<name> or ref.<name>   → hai_search_reference
+//   - uri.<name>                       → hai_search_string
 //
 // Keys without a prefix default to hai_search_string. QueryPrepared supports the "by-field"
 // plan (args: key, value). AnalyticsStore QueryPrepared supports "by-name-since"

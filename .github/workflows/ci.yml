@@ -1,3 +1,5 @@
+# PRs targeting main: fmt, vet, lint, build, and fast tests (-short, no race).
+# Pushes to main (after merge): full suite including race detector and Postgres integration tests.
 name: CI
 
 on:
@@ -5,6 +7,8 @@ on:
     branches:
       - main
   pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -39,7 +43,12 @@ jobs:
         with:
           version: v2.12.2
 
-      - name: Test
+      - name: Test (fast)
+        if: github.event_name == 'pull_request'
+        run: go test -short -count=1 -timeout 20m ./...
+
+      - name: Test (full)
+        if: github.event_name == 'push'
         run: go test -race -count=1 -timeout 30m ./...
 
       - name: Build
