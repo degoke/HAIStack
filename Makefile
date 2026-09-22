@@ -89,7 +89,7 @@ clean: ## Remove build artifacts and test binaries
 	rm -f coverage.out coverage.html
 	rm -rf conformance/node_modules conformance/fsh-generated conformance/.tools
 
-ci-pr: fmt-check vet lint test-short build tidy ## Run PR CI checks locally (fast)
+ci-pr: fmt-check vet lint test-short build tidy research ## Run PR CI checks locally (matches .github/workflows/ci.yml on pull_request)
 ci: fmt-check vet lint test-race build tidy research ## Run post-merge main CI checks locally (full)
 
 all: fmt vet lint test build ## Run format, vet, lint, test, and build

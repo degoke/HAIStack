@@ -1,5 +1,5 @@
-# PRs targeting main: fmt, vet, lint, build, and fast tests (-short, no race).
-# Pushes to main (after merge): full suite including race detector and Postgres integration tests.
+# PRs targeting main: fmt, vet, lint, build, fast tests (-short, no race), and make research.
+# Pushes to main (after merge): full suite including race detector and Postgres integration tests, then make research.
 name: CI
 
 on:
