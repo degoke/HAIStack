@@ -544,21 +544,59 @@ func (p *parser) parseAnd() (Node, error) {
 }
 
 func (p *parser) parseNot() (Node, error) {
+	n, err := p.parseNotExpression()
+	if err != nil {
+		return nil, err
+	}
+	return p.parseTypeSuffix(n)
+}
+
+func (p *parser) parseNotExpression() (Node, error) {
 	if p.acceptKeyword("not") {
-		x, err := p.parseNot()
+		x, err := p.parseNotExpression()
 		if err != nil {
 			return nil, err
 		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "not", x: x}, nil
 	}
 	if p.acceptKeyword("exists") {
-		x, err := p.parseNot()
+		x, err := p.parseNotExpression()
 		if err != nil {
 			return nil, err
 		}
 		return &unaryNode{nodeBase: nodeBase{src: p.src}, op: "exists", x: x}, nil
 	}
 	return p.parseIn()
+}
+
+func (p *parser) parseTypeSuffix(n Node) (Node, error) {
+	for {
+		if p.acceptKeyword("is") {
+			not := p.acceptKeyword("not")
+			target := "null"
+			if p.acceptKeyword("null") {
+				target = "null"
+			} else {
+				tname, err := p.requireName("type name")
+				if err != nil {
+					return nil, err
+				}
+				target = tname
+			}
+			n = &isNode{nodeBase: nodeBase{src: p.src}, x: n, not: not, target: target}
+			continue
+		}
+		if p.acceptKeyword("as") {
+			tname, err := p.requireName("type name")
+			if err != nil {
+				return nil, err
+			}
+			n = &asNode{nodeBase: nodeBase{src: p.src}, x: n, target: tname}
+			continue
+		}
+		break
+	}
+	return n, nil
 }
 
 func (p *parser) parseIn() (Node, error) {
@@ -1143,29 +1181,6 @@ func (p *parser) parsePostfix() (Node, error) {
 			}
 			n = &indexNode{nodeBase: nodeBase{src: p.src}, x: n, index: idx}
 		default:
-			if p.acceptKeyword("is") {
-				not := p.acceptKeyword("not")
-				target := "null"
-				if p.acceptKeyword("null") {
-					target = "null"
-				} else {
-					tname, err := p.requireName("type name")
-					if err != nil {
-						return nil, err
-					}
-					target = tname
-				}
-				n = &isNode{nodeBase: nodeBase{src: p.src}, x: n, not: not, target: target}
-				continue
-			}
-			if p.acceptKeyword("as") {
-				tname, err := p.requireName("type name")
-				if err != nil {
-					return nil, err
-				}
-				n = &asNode{nodeBase: nodeBase{src: p.src}, x: n, target: tname}
-				continue
-			}
 			if lit, ok := n.(*litNode); ok {
 				if s, ok := lit.value.(string); ok && p.acceptKeyword("from") {
 					sys, err := p.requireName("codesystem")
@@ -1869,6 +1884,7 @@ func parseNumber(text string) any {
 
 var dateOnlyLoc = time.FixedZone("CQL-DATE", 0)
 var naiveDateTimeLoc = time.FixedZone("CQL-DATETIME", 0)
+var timeOnlyLoc = time.FixedZone("CQL-TIME", 0)
 
 func isDateOnlyString(text string) bool {
 	text = strings.TrimSpace(text)
@@ -1908,6 +1924,13 @@ func isDateOnlyTime(t time.Time) bool {
 		return false
 	}
 	return t.Location() == dateOnlyLoc || t.Location().String() == "CQL-DATE"
+}
+
+func isTimeOnlyTime(t time.Time) bool {
+	if t.Location() == nil {
+		return false
+	}
+	return t.Location().String() == "CQL-TIME"
 }
 
 func isNaiveDateTimeTime(t time.Time) bool {

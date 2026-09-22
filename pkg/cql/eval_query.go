@@ -88,7 +88,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				if err != nil {
 					return nil, err
 				}
-				return singletonOrList(v), nil
+				return wrapListElement(q.ret, v), nil
 			}
 			if thisSet {
 				return this, nil

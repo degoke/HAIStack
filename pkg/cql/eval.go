@@ -111,7 +111,7 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			obj[f.name] = singletonOrList(v)
+			obj[f.name] = wrapListElement(f.value, v)
 		}
 		return []any{obj}, nil
 	case *ifNode:
@@ -603,26 +603,20 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 			return nil, nil
 		}
 		if vs, ok := singletonValueSet(right); ok {
-			var ok bool
-			var err error
 			if n.op == "all in" {
-				ok, err = st.allInValueSet(left, vs)
-			} else {
-				ok, err = st.inValueSet(left, vs)
+				return st.allInValueSetResult(left, vs)
 			}
+			ok, err := st.inValueSet(left, vs)
 			if err != nil {
 				return nil, err
 			}
 			return []any{ok}, nil
 		}
 		if cs, ok := singletonCodeSystem(right); ok {
-			var ok bool
-			var err error
 			if n.op == "all in" {
-				ok, err = st.allInCodeSystem(left, cs)
-			} else {
-				ok, err = st.inCodeSystem(left, cs)
+				return st.allInCodeSystemResult(left, cs)
 			}
+			ok, err := st.inCodeSystem(left, cs)
 			if err != nil {
 				return nil, err
 			}
@@ -1191,16 +1185,27 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		return listOrStringLength(args)
 	case "today", "now", "timeofday":
 		t := clockInZone(st.now)
+		loc := t.Location()
+		if loc == nil {
+			loc = time.UTC
+		}
 		if len(args) > 0 && len(args[0]) > 0 {
 			if off, ok := asFloat(args[0][0]); ok {
-				t = t.In(time.FixedZone("", int(off*3600)))
+				loc = time.FixedZone("", int(off*3600))
+				t = t.In(loc)
 			}
 		}
 		if n == "today" {
-			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())}, nil
+			return []any{time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)}, nil
 		}
 		if n == "timeofday" {
-			return []any{time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())}, nil
+			todLoc := timeOnlyLoc
+			if len(args) > 0 && len(args[0]) > 0 {
+				if off, ok := asFloat(args[0][0]); ok {
+					todLoc = time.FixedZone("CQL-TIME", int(off*3600))
+				}
+			}
+			return []any{time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), todLoc)}, nil
 		}
 		return []any{t}, nil
 	case "tointerval":
@@ -1258,7 +1263,7 @@ func (st *evalState) evalFunction(name string, args [][]any) ([]any, error) {
 		}
 		if n == "totime" {
 			now := clockInZone(st.now)
-			tm = time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), loc)
+			tm = time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), timeOnlyLoc)
 		}
 		return []any{tm}, nil
 	case "coalesce":
@@ -1936,24 +1941,34 @@ func (st *evalState) inValueSet(values []any, vs ValueSet) (bool, error) {
 	return false, nil
 }
 
-func (st *evalState) allInValueSet(values []any, vs ValueSet) (bool, error) {
+func (st *evalState) allInValueSetResult(values []any, vs ValueSet) ([]any, error) {
 	if len(values) == 0 {
-		return true, nil
+		return []any{true}, nil
 	}
 	req := RetrieveRequest{ValueSetURL: vs.URL, Terminology: vs.Name}
+	unknown := false
+	tested := false
 	for _, v := range values {
-		if v == nil {
+		if v == nil || unwrapPrimitive(v) == nil {
+			unknown = true
 			continue
 		}
+		tested = true
 		ok, err := matchResourceTerminology(st.ctx, v, req, st.terminology(), st.resolveReferenceCodings)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if !ok {
-			return false, nil
+			return []any{false}, nil
 		}
 	}
-	return true, nil
+	if !tested && unknown {
+		return nil, nil
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
 }
 
 func singletonCodeSystem(v []any) (CodeSystem, bool) {
@@ -1973,19 +1988,29 @@ func (st *evalState) inCodeSystem(values []any, cs CodeSystem) (bool, error) {
 	return false, nil
 }
 
-func (st *evalState) allInCodeSystem(values []any, cs CodeSystem) (bool, error) {
+func (st *evalState) allInCodeSystemResult(values []any, cs CodeSystem) ([]any, error) {
 	if len(values) == 0 {
-		return true, nil
+		return []any{true}, nil
 	}
+	unknown := false
+	tested := false
 	for _, v := range values {
 		if v == nil || unwrapPrimitive(v) == nil {
+			unknown = true
 			continue
 		}
+		tested = true
 		if !codingInCodeSystem(v, cs) {
-			return false, nil
+			return []any{false}, nil
 		}
 	}
-	return true, nil
+	if !tested && unknown {
+		return nil, nil
+	}
+	if unknown {
+		return nil, nil
+	}
+	return []any{true}, nil
 }
 
 func codingInCodeSystem(item any, cs CodeSystem) bool {
@@ -2021,48 +2046,67 @@ func codingInCodeSystem(item any, cs CodeSystem) bool {
 }
 
 func (st *evalState) allContainsResult(haystack, needles []any) []any {
-	cmp := st.compareContext()
 	if len(needles) == 0 {
 		return []any{true}
 	}
+	unknown := false
+	tested := false
 	for _, n := range needles {
-		if n == nil {
+		if n == nil || unwrapPrimitive(n) == nil {
+			unknown = true
 			continue
 		}
-		found := false
-		for _, h := range haystack {
-			if cmp.MemberEqual(h, n) {
-				found = true
-				break
-			}
+		tested = true
+		res := st.containsResult(haystack, n)
+		if res == nil {
+			unknown = true
+			continue
 		}
-		if !found {
+		if res[0] != true {
 			return []any{false}
 		}
+	}
+	if !tested && unknown {
+		return nil
+	}
+	if unknown {
+		return nil
 	}
 	return []any{true}
 }
 
 func (st *evalState) anyContainsResult(haystack, needles []any) []any {
-	cmp := st.compareContext()
 	if len(needles) == 0 {
 		return []any{false}
 	}
+	unknown := false
+	tested := false
 	for _, n := range needles {
-		if n == nil {
+		if n == nil || unwrapPrimitive(n) == nil {
+			unknown = true
 			continue
 		}
-		for _, h := range haystack {
-			if cmp.MemberEqual(h, n) {
-				return []any{true}
-			}
+		tested = true
+		res := st.containsResult(haystack, n)
+		if res == nil {
+			unknown = true
+			continue
 		}
+		if res[0] == true {
+			return []any{true}
+		}
+	}
+	if !tested && unknown {
+		return nil
+	}
+	if unknown {
+		return nil
 	}
 	return []any{false}
 }
 
 func (st *evalState) evalDateComponent(v []any, component string) ([]any, error) {
-	if len(v) == 0 {
+	if len(v) != 1 {
 		return nil, nil
 	}
 	tm, ok := asTime(v[0])
@@ -2086,10 +2130,10 @@ func (st *evalState) evalDateComponent(v []any, component string) ([]any, error)
 	}
 	switch strings.ToLower(strings.TrimSpace(component)) {
 	case "date":
-		return []any{time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, loc)}, nil
+		return []any{time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, dateOnlyLoc)}, nil
 	case "time":
 		now := clockInZone(st.now)
-		return []any{time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), loc)}, nil
+		return []any{time.Date(now.Year(), now.Month(), now.Day(), tm.Hour(), tm.Minute(), tm.Second(), tm.Nanosecond(), timeOnlyLoc)}, nil
 	case "year":
 		return []any{int64(tm.Year())}, nil
 	case "month":
@@ -2646,6 +2690,12 @@ func cqlToString(v any) (string, bool) {
 		if isDateOnlyTime(t) {
 			return t.Format("2006-01-02"), true
 		}
+		if isTimeOnlyTime(t) {
+			if t.Nanosecond() == 0 {
+				return t.Format("15:04:05"), true
+			}
+			return t.Format("15:04:05.000"), true
+		}
 		if isNaiveDateTimeTime(t) {
 			if t.Nanosecond() == 0 {
 				return t.Format("2006-01-02T15:04:05"), true
@@ -2686,7 +2736,41 @@ func cqlToString(v any) (string, bool) {
 	if f, ok := asFloat(v); ok {
 		return strconv.FormatFloat(f, 'f', -1, 64), true
 	}
+	if iv, ok := asInterval(v); ok {
+		return intervalToCQLString(iv)
+	}
+	if c, ok := unwrapPrimitive(v).(Code); ok {
+		if c.System != "" {
+			return fmt.Sprintf("'%s'|%s", c.Code, c.System), true
+		}
+		if c.Code != "" {
+			return "'" + c.Code + "'", true
+		}
+	}
 	return fmt.Sprint(v), true
+}
+
+func intervalToCQLString(iv Interval) (string, bool) {
+	low, lok := cqlIntervalBoundString(iv.Low)
+	high, hok := cqlIntervalBoundString(iv.High)
+	if !lok || !hok {
+		return "", false
+	}
+	left, right := "[", "]"
+	if !iv.LowClosed {
+		left = "("
+	}
+	if !iv.HighClosed {
+		right = ")"
+	}
+	return "Interval" + left + low + ", " + high + right, true
+}
+
+func cqlIntervalBoundString(v any) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	return cqlToString(v)
 }
 
 func isIntLike(v any) bool {
@@ -3067,6 +3151,9 @@ func typeName(v any) string {
 	case time.Time:
 		if isDateOnlyTime(x) {
 			return "Date"
+		}
+		if isTimeOnlyTime(x) {
+			return "Time"
 		}
 		return "DateTime"
 	case Quantity:

@@ -547,11 +547,7 @@ func (st *evalState) constructTime(args [][]any) ([]any, error) {
 	if st != nil && !st.now.IsZero() {
 		now = clockInZone(st.now)
 	}
-	loc := now.Location()
-	if loc == nil {
-		loc = time.UTC
-	}
-	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, ns, loc)}, nil
+	return []any{time.Date(now.Year(), now.Month(), now.Day(), h, m, s, ns, timeOnlyLoc)}, nil
 }
 
 func stringPred(args [][]any, fn func(string, string) bool) ([]any, error) {
@@ -763,10 +759,10 @@ func stringSplitOnMatches(args [][]any) ([]any, error) {
 }
 
 func evalMath(name string, args [][]any) ([]any, error) {
-	if len(args) == 0 || len(args[0]) == 0 {
+	item, ok := singletonArg(args)
+	if !ok {
 		return nil, nil
 	}
-	item := args[0][0]
 	if q, ok := asQuantity(item); ok {
 		switch name {
 		case "abs":

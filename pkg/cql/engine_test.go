@@ -3042,3 +3042,122 @@ func TestCollapseRejectsMixedLists(t *testing.T) {
 		t.Fatalf("Collapse merge: %#v", got[0])
 	}
 }
+
+func TestTimeTypeAndDateFromIsBinding(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "Time(12, 0, 0) is Time", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("Time is Time: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Time(12, 0, 0) as Time", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Time as Time: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "date from @2020-03-15T08:15:00 is Date", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("date from ... is Date: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "not true is Boolean", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("not true is Boolean: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "start of Interval[1, 5] is Integer", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("start of interval is Integer: %#v", got)
+	}
+}
+
+func TestQueryReturnAndTupleKeepSingletonLists(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "from {1, 2} X return {X}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("return {X}: %#v", got)
+	}
+	for i, row := range got {
+		list, ok := row.([]any)
+		if !ok || len(list) != 1 || list[0] != int64(i+1) && list[0] != i+1 {
+			t.Fatalf("return {X} row %d: %#v", i, row)
+		}
+	}
+	got, err = eng.Eval(context.Background(), "{id: {1}}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, ok := asObject(got[0])
+	if !ok {
+		t.Fatalf("{id:{1}}: %#v", got)
+	}
+	id, ok := obj["id"].([]any)
+	if !ok || len(id) != 1 || id[0] != int64(1) && id[0] != 1 {
+		t.Fatalf("tuple id field: %#v", obj["id"])
+	}
+}
+
+func TestToStringIntervalAndExtractorsRequireSingleton(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "ToString(Interval[1, 5])", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "Interval[1, 5]" {
+		t.Fatalf("ToString interval: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "year from { @2020-01-01, @2021-06-02 }", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("year from list must be null: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "Abs({-1, -2})", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Abs list must be null: %#v", got)
+	}
+}
+
+func TestAllAnyInThreeValued(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.evalNode(context.Background(), &binaryNode{
+		op:    "all in",
+		left:  &listNode{elems: []Node{&litNode{value: nil}}},
+		right: &listNode{elems: []Node{&litNode{value: int64(1)}, &litNode{value: int64(2)}}},
+	}, EvalContext{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{null} all in {{1,2}}: %#v", got)
+	}
+	got, err = eng.evalNode(context.Background(), &binaryNode{
+		op:    "any in",
+		left:  &listNode{elems: []Node{&litNode{value: nil}}},
+		right: &listNode{elems: []Node{&litNode{value: int64(1)}}},
+	}, EvalContext{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("{null} any in {1}: %#v", got)
+	}
+}
