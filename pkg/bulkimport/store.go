@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 )
 
 // JobStore persists bulk import job state.

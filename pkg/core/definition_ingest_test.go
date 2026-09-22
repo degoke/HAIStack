@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type mockDefinitionIngestor struct {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 type fakeViewRunService struct {

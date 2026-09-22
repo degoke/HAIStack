@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 var (

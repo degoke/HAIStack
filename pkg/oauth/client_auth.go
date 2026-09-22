@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 func (s *Server) authenticateTokenRequest(r *http.Request, client Client, formClientID string) (string, error) {

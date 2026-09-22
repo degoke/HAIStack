@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type mapPatientResolver map[string]string

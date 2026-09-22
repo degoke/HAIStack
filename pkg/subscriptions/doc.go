@@ -1,5 +1,5 @@
 // Package subscriptions implements haistack-subscriptions, the tenant-neutral
-// event automation library for Health AI Stack.
+// event automation library for HAIStack.
 //
 // haistack-subscriptions consumes store.ResourceEvent entries produced by
 // pkg/core writes and schedules durable notification delivery through pkg/jobs.

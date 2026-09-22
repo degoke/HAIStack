@@ -5,10 +5,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/hooks"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/hooks"
+	"github.com/degoke/haistack/pkg/store"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestPrepareWriteRunsPreStorageBeforeIntegrity(t *testing.T) {

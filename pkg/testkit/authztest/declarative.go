@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // DeclarativeScenario is a portable principal+policy+request case for tests.

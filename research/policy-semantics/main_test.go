@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/authztest"
+	"github.com/degoke/haistack/pkg/testkit/authztest"
 )
 
 func TestPolicySemanticsCatalogue(t *testing.T) {

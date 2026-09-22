@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/infernotest"
+	"github.com/degoke/haistack/pkg/testkit/infernotest"
 )
 
 func main() {

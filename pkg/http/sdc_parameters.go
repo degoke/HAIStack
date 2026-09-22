@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/sdc"
 )
 
 func operationParameters(req SDCRequest) sdc.OperationParameters {

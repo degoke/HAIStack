@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/audit"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/audit"
 )
 
 func TestAIPipelineProvenanceChain(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Engine compiles and evaluates CQL 1.5 libraries and Measure reports.

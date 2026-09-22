@@ -5,8 +5,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestWriteParquetResultProducesBinaryParquet(t *testing.T) {

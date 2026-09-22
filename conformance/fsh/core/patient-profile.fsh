@@ -2,7 +2,7 @@ Profile: HAIPatient
 Parent: Patient
 Id: hai-patient
 Title: "HAIStack Patient"
-Description: """Patient profile for Health AI Stack core. At least one identifier
+Description: """Patient profile for HAIStack core. At least one identifier
 with both system and value is required so edge and offline deployments can
 correlate records without relying on a central MPI."""
 * ^url = "http://haistack.example.org/fhir/StructureDefinition/hai-patient"

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func TestHashSHA256StabilityAndDedup(t *testing.T) {

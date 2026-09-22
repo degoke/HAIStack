@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/degoke/health-ai-stack/examples/internal/appkit"
-	"github.com/degoke/health-ai-stack/examples/internal/synchub"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/examples/internal/appkit"
+	"github.com/degoke/haistack/examples/internal/synchub"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 func main() {

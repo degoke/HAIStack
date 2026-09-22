@@ -1,6 +1,6 @@
 # haistack-jobs (`pkg/jobs`)
 
-Shared background job runtime for Health AI Stack. Builds on
+Shared background job runtime for HAIStack. Builds on
 `store.JobStore` — it does not replace the persistence contract.
 
 ## What it does

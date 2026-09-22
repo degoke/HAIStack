@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // ActorResolver maps a free-form actor string (as used by view/ai) to a

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
+	"github.com/degoke/haistack/pkg/binary"
 )
 
 // BlobMetadataStore persists blob manifests, links, sync status, and transfer sessions.

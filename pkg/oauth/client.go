@@ -3,7 +3,7 @@ package oauth
 import (
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // ClientRegistry stores registered OAuth clients.

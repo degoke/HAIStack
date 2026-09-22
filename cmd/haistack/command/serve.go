@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ func newServeCommand(opts *Options, printer *app.Printer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the managed HTTP runtime server",
-		Long: `Build and start a Health AI Stack runtime using haistack.yaml. The server blocks
+		Long: `Build and start a HAIStack runtime using haistack.yaml. The server blocks
 until interrupted and prints the bound listen address on startup.`,
 		Example: `  haistack serve
   haistack serve --http-addr 127.0.0.1:9090`,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // DefinitionStore persists FHIR definition resources in SQLite.

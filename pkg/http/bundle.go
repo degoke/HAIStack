@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func marshalHistoryBundle(basePath, resourceType, id string, versions []store.ResourceVersion) ([]byte, error) {

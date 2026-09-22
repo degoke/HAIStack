@@ -3,7 +3,7 @@ package sqlite
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // TerminologyInstallStoreFactory resolves SQLite terminology opt-in stores per tenant.

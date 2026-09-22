@@ -3,7 +3,7 @@ package researchutil
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestMemoryResourceStoreCRUD(t *testing.T) {

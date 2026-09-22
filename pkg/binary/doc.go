@@ -1,4 +1,4 @@
-// Package binary implements haistack-binary, the blob/file library for Health AI Stack.
+// Package binary implements haistack-binary, the blob/file library for HAIStack.
 //
 // # Scope
 //

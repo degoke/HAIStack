@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/pkg/sync"
 )
 
 const (

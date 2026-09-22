@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
-	"github.com/degoke/health-ai-stack/pkg/subscriptions"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/subscriptions"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 const jobPollInterval = time.Second

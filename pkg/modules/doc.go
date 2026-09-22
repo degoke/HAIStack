@@ -1,5 +1,5 @@
 // Package modules implements haistack-modules, a manifest-driven installer for
-// Health AI Stack. It turns a local module directory into runtime capabilities
+// HAIStack. It turns a local module directory into runtime capabilities
 // by driving the existing registry catalog, ModuleStore, and
 // RegistryInstallStore.
 //

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/conflict"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func mustJSON(t *testing.T, v any) []byte {

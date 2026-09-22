@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/parquettest"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/testkit/parquettest"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestStringColumnReadsNamedColumn(t *testing.T) {

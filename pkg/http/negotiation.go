@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 type notAcceptableError struct{ value string }

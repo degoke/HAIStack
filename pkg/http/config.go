@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/hooks"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/hooks"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 const defaultBasePath = "/fhir"

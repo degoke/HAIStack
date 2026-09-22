@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // TerminologyInstallStoreFactory resolves Postgres terminology opt-in stores per tenant.

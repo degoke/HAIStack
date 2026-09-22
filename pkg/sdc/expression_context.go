@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 // ExpressionEnvironment carries SDC FHIRPath % constants.

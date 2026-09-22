@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // EnableResult reports catalog opt-in outcomes.

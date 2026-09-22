@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // ExpectAllow and ExpectDeny are the two authorization outcomes scenarios assert.

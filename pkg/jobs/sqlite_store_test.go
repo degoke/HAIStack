@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func TestSQLiteJobStoreEnqueueClaimUpdateGet(t *testing.T) {

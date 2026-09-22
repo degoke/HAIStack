@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/authztest"
+	"github.com/degoke/haistack/pkg/testkit/authztest"
 )
 
 //go:embed scenarios.yaml

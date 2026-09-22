@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/store"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/testkit/postgrestest"
 )
 
 func openPostgresSearchHarness(t *testing.T) (*core.ResourceService, *search.Service, *registry.Snapshot, *postgres.TenantDB, func()) {

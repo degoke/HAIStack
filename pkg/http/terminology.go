@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func (h *handler) handleTerminologyOperation(w http.ResponseWriter, r *http.Request, route parsedRoute) bool {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 type memReportingTableStore struct {

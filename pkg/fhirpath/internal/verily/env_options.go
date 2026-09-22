@@ -1,7 +1,7 @@
 package verily
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/proto"
+	"github.com/degoke/haistack/pkg/proto"
 	verilyfhirpath "github.com/verily-src/fhirpath-go/fhirpath"
 	"github.com/verily-src/fhirpath-go/fhirpath/evalopts"
 )

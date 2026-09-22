@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/subscriptions"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/subscriptions"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestSQLiteRuntimeWiresSubscriptionMatcherRegistry(t *testing.T) {

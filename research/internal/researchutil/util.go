@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // FixedTime is the deterministic timestamp used by research artefacts.

@@ -1,4 +1,4 @@
-module github.com/degoke/health-ai-stack
+module github.com/degoke/haistack
 
 go 1.26.2
 

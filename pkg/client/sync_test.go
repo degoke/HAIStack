@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestSyncPushPullSerialization(t *testing.T) {

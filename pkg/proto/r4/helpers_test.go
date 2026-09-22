@@ -3,8 +3,8 @@ package r4_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
+	"github.com/degoke/haistack/pkg/proto"
+	protor4 "github.com/degoke/haistack/pkg/proto/r4"
 )
 
 func TestNewPatient(t *testing.T) {

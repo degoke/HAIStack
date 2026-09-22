@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func writeParquet(ctx context.Context, w io.Writer, result *view.Result, layout view.ParquetLayout, executor *view.Executor, actor string, encoding view.TimestampEncoding) (int, error) {

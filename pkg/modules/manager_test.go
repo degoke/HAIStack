@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/modules"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/modules"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/testkit/storetest"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Memory store implementations for fast manager tests.

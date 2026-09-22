@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // AuditStore persists append-only audit records in SQLite.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/conceptmap"
 )
 
 // ConceptMapTranslateRequest is the input for the terminology $translate operation.

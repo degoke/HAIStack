@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/export"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/export"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type exportResourceService struct{}

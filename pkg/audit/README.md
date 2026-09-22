@@ -1,6 +1,6 @@
 # haistack-audit (`pkg/audit`)
 
-Shared audit event library for Health AI Stack. Builds on
+Shared audit event library for HAIStack. Builds on
 `store.AuditStore` — it does not replace the persistence contract.
 
 ## What it does

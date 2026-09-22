@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 func clinician() auth.Principal {

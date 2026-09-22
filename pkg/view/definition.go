@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 // DefinitionParser loads and validates a FHIR ViewDefinition resource from JSON

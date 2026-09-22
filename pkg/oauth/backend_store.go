@@ -3,7 +3,7 @@ package oauth
 import (
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 type clientStoreBridge struct {

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestParseDefinition_NestedSelect(t *testing.T) {

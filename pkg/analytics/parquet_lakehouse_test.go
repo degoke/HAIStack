@@ -11,11 +11,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/viewtest"
-	"github.com/degoke/health-ai-stack/pkg/validate"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/testkit/viewtest"
+	"github.com/degoke/haistack/pkg/validate"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func bundledPatientCatalog(t *testing.T) validate.MemoryProfileCatalog {

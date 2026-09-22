@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // NewEngineFromStore loads a tenant auth snapshot from persistent storage and

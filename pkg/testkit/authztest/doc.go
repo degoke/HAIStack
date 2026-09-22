@@ -1,5 +1,5 @@
 // Package authztest provides a reusable authorization scenario test kit for
-// Health AI Stack. The Go catalog (AllScenarios) exercises pkg/auth,
+// HAIStack. The Go catalog (AllScenarios) exercises pkg/auth,
 // pkg/smart, pkg/view, pkg/ai, and related seams with documented
 // principal/policy fixtures and table-driven allow/deny expectations.
 //

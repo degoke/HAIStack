@@ -3,7 +3,7 @@ package registry
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 func TestTerminologyTargetRoutesCodeSystemToGlobal(t *testing.T) {

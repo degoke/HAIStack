@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/pkg/store"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 func TestEnrichLocalEventStableEventID(t *testing.T) {

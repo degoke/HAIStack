@@ -1,6 +1,6 @@
 # haistack-proto (`pkg/proto`)
 
-Optional typed protobuf adapter for FHIR resources in the health-ai-stack monorepo.
+Optional typed protobuf adapter for FHIR resources in the haistack monorepo.
 
 ## What it does
 
@@ -38,8 +38,8 @@ You **do not** need it for basic JSON handling — that is what `pkg/types` is f
 
 ```go
 import (
-	proto "github.com/degoke/health-ai-stack/pkg/proto"
-	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
+	proto "github.com/degoke/haistack/pkg/proto"
+	protor4 "github.com/degoke/haistack/pkg/proto/r4"
 )
 
 patient := protor4.NewPatient("pat-1")
@@ -50,7 +50,7 @@ envelope, err := proto.ToEnvelope(patient)
 For explicit resource-type control or JSON parsing, use a codec:
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/proto"
+import "github.com/degoke/haistack/pkg/proto"
 
 codec := proto.NewGoogleR4Codec()
 ```

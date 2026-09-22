@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/export"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/export"
 )
 
 func TestChunkBytes(t *testing.T) {

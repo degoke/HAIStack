@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 type recordingValidateService struct {

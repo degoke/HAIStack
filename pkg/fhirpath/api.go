@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
+	"github.com/degoke/haistack/pkg/proto"
 )
 
 // Engine evaluates FHIRPath expressions against a single in-memory resource.

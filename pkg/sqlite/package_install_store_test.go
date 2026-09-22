@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestPackageInstallStoreMarkCompleteIsIdempotent(t *testing.T) {

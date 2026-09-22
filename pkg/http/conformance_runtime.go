@@ -3,8 +3,8 @@ package http
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 // ConformanceRuntime is the hot-reloadable registry + validation view used by HTTP.

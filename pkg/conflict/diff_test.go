@@ -3,7 +3,7 @@ package conflict_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conflict"
+	"github.com/degoke/haistack/pkg/conflict"
 )
 
 func TestDiffScalarReplace(t *testing.T) {

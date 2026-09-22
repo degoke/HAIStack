@@ -1,6 +1,6 @@
 # haistack-auth (`pkg/auth`)
 
-Shared identity and policy library for Health AI Stack. It answers
+Shared identity and policy library for HAIStack. It answers
 authorization questions for the rest of the stack — not HTTP auth flows,
 database user tables, or SMART launch logic.
 

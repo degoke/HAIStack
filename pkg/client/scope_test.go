@@ -3,7 +3,7 @@ package client_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
+	"github.com/degoke/haistack/pkg/client"
 )
 
 func TestParseScopes_CRUDS(t *testing.T) {

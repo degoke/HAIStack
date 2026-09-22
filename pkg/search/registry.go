@@ -4,7 +4,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
+	"github.com/degoke/haistack/pkg/registry"
 )
 
 // CompositeComponentInfo describes one component of a composite SearchParameter.

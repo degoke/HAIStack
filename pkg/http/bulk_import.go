@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/bulkimport"
+	"github.com/degoke/haistack/pkg/bulkimport"
 )
 
 // BulkImportService handles FHIR Bulk Data import kickoff, polling, cancellation,

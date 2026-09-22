@@ -9,17 +9,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/smart"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/smart"
+	"github.com/degoke/haistack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 const (

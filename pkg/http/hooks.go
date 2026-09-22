@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/hooks"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/hooks"
 )
 
 func (h *handler) runIncoming(ctx context.Context, route parsedRoute, method string) error {

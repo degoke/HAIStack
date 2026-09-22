@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/bulkimport"
+	"github.com/degoke/haistack/pkg/bulkimport"
 )
 
 func TestHTTPLoaderRejectsFileURL(t *testing.T) {

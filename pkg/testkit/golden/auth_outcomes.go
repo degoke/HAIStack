@@ -1,6 +1,6 @@
 package golden
 
-import "github.com/degoke/health-ai-stack/pkg/types"
+import "github.com/degoke/haistack/pkg/types"
 
 // AuthOutcomeCatalog documents stable OperationOutcome shapes for authorization failures.
 var AuthOutcomeCatalog = map[string]types.OperationOutcome{

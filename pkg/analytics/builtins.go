@@ -3,8 +3,8 @@ package analytics
 import (
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // RegisterBuiltInViews registers the first-milestone view definitions into reg.

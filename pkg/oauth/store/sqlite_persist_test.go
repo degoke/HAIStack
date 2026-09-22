@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 type swappingHandler struct {

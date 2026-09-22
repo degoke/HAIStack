@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 type elementIndex struct {

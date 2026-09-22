@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ResourceStore persists current resource state in SQLite.

@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 const (

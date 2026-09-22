@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Session coordinates transaction-scoped store access for atomic local writes.

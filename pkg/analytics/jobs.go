@@ -6,9 +6,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // RefreshPayload is the job payload for analytics reporting refresh runs.

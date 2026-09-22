@@ -1,6 +1,6 @@
 # haistack-validate (`pkg/validate`)
 
-Built-in FHIR resource validation for health-ai-stack.
+Built-in FHIR resource validation for haistack.
 
 ## What it does
 
@@ -37,7 +37,7 @@ Returns a structured result with a list of issues — good when you want detaile
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/validate"
+    "github.com/degoke/haistack/pkg/validate"
 )
 
 eng, err := validate.NewEngine(validate.Config{})
@@ -68,8 +68,8 @@ Core supports an optional validator hook. Wrap the engine so invalid resources a
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/core"
-    "github.com/degoke/health-ai-stack/pkg/validate"
+    "github.com/degoke/haistack/pkg/core"
+    "github.com/degoke/haistack/pkg/validate"
 )
 
 eng, _ := validate.NewEngine(validate.Config{})

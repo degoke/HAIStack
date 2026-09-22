@@ -3,7 +3,7 @@ package sync
 import (
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // AckState is the per-event acknowledgement returned by the hub on push.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/runtime"
 )
 
 func TestPersistenceAccessorSQLite(t *testing.T) {

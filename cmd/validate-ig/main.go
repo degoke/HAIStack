@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/degoke/health-ai-stack/pkg/conformance"
+	"github.com/degoke/haistack/pkg/conformance"
 )
 
 func main() {

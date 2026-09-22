@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
-	"github.com/degoke/health-ai-stack/pkg/testkit/synctest"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	hasync "github.com/degoke/haistack/pkg/sync"
+	"github.com/degoke/haistack/pkg/testkit/fixtures"
+	"github.com/degoke/haistack/pkg/testkit/synctest"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestPatientOfflinePushPull(t *testing.T) {

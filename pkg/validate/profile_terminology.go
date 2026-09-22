@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 func validateProfileTerminology(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, opts ValidateOptions, issues *[]ValidationIssue) {

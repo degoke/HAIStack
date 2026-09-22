@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
-	"github.com/degoke/health-ai-stack/pkg/validate"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/testkit/fixtures"
+	"github.com/degoke/haistack/pkg/testkit/storetest"
+	"github.com/degoke/haistack/pkg/validate"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // Harness wires an ai.Executor with optional search, views, core, and policy fakes.

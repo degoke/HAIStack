@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/cql"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/cql"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type recordingMeasureService struct {

@@ -77,7 +77,7 @@
 //
 // ToEnvelope, ToJSON, ResourceType, and ParseJSONToEnvelope are concise R4 helpers using the default
 // GoogleR4Codec. Applications can construct resources with aliases from
-// github.com/degoke/health-ai-stack/pkg/proto/r4, for example:
+// github.com/degoke/haistack/pkg/proto/r4, for example:
 //
 //	patient := r4.NewPatient("pat-1")
 //	envelope, err := proto.ToEnvelope(patient)

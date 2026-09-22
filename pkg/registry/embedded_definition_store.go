@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // EmbeddedDefinitionStore resolves HL7 R4 base StructureDefinitions from the embedded bundle.

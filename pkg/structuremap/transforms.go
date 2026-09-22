@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/conceptmap"
 	"github.com/google/uuid"
 )
 

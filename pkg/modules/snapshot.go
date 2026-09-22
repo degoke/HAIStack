@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // CapabilitySnapshotBuilder returns a module-centric view of what each

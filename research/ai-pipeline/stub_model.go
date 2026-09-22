@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
+	"github.com/degoke/haistack/pkg/ai"
 )
 
 // StubModel is a deterministic, offline language-model stand-in.

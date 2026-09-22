@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"testing"
 
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 type fakePackageService struct {

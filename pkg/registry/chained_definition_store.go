@@ -3,7 +3,7 @@ package registry
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // DefinitionStoreWithEmbeddedBase returns a store that resolves from primary first

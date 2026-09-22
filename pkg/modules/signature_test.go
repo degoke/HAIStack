@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/haistack/pkg/modules"
 )
 
 func TestEd25519ModuleVerifierCoversManifestAndDefinitions(t *testing.T) {

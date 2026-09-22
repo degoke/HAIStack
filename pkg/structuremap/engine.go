@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 // Engine executes StructureMap group rules.

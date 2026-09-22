@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 // TerminologyPreExpandWorker handles registry.terminology.pre_expand_valuesets jobs.

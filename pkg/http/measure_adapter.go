@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/cql"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/cql"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // CoreMeasureService implements Measure/$evaluate-measure using pkg/cql.

@@ -3,7 +3,7 @@ package runtime
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // BlobStoreAdapter is the runtime seam for external object storage in cloud mode.

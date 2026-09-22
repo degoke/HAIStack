@@ -1,6 +1,6 @@
 # haistack-smart (`pkg/smart`)
 
-Optional SMART on FHIR library for Health AI Stack. It parses scopes, validates
+Optional SMART on FHIR library for HAIStack. It parses scopes, validates
 tokens/assertions, and adapts SMART launch context into `pkg/auth` — without
 owning OAuth servers, EHR launch runtimes, or offline MVP paths.
 

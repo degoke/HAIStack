@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/ai"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // ProvenanceBundle is the exportable FAIR artefact for one pipeline run.

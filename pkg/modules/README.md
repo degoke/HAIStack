@@ -140,8 +140,8 @@ import (
     "context"
     "time"
 
-    "github.com/degoke/health-ai-stack/pkg/modules"
-    "github.com/degoke/health-ai-stack/pkg/registry"
+    "github.com/degoke/haistack/pkg/modules"
+    "github.com/degoke/haistack/pkg/registry"
 )
 
 // Construct these from the selected persistence backend.

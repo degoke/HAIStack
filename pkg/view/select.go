@@ -3,7 +3,7 @@ package view
 import (
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 // SelectSpec is one node in a ViewDefinition select tree. Columns are evaluated in

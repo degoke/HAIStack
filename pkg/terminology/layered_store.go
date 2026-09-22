@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // LayeredStore composes a tenant terminology overlay with a global canonical

@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestMaterializeService_KickoffAndRun(t *testing.T) {

@@ -1,5 +1,5 @@
 // Package postgres implements haistack-postgres, the authoritative edge/cloud storage
-// backend for health-ai-stack.
+// backend for haistack.
 //
 // haistack-postgres is the Postgres-backed implementation of pkg/store contracts for
 // tenant-scoped server deployments. Unlike haistack-sqlite (pkg/sqlite), it persists
@@ -7,7 +7,7 @@
 // numbers inside the adapter, enforces tenant boundaries, and records rejected or
 // conflicted writes without mutating current resource state. This is not bytefhir-postgres;
 // it is the haistack runtime's server persistence adapter at
-// github.com/degoke/health-ai-stack/pkg/postgres.
+// github.com/degoke/haistack/pkg/postgres.
 //
 // # Design principles
 //

@@ -1,5 +1,5 @@
 // Package auth implements haistack-auth, the shared identity and policy library
-// for Health AI Stack.
+// for HAIStack.
 //
 // # Scope
 //

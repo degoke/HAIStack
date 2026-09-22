@@ -3,7 +3,7 @@ package registry
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 // EnsureTerminologyPackEnabled opts the current tenant into all CodeSystems and

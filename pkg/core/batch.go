@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/hooks"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/hooks"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type batchResponseEntry struct {

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/sdc"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Provider implements sdc.CQLProvider.

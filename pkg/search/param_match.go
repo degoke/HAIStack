@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // MatchResourceParameter reports whether a resource satisfies one search parameter value set.

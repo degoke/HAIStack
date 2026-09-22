@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 var _ store.HistoryStore = (*HistoryStore)(nil)

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath/internal/verily"
-	"github.com/degoke/health-ai-stack/pkg/proto"
+	"github.com/degoke/haistack/pkg/fhirpath/internal/verily"
+	"github.com/degoke/haistack/pkg/proto"
 )
 
 type engine struct {

@@ -1,6 +1,6 @@
 # haistack-store (`pkg/store`)
 
-Storage contract layer for the health-ai-stack monorepo.
+Storage contract layer for the haistack monorepo.
 
 ## What it does
 
@@ -51,7 +51,7 @@ When a Patient is saved, several things usually happen:
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/sqlite"
+    "github.com/degoke/haistack/pkg/sqlite"
 )
 
 db, err := sqlite.Open(sqlite.Options{Path: "data.db"})

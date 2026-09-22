@@ -8,8 +8,8 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // CardinalityResolver reports whether a FHIR element path allows multiple values.

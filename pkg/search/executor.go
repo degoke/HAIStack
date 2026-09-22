@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Executor executes a search plan against a typed index backend.

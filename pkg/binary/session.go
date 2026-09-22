@@ -1,6 +1,6 @@
 package binary
 
-import "github.com/degoke/health-ai-stack/pkg/store"
+import "github.com/degoke/haistack/pkg/store"
 
 // WriteSessionExtension exposes transaction-scoped binary metadata persistence.
 // SQLite and Postgres sessions implement this additively without changing

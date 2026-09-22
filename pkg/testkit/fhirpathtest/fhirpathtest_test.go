@@ -3,8 +3,8 @@ package fhirpathtest_test
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/fhirpathtest"
-	"github.com/degoke/health-ai-stack/pkg/testkit/fixtures"
+	"github.com/degoke/haistack/pkg/testkit/fhirpathtest"
+	"github.com/degoke/haistack/pkg/testkit/fixtures"
 )
 
 func TestPatientNameExpression(t *testing.T) {

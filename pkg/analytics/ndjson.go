@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // NDJSONSink writes one JSON object per line.

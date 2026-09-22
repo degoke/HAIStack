@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 const (

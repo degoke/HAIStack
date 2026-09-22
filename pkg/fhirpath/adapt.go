@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath/internal/verily"
+	"github.com/degoke/haistack/pkg/fhirpath/internal/verily"
 	"github.com/verily-src/fhirpath-go/fhirpath/system"
 )
 

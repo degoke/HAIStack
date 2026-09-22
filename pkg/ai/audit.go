@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // AuditRecord captures one AI tool or model invocation for the audit seam.

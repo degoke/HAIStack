@@ -4,7 +4,7 @@ Generic-first Go SDK for FHIR REST and HAIStack sync endpoints.
 
 ## What it does
 
-**haistack-client** is the **outbound HTTP SDK** for Health AI Stack. It mirrors the FHIR REST surface exposed by `pkg/http` and adds focused sub-clients for sync, SMART, bulk export, and subscriptions.
+**haistack-client** is the **outbound HTTP SDK** for HAIStack. It mirrors the FHIR REST surface exposed by `pkg/http` and adds focused sub-clients for sync, SMART, bulk export, and subscriptions.
 
 Think of it as the client-side inverse of the server adapter:
 
@@ -98,7 +98,7 @@ import (
     "log"
     "time"
 
-    "github.com/degoke/health-ai-stack/pkg/client"
+    "github.com/degoke/haistack/pkg/client"
 )
 
 c, err := client.New(client.Config{
@@ -136,7 +136,7 @@ func (p *refreshingProvider) AuthorizationHeader(ctx context.Context) (string, e
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/types"
+    "github.com/degoke/haistack/pkg/types"
 )
 
 codec := types.NewJSONCodec()
@@ -201,7 +201,7 @@ supported, err := c.CheckFeatureSupport(ctx, "Patient", "search-type")
 Bridge `pkg/sync.Engine` to a remote hub. Request metadata includes node and tenant IDs explicitly:
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/sync"
+import "github.com/degoke/haistack/pkg/sync"
 
 pushResp, err := c.Sync().Push(ctx, client.PushRequest{
     NodeID:   "device-node-1",

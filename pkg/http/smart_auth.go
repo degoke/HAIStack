@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // SMARTBearerAuthMiddleware validates Bearer JWTs and stores principal, tenant, and AuthBundle on the request context.

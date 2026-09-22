@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 const (

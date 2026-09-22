@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/export"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/export"
 )
 
 // BulkExportService handles FHIR Bulk Data export kickoff, polling, cancellation,

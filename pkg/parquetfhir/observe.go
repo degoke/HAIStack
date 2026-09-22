@@ -1,7 +1,7 @@
 package parquetfhir
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 type observedField struct {

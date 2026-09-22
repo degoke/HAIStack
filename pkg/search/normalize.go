@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 	dtpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/datatypes_go_proto"
 	"github.com/verily-src/fhirpath-go/fhirpath/system"
 	"google.golang.org/protobuf/proto"

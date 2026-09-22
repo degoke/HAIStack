@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/fhirpath"
 	"github.com/shopspring/decimal"
 	"github.com/verily-src/fhirpath-go/fhirpath/system"
 	"google.golang.org/protobuf/proto"

@@ -1,4 +1,4 @@
-// Package core implements haistack-core, the FHIR runtime kernel for health-ai-stack.
+// Package core implements haistack-core, the FHIR runtime kernel for haistack.
 //
 // haistack-core owns resource lifecycle rules for CRUD, per-resource history,
 // OperationOutcome mapping, and transaction-bundle execution while remaining

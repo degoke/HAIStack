@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 // Persistence exposes narrow read-oriented access to underlying storage handles.

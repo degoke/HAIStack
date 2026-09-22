@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/oauth"
 )
 
 func TestServeConsentPageEscapesHTML(t *testing.T) {

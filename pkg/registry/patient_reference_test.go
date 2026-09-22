@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestPatientReferenceResolver_ObservationSubject(t *testing.T) {

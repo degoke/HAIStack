@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // LakehouseArtifact describes one parquet object written by LakehouseSink.

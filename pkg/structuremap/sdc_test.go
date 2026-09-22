@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/sdc"
+	"github.com/degoke/haistack/pkg/sdc"
 )
 
 func TestQuestionnaireExtractorUsesStructureMapEngine(t *testing.T) {

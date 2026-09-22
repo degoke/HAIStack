@@ -1,10 +1,10 @@
 # haistack-cli (`cmd/haistack`)
 
-Developer and operator command-line interface for Health AI Stack.
+Developer and operator command-line interface for HAIStack.
 
 ## What it does
 
-**haistack** is the runnable CLI surface for local development, edge operations, and automation against a Health AI Stack runtime. It loads YAML configuration, applies flag and environment overrides, and delegates to existing libraries (`pkg/runtime`, `pkg/core`, `pkg/validate`, `pkg/search`, `pkg/sync`, `pkg/modules`, `pkg/fhirpath`).
+**haistack** is the runnable CLI surface for local development, edge operations, and automation against a HAIStack runtime. It loads YAML configuration, applies flag and environment overrides, and delegates to existing libraries (`pkg/runtime`, `pkg/core`, `pkg/validate`, `pkg/search`, `pkg/sync`, `pkg/modules`, `pkg/fhirpath`).
 
 | Concern | What the CLI owns |
 |---------|-------------------|
@@ -40,7 +40,7 @@ go build -o bin/haistack ./cmd/haistack
 make build
 ```
 
-`haistack --version` reports `dev` for local builds. Stamp a version at link time with `-ldflags "-X github.com/degoke/health-ai-stack/cmd/haistack/command.Version=vX.Y.Z"` if you need a specific string.
+`haistack --version` reports `dev` for local builds. Stamp a version at link time with `-ldflags "-X github.com/degoke/haistack/cmd/haistack/command.Version=vX.Y.Z"` if you need a specific string.
 
 ## Quick start
 

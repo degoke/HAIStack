@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/factories"
-	"github.com/degoke/health-ai-stack/pkg/testkit/storetest"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/testkit/factories"
+	"github.com/degoke/haistack/pkg/testkit/storetest"
 )
 
 func TestResourceStoreStrictSemantics(t *testing.T) {

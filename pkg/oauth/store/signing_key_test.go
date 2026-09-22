@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/sqlite"
+	"github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/sqlite"
 )
 
 func TestLoadOrCreateSQLiteSigningKeySet(t *testing.T) {

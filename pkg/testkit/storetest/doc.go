@@ -1,5 +1,5 @@
 // Package storetest provides importable in-memory implementations of pkg/store
-// interfaces used across Health AI Stack tests.
+// interfaces used across HAIStack tests.
 //
 // # Implemented contracts
 //

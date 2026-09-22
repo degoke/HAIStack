@@ -8,14 +8,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/packages"
-	"github.com/degoke/health-ai-stack/pkg/runtime"
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/packages"
+	"github.com/degoke/haistack/pkg/runtime"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // OutputFormat selects human or machine-readable command output.

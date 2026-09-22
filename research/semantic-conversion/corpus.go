@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 
-	"github.com/degoke/health-ai-stack/research/internal/researchutil"
+	"github.com/degoke/haistack/research/internal/researchutil"
 )
 
 // Pair is one R4 input with expected R5 output and scoring metadata.

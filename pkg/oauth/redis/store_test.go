@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthredis "github.com/degoke/haistack/pkg/oauth/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
+	"github.com/degoke/haistack/pkg/audit"
 	"github.com/google/uuid"
 )
 

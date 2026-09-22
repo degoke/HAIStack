@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // PackPreExpandJobID returns a stable job id for one pack pre-expand attempt.

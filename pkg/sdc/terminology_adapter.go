@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 // TerminologyAdapter adapts the terminology service to SDC validation.

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // Config supplies the stable persistence pieces required by the module manager.

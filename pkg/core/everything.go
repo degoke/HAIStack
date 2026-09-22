@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // EverythingQuery configures Patient/$everything collection.

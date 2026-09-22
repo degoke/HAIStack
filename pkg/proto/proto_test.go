@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/proto"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func newCodec() *proto.GoogleR4Codec {

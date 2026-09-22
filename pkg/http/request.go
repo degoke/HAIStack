@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 const maxRequestBodyBytes = 10 << 20 // 10 MiB

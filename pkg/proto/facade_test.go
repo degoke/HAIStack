@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	protor4 "github.com/degoke/health-ai-stack/pkg/proto/r4"
+	"github.com/degoke/haistack/pkg/proto"
+	protor4 "github.com/degoke/haistack/pkg/proto/r4"
 )
 
 func TestR4FacadeAndConvenienceHelpers(t *testing.T) {

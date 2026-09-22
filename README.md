@@ -2,11 +2,13 @@
 
 [![CI](https://github.com/degoke/HAIStack/actions/workflows/ci.yml/badge.svg)](https://github.com/degoke/HAIStack/actions/workflows/ci.yml) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-**Health AI Stack is a collection of modular Go libraries for building FHIR-native health data infrastructure with safe AI access.**
+**HAIStack is a collection of modular Go libraries for building FHIR-native health data infrastructure with safe AI access.**
 
 The libraries can be used independently or composed together to create offline-first local runtimes, edge FHIR servers, cloud repositories, sync engines, analytics layers, and health data tools. It is not a single monolithic FHIR server — it is building blocks for health data systems that run locally, at the edge, on-premise, or in the cloud.
 
-**Module:** `github.com/degoke/health-ai-stack` · **Repo:** [degoke/HAIStack](https://github.com/degoke/HAIStack) · **Go:** 1.26+
+**Repository:** [github.com/degoke/HAIStack](https://github.com/degoke/HAIStack) · **Go module:** `github.com/degoke/haistack` · **Go:** 1.26+
+
+The module path is lowercase (Go convention). It resolves against the `HAIStack` GitHub repository; you do not need to rename the repo for `go get` to work.
 
 ---
 
@@ -14,7 +16,7 @@ The libraries can be used independently or composed together to create offline-f
 
 Healthcare infrastructure is usually always-online and centralized. That breaks down when internet is unreliable, clinics need local-first workflows, field workers capture data offline, hospitals want on-premise control, and AI tools need structured, permissioned access — without a heavy platform just to store, sync, query, or process FHIR data.
 
-FHIR provides a common data model, but practical systems still need infrastructure for storage, search, sync, history, validation, authorization, analytics, and AI-safe access. Health AI Stack makes those pieces modular.
+FHIR provides a common data model, but practical systems still need infrastructure for storage, search, sync, history, validation, authorization, analytics, and AI-safe access. HAIStack makes those pieces modular.
 
 ---
 
@@ -56,7 +58,7 @@ The stack targets **on-device, offline-first, edge, on-premise, cloud, and AI-as
 
 **AI health data tool:** `ai`, `view`, `fhirpath`, `auth`, `client`
 
-Import paths: `github.com/degoke/health-ai-stack/pkg/…`
+Import paths: `github.com/degoke/haistack/pkg/…`
 
 ---
 
@@ -220,10 +222,10 @@ Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-F
 Use the libraries from another Go module:
 
 ```bash
-go get github.com/degoke/health-ai-stack@latest
+go get github.com/degoke/haistack@latest
 ```
 
-Import only the packages you need, for example `github.com/degoke/health-ai-stack/pkg/runtime` or `github.com/degoke/health-ai-stack/pkg/client`. Pin a release tag such as `@v0.1.0` once one exists. If the public module proxy has not indexed a new tag yet, use `GOPROXY=direct`.
+Import only the packages you need, for example `github.com/degoke/haistack/pkg/runtime` or `github.com/degoke/haistack/pkg/client`. Pin a release tag such as `@v0.1.0` once one exists. If the public module proxy has not indexed a new tag yet, use `GOPROXY=direct`.
 
 To work on this repository:
 
@@ -239,11 +241,11 @@ go test ./...
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/core"
-    "github.com/degoke/health-ai-stack/pkg/registry"
-    "github.com/degoke/health-ai-stack/pkg/sqlite"
-    "github.com/degoke/health-ai-stack/pkg/sync"
-    "github.com/degoke/health-ai-stack/pkg/types"
+    "github.com/degoke/haistack/pkg/core"
+    "github.com/degoke/haistack/pkg/registry"
+    "github.com/degoke/haistack/pkg/sqlite"
+    "github.com/degoke/haistack/pkg/sync"
+    "github.com/degoke/haistack/pkg/types"
 )
 
 ctx := context.Background()
@@ -284,7 +286,7 @@ projections automatically; ordinary validation remains unchanged unless
 terminology checks are explicitly enabled.
 
 ```go
-import "github.com/degoke/health-ai-stack/pkg/terminology"
+import "github.com/degoke/haistack/pkg/terminology"
 
 term := &terminology.LocalService{
     Store:   db.TerminologyStore(),
@@ -335,7 +337,7 @@ introduce replacement FHIR or Bundle models.
 import (
     "context"
 
-    "github.com/degoke/health-ai-stack/pkg/runtime"
+    "github.com/degoke/haistack/pkg/runtime"
 )
 
 ctx := context.Background()

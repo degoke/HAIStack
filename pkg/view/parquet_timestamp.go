@@ -1,6 +1,6 @@
 package view
 
-import "github.com/degoke/health-ai-stack/pkg/parquetfhir"
+import "github.com/degoke/haistack/pkg/parquetfhir"
 
 // TimestampEncoding selects Parquet-on-FHIR date annotation physical types.
 type TimestampEncoding = parquetfhir.TimestampEncoding

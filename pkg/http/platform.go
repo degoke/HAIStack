@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/core"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/core"
 )
 
 // ConformanceRefresher rebuilds live conformance state after installs.

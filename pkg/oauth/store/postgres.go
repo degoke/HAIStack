@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/smart"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"

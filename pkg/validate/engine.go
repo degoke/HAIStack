@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/proto"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/proto"
+	"github.com/degoke/haistack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type builtinEngine struct {

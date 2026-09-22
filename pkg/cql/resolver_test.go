@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type testResourceStore struct {

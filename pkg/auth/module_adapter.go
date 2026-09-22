@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/modules"
+	"github.com/degoke/haistack/pkg/modules"
 )
 
 // PrincipalResolver maps ambient request context to a principal and tenant for

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // VersionAction describes the lifecycle action recorded in resource history.

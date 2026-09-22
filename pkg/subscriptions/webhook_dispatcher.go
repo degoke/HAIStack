@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // WebhookResult captures one HTTP delivery attempt.

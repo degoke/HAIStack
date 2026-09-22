@@ -1,7 +1,7 @@
 {
   "name": "core",
   "version": "1.0.0",
-  "description": "Foundational FHIR resources and search parameters for Health AI Stack.",
+  "description": "Foundational FHIR resources and search parameters for HAIStack.",
   "resources": ["Patient", "Practitioner", "Organization"],
   "igPackage": "ig",
   "views": ["PatientDashboard"],

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 // BuiltinOAuthConfig enables the built-in pkg/oauth authorization server during runtime wire.

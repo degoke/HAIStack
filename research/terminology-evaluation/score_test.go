@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/conceptmap"
 )
 
 func TestScorerDetectsPlantedDefects(t *testing.T) {

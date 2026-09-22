@@ -1,4 +1,4 @@
-// Package sync implements haistack-sync, the offline-first replication library for Health AI Stack.
+// Package sync implements haistack-sync, the offline-first replication library for HAIStack.
 //
 // haistack-sync layers a device-to-edge protocol on top of the minimal store.ResourceEvent
 // outbox emitted by pkg/core. Local SQLite nodes act as provisional branches; canonical

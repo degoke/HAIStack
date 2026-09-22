@@ -2,7 +2,7 @@ id: haistack.fhir.r4
 canonical: http://haistack.example.org/fhir
 name: HAIStack
 title: HAIStack FHIR Implementation Guide
-description: Conformance artefacts for Health AI Stack core and SDC capability modules.
+description: Conformance artefacts for HAIStack core and SDC capability modules.
 status: draft
 version: 0.1.0
 fhirVersion: 4.0.1

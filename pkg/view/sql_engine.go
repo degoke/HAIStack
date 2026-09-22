@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 	_ "modernc.org/sqlite"
 )
 

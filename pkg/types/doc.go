@@ -1,6 +1,6 @@
 // Package types implements haistack-types, a version-agnostic FHIR JSON type layer.
 //
-// haistack-types is the foundational library in the health-ai-stack monorepo. It lets every
+// haistack-types is the foundational library in the haistack monorepo. It lets every
 // downstream package (pkg/core, pkg/store, pkg/proto, pkg/search, and others) handle FHIR
 // resources generically without importing generated R4 or R5 structs. Resources are
 // represented as normalized JSON envelopes with derived metadata, lightweight support types,

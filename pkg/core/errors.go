@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ErrorKind classifies haistack-core service errors for OperationOutcome mapping.

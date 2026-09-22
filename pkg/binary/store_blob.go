@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // AsStore adapts a BlobStore to store.BlobStore so callers that speak the

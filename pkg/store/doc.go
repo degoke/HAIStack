@@ -1,4 +1,4 @@
-// Package store defines haistack-store, the storage contract layer for the health-ai-stack
+// Package store defines haistack-store, the storage contract layer for the haistack
 // runtime.
 //
 // haistack-store gives every downstream package one stable set of interfaces for resource

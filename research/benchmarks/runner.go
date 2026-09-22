@@ -10,11 +10,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/fhirpath"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/pkg/view"
-	"github.com/degoke/health-ai-stack/research/internal/researchutil"
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/pkg/view"
+	"github.com/degoke/haistack/research/internal/researchutil"
 	"gopkg.in/yaml.v3"
 )
 

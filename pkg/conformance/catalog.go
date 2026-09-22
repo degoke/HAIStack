@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/degoke/health-ai-stack/pkg/validate"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 // DefaultIGValidatorConfig returns paths for IG example validation under repoRoot.

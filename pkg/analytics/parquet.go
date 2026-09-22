@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 // ParquetFileSink writes view rows as Apache Parquet binary.

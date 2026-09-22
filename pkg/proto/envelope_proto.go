@@ -3,8 +3,8 @@ package proto
 import (
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/proto/r4"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/proto/r4"
+	"github.com/degoke/haistack/pkg/types"
 	rpb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
 )
 

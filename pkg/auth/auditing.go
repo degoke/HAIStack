@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
+	"github.com/degoke/haistack/pkg/audit"
 )
 
 // AuditingEngine wraps a PolicyEngine and optionally emits allow/deny events

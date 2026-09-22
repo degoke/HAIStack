@@ -3,8 +3,8 @@ package sync
 import (
 	"context"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 // appendAudit writes a sync audit event through the shared audit library when

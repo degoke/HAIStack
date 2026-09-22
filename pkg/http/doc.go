@@ -1,4 +1,4 @@
-// Package http implements haistack-http, the FHIR REST adapter for Health AI Stack.
+// Package http implements haistack-http, the FHIR REST adapter for HAIStack.
 //
 // haistack-http is a thin transport layer over pkg/core, pkg/search, pkg/registry,
 // and optional pkg/auth. It owns HTTP routing, request/response translation,
@@ -14,7 +14,7 @@
 //
 //	import (
 //	    nethttp "net/http"
-//	    hahttp "github.com/degoke/health-ai-stack/pkg/http"
+//	    hahttp "github.com/degoke/haistack/pkg/http"
 //	)
 //
 // # Design principles

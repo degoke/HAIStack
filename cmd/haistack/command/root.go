@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/app"
-	"github.com/degoke/health-ai-stack/cmd/haistack/internal/config"
+	"github.com/degoke/haistack/cmd/haistack/internal/app"
+	"github.com/degoke/haistack/cmd/haistack/internal/config"
 	"github.com/spf13/cobra"
 )
 
 // Version is the CLI version. Release builds override it with the git tag via
-// -ldflags "-X github.com/degoke/health-ai-stack/cmd/haistack/command.Version=vX.Y.Z".
+// -ldflags "-X github.com/degoke/haistack/cmd/haistack/command.Version=vX.Y.Z".
 var Version = "dev"
 
 // Options carries persistent CLI flags shared by all commands.
@@ -40,9 +40,9 @@ func NewRootCommand() *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "haistack",
-		Short: "Health AI Stack developer and operator CLI",
+		Short: "HAIStack developer and operator CLI",
 		Long: `haistack is the command-line interface for local development and operations
-against a Health AI Stack runtime. Configure storage and capabilities in haistack.yaml.`,
+against a HAIStack runtime. Configure storage and capabilities in haistack.yaml.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

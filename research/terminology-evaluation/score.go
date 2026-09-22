@@ -9,11 +9,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
-	"github.com/degoke/health-ai-stack/research/internal/researchutil"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/terminology"
+	"github.com/degoke/haistack/research/internal/researchutil"
 )
 
 //go:embed gold/conceptmap.json

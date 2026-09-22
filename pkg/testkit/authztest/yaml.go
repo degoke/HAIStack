@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/smart"
 	"gopkg.in/yaml.v3"
 )
 

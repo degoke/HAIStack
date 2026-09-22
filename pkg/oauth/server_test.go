@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 func TestOAuthServer_DiscoveryAndPKCEFlow(t *testing.T) {

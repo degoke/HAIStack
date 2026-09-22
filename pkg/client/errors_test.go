@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 func TestOutcomeDiagnosticsSummaryJoinsAllIssues(t *testing.T) {

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/client"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	hahttp "github.com/degoke/health-ai-stack/pkg/http"
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	"github.com/degoke/health-ai-stack/pkg/smart"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/client"
+	"github.com/degoke/haistack/pkg/core"
+	hahttp "github.com/degoke/haistack/pkg/http"
+	"github.com/degoke/haistack/pkg/oauth"
+	"github.com/degoke/haistack/pkg/smart"
 )
 
 type infernoEnv struct {

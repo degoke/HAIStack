@@ -6,10 +6,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/terminology"
 )
 
 type memJobStore struct {

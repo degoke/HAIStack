@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/degoke/health-ai-stack/pkg/types"
-	"github.com/degoke/health-ai-stack/research/internal/researchutil"
+	"github.com/degoke/haistack/pkg/types"
+	"github.com/degoke/haistack/research/internal/researchutil"
 )
 
 const (

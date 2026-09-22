@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 // ScopePolicyAuthChecker adapts auth.PolicyEngine to pkg/http.AuthChecker while

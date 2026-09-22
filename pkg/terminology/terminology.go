@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/audit"
-	"github.com/degoke/health-ai-stack/pkg/conceptmap"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/audit"
+	"github.com/degoke/haistack/pkg/conceptmap"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 type Coding struct {

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/modules"
-	"github.com/degoke/health-ai-stack/pkg/registry"
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/modules"
+	"github.com/degoke/haistack/pkg/registry"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 func TestInstallCompiledIGArtefacts(t *testing.T) {

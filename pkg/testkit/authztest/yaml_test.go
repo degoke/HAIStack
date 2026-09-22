@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 //go:embed testdata/intersection.yaml

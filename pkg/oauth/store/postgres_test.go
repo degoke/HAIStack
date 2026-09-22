@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/oauth"
-	oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-	"github.com/degoke/health-ai-stack/pkg/testkit/postgrestest"
+	"github.com/degoke/haistack/pkg/oauth"
+	oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+	"github.com/degoke/haistack/pkg/testkit/postgrestest"
 )
 
 func TestPostgresStores_RoundTrip(t *testing.T) {

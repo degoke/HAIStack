@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/search"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/search"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type preconditionError struct {

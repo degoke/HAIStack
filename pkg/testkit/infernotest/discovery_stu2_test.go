@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/testkit/infernotest"
+	"github.com/degoke/haistack/pkg/testkit/infernotest"
 )
 
 func TestInfernoDiscoverySTU2(t *testing.T) {

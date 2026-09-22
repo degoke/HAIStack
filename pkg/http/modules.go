@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/jobs"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/terminology"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/jobs"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/terminology"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // ModuleInstallService enqueues local module install jobs.

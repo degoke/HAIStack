@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/bulkimport"
-	"github.com/degoke/health-ai-stack/pkg/core"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/bulkimport"
+	"github.com/degoke/haistack/pkg/core"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 type memoryWriter struct {

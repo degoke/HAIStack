@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/degoke/health-ai-stack/pkg/client"
-	hasync "github.com/degoke/health-ai-stack/pkg/sync"
+	"github.com/degoke/haistack/pkg/client"
+	hasync "github.com/degoke/haistack/pkg/sync"
 )
 
 // httpSyncHub adapts client.SyncClient to hasync.Hub for device sync over HTTP.

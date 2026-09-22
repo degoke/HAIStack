@@ -1,5 +1,5 @@
 // Package analytics implements haistack-analytics, a Postgres-first analytics and
-// reporting engine for Health AI Stack.
+// reporting engine for HAIStack.
 //
 // # Scope
 //

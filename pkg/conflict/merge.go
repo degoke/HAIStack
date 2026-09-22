@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/types"
 )
 
 // Operation is one FHIR Patch (JSON Patch) operation.

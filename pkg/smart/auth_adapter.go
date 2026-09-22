@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
+	"github.com/degoke/haistack/pkg/auth"
 )
 
 // AuthBundle is the SMART-derived input ready for haistack-auth decision APIs.

@@ -28,9 +28,9 @@ semantics and row-level locking — no shared filesystem required.
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-    "github.com/degoke/health-ai-stack/pkg/postgres"
+    "github.com/degoke/haistack/pkg/oauth"
+    oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+    "github.com/degoke/haistack/pkg/postgres"
 )
 
 db, _ := postgres.Open(ctx, dsn)
@@ -66,9 +66,9 @@ revocation denylist. **Client registration stays on Postgres or SQLite** — pas
 
 ```go
 import (
-    "github.com/degoke/health-ai-stack/pkg/oauth"
-    oauthstore "github.com/degoke/health-ai-stack/pkg/oauth/store"
-    oauthredis "github.com/degoke/health-ai-stack/pkg/oauth/redis"
+    "github.com/degoke/haistack/pkg/oauth"
+    oauthstore "github.com/degoke/haistack/pkg/oauth/store"
+    oauthredis "github.com/degoke/haistack/pkg/oauth/redis"
     goredis "github.com/redis/go-redis/v9"
 )
 

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/auth"
-	"github.com/degoke/health-ai-stack/pkg/binary"
-	"github.com/degoke/health-ai-stack/pkg/postgres"
-	"github.com/degoke/health-ai-stack/pkg/store"
-	"github.com/degoke/health-ai-stack/pkg/types"
+	"github.com/degoke/haistack/pkg/auth"
+	"github.com/degoke/haistack/pkg/binary"
+	"github.com/degoke/haistack/pkg/postgres"
+	"github.com/degoke/haistack/pkg/store"
+	"github.com/degoke/haistack/pkg/types"
 	"github.com/google/uuid"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )

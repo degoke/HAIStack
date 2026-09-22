@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestLocalViewExportJobStorePersistsAcrossInstances(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/store"
+	"github.com/degoke/haistack/pkg/store"
 )
 
 type failingResolver struct {

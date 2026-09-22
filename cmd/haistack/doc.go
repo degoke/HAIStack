@@ -1,7 +1,7 @@
-// Command haistack is the Health AI Stack developer and operator CLI.
+// Command haistack is the HAIStack developer and operator CLI.
 //
 // haistack provides a runnable surface for local development, edge operations,
-// and shell automation against a configured Health AI Stack runtime. It reads
+// and shell automation against a configured HAIStack runtime. It reads
 // haistack.yaml (plus flag and environment overrides), wires pkg/runtime for
 // server and one-shot commands, and prints human-readable or JSON output.
 //

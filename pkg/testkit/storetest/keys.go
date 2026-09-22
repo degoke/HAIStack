@@ -1,6 +1,6 @@
 package storetest
 
-import "github.com/degoke/health-ai-stack/pkg/testkit"
+import "github.com/degoke/haistack/pkg/testkit"
 
 // ResourceKey returns the canonical map key for a FHIR resource type and id.
 //

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/degoke/health-ai-stack/pkg/analytics"
-	"github.com/degoke/health-ai-stack/pkg/view"
+	"github.com/degoke/haistack/pkg/analytics"
+	"github.com/degoke/haistack/pkg/view"
 )
 
 func TestCSVSink_HeaderOrderingAndEncoding(t *testing.T) {
