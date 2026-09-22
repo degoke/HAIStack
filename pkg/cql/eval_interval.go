@@ -117,7 +117,7 @@ func (st *evalState) evalDuration(n *durationNode) ([]any, error) {
 
 func (st *evalState) evalIntervalRel(n *binaryNode) ([]any, error) {
 	base, unit := splitTimingOp(n.op)
-	if unit == "" && isListValued(n.left) && isListValued(n.right) {
+	if unit == "" && st.isListValued(n.left) && st.isListValued(n.right) {
 		switch base {
 		case "includes", "properly includes":
 			left, err := st.eval(n.left)
@@ -428,18 +428,32 @@ func asInterval(v any) (Interval, bool) {
 	}
 	if low, has := obj["low"]; has {
 		high := obj["high"]
-		return Interval{Low: intervalBound(low), High: intervalBound(high), LowClosed: true, HighClosed: true}, true
+		return Interval{
+			Low:        intervalBound(low),
+			High:       intervalBound(high),
+			LowClosed:  intervalBoundClosed(obj, "lowClosed", true),
+			HighClosed: intervalBoundClosed(obj, "highClosed", true),
+		}, true
 	}
 	if start, has := obj["start"]; has {
 		end := obj["end"]
 		return Interval{
 			Low:        intervalBound(start),
 			High:       intervalBound(end),
-			LowClosed:  true,
-			HighClosed: true,
+			LowClosed:  intervalBoundClosed(obj, "lowClosed", true),
+			HighClosed: intervalBoundClosed(obj, "highClosed", true),
 		}, true
 	}
 	return Interval{}, false
+}
+
+func intervalBoundClosed(obj map[string]any, key string, def bool) bool {
+	if raw, ok := obj[key]; ok {
+		if b, ok := raw.(bool); ok {
+			return b
+		}
+	}
+	return def
 }
 
 func intervalBound(v any) any {

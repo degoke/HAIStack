@@ -19,18 +19,19 @@ import (
 )
 
 type evalState struct {
-	ctx        context.Context
-	engine     *Engine
-	patient    any
-	params     map[string]any
-	libraries  []*Library
-	current    *Library
-	now        time.Time
-	retriever  Retriever
-	this       any
-	thisSet    bool
-	stack      map[string][]any
-	evaluating map[string]bool
+	ctx            context.Context
+	engine         *Engine
+	patient        any
+	params         map[string]any
+	libraries      []*Library
+	current        *Library
+	now            time.Time
+	retriever      Retriever
+	this           any
+	thisSet        bool
+	stack          map[string][]any
+	evaluating     map[string]bool
+	functionParams []FunctionParam
 }
 
 func (e *Engine) evalNode(ctx context.Context, n Node, env EvalContext, libs []*Library) ([]any, error) {
@@ -101,7 +102,7 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, wrapListElement(el, v))
+			out = append(out, st.wrapListElement(el, v))
 		}
 		return out, nil
 	case *tupleNode:
@@ -111,7 +112,7 @@ func (st *evalState) eval(n Node) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			obj[f.name] = wrapListElement(f.value, v)
+			obj[f.name] = st.wrapListElement(f.value, v)
 		}
 		return []any{obj}, nil
 	case *ifNode:
@@ -365,6 +366,9 @@ func (st *evalState) evalUserFunction(lib *Library, fn *Function, args [][]any) 
 	prev := st.current
 	st.current = lib
 	defer func() { st.current = prev }()
+	prevFnParams := st.functionParams
+	st.functionParams = fn.Params
+	defer func() { st.functionParams = prevFnParams }()
 	locals := map[string][]any{}
 	for i, p := range fn.Params {
 		locals[p.Name] = args[i]
@@ -546,7 +550,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
+		if !st.isListValued(n.left) && !st.isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					cmp := st.compareContext()
@@ -660,13 +664,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				return intervalContainsAll(iv, left, st.compareContext())
 			}
 		}
-		if isListValued(n.left) {
+		if st.isListValued(n.left) {
 			if pointsVersusIntervals(left, right) {
 				return st.allPointsInAnyInterval(left, right), nil
 			}
-			return st.containsResult(right, membershipItem(n.left, left)), nil
+			return st.containsResult(right, st.membershipItem(n.left, left)), nil
 		}
-		return st.containsResultWithIntervals(right, membershipItem(n.left, left)), nil
+		return st.containsResultWithIntervals(right, st.membershipItem(n.left, left)), nil
 	case "contains":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -691,13 +695,13 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 				return intervalContainsAll(iv, right, st.compareContext())
 			}
 		}
-		if isListValued(n.right) {
+		if st.isListValued(n.right) {
 			if pointsVersusIntervals(right, left) {
 				return st.allPointsInAnyInterval(right, left), nil
 			}
-			return st.containsResult(left, membershipItem(n.right, right)), nil
+			return st.containsResult(left, st.membershipItem(n.right, right)), nil
 		}
-		return st.containsResultWithIntervals(left, membershipItem(n.right, right)), nil
+		return st.containsResultWithIntervals(left, st.membershipItem(n.right, right)), nil
 	case "intersect":
 		left, err := st.eval(n.left)
 		if err != nil {
@@ -707,7 +711,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
+		if !st.isListValued(n.left) && !st.isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					out, ok := intervalIntersect(li, ri, st.compareContext())
@@ -728,7 +732,7 @@ func (st *evalState) evalBinary(n *binaryNode) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !isListValued(n.left) && !isListValued(n.right) && len(left) == 1 && len(right) == 1 {
+		if !st.isListValued(n.left) && !st.isListValued(n.right) && len(left) == 1 && len(right) == 1 {
 			if li, ok := isCQLInterval(left[0]); ok {
 				if ri, ok := isCQLInterval(right[0]); ok {
 					return intervalExcept(li, ri, st.compareContext()), nil
@@ -2438,12 +2442,12 @@ func asTemporal(v any, loc *time.Location) (time.Time, bool) {
 	return t, true
 }
 
-func membershipItem(n Node, v []any) any {
-	return membershipItemLets(n, v, nil)
+func (st *evalState) membershipItem(n Node, v []any) any {
+	return st.membershipItemLets(n, v, nil)
 }
 
-func membershipItemLets(n Node, v []any, listLets map[string]bool) any {
-	if isListValuedExpr(n, listLets) {
+func (st *evalState) membershipItemLets(n Node, v []any, listLets map[string]bool) any {
+	if st.isListValuedExpr(n, listLets) {
 		if v == nil {
 			return []any{}
 		}
@@ -2458,12 +2462,12 @@ func membershipItemLets(n Node, v []any, listLets map[string]bool) any {
 	return append([]any{}, v...)
 }
 
-func wrapListElement(el Node, v []any) any {
-	return wrapListElementLets(el, v, nil)
+func (st *evalState) wrapListElement(el Node, v []any) any {
+	return st.wrapListElementLets(el, v, nil)
 }
 
-func wrapListElementLets(el Node, v []any, listLets map[string]bool) any {
-	if isListValuedExpr(el, listLets) {
+func (st *evalState) wrapListElementLets(el Node, v []any, listLets map[string]bool) any {
+	if st.isListValuedExpr(el, listLets) {
 		if v == nil {
 			return []any{}
 		}
@@ -2478,17 +2482,57 @@ func wrapListElementLets(el Node, v []any, listLets map[string]bool) any {
 	return append([]any{}, v...)
 }
 
-func isListValued(n Node) bool {
-	return isListValuedExpr(n, nil)
+func (st *evalState) isListValued(n Node) bool {
+	return st.isListValuedExpr(n, nil)
 }
 
-func isListValuedExpr(n Node, listLets map[string]bool) bool {
+func (st *evalState) isListValuedExpr(n Node, listLets map[string]bool) bool {
 	switch n.(type) {
 	case *listNode, *retrieveNode, *queryNode:
 		return true
 	}
 	if id, ok := n.(*identNode); ok {
-		return listLetIsListValued(listLets, id.name)
+		if listLetIsListValued(listLets, id.name) {
+			return true
+		}
+		return st.isListTypedName(id.name)
+	}
+	return false
+}
+
+func (st *evalState) lookupParameter(name string) (Parameter, bool) {
+	search := func(lib *Library) (Parameter, bool) {
+		if lib == nil {
+			return Parameter{}, false
+		}
+		for _, p := range lib.Parameters {
+			if p.Name == name || strings.EqualFold(p.Name, name) {
+				return p, true
+			}
+		}
+		return Parameter{}, false
+	}
+	if p, ok := search(st.current); ok {
+		return p, true
+	}
+	for _, lib := range st.libraries {
+		if p, ok := search(lib); ok {
+			return p, true
+		}
+	}
+	return Parameter{}, false
+}
+
+func (st *evalState) isListTypedName(name string) bool {
+	if p, ok := st.lookupParameter(name); ok && isListParameterType(p.Type) {
+		return true
+	}
+	if st.functionParams != nil {
+		for _, p := range st.functionParams {
+			if p.Name == name || strings.EqualFold(p.Name, name) {
+				return isListParameterType(p.Type)
+			}
+		}
 	}
 	return false
 }
@@ -2824,6 +2868,9 @@ func cqlToString(v any) (string, bool) {
 }
 
 func tupleToCQLString(m map[string]any) (string, bool) {
+	if rt, _ := m["resourceType"].(string); rt != "" {
+		return "", false
+	}
 	if len(m) == 0 {
 		return "{}", true
 	}
@@ -3253,11 +3300,19 @@ func typeName(v any) string {
 		return "Quantity"
 	case Interval:
 		return "Interval"
+	case Ratio:
+		return "Ratio"
+	case Code:
+		return "Code"
+	}
+	if _, ok := asRatio(v); ok {
+		return "Ratio"
 	}
 	if obj, ok := asObject(v); ok {
 		if rt, _ := obj["resourceType"].(string); rt != "" {
 			return rt
 		}
+		return "Tuple"
 	}
 	return fmt.Sprintf("%T", v)
 }

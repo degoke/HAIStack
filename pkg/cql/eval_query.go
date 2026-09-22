@@ -51,7 +51,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				}
 				st.stack[let.name] = v
 				locals[let.name] = v
-				if isListValued(let.expr) {
+				if st.isListValuedExpr(let.expr, listLets) {
 					listLets[let.name] = true
 				}
 			}
@@ -93,7 +93,7 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 				if err != nil {
 					return nil, err
 				}
-				return wrapListElementLets(q.ret, v, qr.listLets), nil
+				return st.wrapListElementLets(q.ret, v, qr.listLets), nil
 			}
 			if thisSet {
 				return this, nil
@@ -250,7 +250,7 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 				if err != nil {
 					return false, err
 				}
-				ks = append(ks, membershipItemLets(k.expr, v, row.listLets))
+				ks = append(ks, st.membershipItemLets(k.expr, v, row.listLets))
 			}
 			return true, nil
 		})

@@ -3134,6 +3134,65 @@ func TestQueryReturnAndTupleKeepSingletonLists(t *testing.T) {
 	}
 }
 
+func TestListParameterIdentSemantics(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library P version '1.0.0'
+using FHIR version '4.0.1'
+parameter "Items" List<Integer> default {1}
+context Patient
+define "Q":
+  from {1} X let L: Items return L
+define "T":
+  {id: Items}
+define "In":
+  Items in {1, 2, 3}
+define "LitIn":
+  {1} in {1, 2, 3}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}, Parameters: map[string]any{"Items": []any{int64(1)}}}
+	got, err := eng.EvalDefine(context.Background(), lib, "Q", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Q: %#v", got)
+	}
+	row, ok := got[0].([]any)
+	if !ok || len(row) != 1 || row[0] != int64(1) && row[0] != 1 {
+		t.Fatalf("Q row: %#v", got[0])
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "T", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, ok := asObject(got[0])
+	if !ok {
+		t.Fatalf("T: %#v", got)
+	}
+	id, ok := obj["id"].([]any)
+	if !ok || len(id) != 1 || id[0] != int64(1) && id[0] != 1 {
+		t.Fatalf("T id: %#v", obj["id"])
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "In", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("Items in flat list: %#v", got)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "LitIn", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != false {
+		t.Fatalf("literal list in: %#v", got)
+	}
+}
+
 func TestListParameterDefaultStaysList(t *testing.T) {
 	eng := testEngine(t)
 	lib, err := eng.ParseLibrary(`
@@ -3153,6 +3212,50 @@ define "Len":
 	}
 	if len(got) != 1 || got[0] != int64(1) {
 		t.Fatalf("List parameter default: %#v", got)
+	}
+}
+
+func TestIsAsRatioCodeTuple(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "(1:2) is Ratio", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("is Ratio: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "(1:2) as Ratio", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("as Ratio: %#v", got)
+	}
+	lib, err := eng.ParseLibrary(`
+library C version '1.0.0'
+using FHIR version '4.0.1'
+codesystem "CS": 'http://cs'
+code "A": 'a' from "CS"
+context Patient
+define "IsCode":
+  A is Code
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "IsCode", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("is Code: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "{a: 1} is Tuple", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("is Tuple: %#v", got)
 	}
 }
 
