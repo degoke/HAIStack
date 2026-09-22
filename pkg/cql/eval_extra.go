@@ -1098,11 +1098,6 @@ func asRatio(v any) (Ratio, bool) {
 	return Ratio{Numerator: num, Denominator: den}, true
 }
 
-// ratioEqual compares ratios with DefaultUCUMConverter. Engine evaluation uses ratioEqualWithUCUM with Config.UCUM.
-func ratioEqual(a, b Ratio) bool {
-	return ratioEqualWithUCUM(a, b, defaultUCUM)
-}
-
 func ratioEqualWithUCUM(a, b Ratio, conv UCUMConverter) bool {
 	if conv == nil {
 		conv = defaultUCUM
@@ -1112,11 +1107,6 @@ func ratioEqualWithUCUM(a, b Ratio, conv UCUMConverter) bool {
 		return true
 	}
 	return ratioCrossEqual(a, b, conv)
-}
-
-// ratioEquivalent compares ratios with DefaultUCUMConverter. Engine evaluation uses ratioEquivalentUCUM with Config.UCUM.
-func ratioEquivalent(a, b Ratio) bool {
-	return ratioEquivalentUCUM(a, b, defaultUCUM)
 }
 
 func ratioEquivalentUCUM(a, b Ratio, conv UCUMConverter) bool {

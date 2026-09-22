@@ -129,6 +129,35 @@ func quantitySIValue(q Quantity, conv UCUMConverter) (float64, bool) {
 	return v, ok
 }
 
+func quantitySquaredUnit(unit string, conv UCUMConverter) string {
+	if isDimensionlessUnit(unit) {
+		return "1"
+	}
+	if can, ok := conv.Canonicalize(unit); ok && can != "" && can != "1" {
+		return can + "2"
+	}
+	return unit + "2"
+}
+
+func quantityArithResultUnit(op string, a, b Quantity, sameUnitBefore bool, conv UCUMConverter) string {
+	switch op {
+	case "+", "-":
+		return a.Unit
+	case "*":
+		if sameUnitBefore {
+			return quantitySquaredUnit(a.Unit, conv)
+		}
+		return a.Unit
+	case "/":
+		if sameUnitBefore || quantitySameDimension(a.Unit, b.Unit, conv) {
+			return "1"
+		}
+		return a.Unit
+	default:
+		return a.Unit
+	}
+}
+
 func quantitySameDimension(a, b string, conv UCUMConverter) bool {
 	if sameUnit(a, b) {
 		return true

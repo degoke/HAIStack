@@ -1474,8 +1474,16 @@ func TestReviewNitsRound12(t *testing.T) {
 		t.Fatal(err)
 	}
 	q, ok = asQuantity(got[0])
-	if !ok || q.Unit != "mg" || q.Value != 2 {
-		t.Fatalf("quantity divide UCUM: %#v", got)
+	if !ok || q.Unit != "1" || q.Value != 2 {
+		t.Fatalf("quantity divide UCUM (dimensionless): %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "2 'mg' * 2 'mg'", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok = asQuantity(got[0])
+	if !ok || q.Value != 4 || q.Unit != "g2" && q.Unit != "mg2" {
+		t.Fatalf("quantity multiply same unit (squared): %#v", got)
 	}
 	mul, err := eng.Eval(context.Background(), "(1 'mg' : 2 'mL') * (1 'mg' : 2000 'uL')", EvalContext{})
 	if err != nil || len(mul) != 1 {

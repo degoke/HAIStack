@@ -868,7 +868,8 @@ func evalQuantityArith(op string, a, b Quantity, conv UCUMConverter) ([]any, err
 	if conv == nil {
 		conv = defaultUCUM
 	}
-	if !sameUnit(a.Unit, b.Unit) && !isTimeUnit(a.Unit) {
+	sameUnitBefore := sameUnit(a.Unit, b.Unit)
+	if !sameUnitBefore && !isTimeUnit(a.Unit) {
 		var ok bool
 		a, b, ok = alignQuantitiesForArith(op, a, b, conv)
 		if !ok {
@@ -897,7 +898,8 @@ func evalQuantityArith(op string, a, b Quantity, conv UCUMConverter) ([]any, err
 	default:
 		return nil, nil
 	}
-	return []any{Quantity{Value: out, Unit: a.Unit}}, nil
+	unit := quantityArithResultUnit(op, a, b, sameUnitBefore, conv)
+	return []any{Quantity{Value: out, Unit: unit}}, nil
 }
 
 func sameUnit(a, b string) bool {

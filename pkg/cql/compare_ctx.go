@@ -147,7 +147,8 @@ func cqlEqualWithUCUM(a, b any, conv UCUMConverter) bool {
 	return false
 }
 
-// cqlEquivalentStructuralEqual handles types where strict = already matches ~ (excludes quantity/ratio/interval).
+// cqlEquivalentStructuralEqual handles ~ for types where strict = matches ~; quantity and ratio
+// are handled below; intervals use boundEqual with engine UCUM.
 func cqlEquivalentStructuralEqual(a, b any, conv UCUMConverter) bool {
 	if _, ok := asQuantity(a); ok {
 		if _, ok := asQuantity(b); ok {
