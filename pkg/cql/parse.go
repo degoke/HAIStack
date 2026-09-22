@@ -117,20 +117,25 @@ func parseExpression(src string) (Node, error) {
 		return nil, ErrEmptyExpression
 	}
 	p := &parser{lex: newLexer(src), src: src}
-	n, err := p.tryParseBracketQuery()
+	n, err := p.parseTopLevelExpr()
 	if err != nil {
 		return nil, err
-	}
-	if n == nil {
-		n, err = p.parseExpr()
-		if err != nil {
-			return nil, err
-		}
 	}
 	if p.lex.lookahead().kind != tEOF {
 		return nil, parseError(src, p.lex.lookahead().pos, "unexpected token %q after expression", p.lex.lookahead().text)
 	}
 	return n, nil
+}
+
+func (p *parser) parseTopLevelExpr() (Node, error) {
+	n, err := p.tryParseBracketQuery()
+	if err != nil {
+		return nil, err
+	}
+	if n != nil {
+		return n, nil
+	}
+	return p.parseExpr()
 }
 
 // tryParseBracketQuery parses expression-level queries such as [Observation] O where ...
@@ -208,7 +213,7 @@ func (p *parser) parseDefine() (Define, *Function, error) {
 		return Define{}, nil, parseError(p.src, p.lex.lookahead().pos, "expected ':' after define %s", name)
 	}
 	start := p.lex.lookahead().pos
-	expr, err := p.parseExpr()
+	expr, err := p.parseTopLevelExpr()
 	if err != nil {
 		return Define{}, nil, err
 	}
@@ -252,7 +257,7 @@ func (p *parser) parseFunction(access string, fluent bool) (Function, error) {
 		return Function{}, parseError(p.src, p.lex.lookahead().pos, "expected ':' after function %s", name)
 	}
 	start := p.lex.lookahead().pos
-	body, err := p.parseExpr()
+	body, err := p.parseTopLevelExpr()
 	if err != nil {
 		return Function{}, err
 	}

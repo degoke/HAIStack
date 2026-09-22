@@ -3360,6 +3360,94 @@ define "Q":
 	}
 }
 
+func TestDefineBracketQueryShorthand(t *testing.T) {
+	obs, err := types.NewJSONCodec().ParseJSON("Observation", []byte(`{
+		"resourceType": "Observation",
+		"id": "hr",
+		"status": "final"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := NewEngine(Config{
+		Retriever: StaticRetriever{obs},
+		Now:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := eng.ParseLibrary(`
+library R version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define "Q":
+  [Observation] O where O.status = 'final'
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := eng.EvalDefine(context.Background(), lib, "Q", EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("define bracket query: %#v", got)
+	}
+}
+
+func TestAsDateDateTimePromotion(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "@2020-01-01 as DateTime", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("as DateTime: %#v", got)
+	}
+	tm, ok := asTime(got[0])
+	if !ok || tm.Year() != 2020 || tm.Month() != time.January || tm.Day() != 1 {
+		t.Fatalf("promoted DateTime: %#v", got[0])
+	}
+}
+
+func TestZeroArgFunctionListTyping(t *testing.T) {
+	eng := testEngine(t)
+	lib, err := eng.ParseLibrary(`
+library P version '1.0.0'
+using FHIR version '4.0.1'
+context Patient
+define function "Ones"():
+  {1}
+define "T":
+  {id: Ones()}
+define "In":
+  Ones() in {{1}}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := EvalContext{Patient: adaPatient(t), Libraries: []*Library{lib}}
+	got, err := eng.EvalDefine(context.Background(), lib, "T", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, ok := asObject(got[0])
+	if !ok {
+		t.Fatalf("T: %#v", got)
+	}
+	id, ok := obj["id"].([]any)
+	if !ok || len(id) != 1 || id[0] != int64(1) && id[0] != 1 {
+		t.Fatalf("T id: %#v", obj["id"])
+	}
+	got, err = eng.EvalDefine(context.Background(), lib, "In", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != true {
+		t.Fatalf("In: %#v", got)
+	}
+}
+
 func TestListParameterDefaultStaysList(t *testing.T) {
 	eng := testEngine(t)
 	lib, err := eng.ParseLibrary(`

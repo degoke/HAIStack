@@ -2505,7 +2505,7 @@ func (st *evalState) isListValuedExprVisit(n Node, listLets map[string]bool, vis
 			return true
 		}
 		if def, _ := st.lookupDefine(x.name); def != nil && def.Expression != nil {
-			key := strings.ToLower(x.name)
+			key := "def:" + strings.ToLower(x.name)
 			if visiting != nil && visiting[key] {
 				return false
 			}
@@ -2515,14 +2515,51 @@ func (st *evalState) isListValuedExprVisit(n Node, listLets map[string]bool, vis
 			visiting[key] = true
 			return st.isListValuedExprVisit(def.Expression, listLets, visiting)
 		}
+		if fn, _ := st.lookupFunction(x.name); fn != nil && len(fn.Params) == 0 && fn.Body != nil {
+			key := "fn:" + strings.ToLower(x.name)
+			if visiting != nil && visiting[key] {
+				return false
+			}
+			if visiting == nil {
+				visiting = map[string]bool{}
+			}
+			visiting[key] = true
+			return st.isListValuedExprVisit(fn.Body, listLets, visiting)
+		}
 		return false
 	case *binaryNode:
 		if x.op == "|" {
 			return st.isListValuedExprVisit(x.left, listLets, visiting) &&
 				st.isListValuedExprVisit(x.right, listLets, visiting)
 		}
+	case *callNode:
+		name, ok := callCalleeName(x.callee)
+		if !ok {
+			return false
+		}
+		if fn, _ := st.lookupFunction(name); fn != nil && len(fn.Params) == len(x.args) && fn.Body != nil {
+			key := "fn:" + strings.ToLower(name)
+			if visiting != nil && visiting[key] {
+				return false
+			}
+			if visiting == nil {
+				visiting = map[string]bool{}
+			}
+			visiting[key] = true
+			return st.isListValuedExprVisit(fn.Body, listLets, visiting)
+		}
 	}
 	return false
+}
+
+func callCalleeName(n Node) (string, bool) {
+	switch c := n.(type) {
+	case *identNode:
+		return c.name, true
+	case *memberNode:
+		return c.name, true
+	}
+	return "", false
 }
 
 func (st *evalState) lookupParameter(name string) (Parameter, bool) {
@@ -3222,15 +3259,17 @@ func (st *evalState) evalAs(n *asNode) ([]any, error) {
 	if len(v) == 0 {
 		return nil, nil
 	}
-	for _, item := range v {
+	out := make([]any, len(v))
+	for i, item := range v {
 		if item == nil || unwrapPrimitive(item) == nil {
 			return nil, nil
 		}
 		if !typeCompatible(item, n.target) {
 			return nil, nil
 		}
+		out[i] = promoteAsValue(item, n.target)
 	}
-	return v, nil
+	return out, nil
 }
 
 func typeEquals(v any, target string) bool {
@@ -3241,7 +3280,39 @@ func typeCompatible(v any, target string) bool {
 	if typeEquals(v, target) {
 		return true
 	}
-	return strings.EqualFold(target, "Decimal") && typeEquals(v, "Integer")
+	if strings.EqualFold(target, "Decimal") && typeEquals(v, "Integer") {
+		return true
+	}
+	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Date") {
+		return true
+	}
+	if strings.EqualFold(target, "Date") && typeEquals(v, "DateTime") {
+		return true
+	}
+	return false
+}
+
+func promoteAsValue(v any, target string) any {
+	v = unwrapPrimitive(v)
+	if strings.EqualFold(target, "DateTime") && typeEquals(v, "Date") {
+		if t, ok := asTime(v); ok && isDateOnlyTime(t) {
+			loc := t.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
+			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	if strings.EqualFold(target, "Date") && typeEquals(v, "DateTime") {
+		if t, ok := asTime(v); ok {
+			loc := t.Location()
+			if loc == nil {
+				loc = time.UTC
+			}
+			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	return v
 }
 
 func listOrStringLength(args [][]any) ([]any, error) {
