@@ -2,67 +2,158 @@
 
 Small **FHIR intercept SPI** for HTTP and core write paths.
 
+Four intentional extension points (not a full HAPI interceptor bus).
+
+---
+
 ## What it does
 
-HAPI-style interceptor buses expose dozens of pointcuts. HAIStack keeps **four** intentional extension points:
+**Points** (`hooks.go`):
 
-| Pointcut | When it runs |
-|----------|----------------|
-| `Incoming` | HTTP request routed, before handler |
-| `PreStorage` | Core write, after validation/id assignment, before persist |
-| `PostCommit` | Core write, after `WriteSession` commits |
-| `Outgoing` | HTTP response, before resource envelope is serialized |
+| Point | Constant | When |
+|-------|----------|------|
+| Incoming | `hooks.Incoming` | HTTP routed, before handler |
+| PreStorage | `hooks.PreStorage` | Core write, before persist |
+| PostCommit | `hooks.PostCommit` | After successful `WriteSession` commit |
+| Outgoing | `hooks.Outgoing` | Before response envelope serialized |
 
-Register `Func` values on a `Registry` with `On`, then wire the same registry into:
+**Event:**
 
-- `core.ResourceServiceConfig.Hooks`
-- `http.Config.Hooks`
+```go
+type Event struct {
+    Point        Point
+    Action       Action
+    ResourceType string
+    ID           string
+    Operation    string
+    Resource     *types.ResourceEnvelope // mutable: PreStorage, Outgoing
+    Previous     *types.ResourceEnvelope
+}
+```
 
-`runtime.Builder.WithHooks` sets both.
+**Actions:** `ActionRead`, `ActionCreate`, `ActionUpdate`, `ActionPatch`, `ActionDelete`, `ActionSearch`, `ActionHistory`, `ActionTransaction`, `ActionBatch`, `ActionOperation`, `ActionMetadata`.
 
-Hooks run in **registration order**. Errors from Incoming, PreStorage, or Outgoing **abort** the request. PostCommit errors are **ignored** so a successful write is not reported as failure.
+**Registry:**
+
+- `NewRegistry()`, `On(point, Func)`, `Run(ctx, point, event)`
+- Registration order preserved; first error stops later funcs on that point (`TestRegistryRunsInOrderAndStopsOnError`)
+- Unknown points rejected (`TestRegistryRejectsUnknownPoint`)
+- Nil registry `Run` → noop
+
+**Failure semantics:**
+
+- Incoming / PreStorage / Outgoing errors **abort** the operation
+- PostCommit errors **ignored** in core (`_ = s.hooks.Run(...)`) — `TestPostCommitHookSeesPersistedResource`
+
+Wire the same `hooks.Hooks` into `core.ResourceServiceConfig.Hooks` and `http.Config.Hooks`, or `runtime.Builder.WithHooks`.
+
+Do **not** add new point types here — use HTTP middleware for CORS/rate limits.
+
+---
+
+## How it fits in the ecosystem
+
+```text
+HTTP ──► Incoming (pkg/http) ──► handler ──► core
+                                                  │
+                                            PreStorage
+                                                  │
+                                            WriteSession
+                                                  │
+                                            PostCommit (errors ignored)
+                                                  │
+HTTP ◄── Outgoing ◄── formattedResponseWriter
+```
+
+Incoming/Outgoing are HTTP-aware (`actionFromRoute` in `http/hooks.go`). PreStorage/PostCommit are write-path only.
+
+---
 
 ## When to use it
 
-- **Audit or metrics** on every write without forking `pkg/core`  
-- **Enrichment** — add derived fields in PreStorage (keep idempotent)  
-- **Response shaping** — strip internal extensions on Outgoing  
-- **Request guards** — custom headers or tenancy checks on Incoming  
+- Audit/metrics on writes
+- PreStorage enrichment (keep idempotent)
+- Outgoing redaction/strip internal extensions
+- Incoming guards (maintenance mode, custom headers)
+- Domain rejection via `*core.ServiceError` from PreStorage
 
-For transport-wide concerns (CORS, rate limits), prefer standard HTTP middleware **outside** this SPI.
+Avoid long work in hooks; use [`pkg/jobs`](../jobs/README.md) from PostCommit if needed. Do not rely on PostCommit for must-not-lose side effects.
 
-## Usage
+---
+
+## Usage modes
+
+### 1. Runtime builder
 
 ```go
-import (
-    "github.com/degoke/haistack/pkg/hooks"
-)
-
 reg := hooks.NewRegistry()
-reg.On(hooks.PreStorage, func(ctx hooks.Context) error {
-    // mutate ctx envelope or return error to fail write
+_ = reg.On(hooks.PreStorage, func(ctx context.Context, event *hooks.Event) error {
     return nil
 })
-
-svc, _ := core.NewResourceService(core.ResourceServiceConfig{
-    // ...
-    Hooks: reg,
-})
-
-handler, _ := haihttp.NewHandler(haihttp.Config{
-    // ...
-    Hooks: reg,
-})
+rt, err := runtime.New().WithSQLite(path).WithHooks(reg).Build(ctx)
 ```
 
-Or:
+### 2. Manual core + HTTP
 
 ```go
-rt, err := runtime.New().
-    WithSQLite(path).
-    WithHooks(reg).
-    Build(ctx)
+reg := hooks.NewRegistry()
+_ = reg.On(hooks.Incoming, func(ctx context.Context, event *hooks.Event) error {
+    return nil
+})
+svc, _ := core.NewResourceService(core.ResourceServiceConfig{Hooks: reg, /* stores */})
+handler, _ := haihttp.NewHandler(haihttp.Config{Hooks: reg, /* ... */})
 ```
+
+### 3. PreStorage mutate or reject
+
+From `core/hooks_test.go`:
+
+```go
+_ = reg.On(hooks.PreStorage, func(_ context.Context, event *hooks.Event) error {
+    if strings.Contains(string(event.Resource.JSON), "Blocked") {
+        return errors.New("blocked")
+    }
+    event.Resource.JSON = []byte(`{"resourceType":"Patient","id":"pat-1",...}`)
+    return nil
+})
+```
+
+### 4. PostCommit (non-fatal)
+
+```go
+_ = reg.On(hooks.PostCommit, func(_ context.Context, event *hooks.Event) error {
+    return errors.New("ignored") // write still succeeds
+})
+```
+
+### 5. Outgoing shaping
+
+HTTP `formattedResponseWriter` runs Outgoing before serialize (`http/hooks_test.go`, `writer.go`).
+
+---
+
+## Examples (APIs from this repo)
+
+```go
+err := reg.On(hooks.Incoming, fn)
+err = reg.Run(ctx, hooks.Incoming, &hooks.Event{
+    Action: hooks.ActionRead, ResourceType: "Patient", ID: "p1",
+})
+```
+
+**Func signature:**
+
+```go
+type Func func(ctx context.Context, event *hooks.Event) error
+```
+
+**Mutate resource** (`TestRegistryMutatesEventResource`): replace `event.Resource` in PreStorage.
+
+**Incoming non-ServiceError** → HTTP `invalidRequest("incoming hook rejected request", err)`.
+
+**Ordering:** hooks `a`, `b`, `c` on Incoming — if `b` errors, `c` skipped.
+
+---
 
 ## Where it fits
 
@@ -72,14 +163,24 @@ HTTP ──► Incoming ──► handler ──► core ──► PreStorage �
 HTTP ◄── Outgoing ◄── envelope ◄────────────────────────────────────────────┘
 ```
 
-Do **not** add new pointcut types in this package—extend behaviour by registering another function on one of the four, or wrap middleware at the HTTP server level.
+One registry instance keeps HTTP and core policy aligned.
+
+---
 
 ## Limits
 
-- PostCommit failures are swallowed by design—use reliable side-effect queues if you must not lose work.  
-- Hooks are synchronous; long-running work belongs in `pkg/jobs` triggered from PostCommit with care.
+- Four points only — no ad-hoc pointcut constants
+- PostCommit failures swallowed — use durable queues
+- Synchronous — blocks request path
+- PreStorage/PostCommit not on read-only core paths (reads use HTTP Incoming/Outgoing)
+- Register hooks at startup; `Registry` is mutex-safe for concurrent `Run`
+- Raw error responses may bypass Outgoing resource mutation
+
+---
 
 ## Related docs
 
-- [pkg/core/README.md](../core/README.md)  
+- [pkg/core/README.md](../core/README.md)
 - [pkg/http/README.md](../http/README.md)
+- [pkg/runtime/README.md](../runtime/README.md)
+- [pkg/jobs/README.md](../jobs/README.md)

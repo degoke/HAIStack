@@ -1,77 +1,189 @@
 # haistack-bulkimport (`pkg/bulkimport`)
 
-FHIR [Bulk Data](https://hl7.org/fhir/uv/bulkdata/) `$import` orchestration for HAIStack.
+FHIR [Bulk Data](https://hl7.org/fhir/uv/bulkdata/) **`$import`** orchestration for HAIStack.
+
+Accepts a **Parameters** kickoff (`Prefer: respond-async`), reads **application/fhir+ndjson**, and **creates or updates** resources via `ResourceWriter` (usually `core.ResourceService`). Validation matches REST writes.
+
+---
 
 ## What it does
 
-`pkg/bulkimport` accepts a **Parameters** kickoff (`Prefer: respond-async`), reads **application/fhir+ndjson** inputs, and **creates or updates** resources through a `ResourceWriter` (typically `core.ResourceService`). Job records persist in `store.JobStore` (type `export.import.record`); input and error NDJSON live in `store.BlobStore`. Background work uses [`pkg/jobs`](../jobs/README.md) with `jobs.TypeImportBulk`.
+| Stage | API | Behavior |
+|-------|-----|----------|
+| Parse | `ParseParametersKickoff` | Decode `inputFormat`, repeating `input` parts |
+| Prepare | `Service.prepareInputs` | Inline NDJSON or fetch `input.url` via `URLLoader` |
+| Store inputs | `FileStore.Put` | Path `{jobId}/input-{i}-{Type}.ndjson` |
+| Execute | `Executor.Execute` | Line-by-line upsert; error NDJSON for failures |
+| Complete | `Manifest` | Per-type counts + error file URLs |
 
-HTTP routes in [`pkg/http`](../http/README.md):
+**Job storage:** `jobs.TypeImportBulkRecord`; worker `jobs.TypeImportBulk` + `JobHandler()`.
+
+**HTTP** (`doc.go`, `pkg/http/bulk_import.go`):
 
 ```text
 POST   /fhir/$import
 GET    /fhir/$import/status/{jobId}
 DELETE /fhir/$import/status/{jobId}
-GET    /fhir/$import/files/{jobId}/{filename}   # error NDJSON
+GET    /fhir/$import/files/{jobId}/{filename}
 ```
 
-Remote `input.url` values are fetched only when a **`URLLoader`** is configured. Runtime wires `HTTPLoader` for `http`/`https` with size and timeout limits; other schemes are rejected.
+**Remote URLs:** only with `Config.Loader`. Runtime uses `NewHTTPLoader()` — HTTP(S), **60s** timeout, **64MiB** max (`HTTPLoaderTimeout`, `HTTPLoaderMaxBytes`). Rejects `file://` and unsafe redirects.
+
+**Import rules** (`executor.go`):
+
+- Create if id missing; Update if present
+- Strips incoming `meta.versionId` / `meta.lastUpdated` before persist (`TestImportStripsMetaVersionIDBeforePersist`)
+- Wrong line `resourceType` vs input `type` → error line, continue
+
+Kickoff validation errors use `*core.ServiceError` with `ErrorKindInvalid`.
+
+---
+
+## How it fits in the ecosystem
+
+```text
+NDJSON ──► bulkimport.Service ──► Executor ──► core.ResourceService ──► WriteSession
+              │                      │
+              ├── jobs.TypeImportBulk  └── BlobStore (inputs + errors)
+              └── HTTPLoader (optional)
+```
+
+- **[`pkg/export`](../export/README.md)** — produces compatible NDJSON for migration.
+- **[`pkg/sync`](../sync/README.md)** — incremental replication, not bulk load.
+- **`runtime.Services().BulkImportService`** — when job + blob stores wired.
+
+No `BulkImport` helper in `pkg/client` yet — use HTTP or embed `Service`.
+
+---
 
 ## When to use it
 
-- **Restore or migrate** NDJSON produced by `$export` or compatible tools  
-- **Batch ingest** from an ETL pipeline that emits FHIR NDJSON  
-- **Sandbox seeding** in non-production environments  
+- Restore/migrate `$export` NDJSON
+- ETL batch ingest (one FHIR resource per line)
+- Non-prod seed data
 
-Use transactional bundles or single-resource REST when you need fine-grained error handling per request, not million-row batch semantics.
+Use REST bundles for small/fine-grained control. Use sync for ongoing device replication. Always review error NDJSON before cutover (partial success is normal).
+
+---
 
 ## Usage modes
 
 ### 1. HTTP `$import`
 
-POST Parameters with input sources (inline base64 or `url`). Poll status until complete; download error file if present.
+POST Parameters with `Prefer: respond-async`. Poll `Content-Location` until manifest **200**.
+
+Example body (`TestParseParametersKickoffInlineNDJSON`):
+
+```json
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    {"name": "inputFormat", "valueCode": "application/fhir+ndjson"},
+    {"name": "input", "part": [
+      {"name": "type", "valueCode": "Patient"},
+      {"name": "valueString", "valueString": "{\"resourceType\":\"Patient\",\"id\":\"p1\"}"}
+    ]}
+  ]
+}
+```
+
+HTTP requires create+update grants on each input resource type (`authorizeImportKickoff`).
 
 ### 2. Programmatic service
 
 ```go
-import (
-    "context"
-
-    "github.com/degoke/haistack/pkg/bulkimport"
-)
-
 svc, err := bulkimport.NewService(bulkimport.Config{
-    Jobs:     jobStore,
-    Files:    fileStore,
-    Executor: executor, // wraps ResourceWriter + NDJSON parser
+    Jobs:     bulkimport.NewDurableJobStore(db.JobStore()),
+    Files:    bulkimport.NewBlobFileStore(db.BlobStore()),
+    Executor: &bulkimport.Executor{Resources: resourceSvc, Files: files},
     JobQueue: db.JobStore(),
-    Loader:   bulkimport.HTTPLoader{}, // optional; omit to reject URL-only kickoffs
+    Loader:   bulkimport.NewHTTPLoader(),
 })
-if err != nil { /* handle */ }
-
-job, err := svc.Kickoff(ctx, bulkimport.KickoffRequest{ /* Parameters body */ })
+job, err := svc.Kickoff(ctx, bulkimport.KickoffRequest{
+    InputFormat: bulkimport.InputFormatNDJSON,
+    Inputs: []bulkimport.InputFile{{
+        Type: "Patient",
+        NDJSON: []byte(`{"resourceType":"Patient","id":"p1"}` + "\n" +
+            `{"resourceType":"Patient","id":"p2"}`),
+    }},
+})
+manifest := svc.Manifest(job)
+runner.Register(jobs.TypeImportBulk, svc.JobHandler())
 ```
 
-Pair with [`pkg/export`](../export/README.md) for round-trip migration between HAIStack tenants.
+### 3. Parse Parameters only
+
+```go
+req, err := bulkimport.ParseParametersKickoff(body)
+job, err := svc.Kickoff(ctx, req)
+```
+
+Input parts: `type`, `url`, inline via `valueString` / `ndjson` / `resource`.
+
+### 4. URL inputs
+
+```go
+_, err := svc.Kickoff(ctx, bulkimport.KickoffRequest{
+    Inputs: []bulkimport.InputFile{{
+        Type: "Patient",
+        URL:  "https://storage.example/Patient.ndjson",
+    }},
+})
+```
+
+Without `Loader` → invalid error (`TestKickoffRejectsURLWithoutLoader`).
+
+### 5. In-memory / sync
+
+Omit `JobQueue` — `TestBulkImportRoundTrip`. Use `RunJob`, `Cancel`, `GetFile` for direct control.
+
+---
+
+## Examples (APIs from this repo)
+
+```go
+bulkimport.InputFormatNDJSON // "application/fhir+ndjson"
+bulkimport.StatusComplete
+```
+
+`TestBulkImportRoundTrip`: two Patient lines → `manifest.Output[0].Count == 2`.
+
+`TestImportUpdatesExistingResource`: same id triggers Update.
+
+`TestRunJobDoesNotCompleteCancelledJob`: mid-write cancel → `StatusCancelled`.
+
+Invalid: empty inputs, `InputFormat: "text/csv"`, URL without loader (`TestKickoffClientErrorsAreInvalid`).
+
+```go
+svc.StatusURL(jobID)
+svc.FileURL(jobID)
+```
+
+---
 
 ## Where it fits
 
 ```text
-NDJSON ──► pkg/bulkimport ──► core.ResourceService ──► store.WriteSession
-                │
-                ├──► pkg/jobs
-                └──► BlobStore (inputs + OperationOutcome lines)
+POST Parameters ──► pkg/http ──► bulkimport.Kickoff ──► Executor ──► core
 ```
 
-Validation and terminology checks follow whatever you wired into `ResourceService` (same as REST writes).
+Error artifacts served from `$import/files/{jobId}/...`.
+
+---
 
 ## Limits
 
-- Without `URLLoader`, kickoffs that only reference remote URLs fail closed.  
-- Import does not replace sync push/pull for incremental device replication—use [`pkg/sync`](../sync/README.md) for that model.  
-- Error files list per-line failures; partial success semantics match Bulk Data expectations—review job status and error NDJSON before cutover.
+- URL fetch requires `URLLoader`; HTTP(S) only; 64MiB default cap per URL.
+- Partial success — failed lines do not roll back successful ones.
+- Not a sync replacement; not a pkg/client one-liner yet.
+- Kickoff failure rolls back staged input blobs when possible.
+- Meta version stripped; server assigns new version ids.
+
+---
 
 ## Related docs
 
-- [Bulk Data verification](../../docs/bulk-data-verification.md)  
+- [Bulk Data verification](../../docs/bulk-data-verification.md)
 - [pkg/export/README.md](../export/README.md)
+- [pkg/core/README.md](../core/README.md), [pkg/http/README.md](../http/README.md)
+- [pkg/jobs/README.md](../jobs/README.md), [pkg/runtime/README.md](../runtime/README.md)
