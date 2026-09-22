@@ -1,11 +1,12 @@
 package binary
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
-	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
 )
@@ -30,6 +31,10 @@ func NewPrefixedFileStore(blobs store.BlobStore, prefix, pkgName, defaultContent
 }
 
 func (s *PrefixedFileStore) Put(ctx context.Context, path string, data []byte, contentType string) error {
+	return s.PutStream(ctx, path, bytes.NewReader(data), int64(len(data)), contentType)
+}
+
+func (s *PrefixedFileStore) PutStream(ctx context.Context, path string, r io.Reader, size int64, contentType string) error {
 	if s == nil || s.blobs == nil {
 		return fmt.Errorf("%s: blob store is required", fileStorePkg(s))
 	}
@@ -40,13 +45,7 @@ func (s *PrefixedFileStore) Put(ctx context.Context, path string, data []byte, c
 	if contentType == "" {
 		contentType = s.defaultCT
 	}
-	return s.blobs.Put(ctx, store.BlobObject{
-		Key:         key,
-		ContentType: contentType,
-		Size:        int64(len(data)),
-		Data:        copyBytes(data),
-		CreatedAt:   time.Now().UTC(),
-	})
+	return store.PutBlob(ctx, s.blobs, key, contentType, size, r)
 }
 
 func (s *PrefixedFileStore) Get(ctx context.Context, path string) ([]byte, string, error) {
@@ -79,6 +78,37 @@ func (s *PrefixedFileStore) Get(ctx context.Context, path string) ([]byte, strin
 		ct = s.defaultCT
 	}
 	return data, ct, nil
+}
+
+func (s *PrefixedFileStore) Open(ctx context.Context, path string) (io.ReadCloser, string, error) {
+	if s == nil || s.blobs == nil {
+		return nil, "", fmt.Errorf("%s: blob store is required", fileStorePkg(s))
+	}
+	key, err := FileObjectKey(s.prefix, path)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", fileStorePkg(s), err)
+	}
+	rc, obj, err := store.OpenBlob(ctx, s.blobs, key)
+	if err != nil {
+		if IsBlobMissing(err) {
+			return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
+		}
+		return nil, "", err
+	}
+	if obj == nil {
+		if rc != nil {
+			_ = rc.Close()
+		}
+		return nil, "", fmt.Errorf("%s: file %q not found: %w", fileStorePkg(s), path, ErrNotFound)
+	}
+	// Open already returns the payload stream. Do not treat Location as another
+	// blob key: AsStore copies Pointer.Ref there (chunk-store blob IDs, local
+	// file paths, s3:// URIs). Pointer-only BYTEA rows are resolved in Open.
+	ct := obj.ContentType
+	if ct == "" {
+		ct = s.defaultCT
+	}
+	return rc, ct, nil
 }
 
 func (s *PrefixedFileStore) Delete(ctx context.Context, path string) error {

@@ -60,9 +60,11 @@ func (s *DurableJobStore) Update(ctx context.Context, job Job) error {
 }
 
 // NewBlobFileStore wraps a blob store for export artifacts.
-func NewBlobFileStore(blobs store.BlobStore) FileStore {
+func NewBlobFileStore(blobs store.BlobStore) FileStoreWithStream {
 	return binary.NewPrefixedFileStore(blobs, blobKeyPrefix, "export", "application/fhir+ndjson")
 }
+
+var _ FileStoreWithStream = (*binary.PrefixedFileStore)(nil)
 
 func recordStatus(status JobStatus) store.JobStatus {
 	return jobs.MapBulkRecordStatus(string(status))

@@ -3,7 +3,10 @@ package export_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +97,93 @@ func TestBulkExportRoundTrip(t *testing.T) {
 	if patient["id"] != "p1" {
 		t.Fatalf("patient id = %v", patient["id"])
 	}
+
+	rc, _, err := svc.OpenFile(context.Background(), job.ID, "Patient.ndjson")
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	t.Cleanup(func() { _ = rc.Close() })
+	openData, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("OpenFile read: %v", err)
+	}
+	if string(openData) != string(data) {
+		t.Fatalf("OpenFile mismatch")
+	}
+}
+
+func TestExecutorStreamsPutWithoutBufferedPut(t *testing.T) {
+	now := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	resources := &memoryResources{byType: map[string]map[string]*types.ResourceEnvelope{
+		"Patient": {
+			"p1": {
+				ResourceType: "Patient",
+				ID:           "p1",
+				LastUpdated:  now,
+				JSON:         []byte(`{"resourceType":"Patient","id":"p1"}`),
+			},
+		},
+	}}
+	inner := export.NewInMemoryFileStore()
+	files := &streamOnlyFileStore{inner: inner}
+	executor := &export.Executor{Resources: resources, Files: files}
+	_, err := executor.Execute(context.Background(), export.ExecuteRequest{
+		JobID:         "job-stream",
+		ResourceTypes: []string{"Patient"},
+		BaseFileURL:   "/fhir/$export/files/job-stream",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if files.putCalls != 0 {
+		t.Fatalf("putCalls=%d, want 0 (must stream via PutStream)", files.putCalls)
+	}
+	if files.putStreamCalls != 1 {
+		t.Fatalf("putStreamCalls=%d, want 1", files.putStreamCalls)
+	}
+	got, _, err := inner.Get(context.Background(), "job-stream/Patient.ndjson")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !strings.Contains(string(got), `"id":"p1"`) {
+		t.Fatalf("payload = %s", got)
+	}
+}
+
+type streamOnlyFileStore struct {
+	inner          export.FileStoreWithStream
+	mu             sync.Mutex
+	putCalls       int
+	putStreamCalls int
+}
+
+func (s *streamOnlyFileStore) Put(ctx context.Context, path string, data []byte, contentType string) error {
+	s.mu.Lock()
+	s.putCalls++
+	s.mu.Unlock()
+	if len(data) > 0 {
+		return fmt.Errorf("buffered Put of %d bytes is not allowed", len(data))
+	}
+	return s.inner.Put(ctx, path, data, contentType)
+}
+
+func (s *streamOnlyFileStore) PutStream(ctx context.Context, path string, r io.Reader, size int64, contentType string) error {
+	s.mu.Lock()
+	s.putStreamCalls++
+	s.mu.Unlock()
+	return s.inner.PutStream(ctx, path, r, size, contentType)
+}
+
+func (s *streamOnlyFileStore) Get(ctx context.Context, path string) ([]byte, string, error) {
+	return s.inner.Get(ctx, path)
+}
+
+func (s *streamOnlyFileStore) Open(ctx context.Context, path string) (io.ReadCloser, string, error) {
+	return s.inner.Open(ctx, path)
+}
+
+func (s *streamOnlyFileStore) Delete(ctx context.Context, path string) error {
+	return s.inner.Delete(ctx, path)
 }
 
 func TestManifestSchema(t *testing.T) {

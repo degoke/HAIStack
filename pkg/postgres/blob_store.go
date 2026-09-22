@@ -1,8 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/degoke/health-ai-stack/pkg/store"
@@ -39,6 +42,28 @@ func (s *BlobStore) Put(ctx context.Context, obj store.BlobObject) error {
 	return nil
 }
 
+// PutStream uploads from r. The hai_binary_object.data column is BYTEA, so this
+// implementation materializes the reader before INSERT. Use an object-store
+// adapter (S3) or filesystem lakehouse partitions for multi-GB parquet objects.
+func (s *BlobStore) PutStream(ctx context.Context, key, contentType string, size int64, r io.Reader) error {
+	if r == nil {
+		return fmt.Errorf("put blob stream: reader is required")
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("put blob stream: %w", err)
+	}
+	if size <= 0 {
+		size = int64(len(data))
+	}
+	return s.Put(ctx, store.BlobObject{
+		Key:         key,
+		ContentType: contentType,
+		Size:        size,
+		Data:        data,
+	})
+}
+
 func (s *BlobStore) Get(ctx context.Context, key string) (*store.BlobObject, error) {
 	var (
 		obj         store.BlobObject
@@ -69,6 +94,45 @@ func (s *BlobStore) Get(ctx context.Context, key string) (*store.BlobObject, err
 	}
 	obj.CreatedAt = createdAt
 	return &obj, nil
+}
+
+// Open streams a blob. The BYTEA column is loaded in full, then wrapped in a
+// reader; use an object-store adapter for multi-GB objects. In-store Location
+// pointers are followed here. A URI Location without payload is an error, not
+// an empty body.
+func (s *BlobStore) Open(ctx context.Context, key string) (io.ReadCloser, *store.BlobObject, error) {
+	return s.open(ctx, key, nil)
+}
+
+func (s *BlobStore) open(ctx context.Context, key string, seen map[string]struct{}) (io.ReadCloser, *store.BlobObject, error) {
+	obj, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	head := *obj
+	data := head.Data
+	head.Data = nil
+	if data != nil {
+		return io.NopCloser(bytes.NewReader(data)), &head, nil
+	}
+	loc := strings.TrimSpace(obj.Location)
+	if loc == "" {
+		return io.NopCloser(bytes.NewReader(nil)), &head, nil
+	}
+	if strings.Contains(loc, "://") {
+		return nil, nil, fmt.Errorf("blob %q has location %q but no payload", obj.Key, loc)
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	if _, ok := seen[key]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", key)
+	}
+	seen[key] = struct{}{}
+	if _, ok := seen[loc]; ok {
+		return nil, nil, fmt.Errorf("blob location cycle at %q", loc)
+	}
+	return s.open(ctx, loc, seen)
 }
 
 func (s *BlobStore) Head(ctx context.Context, key string) (*store.BlobObject, error) {
