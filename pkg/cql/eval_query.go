@@ -118,8 +118,10 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		for i, item := range acc {
 			aggRows[i] = queryRow{item: item, this: item, thisSet: true}
 		}
-		if err := st.sortQuery(aggRows, q.sort); err != nil {
+		if ok, err := st.sortQuery(aggRows, q.sort); err != nil {
 			return nil, err
+		} else if !ok {
+			return nil, nil
 		}
 		out := make([]any, len(aggRows))
 		for i, row := range aggRows {
@@ -131,8 +133,10 @@ func (st *evalState) evalQuery(q *queryNode) ([]any, error) {
 		rows = st.distinctQueryRows(rows)
 	}
 	if len(q.sort) > 0 {
-		if err := st.sortQuery(rows, q.sort); err != nil {
+		if ok, err := st.sortQuery(rows, q.sort); err != nil {
 			return nil, err
+		} else if !ok {
+			return nil, nil
 		}
 	}
 	out := make([]any, len(rows))
@@ -236,7 +240,7 @@ func cartesian(lists [][]any) [][]any {
 	return out
 }
 
-func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
+func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) (bool, error) {
 	type keyed struct {
 		row  queryRow
 		keys []any
@@ -255,14 +259,31 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 			return true, nil
 		})
 		if err != nil {
-			return err
+			return false, err
 		}
 		keyedRows = append(keyedRows, keyed{row: row, keys: ks})
 	}
+	cmpCtx := st.compareContext()
+	for ki := range keys {
+		col := make([]any, len(keyedRows))
+		for i, kr := range keyedRows {
+			col[i] = kr.keys[ki]
+		}
+		if !sortKeyValuesComparable(cmpCtx, col) {
+			return false, nil
+		}
+	}
 	sort.SliceStable(keyedRows, func(i, j int) bool {
 		for ki, k := range keys {
-			cmp, ok := st.compareContext().Compare(keyedRows[i].keys[ki], keyedRows[j].keys[ki])
-			if !ok || cmp == 0 {
+			ai, aj := keyedRows[i].keys[ki], keyedRows[j].keys[ki]
+			cmp, ok := cmpCtx.Compare(ai, aj)
+			if !ok {
+				if cmpCtx.Equal(ai, aj) {
+					continue
+				}
+				return false
+			}
+			if cmp == 0 {
 				continue
 			}
 			if k.desc {
@@ -275,7 +296,22 @@ func (st *evalState) sortQuery(rows []queryRow, keys []sortItem) error {
 	for i := range keyedRows {
 		rows[i] = keyedRows[i].row
 	}
-	return nil
+	return true, nil
+}
+
+func sortKeyValuesComparable(cmp compareCtx, values []any) bool {
+	for i := 0; i < len(values); i++ {
+		for j := i + 1; j < len(values); j++ {
+			if _, ok := cmp.Compare(values[i], values[j]); ok {
+				continue
+			}
+			if cmp.Equal(values[i], values[j]) {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 func flattenValues(v []any) []any {

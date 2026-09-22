@@ -3134,6 +3134,31 @@ func TestQueryReturnAndTupleKeepSingletonLists(t *testing.T) {
 	}
 }
 
+func TestQuerySortIncomparableKeysIsNull(t *testing.T) {
+	eng := testEngine(t)
+	got, err := eng.Eval(context.Background(), "from {1, 'a', 2} X return X sort by X", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("incomparable sort keys: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {1, 2, 3} X return X sort by {X}", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("incomparable list sort keys: %#v", got)
+	}
+	got, err = eng.Eval(context.Background(), "from {2, 1} N let k: N return N sort by k", EvalContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || fmt.Sprint(got[0]) != "1" || fmt.Sprint(got[1]) != "2" {
+		t.Fatalf("comparable sort: %#v", got)
+	}
+}
+
 func TestListParameterIdentSemantics(t *testing.T) {
 	eng := testEngine(t)
 	lib, err := eng.ParseLibrary(`

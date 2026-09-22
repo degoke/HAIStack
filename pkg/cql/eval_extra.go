@@ -25,7 +25,7 @@ func (st *evalState) evalIndex(n *indexNode) ([]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	if !indexesAsList(n.x) && len(base) == 1 {
+	if !st.indexesAsList(n.x) && len(base) == 1 {
 		if s, ok := unwrapPrimitive(base[0]).(string); ok {
 			if i < 0 || int(i) >= len(s) {
 				return nil, nil
@@ -39,10 +39,13 @@ func (st *evalState) evalIndex(n *indexNode) ([]any, error) {
 	return []any{base[i]}, nil
 }
 
-func indexesAsList(n Node) bool {
+func (st *evalState) indexesAsList(n Node) bool {
 	switch n.(type) {
 	case *listNode, *retrieveNode, *queryNode, *memberNode:
 		return true
+	}
+	if id, ok := n.(*identNode); ok {
+		return st.isListTypedName(id.name)
 	}
 	return false
 }
@@ -55,7 +58,7 @@ func (st *evalState) evalIndexer(args [][]any, src Node) ([]any, error) {
 	if !ok {
 		return nil, nil
 	}
-	if !indexesAsList(src) && len(args[0]) == 1 {
+	if !st.indexesAsList(src) && len(args[0]) == 1 {
 		if s, ok := unwrapPrimitive(args[0][0]).(string); ok {
 			if i < 0 || int(i) >= len(s) {
 				return nil, nil
