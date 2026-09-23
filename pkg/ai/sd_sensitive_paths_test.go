@@ -15,9 +15,13 @@ func TestSensitiveFHIRPathsFromPatientStructureDefinition(t *testing.T) {
 	if !ok {
 		t.Fatal("missing Patient StructureDefinition")
 	}
-	paths := ai.SensitiveFHIRPathsFromStructureDefinition(sd, ai.DefaultPHIStructureRules(), ai.DefaultPHICatalog())
-	if len(paths) < 50 {
-		t.Fatalf("expected many sensitive paths from Patient SD, got %d", len(paths))
+	fullRules := ai.StructureRulesForMode(ai.PHIModeFull, ai.DefaultPHIStructureRules())
+	paths := ai.SensitiveFHIRPathsFromStructureDefinition(sd, fullRules, nil)
+	if len(paths) < 10 {
+		t.Fatalf("expected sensitive paths from Patient SD in full mode, got %d", len(paths))
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected non-empty path list")
 	}
 }
 

@@ -47,55 +47,10 @@ func defaultSensitiveFHIRTypes() map[string]bool {
 	}
 }
 
-// SensitiveFHIRPathsFromStructureDefinition derives FHIRPath expressions (relative
-// to the resource root) from one compiled StructureDefinition.
-func SensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition, rules PHIStructureRules, catalog *PHICatalog) []string {
-	out := sensitiveFHIRPathsFromStructureDefinition(sd, rules)
-	if sd == nil || catalog == nil {
-		return out
-	}
-	seen := make(map[string]struct{}, len(out))
-	for _, p := range out {
-		seen[p] = struct{}{}
-	}
-
-	// Catalog path suffixes are validated as FHIRPath at compile time.
-	if catalog != nil {
-		for _, suffix := range catalog.globalPathSuffixes() {
-			if suffix == "" {
-				continue
-			}
-			if _, ok := seen[suffix]; ok {
-				continue
-			}
-			seen[suffix] = struct{}{}
-			out = append(out, suffix)
-		}
-		for _, suffix := range catalog.ResourcePathSuffixes[sd.Type] {
-			if suffix == "" {
-				continue
-			}
-			if _, ok := seen[suffix]; ok {
-				continue
-			}
-			seen[suffix] = struct{}{}
-			out = append(out, suffix)
-		}
-	}
-
-	// Parent resource element paths from catalog (whole subtrees).
-	for _, el := range catalog.ElementsForResource(sd.Type) {
-		expr := elementPathToFHIRPath(sd.Type, sd.Type+"."+el)
-		if expr == "" {
-			expr = el
-		}
-		if _, ok := seen[expr]; ok {
-			continue
-		}
-		seen[expr] = struct{}{}
-		out = append(out, expr)
-	}
-	return out
+// SensitiveFHIRPathsFromStructureDefinition derives FHIRPath expressions from one
+// StructureDefinition only. Catalog paths are added once in the path index build.
+func SensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition, rules PHIStructureRules, _ *PHICatalog) []string {
+	return sensitiveFHIRPathsFromStructureDefinition(sd, rules)
 }
 
 func sensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition, rules PHIStructureRules) []string {

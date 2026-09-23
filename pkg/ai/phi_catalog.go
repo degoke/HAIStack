@@ -68,7 +68,12 @@ func DefaultPHICatalog() *PHICatalog {
 // DefaultDeidentifier returns the standard FHIR de-identifier used when Executor
 // Config.Deidentify is nil. Pass a custom Deidentifier to override.
 func DefaultDeidentifier() Deidentifier {
-	return NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{Catalog: DefaultPHICatalog()})
+	return NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{
+		Catalog:   DefaultPHICatalog(),
+		Mode:      PHIModeStandard,
+		EvalMode:  EvalModeKeywordsOnly,
+		UseShared: true,
+	})
 }
 
 func defaultGlobalPathSuffixes() []string {

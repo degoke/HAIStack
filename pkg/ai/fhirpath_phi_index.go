@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 
@@ -10,32 +11,47 @@ import (
 )
 
 type phiPathBundle struct {
-	segment  []string
-	compiled []fhirpath.CompiledExpression
-	labels   []string
+	segment    []string
+	segmentIdx *pathIndex
+	catalogIdx *pathIndex
+	compiled   []fhirpath.CompiledExpression
+	labels     []string
 }
 
 type fhirPathPHIIndex struct {
-	mu       sync.RWMutex
-	engine   fhirpath.Engine
-	profiles validate.ProfileCatalog
-	rules    PHIStructureRules
-	catalog  *PHICatalog
-	base     map[string]phiPathBundle
-	byProfile map[string]phiPathBundle
+	mu          sync.RWMutex
+	engine      fhirpath.Engine
+	profiles    validate.ProfileCatalog
+	rules       PHIStructureRules
+	catalog     *PHICatalog
+	mode        PHIMode
+	evalMode    EvalMode
+	base        map[string]phiPathBundle
+	byProfile   map[string]phiPathBundle
+	merged      map[string]phiPathBundle
 }
 
-func newFHIRPathPHIIndex(engine fhirpath.Engine, profiles validate.ProfileCatalog, rules PHIStructureRules, catalog *PHICatalog) *fhirPathPHIIndex {
+func newFHIRPathPHIIndex(engine fhirpath.Engine, profiles validate.ProfileCatalog, rules PHIStructureRules, catalog *PHICatalog, mode PHIMode, evalMode EvalMode) *fhirPathPHIIndex {
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
 	}
+	if mode == "" {
+		mode = PHIModeStandard
+	}
+	if evalMode == "" {
+		evalMode = EvalModeKeywordsOnly
+	}
+	rules = StructureRulesForMode(mode, rules)
 	return &fhirPathPHIIndex{
 		engine:    engine,
 		profiles:  profiles,
 		rules:     rules,
 		catalog:   catalog,
+		mode:      mode,
+		evalMode:  evalMode,
 		base:      make(map[string]phiPathBundle),
 		byProfile: make(map[string]phiPathBundle),
+		merged:    make(map[string]phiPathBundle),
 	}
 }
 
@@ -43,19 +59,42 @@ func (idx *fhirPathPHIIndex) bundleFor(ctx context.Context, resourceType string,
 	if err := ctx.Err(); err != nil {
 		return phiPathBundle{}, err
 	}
+	profiles := metaProfileURLs(resource)
+	cacheKey := mergedBundleCacheKey(resourceType, profiles)
+	idx.mu.RLock()
+	if b, ok := idx.merged[cacheKey]; ok {
+		idx.mu.RUnlock()
+		return b, nil
+	}
+	idx.mu.RUnlock()
+
 	base, err := idx.baseBundle(ctx, resourceType)
 	if err != nil {
 		return phiPathBundle{}, err
 	}
 	merged := base
-	for _, url := range metaProfileURLs(resource) {
+	for _, url := range profiles {
 		profileBundle, err := idx.profileBundle(ctx, url, resourceType)
 		if err != nil {
 			return phiPathBundle{}, err
 		}
 		merged = mergePathBundles(merged, profileBundle)
 	}
+	merged = finalizePathBundle(merged, idx.catalog, resourceType)
+
+	idx.mu.Lock()
+	idx.merged[cacheKey] = merged
+	idx.mu.Unlock()
 	return merged, nil
+}
+
+func mergedBundleCacheKey(resourceType string, profiles []string) string {
+	if len(profiles) == 0 {
+		return resourceType
+	}
+	sorted := append([]string(nil), profiles...)
+	sort.Strings(sorted)
+	return resourceType + "|" + strings.Join(sorted, ",")
 }
 
 func (idx *fhirPathPHIIndex) baseBundle(ctx context.Context, resourceType string) (phiPathBundle, error) {
@@ -70,7 +109,7 @@ func (idx *fhirPathPHIIndex) baseBundle(ctx context.Context, resourceType string
 	if err != nil {
 		return phiPathBundle{}, err
 	}
-	bundle := idx.compileBundle(paths)
+	bundle := idx.compileBundle(paths, resourceType)
 
 	idx.mu.Lock()
 	idx.base[resourceType] = bundle
@@ -98,7 +137,7 @@ func (idx *fhirPathPHIIndex) profileBundle(ctx context.Context, profileURL, reso
 		return phiPathBundle{}, nil
 	}
 	paths := sensitiveFHIRPathsFromStructureDefinition(sd, idx.rules)
-	bundle := idx.compileBundle(paths)
+	bundle := idx.compileBundle(paths, resourceType)
 
 	idx.mu.Lock()
 	idx.byProfile[cacheKey] = bundle
@@ -136,13 +175,13 @@ func (idx *fhirPathPHIIndex) buildBasePaths(ctx context.Context, resourceType st
 		}
 	}
 
-	if idx.profiles != nil {
+	if idx.mode != PHIModeCatalog && idx.profiles != nil {
 		sd, err := lookupBaseStructureDefinition(idx.profiles, resourceType)
 		if err != nil {
 			return nil, err
 		}
 		if sd != nil {
-			for _, expr := range SensitiveFHIRPathsFromStructureDefinition(sd, idx.rules, idx.catalog) {
+			for _, expr := range sensitiveFHIRPathsFromStructureDefinition(sd, idx.rules) {
 				add(expr)
 			}
 		}
@@ -150,12 +189,20 @@ func (idx *fhirPathPHIIndex) buildBasePaths(ctx context.Context, resourceType st
 	return out, nil
 }
 
-func (idx *fhirPathPHIIndex) compileBundle(paths []string) phiPathBundle {
+func (idx *fhirPathPHIIndex) compileBundle(paths []string, resourceType string) phiPathBundle {
 	segment, compileExprs := ExpandFHIRPathExpressions(paths)
+	segmentSet := newPathIndex(segment)
+	evalMode := idx.evalMode
 	var compiled []fhirpath.CompiledExpression
 	var labels []string
-	if idx.engine != nil {
+	if idx.engine != nil && evalMode != EvalModeNever {
 		for _, expr := range compileExprs {
+			if evalMode == EvalModeKeywordsOnly {
+				seg := SegmentPathFromFHIRPathExpr(expr)
+				if seg != "" && segmentSet != nil && segmentSet.Match(seg) {
+					continue
+				}
+			}
 			c, err := idx.engine.Compile(expr)
 			if err != nil {
 				continue
@@ -165,10 +212,18 @@ func (idx *fhirPathPHIIndex) compileBundle(paths []string) phiPathBundle {
 		}
 	}
 	return phiPathBundle{
-		segment:  segment,
-		compiled: compiled,
-		labels:   labels,
+		segment:    segment,
+		segmentIdx: segmentSet,
+		catalogIdx: catalogPathIndex(idx.catalog, resourceType),
+		compiled:   compiled,
+		labels:     labels,
 	}
+}
+
+func finalizePathBundle(b phiPathBundle, catalog *PHICatalog, resourceType string) phiPathBundle {
+	b.segmentIdx = mergePathIndices(b.segmentIdx, newPathIndex(b.segment))
+	b.catalogIdx = catalogPathIndex(catalog, resourceType)
+	return b
 }
 
 func mergePathBundles(a, b phiPathBundle) phiPathBundle {
@@ -199,7 +254,13 @@ func mergePathBundles(a, b phiPathBundle) phiPathBundle {
 		compiled = append(compiled, c)
 		labels = append(labels, l)
 	}
-	return phiPathBundle{segment: segment, compiled: compiled, labels: labels}
+	return phiPathBundle{
+		segment:    segment,
+		segmentIdx: mergePathIndices(a.segmentIdx, b.segmentIdx, newPathIndex(segment)),
+		catalogIdx: a.catalogIdx,
+		compiled:   compiled,
+		labels:     labels,
+	}
 }
 
 func lookupBaseStructureDefinition(catalog validate.ProfileCatalog, resourceType string) (*validate.StructureDefinition, error) {

@@ -139,8 +139,10 @@ exec, err := ai.NewExecutor(ai.Config{
 })
 ```
 
-`Executor` uses `DefaultDeidentifier()` (`FHIRDeidentifier` + `DefaultPHICatalog`)
-when `Config.Deidentify` is nil. Pass your own `Deidentifier` to override.
+`Executor` uses a shared `FHIRDeidentifier` (`PHIModeStandard`, `EvalModeKeywordsOnly`)
+when `Config.Deidentify` is nil, warms path indexes for common resource types at
+startup, and passes `ProfileCatalog` when set. Override with `PHIMode`, `EvalMode`,
+or a custom `Deidentifier`.
 
 `FHIRDeidentifier` applies:
 

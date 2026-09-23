@@ -12,7 +12,7 @@ const V3ConfidentialityCodeSystem = "http://terminology.hl7.org/CodeSystem/v3-Co
 // deepScrubResource applies catalog-only redaction (no FHIRPath bundle). Prefer
 // scrubResourceMerged when a path bundle is available.
 func deepScrubResource(resourceType string, root map[string]any, catalog *PHICatalog, placeholder string) []string {
-	redactions, err := scrubResourceMerged(context.Background(), resourceType, root, catalog, phiPathBundle{}, nil, placeholder)
+	redactions, err := scrubResourceMerged(context.Background(), resourceType, root, catalog, phiPathBundle{}, nil, placeholder, scrubOptions{})
 	if err != nil {
 		return nil
 	}

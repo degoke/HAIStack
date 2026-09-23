@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/degoke/haistack/pkg/fhirpath"
 	"github.com/degoke/haistack/pkg/types"
@@ -57,7 +56,7 @@ func primitiveStringFromValue(v fhirpath.Value) (string, bool) {
 }
 
 func jsonResourceForFHIRPath(resourceType string, root map[string]any) (any, error) {
-	data, err := json.Marshal(root)
+	data, err := marshalJSONPooled(root)
 	if err != nil {
 		return nil, err
 	}

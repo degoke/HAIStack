@@ -38,6 +38,11 @@ type Config struct {
 	// ProfileCatalog enables StructureDefinition-driven FHIRPath PHI rules on the
 	// default FHIRDeidentifier when Deidentify is nil.
 	ProfileCatalog validate.ProfileCatalog
+	// PHIMode / EvalMode tune default FHIRDeidentifier performance vs coverage.
+	PHIMode  PHIMode
+	EvalMode EvalMode
+	// SharedFHIRDeidentifier reuses a process-wide FHIRDeidentifier (default true).
+	SharedFHIRDeidentifier *bool
 	ModelRouter           *ModelRouter
 	Citations             *CitationBuilder
 	Formatter             *ContextFormatter
@@ -71,10 +76,21 @@ func NewExecutor(cfg Config) (*Executor, error) {
 		cfg.Registry = NewRegistry()
 	}
 	if cfg.Deidentify == nil {
-		cfg.Deidentify = NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{
-			Catalog:  DefaultPHICatalog(),
-			Profiles: cfg.ProfileCatalog,
-		})
+		useShared := true
+		if cfg.SharedFHIRDeidentifier != nil {
+			useShared = *cfg.SharedFHIRDeidentifier
+		}
+		deidCfg := FHIRDeidentifierConfig{
+			Catalog:    DefaultPHICatalog(),
+			Profiles:   cfg.ProfileCatalog,
+			Mode:       cfg.PHIMode,
+			EvalMode:   cfg.EvalMode,
+			UseShared:  useShared,
+		}
+		cfg.Deidentify = NewFHIRDeidentifierWithConfig(deidCfg)
+		if fd, ok := cfg.Deidentify.(*FHIRDeidentifier); ok {
+			_ = WarmPathIndex(context.Background(), fd, DefaultWarmResourceTypes...)
+		}
 	}
 	return &Executor{cfg: cfg}, nil
 }

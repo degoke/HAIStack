@@ -16,6 +16,12 @@ type FHIRDeidentifierConfig struct {
 	Rules    *PHIStructureRules
 	Engine   fhirpath.Engine // optional; default engine compiles catalog paths
 	Redacted string
+	// Mode controls StructureDefinition path breadth (default PHIModeStandard).
+	Mode PHIMode
+	// EvalMode controls FHIRPath evaluation (default EvalModeKeywordsOnly).
+	EvalMode EvalMode
+	// UseShared reuses a process-wide de-identifier instance for identical config.
+	UseShared bool
 }
 
 // FHIRDeidentifier implements Deidentifier using compiled FHIRPath expressions,
@@ -27,6 +33,7 @@ type FHIRDeidentifier struct {
 	rules    PHIStructureRules
 	engine   fhirpath.Engine
 	index    *fhirPathPHIIndex
+	evalMode EvalMode
 	Redacted string
 }
 
@@ -39,6 +46,13 @@ func NewFHIRDeidentifier(catalog *PHICatalog) *FHIRDeidentifier {
 
 // NewFHIRDeidentifierWithConfig constructs a FHIR de-identifier.
 func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
+	if cfg.UseShared {
+		return SharedFHIRDeidentifier(cfg)
+	}
+	return newFHIRDeidentifierWithConfig(cfg)
+}
+
+func newFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
 	catalog := cfg.Catalog
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
@@ -46,6 +60,14 @@ func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier
 	rules := DefaultPHIStructureRules()
 	if cfg.Rules != nil {
 		rules = *cfg.Rules
+	}
+	mode := cfg.Mode
+	if mode == "" {
+		mode = PHIModeStandard
+	}
+	evalMode := cfg.EvalMode
+	if evalMode == "" {
+		evalMode = EvalModeKeywordsOnly
 	}
 	engine := cfg.Engine
 	if engine == nil {
@@ -56,8 +78,9 @@ func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier
 		profiles: cfg.Profiles,
 		rules:    rules,
 		engine:   engine,
+		evalMode: evalMode,
 		Redacted: cfg.Redacted,
-		index:    newFHIRPathPHIIndex(engine, cfg.Profiles, rules, catalog),
+		index:    newFHIRPathPHIIndex(engine, cfg.Profiles, rules, catalog, mode, evalMode),
 	}
 	if d.Redacted == "" {
 		d.Redacted = DefaultRedactedValue
@@ -82,7 +105,7 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 			return req.Data, nil, nil
 		}
 		rt := resourceTypeFromMap(m, req.ResourceType)
-		redactions, err := d.scrubResource(ctx, rt, m, placeholder)
+		redactions, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -101,7 +124,7 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 					continue
 				}
 				rt := resourceTypeFromMap(m, req.ResourceType)
-				r, err := d.scrubResource(ctx, rt, m, placeholder)
+				r, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -115,14 +138,14 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 					continue
 				}
 				rt := resourceTypeFromMap(m, "")
-				r, err := d.scrubResource(ctx, rt, m, placeholder)
+				r, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
 				if err != nil {
 					return nil, nil, err
 				}
 				redactions = append(redactions, r...)
 			}
 		}
-		return root, uniqueStrings(redactions), nil
+		return root, redactions, nil
 
 	case ToolRunView:
 		root, ok := req.Data.(map[string]any)
@@ -137,7 +160,7 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 	}
 }
 
-func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType string, m map[string]any, placeholder string) ([]string, error) {
+func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType string, m map[string]any, placeholder string, toolName string) ([]string, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -145,7 +168,8 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 	if err != nil {
 		return nil, err
 	}
-	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, d.engine, placeholder)
+	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
+	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, d.engine, placeholder, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +184,7 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 			if err != nil {
 				return nil, err
 			}
-			childRedactions, err := scrubResourceMerged(ctx, childType, child, d.catalog, childBundle, d.engine, placeholder)
+			childRedactions, err := scrubResourceMerged(ctx, childType, child, d.catalog, childBundle, d.engine, placeholder, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -168,7 +192,7 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 			contained[i] = child
 		}
 	}
-	return uniqueStrings(redactions), nil
+	return redactions, nil
 }
 
 func resourceTypeFromMap(m map[string]any, fallback string) string {
@@ -217,7 +241,7 @@ func scrubViewRowMap(row map[string]any, catalog *PHICatalog, placeholder string
 		}
 		if child, ok := val.(map[string]any); ok {
 			rt, _ := child["resourceType"].(string)
-			childRedactions, err := scrubResourceMerged(context.Background(), rt, child, catalog, phiPathBundle{}, nil, placeholder)
+			childRedactions, err := scrubResourceMerged(context.Background(), rt, child, catalog, phiPathBundle{}, nil, placeholder, scrubOptions{})
 			if err == nil {
 				redactions = append(redactions, childRedactions...)
 			}
