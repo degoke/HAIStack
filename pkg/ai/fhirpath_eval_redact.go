@@ -3,17 +3,21 @@ package ai
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/degoke/haistack/pkg/fhirpath"
 	"github.com/degoke/haistack/pkg/types"
 )
 
-// redactCompiledFHIRPaths evaluates compiled expressions and redacts matching
-// leaf values in the JSON resource map. Simple dot paths are handled via segment
-// redaction first; evaluation covers backtick paths and other compile-only forms.
-func redactCompiledFHIRPaths(ctx context.Context, engine fhirpath.Engine, resourceType string, root map[string]any, compiled []fhirpath.CompiledExpression, labels []string, placeholder string) ([]string, error) {
+// buildEvalStringTargets evaluates compiled FHIRPath expressions once per
+// resource (single marshal/parse) and collects string values to redact during
+// the merged JSON walk.
+func buildEvalStringTargets(
+	ctx context.Context,
+	engine fhirpath.Engine,
+	resourceType string,
+	root map[string]any,
+	compiled []fhirpath.CompiledExpression,
+) (map[string]struct{}, error) {
 	if engine == nil || root == nil || len(compiled) == 0 {
 		return nil, nil
 	}
@@ -21,38 +25,27 @@ func redactCompiledFHIRPaths(ctx context.Context, engine fhirpath.Engine, resour
 	if err != nil {
 		return nil, err
 	}
-	var redactions []string
-	for i, expr := range compiled {
-		label := labels[i]
-		if label == "" {
-			label = expr.Expr()
-		}
-		if seg := SegmentPathFromFHIRPathExpr(label); seg != "" {
-			if n := redactFHIRPathSegments(root, strings.Split(seg, "."), placeholder); n > 0 {
-				redactions = append(redactions, fmt.Sprintf("%s.%s", resourceType, seg))
-				continue
-			}
+	targets := make(map[string]struct{})
+	for _, expr := range compiled {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 		items, err := expr.Eval(ctx, resource)
 		if err != nil || len(items) == 0 {
 			continue
 		}
 		for _, item := range items {
-			if redactMatchingLeaves(root, item, placeholder) {
-				redactions = append(redactions, fmt.Sprintf("%s.%s", resourceType, label))
+			s, ok := primitiveStringFromValue(item)
+			if !ok || s == "" {
+				continue
 			}
+			targets[s] = struct{}{}
 		}
 	}
-	return uniqueStrings(redactions), nil
-}
-
-// redactMatchingLeaves replaces primitive values equal to want with placeholder.
-func redactMatchingLeaves(node any, want fhirpath.Value, placeholder string) bool {
-	target, ok := primitiveStringFromValue(want)
-	if !ok {
-		return false
+	if len(targets) == 0 {
+		return nil, nil
 	}
-	return redactPrimitiveEqual(node, target, placeholder) > 0
+	return targets, nil
 }
 
 func primitiveStringFromValue(v fhirpath.Value) (string, bool) {
@@ -61,30 +54,6 @@ func primitiveStringFromValue(v fhirpath.Value) (string, bool) {
 		return "", false
 	}
 	return s, true
-}
-
-func redactPrimitiveEqual(node any, target, placeholder string) int {
-	switch cur := node.(type) {
-	case map[string]any:
-		var n int
-		for k, v := range cur {
-			if prim, ok := v.(string); ok && prim == target {
-				cur[k] = placeholder
-				n++
-				continue
-			}
-			n += redactPrimitiveEqual(v, target, placeholder)
-		}
-		return n
-	case []any:
-		var n int
-		for i := range cur {
-			n += redactPrimitiveEqual(cur[i], target, placeholder)
-		}
-		return n
-	default:
-		return 0
-	}
 }
 
 func jsonResourceForFHIRPath(resourceType string, root map[string]any) (any, error) {

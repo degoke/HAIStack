@@ -41,7 +41,8 @@
 //   - Deidentifier / FHIRDeidentifier / PHICatalog / ProfileCatalog: Executor
 //     defaults to FHIRDeidentifier when Config.Deidentify is nil; override with
 //     any Deidentifier. FHIRDeidentifier compiles FHIRPath expressions, derives
-//     paths from StructureDefinitions (types, extensions, mustSupport/isSummary),
+//     paths from StructureDefinitions (base type and meta.profile, types,
+//     extensions, mustSupport/isSummary) and compiled FHIRPath (keyword elements),
 //     and applies meta.security-driven redaction when policy sets Deidentify.
 //
 // # Tool input shapes

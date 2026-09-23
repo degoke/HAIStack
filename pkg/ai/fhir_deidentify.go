@@ -145,13 +145,30 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 	if err != nil {
 		return nil, err
 	}
-	fhirRedactions := redactFHIRPaths(resourceType, m, bundle.segment, placeholder)
-	evalRedactions, err := redactCompiledFHIRPaths(ctx, d.engine, resourceType, m, bundle.compiled, bundle.labels, placeholder)
+	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, d.engine, placeholder)
 	if err != nil {
 		return nil, err
 	}
-	walkRedactions := deepScrubResource(resourceType, m, d.catalog, placeholder)
-	return uniqueStrings(append(append(fhirRedactions, evalRedactions...), walkRedactions...)), nil
+	if contained, ok := m["contained"].([]any); ok {
+		for i, item := range contained {
+			child, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			childType, _ := child["resourceType"].(string)
+			childBundle, err := d.index.bundleFor(ctx, childType, child)
+			if err != nil {
+				return nil, err
+			}
+			childRedactions, err := scrubResourceMerged(ctx, childType, child, d.catalog, childBundle, d.engine, placeholder)
+			if err != nil {
+				return nil, err
+			}
+			redactions = append(redactions, childRedactions...)
+			contained[i] = child
+		}
+	}
+	return uniqueStrings(redactions), nil
 }
 
 func resourceTypeFromMap(m map[string]any, fallback string) string {
@@ -200,7 +217,10 @@ func scrubViewRowMap(row map[string]any, catalog *PHICatalog, placeholder string
 		}
 		if child, ok := val.(map[string]any); ok {
 			rt, _ := child["resourceType"].(string)
-			redactions = append(redactions, deepScrubResource(rt, child, catalog, placeholder)...)
+			childRedactions, err := scrubResourceMerged(context.Background(), rt, child, catalog, phiPathBundle{}, nil, placeholder)
+			if err == nil {
+				redactions = append(redactions, childRedactions...)
+			}
 			row[col] = child
 			continue
 		}
