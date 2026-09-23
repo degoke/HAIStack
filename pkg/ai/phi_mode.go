@@ -12,15 +12,20 @@ const (
 	PHIModeFull PHIMode = "full"
 )
 
-// EvalMode controls FHIRPath compile/eval during scrubbing.
+// EvalMode controls which FHIRPath expression strings augment segment redaction.
+// Scrubbing does not evaluate FHIRPath against live values (only path segments
+// derived from expression text). Search tool output skips label augmentation
+// unless EvalModeAlways is set (see effectiveEvalMode).
 type EvalMode string
 
 const (
-	// EvalModeNever skips FHIRPath evaluation (segment + catalog walk only).
+	// EvalModeNever uses segment and catalog paths only (no label augmentation).
 	EvalModeNever EvalMode = "never"
-	// EvalModeKeywordsOnly evaluates expressions without a segment equivalent (e.g. text.`div`).
+	// EvalModeKeywordsOnly adds segment paths from expressions without an indexed
+	// equivalent (e.g. text.`div`).
 	EvalModeKeywordsOnly EvalMode = "keywords-only"
-	// EvalModeAlways evaluates all compiled expressions.
+	// EvalModeAlways adds segment paths from every compileable expression string,
+	// including on search tool output.
 	EvalModeAlways EvalMode = "always"
 )
 

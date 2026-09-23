@@ -9,27 +9,43 @@ import (
 	"github.com/buger/jsonparser"
 )
 
+// jsonScrubResolve supplies path indices and strict mode for one resource JSON
+// object (root, contained item, or Bundle entry.resource).
+type jsonScrubResolve func(resourceType string, resourceJSON []byte) (segmentIdx, catalogIdx *pathIndex, strict bool, err error)
+
 type jsonScrubber struct {
-	resourceType    string
 	catalog         *PHICatalog
 	placeholderJSON []byte
-	strict          bool
-	path            []string
+	resolve         jsonScrubResolve
+	resourceType    string
 	segmentIdx      *pathIndex
 	catalogIdx      *pathIndex
+	strict          bool
+	docPath         []string
+	resPath         []string
+	contextStack    []jsonScrubContext
 	redactionSet    map[string]struct{}
+	patchKeys       map[string]struct{}
 	patchPaths      [][]string
+	walkErr         error
 }
 
-// scrubJSONResource redacts PHI in one pass over JSON bytes using jsonparser.
-func scrubJSONResource(
-	resourceType string,
+type jsonScrubContext struct {
+	resourceType string
+	segmentIdx   *pathIndex
+	catalogIdx   *pathIndex
+	strict       bool
+	resPath      []string
+}
+
+// scrubJSONDocument redacts PHI in one jsonparser walk, including nested
+// contained resources and Bundle entry.resource subtrees.
+func scrubJSONDocument(
 	data []byte,
 	catalog *PHICatalog,
-	segmentIdx *pathIndex,
-	catalogIdx *pathIndex,
 	placeholder string,
-	strict bool,
+	fallbackResourceType string,
+	resolve jsonScrubResolve,
 ) ([]byte, []string, error) {
 	if len(data) == 0 {
 		return data, nil, nil
@@ -37,36 +53,115 @@ func scrubJSONResource(
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
 	}
+	if resolve == nil {
+		resolve = catalogOnlyJSONResolve(catalog, fallbackResourceType)
+	}
 	placeholderJSON, err := json.Marshal(placeholder)
 	if err != nil {
 		return nil, nil, err
 	}
 	s := &jsonScrubber{
-		resourceType:    resourceType,
 		catalog:         catalog,
 		placeholderJSON: placeholderJSON,
-		strict:          strict,
-		segmentIdx:      segmentIdx,
-		catalogIdx:      catalogIdx,
+		resolve:         resolve,
 		redactionSet:    make(map[string]struct{}),
+		patchKeys:       make(map[string]struct{}),
 	}
-	if err := s.walkValue(data, jsonparser.Object); err != nil {
+	rt := resourceTypeFromJSON(data, fallbackResourceType)
+	seg, cat, strict, err := resolve(rt, data)
+	if err != nil {
+		return nil, nil, err
+	}
+	s.resourceType = rt
+	s.segmentIdx = seg
+	s.catalogIdx = cat
+	s.strict = strict
+	if err := s.walkObject(data); err != nil {
 		return nil, nil, err
 	}
 	if len(s.patchPaths) == 0 {
 		return data, nil, nil
 	}
-	sort.Slice(s.patchPaths, func(i, j int) bool {
-		return len(s.patchPaths[i]) > len(s.patchPaths[j])
-	})
-	out := data
-	for _, path := range s.patchPaths {
-		out, err = jsonparser.Set(out, s.placeholderJSON, jsonParserPath(path)...)
-		if err != nil {
-			return nil, nil, fmt.Errorf("json scrub set %v: %w", path, err)
-		}
+	out, err := applyJSONPatches(data, s.patchPaths, placeholderJSON)
+	if err != nil {
+		return nil, nil, err
 	}
 	return out, s.redactionList(), nil
+}
+
+func catalogOnlyJSONResolve(catalog *PHICatalog, fallbackType string) jsonScrubResolve {
+	return func(resourceType string, resourceJSON []byte) (*pathIndex, *pathIndex, bool, error) {
+		if resourceType == "" {
+			resourceType = resourceTypeFromJSON(resourceJSON, fallbackType)
+		}
+		idx := catalogPathIndex(catalog, resourceType)
+		strict := strictRedactionFromJSON(resourceJSON, catalog)
+		return idx, idx, strict, nil
+	}
+}
+
+func applyJSONPatches(data []byte, paths [][]string, replacement []byte) ([]byte, error) {
+	type span struct {
+		start int
+		end   int
+	}
+	seen := make(map[string]struct{}, len(paths))
+	var spans []span
+	for _, path := range paths {
+		key := pathKey(path)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		start, end, err := patchByteSpan(data, path)
+		if err != nil {
+			return nil, fmt.Errorf("json scrub locate %v: %w", path, err)
+		}
+		spans = append(spans, span{start: start, end: end})
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		return spans[i].start > spans[j].start
+	})
+	out := data
+	for _, sp := range spans {
+		out = spliceJSONBytes(out, sp.start, sp.end, replacement)
+	}
+	return out, nil
+}
+
+func patchByteSpan(data []byte, path []string) (start, end int, err error) {
+	value, dataType, offset, err := jsonparser.Get(data, jsonParserPath(path)...)
+	if err != nil {
+		return 0, 0, err
+	}
+	spanLen := len(value)
+	if dataType == jsonparser.String {
+		quoted, err := json.Marshal(string(value))
+		if err != nil {
+			return 0, 0, err
+		}
+		spanLen = len(quoted)
+	}
+	if offset < spanLen {
+		return 0, 0, fmt.Errorf("invalid json patch offset for %v", path)
+	}
+	start = offset - spanLen
+	return start, offset, nil
+}
+
+func spliceJSONBytes(data []byte, start, end int, insert []byte) []byte {
+	if start < 0 || end < start || end > len(data) {
+		return data
+	}
+	out := make([]byte, 0, len(data)-(end-start)+len(insert))
+	out = append(out, data[:start]...)
+	out = append(out, insert...)
+	out = append(out, data[end:]...)
+	return out
+}
+
+func pathKey(path []string) string {
+	return strings.Join(path, "\x00")
 }
 
 // jsonParserPath converts logical dot segments (with numeric indexes) to
@@ -94,16 +189,18 @@ func (s *jsonScrubber) redactionList() []string {
 	for k := range s.redactionSet {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 
-func (s *jsonScrubber) recordRedaction(fullPath string) {
-	s.redactionSet[fmt.Sprintf("%s.%s", s.resourceType, fullPath)] = struct{}{}
-}
-
 func (s *jsonScrubber) scheduleRedaction(path []string, fullPath string) {
+	key := pathKey(path)
+	if _, ok := s.patchKeys[key]; ok {
+		return
+	}
+	s.patchKeys[key] = struct{}{}
 	s.patchPaths = append(s.patchPaths, append([]string(nil), path...))
-	s.recordRedaction(fullPath)
+	s.redactionSet[fmt.Sprintf("%s.%s", s.resourceType, fullPath)] = struct{}{}
 }
 
 func (s *jsonScrubber) pathIndicesMatch(norm string) bool {
@@ -111,6 +208,129 @@ func (s *jsonScrubber) pathIndicesMatch(norm string) bool {
 		return true
 	}
 	return s.catalogIdx != nil && s.catalogIdx.Match(norm)
+}
+
+func (s *jsonScrubber) pushContext() {
+	s.contextStack = append(s.contextStack, jsonScrubContext{
+		resourceType: s.resourceType,
+		segmentIdx:   s.segmentIdx,
+		catalogIdx:   s.catalogIdx,
+		strict:       s.strict,
+		resPath:      append([]string(nil), s.resPath...),
+	})
+}
+
+func (s *jsonScrubber) popContext() {
+	if len(s.contextStack) == 0 {
+		return
+	}
+	top := s.contextStack[len(s.contextStack)-1]
+	s.contextStack = s.contextStack[:len(s.contextStack)-1]
+	s.resourceType = top.resourceType
+	s.segmentIdx = top.segmentIdx
+	s.catalogIdx = top.catalogIdx
+	s.strict = top.strict
+	s.resPath = top.resPath
+}
+
+func (s *jsonScrubber) withResourceContext(resourceJSON []byte, fallback string, fn func() error) error {
+	rt := resourceTypeFromJSON(resourceJSON, fallback)
+	seg, cat, strict, err := s.resolve(rt, resourceJSON)
+	if err != nil {
+		return err
+	}
+	s.pushContext()
+	s.resourceType = rt
+	s.segmentIdx = seg
+	s.catalogIdx = cat
+	s.strict = strict
+	s.resPath = nil
+	err = fn()
+	s.popContext()
+	return err
+}
+
+func (s *jsonScrubber) walkObject(data []byte) error {
+	return jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, _ int) error {
+		if s.walkErr != nil {
+			return nil
+		}
+		keyStr := string(key)
+		docPath := appendPath(s.docPath, keyStr)
+		resPath := appendPath(s.resPath, keyStr)
+		fullPath := joinPathSegments(resPath)
+		norm := normalizePathIndexes(fullPath)
+		if s.pathIndicesMatch(norm) {
+			s.scheduleRedaction(docPath, fullPath)
+			return nil
+		}
+		if keyStr == "contained" && dataType == jsonparser.Array {
+			s.docPath = docPath
+			s.resPath = resPath
+			if err := s.walkNestedResourceArray(value); err != nil {
+				return err
+			}
+			s.docPath = s.docPath[:len(s.docPath)-1]
+			s.resPath = s.resPath[:len(s.resPath)-1]
+			return nil
+		}
+		if keyStr == "resource" && dataType == jsonparser.Object && pathIsBundleEntryResource(s.docPath) {
+			s.docPath = docPath
+			err := s.withResourceContext(value, "", func() error {
+				return s.walkObject(value)
+			})
+			s.docPath = s.docPath[:len(s.docPath)-1]
+			return err
+		}
+		if isJSONScalar(dataType) {
+			if s.catalog.passiveSensitiveKey(keyStr, norm) || (s.strict && s.shouldRedactStrictLeaf(keyStr, norm)) {
+				s.scheduleRedaction(docPath, fullPath)
+			}
+			return nil
+		}
+		s.docPath = docPath
+		s.resPath = resPath
+		err := s.walkValue(value, dataType)
+		s.docPath = s.docPath[:len(s.docPath)-1]
+		s.resPath = s.resPath[:len(s.resPath)-1]
+		return err
+	})
+}
+
+func (s *jsonScrubber) walkNestedResourceArray(data []byte) error {
+	i := 0
+	_, err := jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, _ int, _ error) {
+		if s.walkErr != nil || dataType != jsonparser.Object {
+			return
+		}
+		idxStr := fmt.Sprintf("%d", i)
+		i++
+		childDoc := appendPath(s.docPath, idxStr)
+		childRes := appendPath(s.resPath, idxStr)
+		s.docPath = childDoc
+		s.resPath = childRes
+		if err := s.withResourceContext(value, "", func() error {
+			return s.walkObject(value)
+		}); err != nil {
+			s.walkErr = err
+		}
+		s.docPath = s.docPath[:len(s.docPath)-1]
+		s.resPath = s.resPath[:len(s.resPath)-1]
+	})
+	if s.walkErr != nil {
+		return s.walkErr
+	}
+	return err
+}
+
+func pathIsBundleEntryResource(parentPath []string) bool {
+	if len(parentPath) < 2 {
+		return false
+	}
+	if parentPath[len(parentPath)-2] != "entry" {
+		return false
+	}
+	return isPathIndexSegment(parentPath[len(parentPath)-1])
 }
 
 func (s *jsonScrubber) walkValue(data []byte, dataType jsonparser.ValueType) error {
@@ -124,53 +344,45 @@ func (s *jsonScrubber) walkValue(data []byte, dataType jsonparser.ValueType) err
 	}
 }
 
-func (s *jsonScrubber) walkObject(data []byte) error {
-	return jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, _ int) error {
-		keyStr := string(key)
-		path := appendPath(s.path, keyStr)
-		fullPath := joinPathSegments(path)
-		norm := normalizePathIndexes(fullPath)
-		if s.pathIndicesMatch(norm) {
-			s.scheduleRedaction(path, fullPath)
-			return nil
-		}
-		if isJSONScalar(dataType) {
-			if s.catalog.passiveSensitiveKey(keyStr, norm) || (s.strict && s.shouldRedactStrictLeaf(keyStr, norm)) {
-				s.scheduleRedaction(path, fullPath)
-			}
-			return nil
-		}
-		s.path = path
-		err := s.walkValue(value, dataType)
-		s.path = s.path[:len(s.path)-1]
-		return err
-	})
-}
-
 func (s *jsonScrubber) walkArray(data []byte) error {
 	i := 0
 	_, err := jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, _ int, _ error) {
+		if s.walkErr != nil {
+			return
+		}
 		idxStr := fmt.Sprintf("%d", i)
 		i++
-		path := appendPath(s.path, idxStr)
-		fullPath := joinPathSegments(path)
+		docPath := appendPath(s.docPath, idxStr)
+		resPath := appendPath(s.resPath, idxStr)
+		fullPath := joinPathSegments(resPath)
 		norm := normalizePathIndexes(fullPath)
 		if dataType == jsonparser.Object {
-			s.path = path
-			_ = s.walkObject(value)
-			s.path = s.path[:len(s.path)-1]
+			s.docPath = docPath
+			s.resPath = resPath
+			if err := s.walkObject(value); err != nil {
+				s.walkErr = err
+			}
+			s.docPath = s.docPath[:len(s.docPath)-1]
+			s.resPath = s.resPath[:len(s.resPath)-1]
 			return
 		}
 		if dataType == jsonparser.Array {
-			s.path = path
-			_ = s.walkArray(value)
-			s.path = s.path[:len(s.path)-1]
+			s.docPath = docPath
+			s.resPath = resPath
+			if err := s.walkArray(value); err != nil {
+				s.walkErr = err
+			}
+			s.docPath = s.docPath[:len(s.docPath)-1]
+			s.resPath = s.resPath[:len(s.resPath)-1]
 			return
 		}
 		if s.strict && !s.catalog.pathAllowedInStrictMode(norm, idxStr) {
-			s.scheduleRedaction(path, fullPath)
+			s.scheduleRedaction(docPath, fullPath)
 		}
 	})
+	if s.walkErr != nil {
+		return s.walkErr
+	}
 	return err
 }
 

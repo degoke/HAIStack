@@ -20,9 +20,8 @@ func effectiveEvalMode(mode EvalMode, toolName string) EvalMode {
 	return mode
 }
 
-// scrubResourceMerged redacts PHI by marshaling the resource once, walking JSON
-// with jsonparser, applying path-index and catalog rules, then merging back into
-// the input map.
+// scrubResourceMerged marshals root once, scrubs JSON in one walk (including
+// nested contained / Bundle entries), then merges bytes back into root.
 func scrubResourceMerged(
 	ctx context.Context,
 	resourceType string,
@@ -48,8 +47,26 @@ func scrubResourceMerged(
 	if err != nil {
 		return nil, err
 	}
-	strict := catalog.resourceRequiresStrictRedaction(root)
-	scrubbed, redactions, err := scrubJSONResource(resourceType, data, catalog, segmentIdx, bundle.catalogIdx, placeholder, strict)
+	resolve := func(rt string, resourceJSON []byte) (*pathIndex, *pathIndex, bool, error) {
+		if rt == "" {
+			rt = resourceTypeFromJSON(resourceJSON, resourceType)
+		}
+		strict := strictRedactionFromJSON(resourceJSON, catalog)
+		if resourceTypeFromJSON(resourceJSON, resourceType) == resourceType && rt == resourceType {
+			seg := segmentIdx
+			if seg == nil {
+				seg = catalogPathIndex(catalog, rt)
+			}
+			cat := bundle.catalogIdx
+			if cat == nil {
+				cat = catalogPathIndex(catalog, rt)
+			}
+			return seg, cat, strict, nil
+		}
+		idx := catalogPathIndex(catalog, rt)
+		return idx, idx, strict, nil
+	}
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve)
 	if err != nil {
 		return nil, err
 	}

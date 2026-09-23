@@ -195,6 +195,8 @@ func (idx *fhirPathPHIIndex) compileBundle(paths []string, resourceType string) 
 	evalMode := idx.evalMode
 	var compiled []fhirpath.CompiledExpression
 	var labels []string
+	// Compile records expression strings in labels for segment augmentation at
+	// scrub time; expressions are not evaluated against resource values.
 	if idx.engine != nil && evalMode != EvalModeNever {
 		for _, expr := range compileExprs {
 			if evalMode == EvalModeKeywordsOnly {

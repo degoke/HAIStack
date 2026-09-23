@@ -19,7 +19,9 @@ type FHIRDeidentifierConfig struct {
 	Redacted string
 	// Mode controls StructureDefinition path breadth (default PHIModeStandard).
 	Mode PHIMode
-	// EvalMode controls FHIRPath evaluation (default EvalModeKeywordsOnly).
+	// EvalMode controls which FHIRPath expression strings add segment paths at
+	// scrub time (default EvalModeKeywordsOnly). FHIRPath is not evaluated
+	// against resource values during scrubbing.
 	EvalMode EvalMode
 	// UseShared reuses a process-wide de-identifier instance for identical config.
 	UseShared bool
@@ -169,7 +171,12 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 }
 
 func (d *FHIRDeidentifier) deidentifyReadJSON(ctx context.Context, fallbackType string, data []byte, placeholder string, toolName string) (any, []string, error) {
-	scrubbed, redactions, err := d.scrubResourceBytes(ctx, fallbackType, data, placeholder, toolName)
+	catalog := d.catalog
+	if catalog == nil {
+		catalog = DefaultPHICatalog()
+	}
+	resolve := d.jsonScrubResolve(ctx, toolName)
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, fallbackType, resolve)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,12 +184,6 @@ func (d *FHIRDeidentifier) deidentifyReadJSON(ctx context.Context, fallbackType 
 	if err := json.Unmarshal(scrubbed, &m); err != nil {
 		return nil, nil, fmt.Errorf("deidentify: invalid JSON after scrub: %w", err)
 	}
-	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
-	nested, err := d.scrubNestedResources(ctx, m, placeholder, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-	redactions = append(redactions, nested...)
 	return m, redactions, nil
 }
 
@@ -190,82 +191,21 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 	if m == nil {
 		return nil, nil
 	}
-	bundle, err := d.index.bundleFor(ctx, resourceType, m)
-	if err != nil {
-		return nil, err
-	}
-	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
-	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, placeholder, opts)
-	if err != nil {
-		return nil, err
-	}
-	nested, err := d.scrubNestedResources(ctx, m, placeholder, opts)
-	if err != nil {
-		return nil, err
-	}
-	redactions = append(redactions, nested...)
-	return redactions, nil
-}
-
-func (d *FHIRDeidentifier) scrubResourceBytes(ctx context.Context, fallbackType string, data []byte, placeholder string, toolName string) ([]byte, []string, error) {
-	if len(data) == 0 {
-		return data, nil, nil
-	}
-	resourceType := resourceTypeFromJSON(data, fallbackType)
-	bundle, err := d.index.bundleFor(ctx, resourceType, resourceMapForProfileIndex(data))
-	if err != nil {
-		return nil, nil, err
-	}
 	catalog := d.catalog
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
 	}
-	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
-	evalMode := effectiveEvalMode(opts.evalMode, opts.toolName)
-	segmentIdx := bundle.segmentIdx
-	if evalMode != EvalModeNever && len(bundle.labels) > 0 {
-		segmentIdx = mergePathIndices(segmentIdx, buildEvalPathIndex(bundle.labels))
+	data, err := marshalJSONPooled(m)
+	if err != nil {
+		return nil, err
 	}
-	strict := strictRedactionFromJSON(data, catalog)
-	return scrubJSONResource(resourceType, data, catalog, segmentIdx, bundle.catalogIdx, placeholder, strict)
-}
-
-func (d *FHIRDeidentifier) scrubNestedResources(ctx context.Context, m map[string]any, placeholder string, opts scrubOptions) ([]string, error) {
-	var redactions []string
-	if contained, ok := m["contained"].([]any); ok {
-		for i, item := range contained {
-			child, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			childType, _ := child["resourceType"].(string)
-			r, err := d.scrubResource(ctx, childType, child, placeholder, opts.toolName)
-			if err != nil {
-				return nil, err
-			}
-			redactions = append(redactions, r...)
-			contained[i] = child
-		}
+	resolve := d.jsonScrubResolve(ctx, toolName)
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve)
+	if err != nil {
+		return nil, err
 	}
-	if entries, ok := m["entry"].([]any); ok {
-		for i, item := range entries {
-			entry, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			child, ok := entry["resource"].(map[string]any)
-			if !ok {
-				continue
-			}
-			childType, _ := child["resourceType"].(string)
-			r, err := d.scrubResource(ctx, childType, child, placeholder, opts.toolName)
-			if err != nil {
-				return nil, err
-			}
-			redactions = append(redactions, r...)
-			entry["resource"] = child
-			entries[i] = entry
-		}
+	if err := mergeJSONIntoMap(m, scrubbed); err != nil {
+		return nil, err
 	}
 	return redactions, nil
 }
