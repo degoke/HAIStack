@@ -31,7 +31,8 @@
 //     builds citations, and emits audit records via ExecuteTool and InvokeModel.
 //   - GenericToolDescriptors / Registry.AllToolDescriptors: model-facing tool
 //     discovery metadata.
-//   - ContextFormatter: converts tool output into model-facing JSON context.
+//   - ToolContextFormatter / ContextFormatter / MarkdownContextFormatter:
+//     convert tool output into model-facing context (JSON or Markdown).
 //   - CitationBuilder: attaches provenance from resource refs, search params,
 //     view columns, and write metadata.
 //   - ModelRouter / Executor.InvokeModel: optional local/cloud model adapter

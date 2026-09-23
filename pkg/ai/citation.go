@@ -93,12 +93,18 @@ func (b *CitationBuilder) WriteCitation(operation, resourceType, id string) Cita
 	}
 }
 
-// ContextFormatter converts tool output into model-facing context text.
+// ContextFormatter serializes tool output as indented JSON for model consumption.
+// It implements ToolContextFormatter.
 type ContextFormatter struct{}
 
-// NewContextFormatter returns a context formatter.
-func NewContextFormatter() *ContextFormatter {
+// NewJSONContextFormatter returns the JSON context formatter.
+func NewJSONContextFormatter() *ContextFormatter {
 	return &ContextFormatter{}
+}
+
+// NewContextFormatter returns the default JSON context formatter.
+func NewContextFormatter() *ContextFormatter {
+	return NewJSONContextFormatter()
 }
 
 // Format serializes data as indented JSON for model consumption.
