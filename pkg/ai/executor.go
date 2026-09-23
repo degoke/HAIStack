@@ -45,7 +45,8 @@ type Config struct {
 	SharedFHIRDeidentifier *bool
 	ModelRouter           *ModelRouter
 	Citations             *CitationBuilder
-	Formatter             *ContextFormatter
+	// Formatter renders ToolResult.Context (default indented JSON).
+	Formatter             ToolContextFormatter
 	Now                   func() time.Time
 }
 
