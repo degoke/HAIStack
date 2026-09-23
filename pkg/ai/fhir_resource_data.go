@@ -5,6 +5,24 @@ import (
 	"fmt"
 )
 
+// resourceJSONBytes reports whether data is raw JSON that can be scrubbed without
+// first decoding to map[string]any.
+func resourceJSONBytes(data any) ([]byte, bool) {
+	switch v := data.(type) {
+	case []byte:
+		return v, len(v) > 0
+	case json.RawMessage:
+		return []byte(v), len(v) > 0
+	case string:
+		if v == "" {
+			return nil, false
+		}
+		return []byte(v), true
+	default:
+		return nil, false
+	}
+}
+
 // resourceDataAsMap decodes tool output into a mutable resource map when possible.
 func resourceDataAsMap(data any) (map[string]any, error) {
 	switch v := data.(type) {

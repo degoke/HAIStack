@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -104,6 +105,9 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 
 	switch req.ToolName {
 	case ToolReadFhirResource:
+		if raw, ok := resourceJSONBytes(req.Data); ok {
+			return d.deidentifyReadJSON(ctx, req.ResourceType, raw, placeholder, req.ToolName)
+		}
 		m, err := resourceDataAsMap(req.Data)
 		if err != nil {
 			return nil, nil, err
@@ -164,6 +168,24 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 	}
 }
 
+func (d *FHIRDeidentifier) deidentifyReadJSON(ctx context.Context, fallbackType string, data []byte, placeholder string, toolName string) (any, []string, error) {
+	scrubbed, redactions, err := d.scrubResourceBytes(ctx, fallbackType, data, placeholder, toolName)
+	if err != nil {
+		return nil, nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(scrubbed, &m); err != nil {
+		return nil, nil, fmt.Errorf("deidentify: invalid JSON after scrub: %w", err)
+	}
+	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
+	nested, err := d.scrubNestedResources(ctx, m, placeholder, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	redactions = append(redactions, nested...)
+	return m, redactions, nil
+}
+
 func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType string, m map[string]any, placeholder string, toolName string) ([]string, error) {
 	if m == nil {
 		return nil, nil
@@ -183,6 +205,29 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 	}
 	redactions = append(redactions, nested...)
 	return redactions, nil
+}
+
+func (d *FHIRDeidentifier) scrubResourceBytes(ctx context.Context, fallbackType string, data []byte, placeholder string, toolName string) ([]byte, []string, error) {
+	if len(data) == 0 {
+		return data, nil, nil
+	}
+	resourceType := resourceTypeFromJSON(data, fallbackType)
+	bundle, err := d.index.bundleFor(ctx, resourceType, resourceMapForProfileIndex(data))
+	if err != nil {
+		return nil, nil, err
+	}
+	catalog := d.catalog
+	if catalog == nil {
+		catalog = DefaultPHICatalog()
+	}
+	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
+	evalMode := effectiveEvalMode(opts.evalMode, opts.toolName)
+	segmentIdx := bundle.segmentIdx
+	if evalMode != EvalModeNever && len(bundle.labels) > 0 {
+		segmentIdx = mergePathIndices(segmentIdx, buildEvalPathIndex(bundle.labels))
+	}
+	strict := strictRedactionFromJSON(data, catalog)
+	return scrubJSONResource(resourceType, data, catalog, segmentIdx, bundle.catalogIdx, placeholder, strict)
 }
 
 func (d *FHIRDeidentifier) scrubNestedResources(ctx context.Context, m map[string]any, placeholder string, opts scrubOptions) ([]string, error) {
