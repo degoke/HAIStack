@@ -41,6 +41,26 @@ func stableJSON(v any) []byte {
 	return b
 }
 
+func canonicalRulesKey(rules *PHIStructureRules) string {
+	if rules == nil {
+		return "default-rules"
+	}
+	def := DefaultPHIStructureRules()
+	if string(stableJSON(rules)) == string(stableJSON(&def)) {
+		return "default-rules"
+	}
+	sum := sha256.Sum256(stableJSON(rules))
+	return "rules-" + hex.EncodeToString(sum[:8])
+}
+
+func canonicalEngineKey(engine interface{}) string {
+	if engine == nil {
+		return "default-engine"
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%T", engine)))
+	return "engine-" + hex.EncodeToString(sum[:8])
+}
+
 func canonicalProfileCatalogKey(p validate.ProfileCatalog) string {
 	if p == nil {
 		return "none"

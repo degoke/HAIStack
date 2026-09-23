@@ -37,6 +37,22 @@ func TestFHIRDeidentifier_SearchFromJSONBytes(t *testing.T) {
 	}
 }
 
+func TestSearchJSONScrubRejectsNonObjectResource(t *testing.T) {
+	deid, err := ai.NewFHIRDeidentifier(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"resourceType":"Bundle","resources":["not-an-object"]}`)
+	_, _, err = deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolSearchFhirResources,
+		ResourceType: "Patient",
+		Data:         raw,
+	})
+	if err == nil {
+		t.Fatal("expected error for non-object resources element")
+	}
+}
+
 func TestSearchJSONScrubMinifiedAndPretty(t *testing.T) {
 	deid, err := ai.NewFHIRDeidentifier(nil)
 	if err != nil {

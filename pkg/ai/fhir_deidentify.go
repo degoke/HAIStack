@@ -138,13 +138,16 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 	case ToolRunView:
 		root, ok := req.Data.(map[string]any)
 		if !ok {
-			return req.Data, nil, nil
+			return nil, nil, fmt.Errorf("%w: run_view data must be map[string]any", ErrInvalidInput)
 		}
-		redactions := scrubViewRows(ctx, d, root, placeholder)
+		redactions, err := scrubViewRows(ctx, d, root, placeholder)
+		if err != nil {
+			return nil, nil, err
+		}
 		return root, redactions, nil
 
 	default:
-		return req.Data, nil, nil
+		return nil, nil, fmt.Errorf("%w: %q", ErrUnsupportedDeidentifyTool, req.ToolName)
 	}
 }
 
@@ -195,10 +198,10 @@ func resourceTypeFromMap(m map[string]any, fallback string) string {
 	return fallback
 }
 
-func scrubViewRows(ctx context.Context, d *FHIRDeidentifier, viewData map[string]any, placeholder string) []string {
+func scrubViewRows(ctx context.Context, d *FHIRDeidentifier, viewData map[string]any, placeholder string) ([]string, error) {
 	rows, ok := viewData["rows"].([]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	catalog := d.catalog
 	if catalog == nil {
@@ -208,7 +211,11 @@ func scrubViewRows(ctx context.Context, d *FHIRDeidentifier, viewData map[string
 	for _, row := range rows {
 		switch r := row.(type) {
 		case map[string]any:
-			redactions = append(redactions, scrubViewRowMap(ctx, d, r, placeholder)...)
+			rowRedactions, err := scrubViewRowMap(ctx, d, r, placeholder)
+			if err != nil {
+				return nil, err
+			}
+			redactions = append(redactions, rowRedactions...)
 		case []any:
 			cols := columnNamesFromViewData(viewData)
 			for i, cell := range r {
@@ -227,10 +234,10 @@ func scrubViewRows(ctx context.Context, d *FHIRDeidentifier, viewData map[string
 			}
 		}
 	}
-	return uniqueStrings(redactions)
+	return uniqueStrings(redactions), nil
 }
 
-func scrubViewRowMap(ctx context.Context, d *FHIRDeidentifier, row map[string]any, placeholder string) []string {
+func scrubViewRowMap(ctx context.Context, d *FHIRDeidentifier, row map[string]any, placeholder string) ([]string, error) {
 	catalog := d.catalog
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
@@ -248,16 +255,18 @@ func scrubViewRowMap(ctx context.Context, d *FHIRDeidentifier, row map[string]an
 	}
 	data, err := marshalJSONPooled(row)
 	if err != nil {
-		return redactions
+		return nil, err
 	}
 	resolve := d.jsonScrubResolve(ctx, ToolRunView)
 	scrubbed, r, err := scrubJSONDocument(data, catalog, placeholder, "", resolve, jsonScrubDocumentOpts{EmbedResourceObjects: true})
 	if err != nil {
-		return redactions
+		return nil, err
 	}
 	redactions = append(redactions, r...)
-	_ = mergeJSONIntoMap(row, scrubbed)
-	return redactions
+	if err := mergeJSONIntoMap(row, scrubbed); err != nil {
+		return nil, err
+	}
+	return redactions, nil
 }
 
 func columnNamesFromViewData(viewData map[string]any) []string {

@@ -42,7 +42,9 @@ func sharedDeidentifierKey(cfg FHIRDeidentifierConfig) string {
 	}
 	catalog := canonicalCatalogKey(cfg.Catalog)
 	profiles := canonicalProfileCatalogKey(cfg.Profiles)
-	return fmt.Sprintf("%s|%s|%s|%s|%s", mode, eval, catalog, profiles, redacted)
+	rules := canonicalRulesKey(cfg.Rules)
+	engine := canonicalEngineKey(cfg.Engine)
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s", mode, eval, catalog, profiles, rules, engine, redacted)
 }
 
 // WarmPathIndex pre-builds path bundles for resource types.

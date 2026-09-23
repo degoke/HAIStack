@@ -47,10 +47,16 @@ func scrubJSONArrayField(
 	var replacements []byteSpan
 	var scrubbedElems [][]byte
 	var scrubErr error
+	elemIndex := 0
 	_, err := jsonparser.ArrayEach(*out, func(elem []byte, dataType jsonparser.ValueType, offset int, _ error) {
-		if scrubErr != nil || dataType != jsonparser.Object {
+		if scrubErr != nil {
 			return
 		}
+		if dataType != jsonparser.Object {
+			scrubErr = fmt.Errorf("deidentify: %s[%d] must be a JSON object", field, elemIndex)
+			return
+		}
+		elemIndex++
 		rt := resourceTypeFromJSON(elem, fallbackType)
 		scrubbed, r, err := scrubJSONDocument(elem, catalog, placeholder, rt, resolve, jsonScrubDocumentOpts{})
 		if err != nil {
@@ -73,7 +79,10 @@ func scrubJSONArrayField(
 	merged := *out
 	for i := len(replacements) - 1; i >= 0; i-- {
 		sp := replacements[i]
-		merged = spliceJSONBytes(merged, sp.start, sp.end, scrubbedElems[i])
+		merged, err = spliceJSONBytes(merged, sp.start, sp.end, scrubbedElems[i])
+		if err != nil {
+			return err
+		}
 	}
 	*out = merged
 	return nil

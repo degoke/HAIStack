@@ -308,11 +308,21 @@ func (e *Executor) execRead(ctx context.Context, req ToolRequest, input map[stri
 		if e.cfg.Deidentify == nil {
 			return nil, nil, "", nil, ErrMissingDeidentifier
 		}
+		if len(decision.AllowedFields) > 0 {
+			if err := mergeDeidentifyMetaFields(filtered, env.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		data, redactions, err = e.cfg.Deidentify.Deidentify(ctx, DeidentifyRequest{
 			ToolName: ToolReadFhirResource, ResourceType: parsed.ResourceType, Data: filtered,
 		})
 		if err != nil {
 			return nil, nil, "", nil, err
+		}
+		if len(decision.AllowedFields) > 0 {
+			if m, ok := data.(map[string]any); ok {
+				data = projectResourceMap(m, decision.AllowedFields)
+			}
 		}
 	}
 
@@ -380,10 +390,16 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if err != nil {
 			return nil, nil, "", nil, err
 		}
+		if decision.Deidentify && !decision.AllowAllFields {
+			if err := mergeDeidentifyMetaFields(item, res.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		resources = append(resources, item)
 	}
 
 	included := make([]map[string]any, 0, len(result.Included))
+	var includedAllowedFields [][]string
 	var includedResources []*types.ResourceEnvelope
 	for _, inc := range result.Included {
 		if inc.Resource == nil {
@@ -403,7 +419,13 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if itemErr != nil {
 			return nil, nil, "", nil, itemErr
 		}
+		if decision.Deidentify && len(readDecision.AllowedFields) > 0 {
+			if err := mergeDeidentifyMetaFields(item, inc.Resource.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		included = append(included, item)
+		includedAllowedFields = append(includedAllowedFields, readDecision.AllowedFields)
 		includedResources = append(includedResources, inc.Resource)
 	}
 
@@ -428,6 +450,7 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if err != nil {
 			return nil, nil, "", nil, err
 		}
+		data = projectSearchResultData(data, decision.AllowAllFields, decision.AllowedFields, includedAllowedFields)
 	}
 
 	citations := e.cfg.Citations.SearchCitationsWithIncludes(parsed.ResourceType, params, result.Resources, includedResources)

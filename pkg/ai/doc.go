@@ -42,12 +42,16 @@
 //     boundary for policy-gated writes.
 //   - Deidentifier / FHIRDeidentifier / PHICatalog / ProfileCatalog: Executor
 //     defaults to FHIRDeidentifier when Config.Deidentify is nil; override with
-//     any Deidentifier. FHIRDeidentifier derives segment paths from PHICatalog,
+//     any Deidentifier. FHIRDeidentifier handles read_fhir_resource,
+//     search_fhir_resources, and run_view only (other ToolName values return
+//     ErrUnsupportedDeidentifyTool). It derives segment paths from PHICatalog,
 //     StructureDefinitions (base type and meta.profile), and FHIRPath expression
 //     text (not runtime FHIRPath evaluation), scrubs JSON in one pass (including
 //     nested contained and Bundle entries), and applies meta.security strict mode
-//     when policy sets Deidentify. Output is for model-facing tool context, not
-//     for persisting de-identified FHIR resources.
+//     when policy sets Deidentify. Narrow AllowedFields projections still merge
+//     meta.security and meta.profile from the full resource for scrubbing, then
+//     drop meta from output when not allow-listed. Output is for model-facing
+//     tool context, not for persisting de-identified FHIR resources.
 //
 // # Tool input shapes
 //
