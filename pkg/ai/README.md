@@ -142,10 +142,22 @@ exec, err := ai.NewExecutor(ai.Config{
 `Executor` uses `DefaultDeidentifier()` (`FHIRDeidentifier` + `DefaultPHICatalog`)
 when `Config.Deidentify` is nil. Pass your own `Deidentifier` to override.
 
-`FHIRDeidentifier` applies deep FHIR path suffixes, passive sensitive element
-names at any depth, `meta.security` confidentiality labels (v3 `R`/`V` by
-default), and view column rules. Customize `PHICatalog` or implement
-`Deidentifier` for site-specific rules.
+`FHIRDeidentifier` applies:
+
+- **Compiled FHIRPath** expressions (validated at index build; segment redaction at runtime)
+- **StructureDefinition-driven paths** when `ProfileCatalog` / `Executor.ProfileCatalog` is set (sensitive types, `mustSupport` / `isSummary` primitives, sensitivity extensions)
+- **PHICatalog** path suffixes and passive element names at any depth
+- **`meta.security`** labels (v3 confidentiality and HL7 security-labels by default)
+
+Customize `PHICatalog`, `PHIStructureRules`, or implement `Deidentifier` for site-specific rules.
+
+```go
+snapshot, _ := manager.RebuildSnapshot(ctx)
+exec, _ := ai.NewExecutor(ai.Config{
+    Policy:         policy,
+    ProfileCatalog: validate.NewRegistryProfileCatalog(snapshot),
+})
+```
 
 The executor refuses to silently skip de-identification when policy requires it.
 

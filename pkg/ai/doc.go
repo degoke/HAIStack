@@ -38,11 +38,11 @@
 //     selection; tool execution remains useful without any model configured.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
-//   - Deidentifier / FHIRDeidentifier / PHICatalog: Executor defaults to
-//     DefaultDeidentifier when Config.Deidentify is nil; override with any
-//     Deidentifier. FHIRDeidentifier applies deep paths, passive element
-//     detection, and meta.security-driven redaction on read, search, and view
-//     tool output when policy sets Deidentify.
+//   - Deidentifier / FHIRDeidentifier / PHICatalog / ProfileCatalog: Executor
+//     defaults to FHIRDeidentifier when Config.Deidentify is nil; override with
+//     any Deidentifier. FHIRDeidentifier compiles FHIRPath expressions, derives
+//     paths from StructureDefinitions (types, extensions, mustSupport/isSummary),
+//     and applies meta.security-driven redaction when policy sets Deidentify.
 //
 // # Tool input shapes
 //

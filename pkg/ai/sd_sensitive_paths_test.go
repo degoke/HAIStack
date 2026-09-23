@@ -1,0 +1,56 @@
+package ai_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/validate"
+)
+
+func TestSensitiveFHIRPathsFromPatientStructureDefinition(t *testing.T) {
+	snapshot := testSnapshot(t, "Patient")
+	catalog := validate.NewRegistryProfileCatalog(snapshot)
+	sd, ok := catalog.GetStructureDefinition(validate.BaseStructureDefinitionURL("Patient"))
+	if !ok {
+		t.Fatal("missing Patient StructureDefinition")
+	}
+	paths := ai.SensitiveFHIRPathsFromStructureDefinition(sd, ai.DefaultPHIStructureRules(), ai.DefaultPHICatalog())
+	if len(paths) < 50 {
+		t.Fatalf("expected many sensitive paths from Patient SD, got %d", len(paths))
+	}
+}
+
+func TestFHIRDeidentifier_WithRegistryProfiles(t *testing.T) {
+	snapshot := testSnapshot(t, "Patient")
+	profiles := validate.NewRegistryProfileCatalog(snapshot)
+	deid := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+		Catalog:  ai.DefaultPHICatalog(),
+		Profiles: profiles,
+	})
+	data := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"gender":       "female",
+		"name":         []any{map[string]any{"family": "Doe", "given": []any{"Jane"}}},
+		"telecom":      []any{map[string]any{"system": "phone", "value": "555"}},
+	}
+	out, redactions, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Patient",
+		Data:         data,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	m := out.(map[string]any)
+	if m["id"] != "pat-1" {
+		t.Fatalf("id should remain, got %v", m["id"])
+	}
+	if m["name"] == nil || m["name"] == "" {
+		t.Fatal("expected name subtree present after redaction")
+	}
+	if len(redactions) == 0 {
+		t.Fatal("expected redactions")
+	}
+}

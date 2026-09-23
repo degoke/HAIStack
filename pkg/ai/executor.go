@@ -35,6 +35,9 @@ type Config struct {
 	Approval              ApprovalHook
 	ApprovalStore         ApprovalStore
 	Deidentify            Deidentifier
+	// ProfileCatalog enables StructureDefinition-driven FHIRPath PHI rules on the
+	// default FHIRDeidentifier when Deidentify is nil.
+	ProfileCatalog validate.ProfileCatalog
 	ModelRouter           *ModelRouter
 	Citations             *CitationBuilder
 	Formatter             *ContextFormatter
@@ -68,7 +71,10 @@ func NewExecutor(cfg Config) (*Executor, error) {
 		cfg.Registry = NewRegistry()
 	}
 	if cfg.Deidentify == nil {
-		cfg.Deidentify = DefaultDeidentifier()
+		cfg.Deidentify = NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{
+			Catalog:  DefaultPHICatalog(),
+			Profiles: cfg.ProfileCatalog,
+		})
 	}
 	return &Executor{cfg: cfg}, nil
 }

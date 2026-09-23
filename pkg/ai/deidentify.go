@@ -2,6 +2,9 @@ package ai
 
 import "context"
 
+// DefaultRedactedValue is the placeholder written when a PHI field is removed.
+const DefaultRedactedValue = "[redacted]"
+
 // DeidentifyRequest carries output data to scrub before returning to a model.
 type DeidentifyRequest struct {
 	ToolName     string

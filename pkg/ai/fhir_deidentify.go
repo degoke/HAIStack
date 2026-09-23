@@ -4,37 +4,71 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/degoke/haistack/pkg/fhirpath"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
-// DefaultRedactedValue is the placeholder written when a PHI field is removed.
-const DefaultRedactedValue = "[redacted]"
-
-// FHIRDeidentifier implements Deidentifier using PHICatalog deep FHIR paths,
-// passive element detection, meta.security confidentiality labels, and view
-// column rules. It scrubs resource maps (read/search), contained resources, and
-// view rows before tool output is formatted for a model.
-type FHIRDeidentifier struct {
+// FHIRDeidentifierConfig configures the built-in FHIR de-identifier.
+type FHIRDeidentifierConfig struct {
 	Catalog  *PHICatalog
+	Profiles validate.ProfileCatalog // optional StructureDefinition-driven paths
+	Rules    *PHIStructureRules
+	Engine   fhirpath.Engine // optional; default engine compiles catalog paths
 	Redacted string
 }
 
-// NewFHIRDeidentifier returns a de-identifier backed by catalog. When catalog
-// is nil, DefaultPHICatalog is used.
+// FHIRDeidentifier implements Deidentifier using compiled FHIRPath expressions,
+// StructureDefinition sensitivity (types, extensions, mustSupport/isSummary),
+// PHICatalog paths, passive element detection, and meta.security labels.
+type FHIRDeidentifier struct {
+	catalog  *PHICatalog
+	profiles validate.ProfileCatalog
+	rules    PHIStructureRules
+	engine   fhirpath.Engine
+	index    *fhirPathPHIIndex
+	Redacted string
+}
+
+// NewFHIRDeidentifier returns a de-identifier backed by catalog. When catalog is
+// nil, DefaultPHICatalog is used. Use NewFHIRDeidentifierWithConfig for
+// StructureDefinition-backed paths.
 func NewFHIRDeidentifier(catalog *PHICatalog) *FHIRDeidentifier {
-	return &FHIRDeidentifier{
-		Catalog:  catalog,
-		Redacted: DefaultRedactedValue,
+	return NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{Catalog: catalog})
+}
+
+// NewFHIRDeidentifierWithConfig constructs a FHIR de-identifier.
+func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
+	catalog := cfg.Catalog
+	if catalog == nil {
+		catalog = DefaultPHICatalog()
 	}
+	rules := DefaultPHIStructureRules()
+	if cfg.Rules != nil {
+		rules = *cfg.Rules
+	}
+	engine := cfg.Engine
+	if engine == nil {
+		engine, _ = fhirpath.NewEngine(fhirpath.Config{})
+	}
+	d := &FHIRDeidentifier{
+		catalog:  catalog,
+		profiles: cfg.Profiles,
+		rules:    rules,
+		engine:   engine,
+		Redacted: cfg.Redacted,
+		index:    newFHIRPathPHIIndex(engine, cfg.Profiles, rules, catalog),
+	}
+	if d.Redacted == "" {
+		d.Redacted = DefaultRedactedValue
+	}
+	return d
 }
 
 // Deidentify implements Deidentifier.
-func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) (any, []string, error) {
+func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest) (any, []string, error) {
 	if d == nil {
 		return nil, nil, fmt.Errorf("%w: nil FHIRDeidentifier", ErrMissingDeidentifier)
-	}
-	catalog := d.Catalog
-	if catalog == nil {
-		catalog = DefaultPHICatalog()
 	}
 	placeholder := d.Redacted
 	if placeholder == "" {
@@ -48,7 +82,10 @@ func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) 
 			return req.Data, nil, nil
 		}
 		rt := resourceTypeFromMap(m, req.ResourceType)
-		redactions := scrubResourceMap(rt, m, catalog, placeholder)
+		redactions, err := d.scrubResource(ctx, rt, m, placeholder)
+		if err != nil {
+			return nil, nil, err
+		}
 		return m, redactions, nil
 
 	case ToolSearchFhirResources:
@@ -64,7 +101,11 @@ func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) 
 					continue
 				}
 				rt := resourceTypeFromMap(m, req.ResourceType)
-				redactions = append(redactions, scrubResourceMap(rt, m, catalog, placeholder)...)
+				r, err := d.scrubResource(ctx, rt, m, placeholder)
+				if err != nil {
+					return nil, nil, err
+				}
+				redactions = append(redactions, r...)
 			}
 		}
 		if included, ok := root["included"].([]any); ok {
@@ -74,7 +115,11 @@ func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) 
 					continue
 				}
 				rt := resourceTypeFromMap(m, "")
-				redactions = append(redactions, scrubResourceMap(rt, m, catalog, placeholder)...)
+				r, err := d.scrubResource(ctx, rt, m, placeholder)
+				if err != nil {
+					return nil, nil, err
+				}
+				redactions = append(redactions, r...)
 			}
 		}
 		return root, uniqueStrings(redactions), nil
@@ -84,7 +129,7 @@ func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) 
 		if !ok {
 			return req.Data, nil, nil
 		}
-		redactions := scrubViewRows(root, catalog, placeholder)
+		redactions := scrubViewRows(root, d.catalog, placeholder)
 		return root, redactions, nil
 
 	default:
@@ -92,15 +137,24 @@ func (d *FHIRDeidentifier) Deidentify(_ context.Context, req DeidentifyRequest) 
 	}
 }
 
+func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType string, m map[string]any, placeholder string) ([]string, error) {
+	if m == nil {
+		return nil, nil
+	}
+	paths, err := d.index.paths(ctx, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	fhirRedactions := redactFHIRPaths(resourceType, m, paths, placeholder)
+	walkRedactions := deepScrubResource(resourceType, m, d.catalog, placeholder)
+	return uniqueStrings(append(fhirRedactions, walkRedactions...)), nil
+}
+
 func resourceTypeFromMap(m map[string]any, fallback string) string {
 	if rt, ok := m["resourceType"].(string); ok && rt != "" {
 		return rt
 	}
 	return fallback
-}
-
-func scrubResourceMap(resourceType string, m map[string]any, catalog *PHICatalog, placeholder string) []string {
-	return deepScrubResource(resourceType, m, catalog, placeholder)
 }
 
 func scrubViewRows(viewData map[string]any, catalog *PHICatalog, placeholder string) []string {

@@ -42,9 +42,11 @@ func DefaultPHICatalog() *PHICatalog {
 		GlobalElements:       []string{"text", "note"},
 		GlobalPathSuffixes:   defaultGlobalPathSuffixes(),
 		ResourcePathSuffixes: defaultResourcePathSuffixes(),
-		StrictConfidentialityCodes: []string{"R", "V"},
+		StrictConfidentialityCodes: []string{"R", "V", "M"},
 		StrictSecurityLabels: map[string][]string{
-			V3ConfidentialityCodeSystem: {"R", "V"},
+			V3ConfidentialityCodeSystem:                          {"R", "V", "M"},
+			"http://terminology.hl7.org/CodeSystem/security-labels": {"ETH", "PSY", "STD", "C", "R", "V", "EMP", "AFF", "PAT", "SDV"},
+			"http://terminology.hl7.org/CodeSystem/v3-ActCode":     {"ETH", "PSY", "STD", "C", "R", "V", "EMP", "AFF", "PAT", "SDV"},
 		},
 		StrictAllowPathSuffixes: []string{
 			"resourceType", "id", "meta.versionId", "meta.lastUpdated",
@@ -66,7 +68,7 @@ func DefaultPHICatalog() *PHICatalog {
 // DefaultDeidentifier returns the standard FHIR de-identifier used when Executor
 // Config.Deidentify is nil. Pass a custom Deidentifier to override.
 func DefaultDeidentifier() Deidentifier {
-	return NewFHIRDeidentifier(nil)
+	return NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{Catalog: DefaultPHICatalog()})
 }
 
 func defaultGlobalPathSuffixes() []string {
@@ -79,7 +81,7 @@ func defaultGlobalPathSuffixes() []string {
 		"contact", "contact.name", "contact.telecom", "contact.address",
 		"communication", "communication.language",
 		"photo", "photo.data", "photo.url",
-		"text", "text.div", "text.status",
+		"text", "text.status",
 		"note", "note.text", "note.time", "note.author",
 		"author", "authorString", "authenticator", "custodian",
 		"subject", "patient", "recipient", "sender", "performer", "actor",
