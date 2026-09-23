@@ -11,11 +11,14 @@ import (
 func TestMergedBundleCachePerProfiles(t *testing.T) {
 	snapshot := testSnapshot(t, "Patient")
 	profiles := validate.NewRegistryProfileCatalog(snapshot)
-	deid := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+	deid, err := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
 		Catalog:  ai.DefaultPHICatalog(),
 		Profiles: profiles,
 		Mode:     ai.PHIModeStandard,
 	})
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifierWithConfig: %v", err)
+	}
 	ctx := context.Background()
 	data := map[string]any{
 		"resourceType": "Patient",
@@ -24,19 +27,22 @@ func TestMergedBundleCachePerProfiles(t *testing.T) {
 			"profile": []any{"http://hl7.org/fhir/StructureDefinition/Patient"},
 		},
 	}
-	_, _, err := deid.Deidentify(ctx, ai.DeidentifyRequest{
+	_, _, deidErr := deid.Deidentify(ctx, ai.DeidentifyRequest{
 		ToolName: ai.ToolReadFhirResource, ResourceType: "Patient", Data: data,
 	})
-	if err != nil {
-		t.Fatalf("Deidentify: %v", err)
+	if deidErr != nil {
+		t.Fatalf("Deidentify: %v", deidErr)
 	}
 }
 
 func TestSearchSkipsFHIRPathEval(t *testing.T) {
-	deid := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+	deid, err := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
 		Catalog:  ai.DefaultPHICatalog(),
 		EvalMode: ai.EvalModeAlways,
 	})
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifierWithConfig: %v", err)
+	}
 	data := map[string]any{
 		"resources": []any{
 			map[string]any{
@@ -46,11 +52,11 @@ func TestSearchSkipsFHIRPathEval(t *testing.T) {
 			},
 		},
 	}
-	_, _, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+	_, _, searchErr := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
 		ToolName: ai.ToolSearchFhirResources,
 		Data:     data,
 	})
-	if err != nil {
-		t.Fatalf("Deidentify: %v", err)
+	if searchErr != nil {
+		t.Fatalf("Deidentify: %v", searchErr)
 	}
 }

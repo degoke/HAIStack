@@ -2,13 +2,22 @@ package ai_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/degoke/haistack/pkg/ai"
 )
 
+func mustFHIRDeidentifier(t *testing.T, catalog *ai.PHICatalog) *ai.FHIRDeidentifier {
+	deid, err := ai.NewFHIRDeidentifier(catalog)
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifier: %v", err)
+	}
+	return deid
+}
+
 func TestFHIRDeidentifier_ReadPatient(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid := mustFHIRDeidentifier(t, nil)
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",
@@ -40,7 +49,7 @@ func TestFHIRDeidentifier_ReadPatient(t *testing.T) {
 }
 
 func TestFHIRDeidentifier_SearchBundle(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid := mustFHIRDeidentifier(t, nil)
 	data := map[string]any{
 		"resourceType": "Patient",
 		"resources": []any{
@@ -65,7 +74,7 @@ func TestFHIRDeidentifier_SearchBundle(t *testing.T) {
 }
 
 func TestFHIRDeidentifier_ViewRows(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid := mustFHIRDeidentifier(t, nil)
 	data := map[string]any{
 		"viewName": "patient_summary_view",
 		"rows": []any{
@@ -89,7 +98,7 @@ func TestFHIRDeidentifier_ViewRows(t *testing.T) {
 }
 
 func TestFHIRDeidentifier_DeepExtensionValueString(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid := mustFHIRDeidentifier(t, nil)
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",
@@ -116,7 +125,7 @@ func TestFHIRDeidentifier_DeepExtensionValueString(t *testing.T) {
 }
 
 func TestFHIRDeidentifier_SecurityLabelStrict(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid := mustFHIRDeidentifier(t, nil)
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",
@@ -153,11 +162,15 @@ func TestExecutor_ReadPatient_WithFHIRDeidentifier(t *testing.T) {
 		allowPatientRead: true,
 	})
 	h.policy.Read["Patient"] = ai.ReadTypePolicy{Deidentify: true}
+	deid, err := ai.NewFHIRDeidentifier(nil)
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifier: %v", err)
+	}
 	exec, err := ai.NewExecutor(ai.Config{
 		Resources:  h.resources,
 		Policy:     h.policy,
 		Audit:      h.audit,
-		Deidentify: ai.NewFHIRDeidentifier(nil),
+		Deidentify: deid,
 	})
 	if err != nil {
 		t.Fatalf("NewExecutor: %v", err)
@@ -180,5 +193,91 @@ func TestExecutor_ReadPatient_WithFHIRDeidentifier(t *testing.T) {
 	}
 	if len(res.Redactions) == 0 {
 		t.Fatal("expected redactions on tool result")
+	}
+}
+
+func TestFHIRDeidentifier_BundleEntryResource(t *testing.T) {
+	deid := mustFHIRDeidentifier(t, nil)
+	data := map[string]any{
+		"resourceType": "Bundle",
+		"type":         "searchset",
+		"entry": []any{
+			map[string]any{
+				"resource": map[string]any{
+					"resourceType": "Patient",
+					"id":           "p1",
+					"name":         []any{map[string]any{"family": "Doe"}},
+				},
+			},
+		},
+	}
+	out, redactions, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Bundle",
+		Data:         data,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	entry := out.(map[string]any)["entry"].([]any)[0].(map[string]any)
+	pat := entry["resource"].(map[string]any)
+	if pat["name"] != ai.DefaultRedactedValue {
+		t.Fatalf("bundle entry name = %v, want redacted", pat["name"])
+	}
+	if len(redactions) == 0 {
+		t.Fatal("expected redactions on bundle entry")
+	}
+}
+
+func TestFHIRDeidentifier_ReadFromJSONBytes(t *testing.T) {
+	deid := mustFHIRDeidentifier(t, nil)
+	raw, err := json.Marshal(map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"name":         []any{map[string]any{"family": "Doe"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Patient",
+		Data:         raw,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	if out.(map[string]any)["name"] != ai.DefaultRedactedValue {
+		t.Fatal("expected name redacted from JSON bytes input")
+	}
+}
+
+func TestFHIRDeidentifier_GenderNotRedactedBySharedToken(t *testing.T) {
+	deid, err := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+		Catalog:  ai.DefaultPHICatalog(),
+		EvalMode: ai.EvalModeAlways,
+	})
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifierWithConfig: %v", err)
+	}
+	data := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"gender":       "female",
+		"maritalStatus": map[string]any{
+			"text": "female",
+		},
+	}
+	out, _, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Patient",
+		Data:         data,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	m := out.(map[string]any)
+	if m["gender"] != "female" {
+		t.Fatalf("gender = %v, want unchanged (no value-based eval redaction)", m["gender"])
 	}
 }

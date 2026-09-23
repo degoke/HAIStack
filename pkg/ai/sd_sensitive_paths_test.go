@@ -28,10 +28,13 @@ func TestSensitiveFHIRPathsFromPatientStructureDefinition(t *testing.T) {
 func TestFHIRDeidentifier_WithRegistryProfiles(t *testing.T) {
 	snapshot := testSnapshot(t, "Patient")
 	profiles := validate.NewRegistryProfileCatalog(snapshot)
-	deid := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+	deid, err := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
 		Catalog:  ai.DefaultPHICatalog(),
 		Profiles: profiles,
 	})
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifierWithConfig: %v", err)
+	}
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/degoke/haistack/pkg/fhirpath"
 )
 
 type scrubOptions struct {
@@ -31,7 +29,6 @@ func scrubResourceMerged(
 	root map[string]any,
 	catalog *PHICatalog,
 	bundle phiPathBundle,
-	engine fhirpath.Engine,
 	placeholder string,
 	opts scrubOptions,
 ) ([]string, error) {
@@ -41,23 +38,19 @@ func scrubResourceMerged(
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
 	}
+	_ = ctx
 	evalMode := effectiveEvalMode(opts.evalMode, opts.toolName)
-	var evalTargets map[string]struct{}
-	if evalMode != EvalModeNever && len(bundle.compiled) > 0 {
-		targets, err := buildEvalStringTargets(ctx, engine, resourceType, root, bundle.compiled)
-		if err != nil {
-			return nil, err
-		}
-		evalTargets = targets
+	segmentIdx := bundle.segmentIdx
+	if evalMode != EvalModeNever && len(bundle.labels) > 0 {
+		segmentIdx = mergePathIndices(segmentIdx, buildEvalPathIndex(bundle.labels))
 	}
 	st := &scrubState{
 		resourceType: resourceType,
 		catalog:      catalog,
 		placeholder:  placeholder,
 		strict:       catalog.resourceRequiresStrictRedaction(root),
-		segmentIdx:   bundle.segmentIdx,
+		segmentIdx:   segmentIdx,
 		catalogIdx:   bundle.catalogIdx,
-		evalTargets:  evalTargets,
 		redactionSet: make(map[string]struct{}),
 	}
 	st.walkMap(root)
@@ -72,7 +65,6 @@ type scrubState struct {
 	path         []string
 	segmentIdx   *pathIndex
 	catalogIdx   *pathIndex
-	evalTargets  map[string]struct{}
 	redactionSet map[string]struct{}
 }
 
@@ -104,10 +96,7 @@ func (s *scrubState) pathIndicesMatch(norm string) bool {
 	if s.segmentIdx != nil && s.segmentIdx.Match(norm) {
 		return true
 	}
-	if s.catalogIdx != nil && s.catalogIdx.Match(norm) {
-		return true
-	}
-	return s.catalog.pathMatches(s.resourceType, norm)
+	return s.catalogIdx != nil && s.catalogIdx.Match(norm)
 }
 
 func (s *scrubState) redactKey(parent map[string]any, key string, val any) bool {
@@ -124,25 +113,8 @@ func (s *scrubState) redactKey(parent map[string]any, key string, val any) bool 
 			s.recordRedaction(fullPath)
 			return true
 		}
-		if s.matchesEvalTarget(val) {
-			parent[key] = s.placeholder
-			s.recordRedaction(fullPath)
-			return true
-		}
 	}
 	return false
-}
-
-func (s *scrubState) matchesEvalTarget(val any) bool {
-	if len(s.evalTargets) == 0 {
-		return false
-	}
-	str, ok := val.(string)
-	if !ok || str == "" {
-		return false
-	}
-	_, ok = s.evalTargets[str]
-	return ok
 }
 
 func (s *scrubState) descend(key string, val any) {
@@ -167,10 +139,6 @@ func (s *scrubState) descend(key string, val any) {
 				v[i] = s.placeholder
 				s.recordRedaction(fullPath)
 				continue
-			}
-			if s.matchesEvalTarget(item) {
-				v[i] = s.placeholder
-				s.recordRedaction(fullPath)
 			}
 		}
 	}

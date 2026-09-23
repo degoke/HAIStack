@@ -27,10 +27,13 @@ func TestFHIRDeidentifier_ProfileAwarePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProfileCatalogFromJSON: %v", err)
 	}
-	deid := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
+	deid, deidCfgErr := ai.NewFHIRDeidentifierWithConfig(ai.FHIRDeidentifierConfig{
 		Catalog:  ai.DefaultPHICatalog(),
 		Profiles: catalog,
 	})
+	if deidCfgErr != nil {
+		t.Fatalf("NewFHIRDeidentifierWithConfig: %v", deidCfgErr)
+	}
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",
@@ -60,7 +63,10 @@ func TestFHIRDeidentifier_ProfileAwarePaths(t *testing.T) {
 }
 
 func TestFHIRDeidentifier_NarrativeDivFHIRPath(t *testing.T) {
-	deid := ai.NewFHIRDeidentifier(nil)
+	deid, err := ai.NewFHIRDeidentifier(nil)
+	if err != nil {
+		t.Fatalf("NewFHIRDeidentifier: %v", err)
+	}
 	data := map[string]any{
 		"resourceType": "Patient",
 		"id":           "pat-1",

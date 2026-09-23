@@ -11,17 +11,20 @@ var sharedDeidentifiers = map[string]*FHIRDeidentifier{}
 
 // SharedFHIRDeidentifier returns a process-wide FHIRDeidentifier for equivalent
 // configuration. Use when multiple Executors should share warm path caches.
-func SharedFHIRDeidentifier(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
+func SharedFHIRDeidentifier(cfg FHIRDeidentifierConfig) (*FHIRDeidentifier, error) {
 	key := sharedDeidentifierKey(cfg)
 	sharedDeidentifierMu.Lock()
 	defer sharedDeidentifierMu.Unlock()
 	if d, ok := sharedDeidentifiers[key]; ok {
-		return d
+		return d, nil
 	}
 	cfg.UseShared = false
-	d := newFHIRDeidentifierWithConfig(cfg)
+	d, err := newFHIRDeidentifierWithConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	sharedDeidentifiers[key] = d
-	return d
+	return d, nil
 }
 
 func sharedDeidentifierKey(cfg FHIRDeidentifierConfig) string {
@@ -33,15 +36,13 @@ func sharedDeidentifierKey(cfg FHIRDeidentifierConfig) string {
 	if eval == "" {
 		eval = EvalModeKeywordsOnly
 	}
-	catalog := "default"
-	if cfg.Catalog != nil {
-		catalog = fmt.Sprintf("catalog-%p", cfg.Catalog)
+	redacted := cfg.Redacted
+	if redacted == "" {
+		redacted = DefaultRedactedValue
 	}
-	profiles := "none"
-	if cfg.Profiles != nil {
-		profiles = fmt.Sprintf("profiles-%p", cfg.Profiles)
-	}
-	return fmt.Sprintf("%s|%s|%s|%s", mode, eval, catalog, profiles)
+	catalog := canonicalCatalogKey(cfg.Catalog)
+	profiles := canonicalProfileCatalogKey(cfg.Profiles)
+	return fmt.Sprintf("%s|%s|%s|%s|%s", mode, eval, catalog, profiles, redacted)
 }
 
 // WarmPathIndex pre-builds path bundles for resource types.

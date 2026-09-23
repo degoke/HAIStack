@@ -130,12 +130,17 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 
 ### 4. De-identified context
 
-Set `Deidentify: true` on read/search/view policies and provide an explicit `Deidentifier`:
+Set `Deidentify: true` on read/search/view policies. Omit `Deidentify` on `Config` to use
+the built-in shared `FHIRDeidentifier`, or construct one explicitly:
 
 ```go
+deid, err := ai.NewFHIRDeidentifier(ai.DefaultPHICatalog())
+if err != nil {
+    return err
+}
 exec, err := ai.NewExecutor(ai.Config{
-    Policy:       deidPolicy,
-    Deidentify:   ai.NewFHIRDeidentifier(ai.DefaultPHICatalog()),
+    Policy:     deidPolicy,
+    Deidentify: deid,
 })
 ```
 

@@ -40,19 +40,19 @@ type FHIRDeidentifier struct {
 // NewFHIRDeidentifier returns a de-identifier backed by catalog. When catalog is
 // nil, DefaultPHICatalog is used. Use NewFHIRDeidentifierWithConfig for
 // StructureDefinition-backed paths.
-func NewFHIRDeidentifier(catalog *PHICatalog) *FHIRDeidentifier {
+func NewFHIRDeidentifier(catalog *PHICatalog) (*FHIRDeidentifier, error) {
 	return NewFHIRDeidentifierWithConfig(FHIRDeidentifierConfig{Catalog: catalog})
 }
 
 // NewFHIRDeidentifierWithConfig constructs a FHIR de-identifier.
-func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
+func NewFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) (*FHIRDeidentifier, error) {
 	if cfg.UseShared {
 		return SharedFHIRDeidentifier(cfg)
 	}
 	return newFHIRDeidentifierWithConfig(cfg)
 }
 
-func newFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier {
+func newFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) (*FHIRDeidentifier, error) {
 	catalog := cfg.Catalog
 	if catalog == nil {
 		catalog = DefaultPHICatalog()
@@ -71,7 +71,11 @@ func newFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier
 	}
 	engine := cfg.Engine
 	if engine == nil {
-		engine, _ = fhirpath.NewEngine(fhirpath.Config{})
+		var err error
+		engine, err = fhirpath.NewEngine(fhirpath.Config{})
+		if err != nil {
+			return nil, fmt.Errorf("fhirpath engine: %w", err)
+		}
 	}
 	d := &FHIRDeidentifier{
 		catalog:  catalog,
@@ -85,7 +89,7 @@ func newFHIRDeidentifierWithConfig(cfg FHIRDeidentifierConfig) *FHIRDeidentifier
 	if d.Redacted == "" {
 		d.Redacted = DefaultRedactedValue
 	}
-	return d
+	return d, nil
 }
 
 // Deidentify implements Deidentifier.
@@ -100,9 +104,9 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 
 	switch req.ToolName {
 	case ToolReadFhirResource:
-		m, ok := req.Data.(map[string]any)
-		if !ok {
-			return req.Data, nil, nil
+		m, err := resourceDataAsMap(req.Data)
+		if err != nil {
+			return nil, nil, err
 		}
 		rt := resourceTypeFromMap(m, req.ResourceType)
 		redactions, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
@@ -112,9 +116,9 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 		return m, redactions, nil
 
 	case ToolSearchFhirResources:
-		root, ok := req.Data.(map[string]any)
-		if !ok {
-			return req.Data, nil, nil
+		root, err := resourceDataAsMap(req.Data)
+		if err != nil {
+			return nil, nil, err
 		}
 		var redactions []string
 		if resources, ok := root["resources"].([]any); ok {
@@ -152,7 +156,7 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 		if !ok {
 			return req.Data, nil, nil
 		}
-		redactions := scrubViewRows(root, d.catalog, placeholder)
+		redactions := scrubViewRows(ctx, d, root, placeholder)
 		return root, redactions, nil
 
 	default:
@@ -169,10 +173,20 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 		return nil, err
 	}
 	opts := scrubOptions{toolName: toolName, evalMode: d.evalMode}
-	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, d.engine, placeholder, opts)
+	redactions, err := scrubResourceMerged(ctx, resourceType, m, d.catalog, bundle, placeholder, opts)
 	if err != nil {
 		return nil, err
 	}
+	nested, err := d.scrubNestedResources(ctx, m, placeholder, opts)
+	if err != nil {
+		return nil, err
+	}
+	redactions = append(redactions, nested...)
+	return redactions, nil
+}
+
+func (d *FHIRDeidentifier) scrubNestedResources(ctx context.Context, m map[string]any, placeholder string, opts scrubOptions) ([]string, error) {
+	var redactions []string
 	if contained, ok := m["contained"].([]any); ok {
 		for i, item := range contained {
 			child, ok := item.(map[string]any)
@@ -180,16 +194,32 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 				continue
 			}
 			childType, _ := child["resourceType"].(string)
-			childBundle, err := d.index.bundleFor(ctx, childType, child)
+			r, err := d.scrubResource(ctx, childType, child, placeholder, opts.toolName)
 			if err != nil {
 				return nil, err
 			}
-			childRedactions, err := scrubResourceMerged(ctx, childType, child, d.catalog, childBundle, d.engine, placeholder, opts)
-			if err != nil {
-				return nil, err
-			}
-			redactions = append(redactions, childRedactions...)
+			redactions = append(redactions, r...)
 			contained[i] = child
+		}
+	}
+	if entries, ok := m["entry"].([]any); ok {
+		for i, item := range entries {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			child, ok := entry["resource"].(map[string]any)
+			if !ok {
+				continue
+			}
+			childType, _ := child["resourceType"].(string)
+			r, err := d.scrubResource(ctx, childType, child, placeholder, opts.toolName)
+			if err != nil {
+				return nil, err
+			}
+			redactions = append(redactions, r...)
+			entry["resource"] = child
+			entries[i] = entry
 		}
 	}
 	return redactions, nil
@@ -202,16 +232,20 @@ func resourceTypeFromMap(m map[string]any, fallback string) string {
 	return fallback
 }
 
-func scrubViewRows(viewData map[string]any, catalog *PHICatalog, placeholder string) []string {
+func scrubViewRows(ctx context.Context, d *FHIRDeidentifier, viewData map[string]any, placeholder string) []string {
 	rows, ok := viewData["rows"].([]any)
 	if !ok {
 		return nil
+	}
+	catalog := d.catalog
+	if catalog == nil {
+		catalog = DefaultPHICatalog()
 	}
 	var redactions []string
 	for _, row := range rows {
 		switch r := row.(type) {
 		case map[string]any:
-			redactions = append(redactions, scrubViewRowMap(r, catalog, placeholder)...)
+			redactions = append(redactions, scrubViewRowMap(ctx, d, r, placeholder)...)
 		case []any:
 			cols := columnNamesFromViewData(viewData)
 			for i, cell := range r {
@@ -233,20 +267,26 @@ func scrubViewRows(viewData map[string]any, catalog *PHICatalog, placeholder str
 	return uniqueStrings(redactions)
 }
 
-func scrubViewRowMap(row map[string]any, catalog *PHICatalog, placeholder string) []string {
+func scrubViewRowMap(ctx context.Context, d *FHIRDeidentifier, row map[string]any, placeholder string) []string {
+	catalog := d.catalog
+	if catalog == nil {
+		catalog = DefaultPHICatalog()
+	}
 	var redactions []string
 	for col, val := range row {
 		if val == nil {
 			continue
 		}
 		if child, ok := val.(map[string]any); ok {
-			rt, _ := child["resourceType"].(string)
-			childRedactions, err := scrubResourceMerged(context.Background(), rt, child, catalog, phiPathBundle{}, nil, placeholder, scrubOptions{})
-			if err == nil {
-				redactions = append(redactions, childRedactions...)
+			if _, hasRT := child["resourceType"]; hasRT {
+				rt, _ := child["resourceType"].(string)
+				childRedactions, err := d.scrubResource(ctx, rt, child, placeholder, ToolRunView)
+				if err == nil {
+					redactions = append(redactions, childRedactions...)
+				}
+				row[col] = child
+				continue
 			}
-			row[col] = child
-			continue
 		}
 		if !catalog.ViewColumnIsPHI(col) {
 			continue

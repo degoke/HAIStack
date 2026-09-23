@@ -87,7 +87,11 @@ func NewExecutor(cfg Config) (*Executor, error) {
 			EvalMode:   cfg.EvalMode,
 			UseShared:  useShared,
 		}
-		cfg.Deidentify = NewFHIRDeidentifierWithConfig(deidCfg)
+		deid, deidErr := NewFHIRDeidentifierWithConfig(deidCfg)
+		if deidErr != nil {
+			return nil, deidErr
+		}
+		cfg.Deidentify = deid
 		if fd, ok := cfg.Deidentify.(*FHIRDeidentifier); ok {
 			_ = WarmPathIndex(context.Background(), fd, DefaultWarmResourceTypes...)
 		}
