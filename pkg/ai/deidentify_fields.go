@@ -68,6 +68,15 @@ func projectSearchResourceMap(root map[string]any, allowedFields []string, allow
 	return out
 }
 
+// projectIncludedResourceMap applies read policy on search _included entries after
+// de-identification. Empty allowedFields means full read was allowed (not id-only).
+func projectIncludedResourceMap(root map[string]any, readAllowedFields []string) map[string]any {
+	if len(readAllowedFields) == 0 {
+		return root
+	}
+	return projectResourceMap(root, readAllowedFields)
+}
+
 // projectSearchResultData reapplies search/included field projections after de-id.
 func projectSearchResultData(
 	data any,
@@ -92,11 +101,11 @@ func projectSearchResultData(
 			if !ok {
 				continue
 			}
-			allowed := searchAllowed
+			var readAllowed []string
 			if i < len(includedAllowed) {
-				allowed = includedAllowed[i]
+				readAllowed = includedAllowed[i]
 			}
-			inc[i] = projectSearchResourceMap(m, allowed, false)
+			inc[i] = projectIncludedResourceMap(m, readAllowed)
 		}
 	}
 	return root

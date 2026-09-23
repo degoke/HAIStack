@@ -67,6 +67,26 @@ func TestReadDeidentifyStrictWithNarrowAllowedFields(t *testing.T) {
 	}
 }
 
+func TestProjectIncludedResourceMapFullRead(t *testing.T) {
+	full := map[string]any{
+		"resourceType": "Organization",
+		"id":           "org-1",
+		"name":         "Acme",
+		"gender":       "n/a",
+	}
+	out := projectIncludedResourceMap(full, nil)
+	if out["name"] != "Acme" {
+		t.Fatalf("full read allowlist should keep included fields, got %v", out)
+	}
+	narrow := projectIncludedResourceMap(full, []string{"name"})
+	if narrow["name"] != "Acme" {
+		t.Fatal("expected name")
+	}
+	if _, ok := narrow["gender"]; ok {
+		t.Fatal("gender should be stripped with narrow allowlist")
+	}
+}
+
 func TestFHIRDeidentifierUnsupportedTool(t *testing.T) {
 	deid, err := NewFHIRDeidentifier(nil)
 	if err != nil {
