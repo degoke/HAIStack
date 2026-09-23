@@ -2,17 +2,32 @@ package ai
 
 import "strings"
 
-// PHICatalog lists FHIR element paths and view column names treated as PHI for
-// built-in de-identification. It is a conservative, operator-curated allow-list
-// of sensitive fields—not a full HIPAA Safe Harbor engine. Callers can copy
-// DefaultPHICatalog and extend ResourceElements or ViewColumnNames for local
-// profiles.
+// PHICatalog drives FHIR de-identification: deep FHIR path suffixes, passive
+// element-name detection at any depth, meta.security confidentiality labels,
+// and view column rules. Copy DefaultPHICatalog and extend fields for local
+// profiles, or replace Executor.Config.Deidentify with a custom Deidentifier.
 type PHICatalog struct {
-	// ResourceElements maps FHIR resource type to top-level JSON element names
-	// removed before model context is returned.
+	// ResourceElements lists top-level elements whose entire subtree is redacted.
+	// Prefer GlobalPathSuffixes and ResourcePathSuffixes for precise control.
 	ResourceElements map[string][]string
-	// GlobalElements are removed from every resource when present at the top level.
+	// GlobalElements are top-level subtrees redacted on every resource type.
 	GlobalElements []string
+	// GlobalPathSuffixes match element paths at any depth (dot notation), for
+	// example "telecom.value", "name.family", "identifier.value", "text.div".
+	GlobalPathSuffixes []string
+	// ResourcePathSuffixes adds type-specific deep path suffixes.
+	ResourcePathSuffixes map[string][]string
+	// PassiveSensitiveKeys overrides default leaf element names redacted at any
+	// depth (family, given, value, div, ...).
+	PassiveSensitiveKeys map[string]bool
+	// StrictConfidentialityCodes are v3-ConfidentialityCode values that trigger
+	// aggressive redaction for the whole resource (default R and V).
+	StrictConfidentialityCodes []string
+	// StrictSecurityLabels maps Code.system to codes that trigger strict mode.
+	StrictSecurityLabels map[string][]string
+	// StrictAllowPathSuffixes are paths still returned when strict mode is active
+	// (for example coded status fields).
+	StrictAllowPathSuffixes []string
 	// ViewColumnNames lists exact column names (case-insensitive) redacted in
 	// run_view row maps.
 	ViewColumnNames []string
@@ -20,12 +35,21 @@ type PHICatalog struct {
 	ViewColumnSubstrings []string
 }
 
-// DefaultPHICatalog returns a starter catalog for common R4 demographics and
-// free-text clinical fields used in AI tool output.
+// DefaultPHICatalog returns the built-in PHI profile for FHIR R4 tool output.
 func DefaultPHICatalog() *PHICatalog {
 	return &PHICatalog{
-		ResourceElements: defaultPHIResourceElements(),
-		GlobalElements:   []string{"text", "note"},
+		ResourceElements:     defaultPHIResourceElements(),
+		GlobalElements:       []string{"text", "note"},
+		GlobalPathSuffixes:   defaultGlobalPathSuffixes(),
+		ResourcePathSuffixes: defaultResourcePathSuffixes(),
+		StrictConfidentialityCodes: []string{"R", "V"},
+		StrictSecurityLabels: map[string][]string{
+			V3ConfidentialityCodeSystem: {"R", "V"},
+		},
+		StrictAllowPathSuffixes: []string{
+			"resourceType", "id", "meta.versionId", "meta.lastUpdated",
+			"status", "code", "category", "clinicalStatus", "verificationStatus",
+		},
 		ViewColumnNames: []string{
 			"name", "family", "given", "phone", "email", "telecom",
 			"address", "birthdate", "birth_date", "dateofbirth", "date_of_birth",
@@ -35,6 +59,59 @@ func DefaultPHICatalog() *PHICatalog {
 		ViewColumnSubstrings: []string{
 			"_name", "_phone", "_email", "_address", "_birth", "_mrn", "_ssn",
 			"_telecom", "_identifier", "_postal", "_zip",
+		},
+	}
+}
+
+// DefaultDeidentifier returns the standard FHIR de-identifier used when Executor
+// Config.Deidentify is nil. Pass a custom Deidentifier to override.
+func DefaultDeidentifier() Deidentifier {
+	return NewFHIRDeidentifier(nil)
+}
+
+func defaultGlobalPathSuffixes() []string {
+	return []string{
+		"name", "name.family", "name.given", "name.prefix", "name.suffix", "name.text", "name.period",
+		"telecom", "telecom.value", "telecom.extension",
+		"address", "address.line", "address.city", "address.state", "address.postalCode",
+		"address.country", "address.district", "address.text", "address.period",
+		"identifier", "identifier.value", "identifier.assigner", "identifier.system",
+		"contact", "contact.name", "contact.telecom", "contact.address",
+		"communication", "communication.language",
+		"photo", "photo.data", "photo.url",
+		"text", "text.div", "text.status",
+		"note", "note.text", "note.time", "note.author",
+		"author", "authorString", "authenticator", "custodian",
+		"subject", "patient", "recipient", "sender", "performer", "actor",
+		"reference", "reference.display",
+		"display", "description", "comment", "conclusion", "patientInstruction",
+		"content", "content.data", "content.url", "content.title",
+		"payload", "payload.content", "presentedForm",
+		"valueString", "valueHumanName", "valueAddress", "valueContactPoint",
+		"valueReference", "valueAttachment", "valueDate", "valueDateTime", "valueTime",
+		"valueInstant", "valueUri", "valueUrl", "valuePeriod", "valueQuantity",
+		"birthDate", "birthdate", "deceasedDateTime", "deceasedBoolean",
+		"extension.valueString", "extension.valueHumanName", "extension.valueAddress",
+		"extension.valueContactPoint", "extension.valueReference", "extension.valueAttachment",
+		"extension.valueDate", "extension.valueDateTime", "extension.valueTime",
+		"extension.valueInstant", "extension.valueUri", "extension.valueUrl",
+		"extension.valueIdentifier", "extension.valueCodeableConcept.text",
+		"link", "managingOrganization", "generalPractitioner", "guarantor", "payor",
+		"policyHolder", "beneficiary", "subscriber", "subscriberId",
+	}
+}
+
+func defaultResourcePathSuffixes() map[string][]string {
+	return map[string][]string{
+		"Observation": {
+			"component.valueString", "component.valueTime", "component.valueDateTime",
+			"valueString", "valueTime", "valueDateTime", "valuePeriod",
+		},
+		"DocumentReference": {
+			"context.related", "context.sourcePatientInfo",
+		},
+		"DiagnosticReport": {
+			"imagingStudy", "media", "result",
 		},
 	}
 }
@@ -112,6 +189,20 @@ func defaultPHIResourceElements() map[string][]string {
 			"subject", "owner", "guarantor", "coverage",
 		},
 	}
+}
+
+var defaultPassiveSensitiveKeys = map[string]bool{
+	"family": true, "given": true, "prefix": true, "suffix": true,
+	"div": true, "line": true, "city": true, "state": true, "postalCode": true,
+	"country": true, "district": true, "birthDate": true, "data": true, "url": true,
+	"title": true, "display": true, "patientInstruction": true, "comment": true,
+	"description": true, "conclusion": true, "valueString": true, "valueHumanName": true,
+	"valueAddress": true, "valueContactPoint": true, "valueReference": true,
+	"valueAttachment": true, "valueDate": true, "valueDateTime": true, "valueTime": true,
+	"valueInstant": true, "valueUri": true, "valueUrl": true, "valuePeriod": true,
+	"valueQuantity": true, "valueIdentifier": true,
+	"text": true, // CodeableConcept.text, Narrative sibling keys handled via paths
+	"value": true,
 }
 
 // ElementsForResource returns top-level element names to redact for resourceType,

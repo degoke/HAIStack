@@ -139,12 +139,15 @@ exec, err := ai.NewExecutor(ai.Config{
 })
 ```
 
-`FHIRDeidentifier` removes catalogued top-level FHIR elements (see `PHICatalog`
-and `DefaultPHICatalog`) and redacts matching view column names before context
-is returned. Customize `PHICatalog.ResourceElements` or implement `Deidentifier`
-for site-specific rules.
+`Executor` uses `DefaultDeidentifier()` (`FHIRDeidentifier` + `DefaultPHICatalog`)
+when `Config.Deidentify` is nil. Pass your own `Deidentifier` to override.
 
-The executor refuses to silently pass through PHI when de-identification is required.
+`FHIRDeidentifier` applies deep FHIR path suffixes, passive sensitive element
+names at any depth, `meta.security` confidentiality labels (v3 `R`/`V` by
+default), and view column rules. Customize `PHICatalog` or implement
+`Deidentifier` for site-specific rules.
+
+The executor refuses to silently skip de-identification when policy requires it.
 
 ### 5. Model routing (optional)
 

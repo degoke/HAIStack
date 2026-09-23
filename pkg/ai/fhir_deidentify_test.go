@@ -88,6 +88,65 @@ func TestFHIRDeidentifier_ViewRows(t *testing.T) {
 	}
 }
 
+func TestFHIRDeidentifier_DeepExtensionValueString(t *testing.T) {
+	deid := ai.NewFHIRDeidentifier(nil)
+	data := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"extension": []any{
+			map[string]any{"url": "http://example.org/note", "valueString": "secret note"},
+		},
+	}
+	out, redactions, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Patient",
+		Data:         data,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	m := out.(map[string]any)
+	ext := m["extension"].([]any)[0].(map[string]any)
+	if ext["valueString"] != ai.DefaultRedactedValue {
+		t.Fatalf("valueString = %v, want redacted", ext["valueString"])
+	}
+	if len(redactions) == 0 {
+		t.Fatal("expected redactions")
+	}
+}
+
+func TestFHIRDeidentifier_SecurityLabelStrict(t *testing.T) {
+	deid := ai.NewFHIRDeidentifier(nil)
+	data := map[string]any{
+		"resourceType": "Patient",
+		"id":           "pat-1",
+		"gender":       "female",
+		"meta": map[string]any{
+			"security": []any{
+				map[string]any{
+					"system": ai.V3ConfidentialityCodeSystem,
+					"code":   "R",
+				},
+			},
+		},
+	}
+	out, _, err := deid.Deidentify(context.Background(), ai.DeidentifyRequest{
+		ToolName:     ai.ToolReadFhirResource,
+		ResourceType: "Patient",
+		Data:         data,
+	})
+	if err != nil {
+		t.Fatalf("Deidentify: %v", err)
+	}
+	m := out.(map[string]any)
+	if m["gender"] != ai.DefaultRedactedValue {
+		t.Fatalf("gender = %v, want redacted under strict confidentiality", m["gender"])
+	}
+	if m["id"] != "pat-1" {
+		t.Fatalf("id should remain for grounding, got %v", m["id"])
+	}
+}
+
 func TestExecutor_ReadPatient_WithFHIRDeidentifier(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:     true,

@@ -67,6 +67,9 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	if cfg.Registry == nil {
 		cfg.Registry = NewRegistry()
 	}
+	if cfg.Deidentify == nil {
+		cfg.Deidentify = DefaultDeidentifier()
+	}
 	return &Executor{cfg: cfg}, nil
 }
 

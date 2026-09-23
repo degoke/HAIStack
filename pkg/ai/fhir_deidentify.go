@@ -9,9 +9,10 @@ import (
 // DefaultRedactedValue is the placeholder written when a PHI field is removed.
 const DefaultRedactedValue = "[redacted]"
 
-// FHIRDeidentifier implements Deidentifier using PHICatalog field labels. It
-// scrubs FHIR resource maps (read/search), nested contained resources, and view
-// row columns before tool output is formatted for a model.
+// FHIRDeidentifier implements Deidentifier using PHICatalog deep FHIR paths,
+// passive element detection, meta.security confidentiality labels, and view
+// column rules. It scrubs resource maps (read/search), contained resources, and
+// view rows before tool output is formatted for a model.
 type FHIRDeidentifier struct {
 	Catalog  *PHICatalog
 	Redacted string
@@ -99,28 +100,7 @@ func resourceTypeFromMap(m map[string]any, fallback string) string {
 }
 
 func scrubResourceMap(resourceType string, m map[string]any, catalog *PHICatalog, placeholder string) []string {
-	if m == nil {
-		return nil
-	}
-	var redactions []string
-	for _, el := range catalog.ElementsForResource(resourceType) {
-		if _, ok := m[el]; !ok {
-			continue
-		}
-		m[el] = placeholder
-		redactions = append(redactions, fmt.Sprintf("%s.%s", resourceType, el))
-	}
-	if contained, ok := m["contained"].([]any); ok {
-		for _, item := range contained {
-			child, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			childType := resourceTypeFromMap(child, "")
-			redactions = append(redactions, scrubResourceMap(childType, child, catalog, placeholder)...)
-		}
-	}
-	return redactions
+	return deepScrubResource(resourceType, m, catalog, placeholder)
 }
 
 func scrubViewRows(viewData map[string]any, catalog *PHICatalog, placeholder string) []string {
@@ -157,7 +137,16 @@ func scrubViewRows(viewData map[string]any, catalog *PHICatalog, placeholder str
 func scrubViewRowMap(row map[string]any, catalog *PHICatalog, placeholder string) []string {
 	var redactions []string
 	for col, val := range row {
-		if val == nil || !catalog.ViewColumnIsPHI(col) {
+		if val == nil {
+			continue
+		}
+		if child, ok := val.(map[string]any); ok {
+			rt, _ := child["resourceType"].(string)
+			redactions = append(redactions, deepScrubResource(rt, child, catalog, placeholder)...)
+			row[col] = child
+			continue
+		}
+		if !catalog.ViewColumnIsPHI(col) {
 			continue
 		}
 		row[col] = placeholder
