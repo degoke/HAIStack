@@ -31,7 +31,9 @@
 //     builds citations, and emits audit records via ExecuteTool and InvokeModel.
 //   - GenericToolDescriptors / Registry.AllToolDescriptors: model-facing tool
 //     discovery metadata.
-//   - ContextFormatter: converts tool output into model-facing JSON context.
+//   - ContextFormatter: converts already de-identified tool output into model-facing
+//     JSON context (Executor runs Deidentify on structured Data first when policy
+//     requires it, so the formatter does not perform a separate PHI scrub pass).
 //   - CitationBuilder: attaches provenance from resource refs, search params,
 //     view columns, and write metadata.
 //   - ModelRouter / Executor.InvokeModel: optional local/cloud model adapter
@@ -95,7 +97,8 @@
 //
 // ExecuteTool resolves convenience wrappers through Registry, validates typed
 // input, runs the matching PolicyEngine check, invokes the backing package,
-// optionally de-identifies output, formats model context, builds citations, and
+// optionally de-identifies structured tool output (before ContextFormatter),
+// formats model context, builds citations, and
 // writes audit records on success, denial, validation failure, and
 // approval-required outcomes. InvokeModel audits invoke-model when a model
 // adapter actually runs.

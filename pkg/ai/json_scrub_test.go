@@ -80,7 +80,7 @@ func TestJSONScrubEscapedStringValue(t *testing.T) {
 func TestApplyJSONPatchesDedupesPaths(t *testing.T) {
 	raw := []byte(`{"a":"x","b":"y"}`)
 	paths := [][]string{{"a"}, {"a"}}
-	out, err := applyJSONPatches(raw, paths, []byte(`"[redacted]"`))
+	out, err := applyJSONPatches(raw, paths, nil, []byte(`"[redacted]"`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +113,47 @@ func TestJsonParserPathBracketIndexes(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v want %v", got, want)
 		}
+	}
+}
+
+func TestJSONScrubRecordsWalkSpans(t *testing.T) {
+	raw := []byte(`{"resourceType":"Patient","name":[{"family":"Doe"}]}`)
+	catalog := DefaultPHICatalog()
+	s := &jsonScrubber{
+		catalog:         catalog,
+		placeholderJSON: []byte(`"[redacted]"`),
+		resolve:         catalogOnlyJSONResolve(catalog, "Patient"),
+		redactionSet:    make(map[string]struct{}),
+		patchKeys:       make(map[string]struct{}),
+		patchSpans:      make(map[string]byteSpan),
+		root:            raw,
+	}
+	rt := "Patient"
+	seg, cat, strict, err := s.resolve(rt, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.resourceType = rt
+	s.segmentIdx = seg
+	s.catalogIdx = cat
+	s.strict = strict
+	if err := s.walkObject(raw, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.patchSpans) == 0 {
+		t.Fatal("expected walk-recorded spans")
+	}
+	for key, sp := range s.patchSpans {
+		if sp.start < 0 || sp.end <= sp.start || sp.end > len(raw) {
+			t.Fatalf("bad span for %q: %v", key, sp)
+		}
+	}
+	out, err := applyJSONPatches(raw, s.patchPaths, s.patchSpans, []byte(`"[redacted]"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("invalid JSON: %s", out)
 	}
 }
 

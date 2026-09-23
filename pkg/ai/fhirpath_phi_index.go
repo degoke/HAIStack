@@ -14,7 +14,6 @@ type phiPathBundle struct {
 	segment    []string
 	segmentIdx *pathIndex
 	catalogIdx *pathIndex
-	compiled   []fhirpath.CompiledExpression
 	labels     []string
 }
 
@@ -229,29 +228,25 @@ func mergePathBundles(a, b phiPathBundle) phiPathBundle {
 		segSeen[s] = struct{}{}
 		segment = append(segment, s)
 	}
-	compiled := append([]fhirpath.CompiledExpression(nil), a.compiled...)
 	labels := append([]string(nil), a.labels...)
 	seenExpr := make(map[string]struct{}, len(labels))
 	for _, l := range labels {
 		seenExpr[l] = struct{}{}
 	}
-	for i, c := range b.compiled {
-		l := b.labels[i]
+	for _, l := range b.labels {
 		if l == "" {
-			l = c.Expr()
+			continue
 		}
 		if _, ok := seenExpr[l]; ok {
 			continue
 		}
 		seenExpr[l] = struct{}{}
-		compiled = append(compiled, c)
 		labels = append(labels, l)
 	}
 	return phiPathBundle{
 		segment:    segment,
 		segmentIdx: mergePathIndices(a.segmentIdx, b.segmentIdx, newPathIndex(segment)),
 		catalogIdx: a.catalogIdx,
-		compiled:   compiled,
 		labels:     labels,
 	}
 }
