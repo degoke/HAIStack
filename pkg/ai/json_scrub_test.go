@@ -11,7 +11,7 @@ func TestJSONScrubPreservesExtensionArray(t *testing.T) {
 	raw := []byte(`{"resourceType":"Patient","extension":[{"url":"http://example.org","valueString":"secret"}]}`)
 	catalog := DefaultPHICatalog()
 	resolve := catalogOnlyJSONResolve(catalog, "Patient")
-	scrubbed, redactions, err := scrubJSONDocument(raw, catalog, DefaultRedactedValue, "Patient", resolve)
+	scrubbed, redactions, err := scrubJSONDocument(raw, catalog, DefaultRedactedValue, "Patient", resolve, jsonScrubDocumentOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,6 +20,9 @@ func TestJSONScrubPreservesExtensionArray(t *testing.T) {
 	}
 	if _, err := jsonparser.ArrayEach(scrubbed, func(_ []byte, _ jsonparser.ValueType, _ int, _ error) {}, "extension"); err != nil {
 		t.Fatalf("extension should remain a JSON array: %v", err)
+	}
+	if !json.Valid(scrubbed) {
+		t.Fatalf("invalid JSON: %s", scrubbed)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(scrubbed, &m); err != nil {
@@ -34,12 +37,15 @@ func TestJSONScrubPreservesExtensionArray(t *testing.T) {
 func TestJSONScrubBundleEntryInOnePass(t *testing.T) {
 	raw := []byte(`{"resourceType":"Bundle","type":"searchset","entry":[{"resource":{"resourceType":"Patient","id":"p1","name":[{"family":"Doe"}]}}]}`)
 	catalog := DefaultPHICatalog()
-	scrubbed, redactions, err := scrubJSONDocument(raw, catalog, DefaultRedactedValue, "Bundle", catalogOnlyJSONResolve(catalog, "Bundle"))
+	scrubbed, redactions, err := scrubJSONDocument(raw, catalog, DefaultRedactedValue, "Bundle", catalogOnlyJSONResolve(catalog, "Bundle"), jsonScrubDocumentOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(redactions) == 0 {
 		t.Fatal("expected redactions on entry.resource")
+	}
+	if !json.Valid(scrubbed) {
+		t.Fatal("invalid JSON after scrub")
 	}
 	var m map[string]any
 	if err := json.Unmarshal(scrubbed, &m); err != nil {
@@ -52,6 +58,25 @@ func TestJSONScrubBundleEntryInOnePass(t *testing.T) {
 	}
 }
 
+func TestJSONScrubEscapedStringValue(t *testing.T) {
+	raw := []byte(`{"resourceType":"Patient","id":"p1","text":{"status":"generated","div":"\u003cdiv\u003eJane\u003c/div\u003e"}}`)
+	catalog := DefaultPHICatalog()
+	scrubbed, _, err := scrubJSONDocument(raw, catalog, DefaultRedactedValue, "Patient", catalogOnlyJSONResolve(catalog, "Patient"), jsonScrubDocumentOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(scrubbed) {
+		t.Fatalf("invalid JSON: %s", scrubbed)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(scrubbed, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["text"] != DefaultRedactedValue {
+		t.Fatalf("text = %v, want fully redacted narrative element", m["text"])
+	}
+}
+
 func TestApplyJSONPatchesDedupesPaths(t *testing.T) {
 	raw := []byte(`{"a":"x","b":"y"}`)
 	paths := [][]string{{"a"}, {"a"}}
@@ -59,8 +84,25 @@ func TestApplyJSONPatchesDedupesPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !json.Valid(out) {
+		t.Fatalf("invalid json: %s", out)
+	}
 	if string(out) != `{"a":"[redacted]","b":"y"}` {
 		t.Fatalf("got %s", out)
+	}
+}
+
+func TestMergeOverlappingSpans(t *testing.T) {
+	merged := mergeOverlappingSpans([]byteSpan{
+		{start: 10, end: 20},
+		{start: 15, end: 25},
+		{start: 30, end: 40},
+	})
+	if len(merged) != 2 {
+		t.Fatalf("got %v", merged)
+	}
+	if merged[0].start != 10 || merged[0].end != 25 {
+		t.Fatalf("first merge %v", merged[0])
 	}
 }
 

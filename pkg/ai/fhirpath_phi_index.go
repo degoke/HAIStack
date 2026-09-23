@@ -193,11 +193,8 @@ func (idx *fhirPathPHIIndex) compileBundle(paths []string, resourceType string) 
 	segment, compileExprs := ExpandFHIRPathExpressions(paths)
 	segmentSet := newPathIndex(segment)
 	evalMode := idx.evalMode
-	var compiled []fhirpath.CompiledExpression
 	var labels []string
-	// Compile records expression strings in labels for segment augmentation at
-	// scrub time; expressions are not evaluated against resource values.
-	if idx.engine != nil && evalMode != EvalModeNever {
+	if evalMode != EvalModeNever {
 		for _, expr := range compileExprs {
 			if evalMode == EvalModeKeywordsOnly {
 				seg := SegmentPathFromFHIRPathExpr(expr)
@@ -205,11 +202,6 @@ func (idx *fhirPathPHIIndex) compileBundle(paths []string, resourceType string) 
 					continue
 				}
 			}
-			c, err := idx.engine.Compile(expr)
-			if err != nil {
-				continue
-			}
-			compiled = append(compiled, c)
 			labels = append(labels, expr)
 		}
 	}
@@ -217,7 +209,6 @@ func (idx *fhirPathPHIIndex) compileBundle(paths []string, resourceType string) 
 		segment:    segment,
 		segmentIdx: segmentSet,
 		catalogIdx: catalogPathIndex(idx.catalog, resourceType),
-		compiled:   compiled,
 		labels:     labels,
 	}
 }

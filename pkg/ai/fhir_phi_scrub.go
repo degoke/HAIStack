@@ -66,7 +66,7 @@ func scrubResourceMerged(
 		idx := catalogPathIndex(catalog, rt)
 		return idx, idx, strict, nil
 	}
-	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve)
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve, jsonScrubDocumentOpts{})
 	if err != nil {
 		return nil, err
 	}

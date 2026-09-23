@@ -122,40 +122,18 @@ func (d *FHIRDeidentifier) Deidentify(ctx context.Context, req DeidentifyRequest
 		return m, redactions, nil
 
 	case ToolSearchFhirResources:
+		if raw, ok := resourceJSONBytes(req.Data); ok {
+			return d.deidentifySearchJSON(ctx, req.ResourceType, raw, placeholder, req.ToolName)
+		}
 		root, err := resourceDataAsMap(req.Data)
 		if err != nil {
 			return nil, nil, err
 		}
-		var redactions []string
-		if resources, ok := root["resources"].([]any); ok {
-			for _, item := range resources {
-				m, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				rt := resourceTypeFromMap(m, req.ResourceType)
-				r, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
-				if err != nil {
-					return nil, nil, err
-				}
-				redactions = append(redactions, r...)
-			}
+		data, err := marshalJSONPooled(root)
+		if err != nil {
+			return nil, nil, err
 		}
-		if included, ok := root["included"].([]any); ok {
-			for _, item := range included {
-				m, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				rt := resourceTypeFromMap(m, "")
-				r, err := d.scrubResource(ctx, rt, m, placeholder, req.ToolName)
-				if err != nil {
-					return nil, nil, err
-				}
-				redactions = append(redactions, r...)
-			}
-		}
-		return root, redactions, nil
+		return d.deidentifySearchJSON(ctx, req.ResourceType, data, placeholder, req.ToolName)
 
 	case ToolRunView:
 		root, ok := req.Data.(map[string]any)
@@ -176,7 +154,7 @@ func (d *FHIRDeidentifier) deidentifyReadJSON(ctx context.Context, fallbackType 
 		catalog = DefaultPHICatalog()
 	}
 	resolve := d.jsonScrubResolve(ctx, toolName)
-	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, fallbackType, resolve)
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, fallbackType, resolve, jsonScrubDocumentOpts{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -200,7 +178,7 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 		return nil, err
 	}
 	resolve := d.jsonScrubResolve(ctx, toolName)
-	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve)
+	scrubbed, redactions, err := scrubJSONDocument(data, catalog, placeholder, resourceType, resolve, jsonScrubDocumentOpts{})
 	if err != nil {
 		return nil, err
 	}
@@ -262,23 +240,23 @@ func scrubViewRowMap(ctx context.Context, d *FHIRDeidentifier, row map[string]an
 		if val == nil {
 			continue
 		}
-		if child, ok := val.(map[string]any); ok {
-			if _, hasRT := child["resourceType"]; hasRT {
-				rt, _ := child["resourceType"].(string)
-				childRedactions, err := d.scrubResource(ctx, rt, child, placeholder, ToolRunView)
-				if err == nil {
-					redactions = append(redactions, childRedactions...)
-				}
-				row[col] = child
-				continue
-			}
-		}
 		if !catalog.ViewColumnIsPHI(col) {
 			continue
 		}
 		row[col] = placeholder
 		redactions = append(redactions, "view:"+col)
 	}
+	data, err := marshalJSONPooled(row)
+	if err != nil {
+		return redactions
+	}
+	resolve := d.jsonScrubResolve(ctx, ToolRunView)
+	scrubbed, r, err := scrubJSONDocument(data, catalog, placeholder, "", resolve, jsonScrubDocumentOpts{EmbedResourceObjects: true})
+	if err != nil {
+		return redactions
+	}
+	redactions = append(redactions, r...)
+	_ = mergeJSONIntoMap(row, scrubbed)
 	return redactions
 }
 

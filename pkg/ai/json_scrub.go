@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -8,6 +9,12 @@ import (
 
 	"github.com/buger/jsonparser"
 )
+
+// jsonScrubDocumentOpts tunes scrubJSONDocument behavior.
+type jsonScrubDocumentOpts struct {
+	// EmbedResourceObjects scrubs nested objects with resourceType (e.g. view cells).
+	EmbedResourceObjects bool
+}
 
 // jsonScrubResolve supplies path indices and strict mode for one resource JSON
 // object (root, contained item, or Bundle entry.resource).
@@ -28,6 +35,13 @@ type jsonScrubber struct {
 	patchKeys       map[string]struct{}
 	patchPaths      [][]string
 	walkErr         error
+	embedResourceObjects bool
+	rootData        []byte
+}
+
+type byteSpan struct {
+	start int
+	end   int
 }
 
 type jsonScrubContext struct {
@@ -46,6 +60,7 @@ func scrubJSONDocument(
 	placeholder string,
 	fallbackResourceType string,
 	resolve jsonScrubResolve,
+	opts jsonScrubDocumentOpts,
 ) ([]byte, []string, error) {
 	if len(data) == 0 {
 		return data, nil, nil
@@ -61,11 +76,13 @@ func scrubJSONDocument(
 		return nil, nil, err
 	}
 	s := &jsonScrubber{
-		catalog:         catalog,
-		placeholderJSON: placeholderJSON,
-		resolve:         resolve,
-		redactionSet:    make(map[string]struct{}),
-		patchKeys:       make(map[string]struct{}),
+		catalog:              catalog,
+		placeholderJSON:      placeholderJSON,
+		resolve:              resolve,
+		redactionSet:         make(map[string]struct{}),
+		patchKeys:            make(map[string]struct{}),
+		embedResourceObjects: opts.EmbedResourceObjects,
+		rootData:             data,
 	}
 	rt := resourceTypeFromJSON(data, fallbackResourceType)
 	seg, cat, strict, err := resolve(rt, data)
@@ -86,6 +103,9 @@ func scrubJSONDocument(
 	if err != nil {
 		return nil, nil, err
 	}
+	if !json.Valid(out) {
+		return nil, nil, fmt.Errorf("json scrub produced invalid JSON")
+	}
 	return out, s.redactionList(), nil
 }
 
@@ -101,24 +121,21 @@ func catalogOnlyJSONResolve(catalog *PHICatalog, fallbackType string) jsonScrubR
 }
 
 func applyJSONPatches(data []byte, paths [][]string, replacement []byte) ([]byte, error) {
-	type span struct {
-		start int
-		end   int
-	}
 	seen := make(map[string]struct{}, len(paths))
-	var spans []span
+	var spans []byteSpan
 	for _, path := range paths {
 		key := pathKey(path)
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		start, end, err := patchByteSpan(data, path)
+		start, end, err := valueByteSpan(data, path)
 		if err != nil {
 			return nil, fmt.Errorf("json scrub locate %v: %w", path, err)
 		}
-		spans = append(spans, span{start: start, end: end})
+		spans = append(spans, byteSpan{start: start, end: end})
 	}
+	spans = mergeOverlappingSpans(spans)
 	sort.Slice(spans, func(i, j int) bool {
 		return spans[i].start > spans[j].start
 	})
@@ -126,27 +143,79 @@ func applyJSONPatches(data []byte, paths [][]string, replacement []byte) ([]byte
 	for _, sp := range spans {
 		out = spliceJSONBytes(out, sp.start, sp.end, replacement)
 	}
+	if !json.Valid(out) {
+		return nil, fmt.Errorf("json scrub splice produced invalid JSON")
+	}
 	return out, nil
 }
 
-func patchByteSpan(data []byte, path []string) (start, end int, err error) {
+func mergeOverlappingSpans(spans []byteSpan) []byteSpan {
+	if len(spans) <= 1 {
+		return spans
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		return spans[i].start < spans[j].start
+	})
+	merged := []byteSpan{spans[0]}
+	for i := 1; i < len(spans); i++ {
+		last := &merged[len(merged)-1]
+		cur := spans[i]
+		if cur.start >= last.end {
+			merged = append(merged, cur)
+			continue
+		}
+		if cur.end > last.end {
+			last.end = cur.end
+		}
+		if cur.start < last.start {
+			last.start = cur.start
+		}
+	}
+	return merged
+}
+
+func valueByteSpan(data []byte, path []string) (start, end int, err error) {
 	value, dataType, offset, err := jsonparser.Get(data, jsonParserPath(path)...)
 	if err != nil {
 		return 0, 0, err
 	}
-	spanLen := len(value)
-	if dataType == jsonparser.String {
-		quoted, err := json.Marshal(string(value))
-		if err != nil {
-			return 0, 0, err
+	if offset <= 0 || offset > len(data) {
+		return 0, 0, fmt.Errorf("invalid offset for %v", path)
+	}
+	end = offset
+	switch dataType {
+	case jsonparser.String:
+		return stringTokenSpan(data, end, value)
+	default:
+		start = end - len(value)
+		if start < 0 || !bytes.Equal(data[start:end], value) {
+			return 0, 0, fmt.Errorf("json value span mismatch for %v", path)
 		}
-		spanLen = len(quoted)
+		return start, end, nil
 	}
-	if offset < spanLen {
-		return 0, 0, fmt.Errorf("invalid json patch offset for %v", path)
+}
+
+// stringTokenSpan locates the quoted JSON string token ending at end (jsonparser exclusive end offset).
+func stringTokenSpan(data []byte, end int, _ []byte) (int, int, error) {
+	if end <= 0 || end > len(data) {
+		return 0, 0, fmt.Errorf("string token end out of range")
 	}
-	start = offset - spanLen
-	return start, offset, nil
+	closeQuote := end - 1
+	if data[closeQuote] != '"' {
+		return 0, 0, fmt.Errorf("string token missing closing quote")
+	}
+	start := closeQuote - 1
+	for start >= 0 && data[start] != '"' {
+		start--
+	}
+	if start < 0 {
+		return 0, 0, fmt.Errorf("string token start not found")
+	}
+	token := data[start:end]
+	if _, err := jsonparser.ParseString(token); err != nil {
+		return 0, 0, err
+	}
+	return start, end, nil
 }
 
 func spliceJSONBytes(data []byte, start, end int, insert []byte) []byte {
@@ -193,14 +262,14 @@ func (s *jsonScrubber) redactionList() []string {
 	return out
 }
 
-func (s *jsonScrubber) scheduleRedaction(path []string, fullPath string) {
-	key := pathKey(path)
+func (s *jsonScrubber) scheduleRedactionAt(docPath []string, fullPath string, value []byte) {
+	key := pathKey(docPath)
 	if _, ok := s.patchKeys[key]; ok {
 		return
 	}
 	s.patchKeys[key] = struct{}{}
-	s.patchPaths = append(s.patchPaths, append([]string(nil), path...))
 	s.redactionSet[fmt.Sprintf("%s.%s", s.resourceType, fullPath)] = struct{}{}
+	s.patchPaths = append(s.patchPaths, append([]string(nil), docPath...))
 }
 
 func (s *jsonScrubber) pathIndicesMatch(norm string) bool {
@@ -251,7 +320,7 @@ func (s *jsonScrubber) withResourceContext(resourceJSON []byte, fallback string,
 }
 
 func (s *jsonScrubber) walkObject(data []byte) error {
-	return jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, _ int) error {
+	return jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
 		if s.walkErr != nil {
 			return nil
 		}
@@ -261,7 +330,7 @@ func (s *jsonScrubber) walkObject(data []byte) error {
 		fullPath := joinPathSegments(resPath)
 		norm := normalizePathIndexes(fullPath)
 		if s.pathIndicesMatch(norm) {
-			s.scheduleRedaction(docPath, fullPath)
+			s.scheduleRedactionAt(docPath, fullPath, value)
 			return nil
 		}
 		if keyStr == "contained" && dataType == jsonparser.Array {
@@ -282,9 +351,17 @@ func (s *jsonScrubber) walkObject(data []byte) error {
 			s.docPath = s.docPath[:len(s.docPath)-1]
 			return err
 		}
+		if s.embedResourceObjects && dataType == jsonparser.Object && resourceTypeFromJSON(value, "") != "" {
+			s.docPath = docPath
+			err := s.withResourceContext(value, "", func() error {
+				return s.walkObject(value)
+			})
+			s.docPath = s.docPath[:len(s.docPath)-1]
+			return err
+		}
 		if isJSONScalar(dataType) {
 			if s.catalog.passiveSensitiveKey(keyStr, norm) || (s.strict && s.shouldRedactStrictLeaf(keyStr, norm)) {
-				s.scheduleRedaction(docPath, fullPath)
+				s.scheduleRedactionAt(docPath, fullPath, value)
 			}
 			return nil
 		}
@@ -377,7 +454,7 @@ func (s *jsonScrubber) walkArray(data []byte) error {
 			return
 		}
 		if s.strict && !s.catalog.pathAllowedInStrictMode(norm, idxStr) {
-			s.scheduleRedaction(docPath, fullPath)
+			s.scheduleRedactionAt(docPath, fullPath, value)
 		}
 	})
 	if s.walkErr != nil {
