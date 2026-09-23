@@ -63,15 +63,8 @@ func catalogPathIndex(catalog *PHICatalog, resourceType string) *pathIndex {
 	if catalog == nil {
 		return nil
 	}
-	var paths []string
-	for _, suffix := range catalog.globalPathSuffixes() {
-		paths = append(paths, suffix)
-	}
-	for _, suffix := range catalog.ResourcePathSuffixes[resourceType] {
-		paths = append(paths, suffix)
-	}
-	for _, el := range catalog.ElementsForResource(resourceType) {
-		paths = append(paths, el)
-	}
+	paths := append([]string(nil), catalog.globalPathSuffixes()...)
+	paths = append(paths, catalog.ResourcePathSuffixes[resourceType]...)
+	paths = append(paths, catalog.ElementsForResource(resourceType)...)
 	return newPathIndex(paths)
 }
