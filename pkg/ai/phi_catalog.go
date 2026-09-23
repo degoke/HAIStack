@@ -81,7 +81,7 @@ func defaultGlobalPathSuffixes() []string {
 		"contact", "contact.name", "contact.telecom", "contact.address",
 		"communication", "communication.language",
 		"photo", "photo.data", "photo.url",
-		"text", "text.status",
+		"text", "text.div", "text.status",
 		"note", "note.text", "note.time", "note.author",
 		"author", "authorString", "authenticator", "custodian",
 		"subject", "patient", "recipient", "sender", "performer", "actor",

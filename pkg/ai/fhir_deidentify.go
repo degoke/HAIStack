@@ -141,13 +141,17 @@ func (d *FHIRDeidentifier) scrubResource(ctx context.Context, resourceType strin
 	if m == nil {
 		return nil, nil
 	}
-	paths, err := d.index.paths(ctx, resourceType)
+	bundle, err := d.index.bundleFor(ctx, resourceType, m)
 	if err != nil {
 		return nil, err
 	}
-	fhirRedactions := redactFHIRPaths(resourceType, m, paths, placeholder)
+	fhirRedactions := redactFHIRPaths(resourceType, m, bundle.segment, placeholder)
+	evalRedactions, err := redactCompiledFHIRPaths(ctx, d.engine, resourceType, m, bundle.compiled, bundle.labels, placeholder)
+	if err != nil {
+		return nil, err
+	}
 	walkRedactions := deepScrubResource(resourceType, m, d.catalog, placeholder)
-	return uniqueStrings(append(fhirRedactions, walkRedactions...)), nil
+	return uniqueStrings(append(append(fhirRedactions, evalRedactions...), walkRedactions...)), nil
 }
 
 func resourceTypeFromMap(m map[string]any, fallback string) string {

@@ -50,28 +50,13 @@ func defaultSensitiveFHIRTypes() map[string]bool {
 // SensitiveFHIRPathsFromStructureDefinition derives FHIRPath expressions (relative
 // to the resource root) from one compiled StructureDefinition.
 func SensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition, rules PHIStructureRules, catalog *PHICatalog) []string {
-	if sd == nil || sd.Type == "" {
-		return nil
+	out := sensitiveFHIRPathsFromStructureDefinition(sd, rules)
+	if sd == nil || catalog == nil {
+		return out
 	}
-	if rules.SensitiveTypeCodes == nil {
-		rules.SensitiveTypeCodes = defaultSensitiveFHIRTypes()
-	}
-	seen := make(map[string]struct{})
-	var out []string
-
-	for _, el := range sd.Elements {
-		expr := elementPathToFHIRPath(sd.Type, el.Path)
-		if expr == "" {
-			continue
-		}
-		if !elementSensitive(el, rules) {
-			continue
-		}
-		if _, ok := seen[expr]; ok {
-			continue
-		}
-		seen[expr] = struct{}{}
-		out = append(out, expr)
+	seen := make(map[string]struct{}, len(out))
+	for _, p := range out {
+		seen[p] = struct{}{}
 	}
 
 	// Catalog path suffixes are validated as FHIRPath at compile time.
@@ -103,6 +88,33 @@ func SensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition,
 		expr := elementPathToFHIRPath(sd.Type, sd.Type+"."+el)
 		if expr == "" {
 			expr = el
+		}
+		if _, ok := seen[expr]; ok {
+			continue
+		}
+		seen[expr] = struct{}{}
+		out = append(out, expr)
+	}
+	return out
+}
+
+func sensitiveFHIRPathsFromStructureDefinition(sd *validate.StructureDefinition, rules PHIStructureRules) []string {
+	if sd == nil || sd.Type == "" {
+		return nil
+	}
+	if rules.SensitiveTypeCodes == nil {
+		rules.SensitiveTypeCodes = defaultSensitiveFHIRTypes()
+	}
+	seen := make(map[string]struct{})
+	var out []string
+
+	for _, el := range sd.Elements {
+		expr := elementPathToFHIRPath(sd.Type, el.Path)
+		if expr == "" {
+			continue
+		}
+		if !elementSensitive(el, rules) {
+			continue
 		}
 		if _, ok := seen[expr]; ok {
 			continue

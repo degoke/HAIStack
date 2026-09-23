@@ -2,6 +2,7 @@ package ai
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -14,8 +15,12 @@ func redactFHIRPaths(resourceType string, root map[string]any, expressions []str
 	if root == nil || len(expressions) == 0 {
 		return nil
 	}
+	sorted := append([]string(nil), expressions...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return strings.Count(sorted[i], ".") > strings.Count(sorted[j], ".")
+	})
 	var redactions []string
-	for _, expr := range expressions {
+	for _, expr := range sorted {
 		expr = strings.TrimSpace(expr)
 		if expr == "" {
 			continue

@@ -145,7 +145,8 @@ when `Config.Deidentify` is nil. Pass your own `Deidentifier` to override.
 `FHIRDeidentifier` applies:
 
 - **Compiled FHIRPath** expressions (validated at index build; segment redaction at runtime)
-- **StructureDefinition-driven paths** when `ProfileCatalog` / `Executor.ProfileCatalog` is set (sensitive types, `mustSupport` / `isSummary` primitives, sensitivity extensions)
+- **StructureDefinition-driven paths** when `ProfileCatalog` / `Executor.ProfileCatalog` is set (base type SD plus **`meta.profile`** URLs on each resource instance)
+- **FHIRPath keyword elements** (for example `text.`div``) compiled and evaluated via `pkg/fhirpath`, with JSON segment redaction ordered deepest-first
 - **PHICatalog** path suffixes and passive element names at any depth
 - **`meta.security`** labels (v3 confidentiality and HL7 security-labels by default)
 

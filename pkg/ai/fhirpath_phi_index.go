@@ -9,14 +9,20 @@ import (
 	"github.com/degoke/haistack/pkg/validate"
 )
 
+type phiPathBundle struct {
+	segment  []string
+	compiled []fhirpath.CompiledExpression
+	labels   []string
+}
+
 type fhirPathPHIIndex struct {
 	mu       sync.RWMutex
 	engine   fhirpath.Engine
 	profiles validate.ProfileCatalog
 	rules    PHIStructureRules
 	catalog  *PHICatalog
-	byType   map[string][]string
-	compiled map[string][]fhirpath.CompiledExpression
+	base     map[string]phiPathBundle
+	byProfile map[string]phiPathBundle
 }
 
 func newFHIRPathPHIIndex(engine fhirpath.Engine, profiles validate.ProfileCatalog, rules PHIStructureRules, catalog *PHICatalog) *fhirPathPHIIndex {
@@ -24,48 +30,83 @@ func newFHIRPathPHIIndex(engine fhirpath.Engine, profiles validate.ProfileCatalo
 		catalog = DefaultPHICatalog()
 	}
 	return &fhirPathPHIIndex{
-		engine:   engine,
-		profiles: profiles,
-		rules:    rules,
-		catalog:  catalog,
-		byType:   make(map[string][]string),
-		compiled: make(map[string][]fhirpath.CompiledExpression),
+		engine:    engine,
+		profiles:  profiles,
+		rules:     rules,
+		catalog:   catalog,
+		base:      make(map[string]phiPathBundle),
+		byProfile: make(map[string]phiPathBundle),
 	}
 }
 
-func (idx *fhirPathPHIIndex) paths(ctx context.Context, resourceType string) ([]string, error) {
+func (idx *fhirPathPHIIndex) bundleFor(ctx context.Context, resourceType string, resource map[string]any) (phiPathBundle, error) {
+	if err := ctx.Err(); err != nil {
+		return phiPathBundle{}, err
+	}
+	base, err := idx.baseBundle(ctx, resourceType)
+	if err != nil {
+		return phiPathBundle{}, err
+	}
+	merged := base
+	for _, url := range metaProfileURLs(resource) {
+		profileBundle, err := idx.profileBundle(ctx, url, resourceType)
+		if err != nil {
+			return phiPathBundle{}, err
+		}
+		merged = mergePathBundles(merged, profileBundle)
+	}
+	return merged, nil
+}
+
+func (idx *fhirPathPHIIndex) baseBundle(ctx context.Context, resourceType string) (phiPathBundle, error) {
 	idx.mu.RLock()
-	if paths, ok := idx.byType[resourceType]; ok {
+	if b, ok := idx.base[resourceType]; ok {
 		idx.mu.RUnlock()
-		return paths, nil
+		return b, nil
 	}
 	idx.mu.RUnlock()
 
-	paths, err := idx.buildPaths(ctx, resourceType)
+	paths, err := idx.buildBasePaths(ctx, resourceType)
 	if err != nil {
-		return nil, err
+		return phiPathBundle{}, err
 	}
+	bundle := idx.compileBundle(paths)
 
 	idx.mu.Lock()
-	idx.byType[resourceType] = paths
-	if idx.engine != nil {
-		var compiled []fhirpath.CompiledExpression
-		for _, expr := range paths {
-			c, err := idx.engine.Compile(expr)
-			if err != nil {
-				// Segment redaction still applies; skip expressions the compiler rejects
-				// (for example child nodes whose names collide with FHIRPath keywords).
-				continue
-			}
-			compiled = append(compiled, c)
-		}
-		idx.compiled[resourceType] = compiled
-	}
+	idx.base[resourceType] = bundle
 	idx.mu.Unlock()
-	return paths, nil
+	return bundle, nil
 }
 
-func (idx *fhirPathPHIIndex) buildPaths(ctx context.Context, resourceType string) ([]string, error) {
+func (idx *fhirPathPHIIndex) profileBundle(ctx context.Context, profileURL, resourceType string) (phiPathBundle, error) {
+	cacheKey := profileURL + "|" + resourceType
+	idx.mu.RLock()
+	if b, ok := idx.byProfile[cacheKey]; ok {
+		idx.mu.RUnlock()
+		return b, nil
+	}
+	idx.mu.RUnlock()
+
+	if idx.profiles == nil {
+		return phiPathBundle{}, nil
+	}
+	sd, err := lookupStructureDefinition(idx.profiles, profileURL)
+	if err != nil {
+		return phiPathBundle{}, err
+	}
+	if sd == nil || sd.Type != resourceType {
+		return phiPathBundle{}, nil
+	}
+	paths := sensitiveFHIRPathsFromStructureDefinition(sd, idx.rules)
+	bundle := idx.compileBundle(paths)
+
+	idx.mu.Lock()
+	idx.byProfile[cacheKey] = bundle
+	idx.mu.Unlock()
+	return bundle, nil
+}
+
+func (idx *fhirPathPHIIndex) buildBasePaths(ctx context.Context, resourceType string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -109,12 +150,74 @@ func (idx *fhirPathPHIIndex) buildPaths(ctx context.Context, resourceType string
 	return out, nil
 }
 
-func lookupBaseStructureDefinition(catalog validate.ProfileCatalog, resourceType string) (*validate.StructureDefinition, error) {
-	url := validate.BaseStructureDefinitionURL(resourceType)
-	if resolver, ok := catalog.(validate.ProfileCatalogResolver); ok {
-		return resolver.ResolveStructureDefinition(url)
+func (idx *fhirPathPHIIndex) compileBundle(paths []string) phiPathBundle {
+	segment, compileExprs := ExpandFHIRPathExpressions(paths)
+	var compiled []fhirpath.CompiledExpression
+	var labels []string
+	if idx.engine != nil {
+		for _, expr := range compileExprs {
+			c, err := idx.engine.Compile(expr)
+			if err != nil {
+				continue
+			}
+			compiled = append(compiled, c)
+			labels = append(labels, expr)
+		}
 	}
-	sd, ok := catalog.GetStructureDefinition(url)
+	return phiPathBundle{
+		segment:  segment,
+		compiled: compiled,
+		labels:   labels,
+	}
+}
+
+func mergePathBundles(a, b phiPathBundle) phiPathBundle {
+	segSeen := make(map[string]struct{})
+	var segment []string
+	for _, s := range append(a.segment, b.segment...) {
+		if _, ok := segSeen[s]; ok {
+			continue
+		}
+		segSeen[s] = struct{}{}
+		segment = append(segment, s)
+	}
+	compiled := append([]fhirpath.CompiledExpression(nil), a.compiled...)
+	labels := append([]string(nil), a.labels...)
+	seenExpr := make(map[string]struct{}, len(labels))
+	for _, l := range labels {
+		seenExpr[l] = struct{}{}
+	}
+	for i, c := range b.compiled {
+		l := b.labels[i]
+		if l == "" {
+			l = c.Expr()
+		}
+		if _, ok := seenExpr[l]; ok {
+			continue
+		}
+		seenExpr[l] = struct{}{}
+		compiled = append(compiled, c)
+		labels = append(labels, l)
+	}
+	return phiPathBundle{segment: segment, compiled: compiled, labels: labels}
+}
+
+func lookupBaseStructureDefinition(catalog validate.ProfileCatalog, resourceType string) (*validate.StructureDefinition, error) {
+	return lookupStructureDefinition(catalog, validate.BaseStructureDefinitionURL(resourceType))
+}
+
+func lookupStructureDefinition(catalog validate.ProfileCatalog, canonicalURL string) (*validate.StructureDefinition, error) {
+	if resolver, ok := catalog.(validate.ProfileCatalogResolver); ok {
+		sd, err := resolver.ResolveStructureDefinition(canonicalURL)
+		if err != nil {
+			if err == validate.ErrProfileNotFound {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return sd, nil
+	}
+	sd, ok := catalog.GetStructureDefinition(canonicalURL)
 	if !ok {
 		return nil, nil
 	}
