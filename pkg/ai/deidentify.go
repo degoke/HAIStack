@@ -12,7 +12,8 @@ type DeidentifyRequest struct {
 }
 
 // Deidentifier is the optional output scrubbing seam. The default implementation
-// is a pass-through.
+// is a pass-through. For FHIR tool output, use FHIRDeidentifier with
+// DefaultPHICatalog or a customized PHICatalog.
 type Deidentifier interface {
 	Deidentify(ctx context.Context, req DeidentifyRequest) (any, []string, error)
 }

@@ -135,9 +135,14 @@ Set `Deidentify: true` on read/search/view policies and provide an explicit `Dei
 ```go
 exec, err := ai.NewExecutor(ai.Config{
     Policy:       deidPolicy,
-    Deidentifier: myDeidentifier,
+    Deidentify:   ai.NewFHIRDeidentifier(ai.DefaultPHICatalog()),
 })
 ```
+
+`FHIRDeidentifier` removes catalogued top-level FHIR elements (see `PHICatalog`
+and `DefaultPHICatalog`) and redacts matching view column names before context
+is returned. Customize `PHICatalog.ResourceElements` or implement `Deidentifier`
+for site-specific rules.
 
 The executor refuses to silently pass through PHI when de-identification is required.
 

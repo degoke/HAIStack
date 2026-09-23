@@ -38,8 +38,9 @@
 //     selection; tool execution remains useful without any model configured.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
-//   - Deidentifier: required output scrubbing seam whenever policy requests
-//     de-identification; pass-through must be explicitly opted into.
+//   - Deidentifier / FHIRDeidentifier / PHICatalog: required output scrubbing
+//     whenever policy requests de-identification; FHIRDeidentifier applies
+//     curated PHI element labels for read, search, and view tool output.
 //
 // # Tool input shapes
 //
