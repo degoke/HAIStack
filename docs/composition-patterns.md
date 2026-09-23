@@ -140,7 +140,7 @@ Import paths use the prefix `github.com/degoke/haistack/pkg/…`.
 | Export | `export`, `http`, `jobs`, `client.BulkExport` |
 | Import | `bulkimport`, `http`, `jobs` |
 
-Operational verification: [bulk-data-verification.md](bulk-data-verification.md).
+Pair with [`pkg/export`](../pkg/export/README.md) for round-trip migration between HAIStack tenants.
 
 ---
 

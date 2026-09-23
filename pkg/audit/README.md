@@ -210,7 +210,7 @@ _ = ev
 
 - [doc.go](./doc.go) — package comment and API index
 - [docs/architecture.md](../../docs/architecture.md) — cross-cutting concerns
-- [docs/smart-auth-architecture.md](../../docs/smart-auth-architecture.md) — auth and auditing boundaries
+- [docs/architecture.md](../../docs/architecture.md) — security layering
 - [pkg/store/README.md](../store/README.md) — `AuditStore` contract
 - [pkg/auth/README.md](../auth/README.md) — authorization and optional audit emit
 - [pkg/sync/README.md](../sync/README.md) — sync action constants usage

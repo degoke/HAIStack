@@ -183,7 +183,7 @@ Error artifacts served from `$import/files/{jobId}/...`.
 
 ## Related docs
 
-- [Bulk Data verification](../../docs/bulk-data-verification.md)
+- [pkg/export/README.md](../export/README.md)
 - [pkg/export/README.md](../export/README.md)
 - [pkg/core/README.md](../core/README.md), [pkg/http/README.md](../http/README.md)
 - [pkg/jobs/README.md](../jobs/README.md), [pkg/runtime/README.md](../runtime/README.md)

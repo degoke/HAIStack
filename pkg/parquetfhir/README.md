@@ -30,7 +30,7 @@ HAIStack separates **what to export** (ViewDefinition execution, search filters,
 
 Flat parquet (`_parquetLayout=flat`) stays in `pkg/view` and does not import this package for column shaping. FHIR layout delegates schema build and row encoding here via `view/parquet_fhir_export.go`.
 
-Downstream consumers (DuckDB, Spark, Trino, AEHR tooling) read the same nested column names the spec describes; see the compatibility matrix in [docs/parquet-on-fhir-interop.md](../../docs/parquet-on-fhir-interop.md).
+Downstream consumers (DuckDB, Spark, Trino, AEHR tooling) read nested column names aligned with the [Parquet-on-FHIR](https://github.com/aehrc/parquet-on-fhir) spec; see **Limits** below and `TestInteropSpec*` in this package.
 
 ## When to use it
 
@@ -68,7 +68,7 @@ Same query parameters as run; export jobs record `parquetLayout` and `timestampE
 
 ### 3. Analytics lakehouse / manifest sinks
 
-Configure sinks with `ParquetLayout: view.ParquetLayoutFHIR`, an `Executor` that supplies `ProfileCatalog`, and optional `TimestampEncoding: view.TimestampEncodingInt96`. Documented in [pkg/analytics/README.md](../analytics/README.md) and [docs/parquet-on-fhir-interop.md](../../docs/parquet-on-fhir-interop.md).
+Configure sinks with `ParquetLayout: view.ParquetLayoutFHIR`, an `Executor` that supplies `ProfileCatalog`, and optional `TimestampEncoding: view.TimestampEncodingInt96`. See [pkg/analytics/README.md](../analytics/README.md) and [pkg/view/README.md](../view/README.md).
 
 ### 4. Batch encode in-process (`WriteResources`)
 
@@ -205,8 +205,6 @@ Analytics runner may skip flat execution but still pass resources and `ProfileCa
 
 ## Related docs
 
-- [Parquet-on-FHIR interop](../../docs/parquet-on-fhir-interop.md)
-- [SQL-on-FHIR gap — Parquet section](../../docs/sql-on-fhir-gap.md)
 - [pkg/view/README.md](../view/README.md)
 - [pkg/analytics/README.md](../analytics/README.md)
 - [pkg/analytics/EDGE.md](../analytics/EDGE.md)

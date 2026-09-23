@@ -127,7 +127,7 @@ Edge mode can co-locate OLTP and reporting in one Postgres/SQLite instance. Sche
 | Authorization server | `oauth` | `/authorize`, `/token`, discovery, PKCE (optional embed) |
 | HTTP enforcement | `http` | Wires auth adapters into REST handlers |
 
-Design note: [smart-auth-architecture.md](smart-auth-architecture.md).
+Authentication (who is calling) and authorization (what they may do) are separate: a valid OAuth token still passes through scope gates and deny-by-default policy in `auth`. See [pkg/auth/README.md](../pkg/auth/README.md), [pkg/smart/README.md](../pkg/smart/README.md), and [pkg/oauth/README.md](../pkg/oauth/README.md).
 
 ## Design rule for contributors
 

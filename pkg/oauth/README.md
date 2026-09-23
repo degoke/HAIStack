@@ -284,6 +284,6 @@ Use `MultiTenantBearerAuth` (`wire.go`) when FHIR and OAuth share a mux but JWT 
 - [pkg/smart/README.md](../smart/README.md) — scope enforcement on FHIR routes
 - [pkg/runtime/README.md](../runtime/README.md) — `WithBuiltinOAuth`
 - [cmd/haistack/README.md](../../cmd/haistack/README.md) — production checklist
-- [docs/smart-auth-architecture.md](../../docs/smart-auth-architecture.md)
+- [docs/architecture.md](../../docs/architecture.md) — security layering
 - [examples/smart-oauth](../../examples/smart-oauth/main.go)
 - [doc.go](./doc.go) — HTTP and runtime integration

@@ -326,5 +326,5 @@ For cross-package authorization matrices, use `pkg/testkit/authztest` (`RunAll`,
 - [pkg/smart/README.md](../smart/README.md) — SMART scopes and token validation
 - [pkg/audit/README.md](../audit/README.md) — decision audit emit
 - [pkg/ai/README.md](../ai/README.md) — `AIPolicyAdapter`
-- [docs/smart-auth-architecture.md](../../docs/smart-auth-architecture.md)
+- [docs/architecture.md](../../docs/architecture.md) — security layering
 - [doc.go](./doc.go) — full API

@@ -246,4 +246,4 @@ _ = body
 - [pkg/sync/README.md](../sync/README.md) — sync job handlers
 - [pkg/registry/README.md](../registry/README.md) — package install and pre-expand triggers
 - [pkg/sqlite/README.md](../sqlite/README.md) / [pkg/postgres/README.md](../postgres/README.md) — durable backends
-- [docs/bulk-data-verification.md](../../docs/bulk-data-verification.md) — bulk export/import flows using status rows
+- [pkg/export/README.md](../export/README.md) — `$export` orchestration

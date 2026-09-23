@@ -186,7 +186,7 @@ HAIStack separates **interactive REST** workloads from **cohort extraction and r
 
 Edge mode co-locates OLTP and reporting in one Postgres/SQLite instance; schedule heavy analytics refreshes off peak or route read-only analytics queries to a replica when available.
 
-Operational guidance: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md) · SQL-on-FHIR gap analysis: [docs/sql-on-fhir-gap.md](docs/sql-on-fhir-gap.md) · Bulk Data verification: [docs/bulk-data-verification.md](docs/bulk-data-verification.md)
+Operational guidance for co-located reporting: [pkg/analytics/EDGE.md](pkg/analytics/EDGE.md).
 
 ---
 

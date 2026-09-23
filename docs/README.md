@@ -1,6 +1,6 @@
 # HAIStack documentation
 
-This directory is the entry point for project documentation. The [root README](../README.md) stays the quick orientation; these guides go deeper on architecture, composition, and operational topics.
+This directory is the entry point for project documentation. The [root README](../README.md) stays the quick orientation; these guides go deeper on architecture and composition.
 
 ## Start here
 
@@ -13,16 +13,6 @@ This directory is the entry point for project documentation. The [root README](.
 | [CLI](../cmd/haistack/README.md) | `haistack` commands, config, and environment variables |
 | [Conformance](../conformance/README.md) | FSH authoring, IG build, and validator fixtures |
 | [Research](../research/README.md) | Synthetic benchmarks and evaluation artefacts |
-
-## Operational and design notes
-
-| Document | Topic |
-|----------|--------|
-| [SMART auth architecture](smart-auth-architecture.md) | OAuth/SMART layering across `auth`, `smart`, and `oauth` |
-| [Bulk Data verification](bulk-data-verification.md) | Testing `$export` / `$import` behaviour |
-| [SQL-on-FHIR gap analysis](sql-on-fhir-gap.md) | ViewDefinition coverage vs the spec |
-| [Parquet-on-FHIR interop](parquet-on-fhir-interop.md) | Parquet layout and analytics integration |
-| [Analytics edge operations](../pkg/analytics/EDGE.md) | Co-located OLTP and reporting on edge Postgres/SQLite |
 
 ## Package reference
 

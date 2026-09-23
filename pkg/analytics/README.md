@@ -208,7 +208,7 @@ _, err := jobs.Enqueue(ctx, tdb.JobStore(), analytics.TypeRefresh, analytics.Ref
 ```
 
 `ExportHandler` / `ExportHandlerWithConfig` accept optional `*WatermarkStore` (`nil`
-disables auto-fill/advance). See [CHANGELOG-parquet-analytics.md](../../docs/CHANGELOG-parquet-analytics.md).
+disables auto-fill/advance).
 
 ### 6. HTTP and runtime
 

@@ -172,7 +172,7 @@ Completed jobs survive restart when using durable stores (`TestRuntimeBulkExport
 
 ## Related docs
 
-- [Bulk Data verification](../../docs/bulk-data-verification.md)
+- [docs/architecture.md](../../docs/architecture.md#transactional-vs-analytical-paths)
 - [Architecture — transactional vs analytical paths](../../docs/architecture.md#transactional-vs-analytical-paths)
 - [pkg/http/README.md](../http/README.md), [pkg/client/README.md](../client/README.md)
 - [pkg/jobs/README.md](../jobs/README.md), [pkg/bulkimport/README.md](../bulkimport/README.md)
