@@ -2,6 +2,8 @@
 
 Runnable example applications for different ways to use HAIStack.
 
+For narrative guides and the full package index, see the [documentation hub](../docs/README.md) and [composition patterns](../docs/composition-patterns.md).
+
 Each example is a small standalone `main` package that can be run from the
 repository root with `go run`.
 

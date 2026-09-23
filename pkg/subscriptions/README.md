@@ -1,75 +1,80 @@
 # haistack-subscriptions (`pkg/subscriptions`)
 
-Tenant-neutral event automation on top of `store.EventStore` change events and
-`pkg/jobs` background delivery. Subscriptions are a **downstream consumer** of
-the existing event log — they do not hook into `pkg/core` writes.
+Tenant-neutral event automation on top of `store.EventStore` change events and `pkg/jobs` background delivery.
 
 ## What it does
 
-- **Internal trigger model** — register subscriptions on resource type + event
-  (`create`, `update`, `delete`, or `change` for create+update), optional
-  changed-field filters, and optional FHIRPath predicates
-- **FHIR adapter** — mapping from a supported subset of FHIR
-  `Subscription` resources into the internal model (`RegisterFromFHIRSubscription`).
-  Channel type is **rest-hook only**. `Subscription.criteria` is parsed with
-  `search.ParseQuery` (for example `Patient?active=true`) and notifies on
-  **create and update** of matching resources, not delete.
-- **Event processor** — reads `EventStore` since a `CursorStore` checkpoint,
-  matches active subscriptions, and enqueues delivery jobs
-- **Durable delivery** — webhook (HTTP) and local (in-process handler) channels
-- **Retry + logging** — retries via `pkg/jobs`; operational delivery logs in
-  `subscription_delivery_log`
+**haistack-subscriptions** is a **downstream consumer** of the existing resource event log. It registers triggers on resource type and event kind, matches incoming `store.ResourceEvent` entries, and enqueues durable delivery jobs. It does not hook into `pkg/core` write paths directly.
 
-It does **not** (v1):
+Capabilities:
 
-- WebSocket, email, SMS, or message channel types (FHIR adapter is rest-hook only)
-- Dead-letter queues or full delivery audit expansion
-- Kafka/NATS or a separate queue service
-- Tenant semantics in the core API (Postgres scoping is via `TenantDB` wiring)
-- Chained, `_include`, `_revinclude`, full-text, modifiers (`:not`, `:exact`),
-  or comparator prefixes in `Subscription.criteria`
-- Delete notifications from FHIR `Subscription.criteria` (use an internal
-  `TriggerEventDelete` subscription if you need deletes)
+- **Internal trigger model** — resource type + event (`create`, `update`, `delete`, or `change` for create+update), optional changed-field filters, optional FHIRPath predicates, optional search criteria
+- **FHIR adapter** — `RegisterFromFHIRSubscription` maps a supported subset of FHIR `Subscription` (rest-hook only) into the internal model
+- **Event processor** — reads `EventStore` since a `CursorStore` checkpoint, matches active subscriptions, enqueues delivery jobs
+- **Durable delivery** — webhook (HTTP POST/PUT) and local (in-process handler) channels
+- **Retry + logging** — retries via `pkg/jobs`; operational delivery logs in `subscription_delivery_log`
 
-```
-pkg/core (write)  →  EventStore  →  subscriptions.Processor  →  JobStore
-                                                                    ↓
-                                              subscriptions.DeliveryWorker
-                                                    ↓           ↓
-                                            WebhookDispatcher  LocalDispatcher
-```
-
-## Core types
+Core types:
 
 | Type | Purpose |
 |------|---------|
 | `Manager` | Register, update, disable, list, delete subscription records |
 | `Processor` | Consume `ResourceEvent` entries and schedule delivery work |
-| `DeliveryWorker` | Execute queued deliveries through `pkg/jobs` |
+| `DeliveryWorker` | Execute queued deliveries |
+| `DeliveryJobRunner` | Claim and run delivery jobs via `pkg/jobs` |
 | `Matcher` | Evaluate triggers against current/previous resource state |
 | `WebhookDispatcher` | HTTP POST/PUT transport |
-| `LocalDispatcher` | In-process handler transport via `HandlerRegistry` |
-
-| Record | Fields |
-|--------|--------|
-| `SubscriptionRecord` | ID, name, status, trigger, channel, retry policy, timestamps |
-| `Trigger` | `ResourceType`, `Event` (`create`/`update`/`delete`/`change`), optional `ChangedFields`, optional `FilterFHIRPath`, optional search `Criteria` / `FilterParams` |
-| `Channel` | `webhook` or `local` with `WebhookConfig` / `LocalConfig` |
-| `DeliveryRecord` | Subscription ID, event sequence, attempt, status, response/error metadata |
+| `LocalDispatcher` / `HandlerRegistry` | In-process handler transport |
 
 Job type: `jobs.TypeSubscriptionsDeliver` (`subscriptions.deliver`).
+
+It does **not** (v1):
+
+- WebSocket, email, SMS, or message channel types
+- Dead-letter queues or full delivery audit expansion
+- Kafka/NATS or a separate queue service
+- Tenant semantics in the core API (Postgres scoping is via `TenantDB` wiring)
+- Chained, `_include`, `_revinclude`, full-text, modifiers (`:not`, `:exact`), or comparator prefixes in FHIR `Subscription.criteria`
+- Delete notifications from FHIR `Subscription.criteria` (use internal `TriggerEventDelete` if needed)
+
+## How it fits in the ecosystem
+
+```
+pkg/core (write)  →  EventStore (outbox / event_log)
+                           |
+                           v
+              subscriptions.Processor (Matcher + cursor)
+                           |
+                           v
+                     JobStore (subscriptions.deliver)
+                           |
+                           v
+              subscriptions.DeliveryWorker
+                    /              \
+         WebhookDispatcher    LocalDispatcher
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Upstream | **core** | Produces `ResourceEvent` on writes (unchanged) |
+| Upstream | **store** | Event, cursor, job, subscription, resource, history stores |
+| Upstream | **fhirpath** | `FilterFHIRPath` evaluation in `Matcher` |
+| Upstream | **search** | `ParseQuery`, `MatchResourceParameter`, criteria params |
+| Downstream | **jobs** | Durable queue and retry runtime |
+| Sidecar | **runtime** | Wires default matcher with engine + registry |
 
 ## When to use it
 
 - **Webhook notifications** when FHIR resources change (REST-hook style)
 - **In-process reactions** — register a named local handler for create/update/delete
 - **Filtered triggers** — e.g. `Observation.created` where `code = X` via FHIRPath
-- **Field-scoped updates** — e.g. `Appointment.status` changed only
+- **Field-scoped updates** — e.g. only when `Appointment.status` changed
 - **Edge (SQLite)** or **hub (Postgres)** — same package, different store wiring
+- **FHIR Subscription compatibility** for simple equality criteria (`Patient?active=true`)
 
-## Usage
+## Usage modes
 
-### 1. Register a subscription
+### 1. Register and manage subscriptions (`Manager`)
 
 ```go
 mgr := &subscriptions.Manager{Store: db.SubscriptionStore()}
@@ -90,7 +95,9 @@ rec, err := mgr.Register(ctx, "patient-created",
 )
 ```
 
-Changed-field and FHIRPath examples:
+Also: `Update`, `Disable`, `Enable`, `List`, `Get`, `Delete` on the manager.
+
+### 2. Field-scoped and FHIRPath triggers
 
 ```go
 // Appointment.status changed
@@ -108,19 +115,15 @@ subscriptions.Trigger{
 }
 ```
 
-### 2. Run the event processor
+Changed-field matching compares top-level JSON fields between previous history snapshot and current resource.
 
-Set `Matcher.Registry` to the search parameter registry whenever subscriptions
-use `FilterParams` / FHIR `Subscription.criteria`. A nil registry returns
-`ErrNilRegistry` instead of silently skipping matches. `pkg/runtime` wires
-`SubscriptionMatcher` with the FHIRPath engine and search registry, and
-attaches that matcher to `SubscriptionProcessor`, so hosts do not have to.
+### 3. Run the event processor (batch or loop)
 
 ```go
 engine, _ := fhirpath.NewEngine(fhirpath.Config{})
 
 processor := &subscriptions.Processor{
-    Events:        db.OutboxStore(),      // or tdb.EventStore() on Postgres
+    Events:        db.OutboxStore(),
     Cursors:       db.CursorStore(),
     Subscriptions: db.SubscriptionStore(),
     Jobs:          db.JobStore(),
@@ -130,20 +133,19 @@ processor := &subscriptions.Processor{
     Scope:         "default",
 }
 
-// One batch or a loop
 n, err := processor.RunOnce(ctx)
 go processor.RunLoop(ctx, time.Second)
 ```
 
-Checkpoint name: `subscriptions.CursorName(scope)` →
-`subscriptions.processor.{scope}`.
+Checkpoint: `subscriptions.CursorName(scope)` → `subscriptions.processor.{scope}`.
 
-### 3. Run delivery workers
+`Matcher.Registry` is **required** when triggers use `FilterParams` or FHIR criteria; nil registry returns `ErrNilRegistry`.
+
+### 4. Delivery workers and local handlers
 
 ```go
 registry := subscriptions.NewHandlerRegistry()
 registry.Register("on-patient-created", func(ctx context.Context, payload subscriptions.DeliverPayload, resourceJSON []byte, metadata map[string]any) error {
-    // handle locally
     return nil
 })
 
@@ -160,17 +162,12 @@ runner := &subscriptions.DeliveryJobRunner{
     Worker:      worker,
     MaxAttempts: 5,
 }
-go runner.RunOnce(ctx) // or wrap jobs.Runner in a loop
+_, err := runner.RunOnce(ctx)
 ```
 
-### 4. FHIR Subscription adapter (supported subset)
+Delivery job IDs: `subscriptions:deliver:{subscriptionId}:{eventSequence}` (idempotent re-processing).
 
-FHIR R4 `Subscription.criteria` is rest-hook only and fires on **create and
-update** of matching resources (internal event `change`). Equality search
-parameters work — for example `Patient?active=true` matches a Patient whose
-`active` token is true. A default `pkg/runtime` wires `Matcher.Registry` and
-`Matcher.Engine`; hosts that construct a matcher themselves must set both or
-criteria matching returns `subscriptions.ErrNilRegistry`.
+### 5. FHIR Subscription adapter
 
 ```go
 rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscriptionInput{
@@ -181,17 +178,53 @@ rec, err := mgr.RegisterFromFHIRSubscription(ctx, subscriptions.FHIRSubscription
         Endpoint: "https://example.test/hook",
         Payload:  "application/fhir+json",
     },
-}, extensions) // optional FHIRPath filter via app-controlled extension
+}, extensions)
 ```
-
-Unsupported shapes return `subscriptions.ErrUnsupportedFHIR` — e.g.
-`Patient?active:not=true`, `_include` / chained parameters, `websocket`
-channel type.
 
 Parse from FHIR JSON:
 
 ```go
 input, extensions, err := subscriptions.ParseFHIRSubscriptionJSON(subscriptionJSON)
+```
+
+Unsupported shapes return `ErrUnsupportedFHIR` (modifiers, chains, websocket channel, etc.).
+
+### 6. Search-criteria triggers (create + update)
+
+```go
+parsed, _ := search.ParseQuery("Observation", url.Values{"code": []string{"8867-4"}})
+trigger := subscriptions.Trigger{
+    ResourceType: "Observation",
+    Event:        subscriptions.TriggerEventChange,
+    Criteria:     "Observation?code=8867-4",
+    FilterParams: parsed.Params,
+}
+```
+
+Internal `TriggerEventChange` matches create and update; FHIR adapter uses the same semantics for criteria subscriptions.
+
+## Examples
+
+**Disable a subscription without deleting:**
+
+```go
+err := mgr.Disable(ctx, rec.ID)
+```
+
+**Webhook with custom headers:**
+
+```go
+subscriptions.WebhookConfig{
+    URL:     "https://hooks.example/clinical",
+    Method:  "POST",
+    Headers: map[string]string{"X-Tenant": "a"},
+}
+```
+
+**Inspect delivery log after failure:**
+
+```go
+deliveries, err := db.SubscriptionDeliveryStore().ListBySubscription(ctx, rec.ID, limit)
 ```
 
 ## Storage
@@ -210,18 +243,44 @@ Contracts in `pkg/store`:
 | SQLite | `subscription_registry`, `subscription_delivery_log` | `sqlite.DB.SubscriptionStore()`, `SubscriptionDeliveryStore()` |
 | Postgres | same + `tenant_id` | `postgres.TenantDB.SubscriptionStore()`, `SubscriptionDeliveryStore()` |
 
-Delivery job IDs are deterministic:
-`subscriptions:deliver:{subscriptionId}:{eventSequence}` — re-processing the
-same event/subscription pair is idempotent.
+## Configuration / key types
+
+| Type | Notes |
+|------|-------|
+| `TriggerEvent` | `create`, `update`, `delete`, `change` |
+| `ChannelType` | `webhook`, `local` |
+| `SubscriptionRecord` | ID, name, status, trigger, channel, retry policy, timestamps |
+| `DeliverPayload` | Subscription id, event sequence, resource type/id, operation |
+| `RetryPolicy` | `MaxAttempts` (defaults applied when <= 0) |
+
+**Errors:** `ErrNilStore`, `ErrNilEngine`, `ErrNilRegistry`, `ErrNotFound`, `ErrInvalidTrigger`, `ErrInvalidChannel`, `ErrUnsupportedFHIR`, `ErrUnknownHandler`, `ErrDuplicateDelivery`.
 
 ## Where it fits
 
 | Package | Role |
 |---------|------|
-| **store** | `EventStore`, `CursorStore`, `JobStore`, subscription stores |
+| **store** | Event, cursor, job, subscription stores |
 | **jobs** | Durable delivery queue and retry runtime |
-| **fhirpath** | In-resource filter evaluation (`FilterFHIRPath`) |
-| **core** | Produces `ResourceEvent` entries (unchanged; subscriptions are optional downstream) |
+| **fhirpath** | In-resource filter evaluation |
+| **search** | Criteria parsing and parameter matching |
+| **core** | Produces events; subscriptions optional at deploy time |
 | **sqlite** / **postgres** | Persistence backends |
 
-See [doc.go](./doc.go) for the package entry point.
+## Limits
+
+- FHIR adapter: rest-hook only; criteria equality parameters without modifiers
+- No delete notifications for FHIR criteria subscriptions
+- Local handler names are in-memory only (`HandlerRegistry`)
+- Processor scope is a string partition for cursors — not a security boundary
+- Webhook dispatcher uses standard library HTTP client; mTLS and signing are caller responsibilities
+- Dead-letter and expanded audit trails deferred
+
+## Related docs
+
+- [docs/architecture.md](../../docs/architecture.md) — event-driven automation
+- [pkg/core/README.md](../core/README.md) — event emission on write
+- [pkg/jobs/README.md](../jobs/README.md) — delivery job runner
+- [pkg/search/README.md](../search/README.md) — criteria parsing and matching
+- [pkg/fhirpath/README.md](../fhirpath/README.md) — predicate evaluation
+- [pkg/store/README.md](../store/README.md) — subscription store contracts
+- [doc.go](./doc.go) — package entry point and trigger examples

@@ -17,14 +17,6 @@ No raw payload bytes go into `store.ResourceEvent`, `sync.LocalEvent`, or FHIR r
 
 Think of it as: *FHIR resources carry pointers to blobs; blobs live in a dedicated store; upload/download is a separate workflow with resume support.*
 
-```
-pkg/core (FHIR write)  →  metadata-only JSON + blob link rows
-                              ↓
-pkg/binary             →  manifest, chunks, sync status, transfer sessions
-                              ↓
-local file / sqlite / postgres backends
-```
-
 ### Public concepts
 
 | Type | Role |
@@ -32,25 +24,27 @@ local file / sqlite / postgres backends
 | `BlobDescriptor` | Stable blob identity — blob ID, SHA-256, size, content type, backend, storage pointer |
 | `StoragePointer` | Opaque backend location, serializable into resource metadata |
 | `BlobManifest` | Descriptor plus chunking and creation timestamps |
-| `BinaryLink` | Maps a FHIR `Binary` resource ID to a blob |
-| `DocumentAttachmentLink` | Maps `DocumentReference.content[].attachment` to a blob |
-| `BlobSyncStatus` | `pending` → `uploading`/`downloading` → `complete` / `failed` |
+| `BinaryLink` / `DocumentAttachmentLink` | FHIR resource → blob mappings |
+| `BlobSyncStatus` | Transfer lifecycle (`pending`, `uploading`, `downloading`, `complete`, `failed`, …) |
 | `UploadSession` / `DownloadSession` | Resumable transfer state |
+| `BlobEncryption` / `BlobRetention` | Optional per-blob policy metadata on upload |
+| `ChunkSyncPlan` / `SyncChunk` | Chunk-based export/import for separate blob sync pipelines |
+| `SignedAccessURL` | Time-limited direct object access (S3-compatible stores) |
 
 ### Store interfaces
 
 | Interface | Role |
 |-----------|------|
 | `BlobStore` | Put, Get, Head, Delete finalized blobs |
+| `BlobStoreWithStream` / `BlobStoreWithOpen` | Streaming put/open without full in-memory buffers |
 | `ChunkStore` | Append, read, list, delete chunks for resumable transfer |
 | `MetadataStore` | Manifests, FHIR links, sync status |
 | `TransferStore` | Upload/download session persistence |
+| `SignedURLProvider` | Presigned GET/PUT URLs where supported |
 
-MVP backends:
+Services: `TransferService`, `ChunkSyncService`, `LinkService`, `LifecycleService`.
 
-- **`LocalFileBlobStore`** — hash-addressed files on disk
-- **`sqlite.ChunkBlobStore`** — full blob bytes in SQLite chunk tables
-- **`postgres.BlobChunkStore`** — full blob bytes in Postgres chunk tables (tenant-scoped)
+Backends include **`LocalFileBlobStore`**, SQLite/Postgres chunk stores (via `pkg/sqlite`, `pkg/postgres`), **`S3BlobStore`**, and **`PrefixedFileStore`** over legacy `store.BlobStore`.
 
 Legacy `store.BinaryStore` and `store.BlobStore` (backed by `binary_object`) remain for simple inline storage. Use `pkg/binary` for new blob work.
 
@@ -58,40 +52,60 @@ It does **not**:
 
 - Change the resource-event sync protocol (`pkg/sync` still moves metadata only)
 - Parse FHIR or assign version IDs (`pkg/types`, `pkg/core`)
-- Provide S3, signed URLs, per-blob encryption, or retention policies (deferred)
+- Automatically run blob transfer inside `pkg/sync.Engine` (application invokes blob sync separately)
 - Replace `binary_object` or existing simple store contracts
+
+## How it fits in the ecosystem
+
+```
+ pkg/core (FHIR write)
+        |
+        v
+ metadata-only Binary / DocumentReference JSON  +  optional WriteSessionExtension links
+        |
+        v
+ pkg/binary (TransferService, LinkService, FHIR helpers)
+        |
+   +----+----+----+
+   v    v    v    v
+ local  sqlite postgres S3
+ files  chunks  chunks  objects
+        |
+        v
+ optional ChunkSyncService (bytes) parallel to pkg/sync (metadata)
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Upstream | **types** | JSON envelope model for FHIR helpers |
+| Upstream | **core** | Resource CRUD; metadata-only attachment fields |
+| Upstream | **store** | Legacy blob stores; write sessions extended additively |
+| Sidecar | **sqlite** / **postgres** | `ChunkBlobStore`, `BlobMetadataStore` adapters |
+| Parallel | **sync** | Resource events carry pointers only; blob bytes use `ChunkSyncService` or transfer APIs |
 
 ## When to use it
 
 - Storing document attachments, images, PDFs, or other large payloads offloaded from FHIR JSON
-- Chunked and resumable upload/download with progress tracking
-- Hash-based deduplication at the manifest layer
+- Chunked and resumable upload/download with progress tracking (`DefaultChunkSize` = 1 MiB)
+- Hash-based deduplication at finalize time (SHA-256)
 - Linking `Binary` and `DocumentReference` resources to stored blobs
 - Committing blob link metadata in the same DB transaction as a FHIR write
+- S3-compatible object storage with signed URL access
+- Optional AES-256-GCM encryption at rest via `KeyResolver`
 
-## Usage
+## Usage modes
 
-### Local file storage
+### 1. Local file storage (hash-addressed)
 
 ```go
-import (
-    "context"
-
-    "github.com/degoke/haistack/pkg/binary"
-)
+import "github.com/degoke/haistack/pkg/binary"
 
 files, err := binary.NewLocalFileBlobStore("/var/haistack/blobs")
-if err != nil {
-    // handle error
-}
-
 desc, err := files.Put(ctx, "blob-1", data, "application/pdf")
-// desc.SHA256, desc.Size, desc.Pointer.Ref
-
 got, err := files.GetByHash(ctx, desc.SHA256)
 ```
 
-Combine with a metadata store for a full `BlobStore`:
+Pair with metadata for a unified `BlobStore`:
 
 ```go
 store := binary.NewLocalFileBlobStoreAdapter(files, metadataStore)
@@ -99,85 +113,74 @@ desc, err := store.Put(ctx, "blob-1", data, "application/pdf")
 payload, head, err := store.Get(ctx, "blob-1")
 ```
 
-### SQLite backend
+### 2. SQLite or Postgres chunk backends
 
 ```go
-import "github.com/degoke/haistack/pkg/sqlite"
-
-db, _ := sqlite.Open("/path/to/haistack.db")
-_ = db.Migrate(ctx)
-
-blobs := db.ChunkBlobStore()
+blobs := db.ChunkBlobStore()      // sqlite.DB or postgres.TenantDB
 meta := db.BlobMetadataStore()
-
 desc, err := blobs.Put(ctx, "blob-1", data, "image/png")
 manifest, err := meta.GetManifest(ctx, "blob-1")
 ```
 
-### Postgres backend
+Backend kinds are recorded on `BlobDescriptor.Backend` (`BackendKindSQLite`, `BackendKindPostgres`, etc.).
 
-```go
-import "github.com/degoke/haistack/pkg/postgres"
-
-tdb := pdb.Tenant("tenant-a")
-blobs := tdb.ChunkBlobStore()
-meta := tdb.BlobMetadataStore()
-```
-
-### Resumable upload and download
+### 3. Resumable upload and download (`TransferService`)
 
 ```go
 xfer, err := binary.NewTransferService(binary.TransferConfig{
     Blobs:     blobs,
-    Chunks:    blobs,       // ChunkBlobStore implements both
+    Chunks:    blobs,
     Metadata:  meta,
-    Transfers: meta,        // BlobMetadataStore implements TransferStore
+    Transfers: meta,
     ChunkSize: binary.DefaultChunkSize,
+    ResolveKey: keyResolver, // optional encryption
 })
 
 upload, err := xfer.StartUpload(ctx, "blob-1", size, "application/pdf", expectedChunks)
+// or StartUploadWithOptions for retention/encryption
 _, err = xfer.UploadChunk(ctx, upload.ID, 0, chunk0)
-_, err = xfer.UploadChunk(ctx, upload.ID, 1, chunk1)
-manifest, err := xfer.FinalizeUpload(ctx, upload.ID) // deduplicates by SHA-256
+manifest, err := xfer.FinalizeUpload(ctx, upload.ID)
 
 download, err := xfer.StartDownload(ctx, "blob-1")
 chunk, session, err := xfer.DownloadChunk(ctx, download.ID, 0)
 ```
 
-### FHIR metadata helpers
+### 4. S3-compatible object storage
 
-Helpers work with the repo's JSON-envelope model, not typed FHIR structs:
+```go
+s3, err := binary.NewS3BlobStore(binary.S3Config{
+    Endpoint:        "https://s3.example.com",
+    Region:          "us-east-1",
+    Bucket:          "clinical-blobs",
+    AccessKeyID:     "...",
+    SecretAccessKey: "...",
+})
+desc, err := s3.Put(ctx, blobID, data, contentType)
+url, err := s3.SignedGetURL(ctx, blobID, time.Hour)
+```
+
+Streaming interfaces (`PutStream`, `OpenBlob`) avoid loading entire objects into memory where the backend supports them.
+
+### 5. FHIR metadata helpers and links
 
 ```go
 ref := binary.DescriptorToReference(*desc)
-
-// Metadata-only Binary resource (no data element)
 binJSON, err := binary.BuildBinaryMetadataJSON("bin-1", "image/png", ref)
-
-// Embed attachment metadata into DocumentReference JSON
 docJSON, err := binary.EmbedDocumentAttachment(docJSON, 0, "application/pdf", ref)
-
-// Extract references; verify no inline payload bytes
 refs, err := binary.ExtractBlobReferences(docJSON)
 hasBytes := binary.ResourceHasPayloadBytes(docJSON) // should be false
-```
 
-### Resource links
-
-```go
 links := binary.NewLinkService(meta)
-
 err = links.LinkBinary(ctx, "bin-res-1", "blob-1")
 err = links.LinkDocumentAttachment(ctx, "doc-1", 0, "blob-2")
 ```
 
-### Transactional metadata with FHIR writes
+### 6. Transactional metadata with FHIR writes
 
-SQLite and Postgres sessions implement `binary.WriteSessionExtension` additively — `store.WriteSession` is unchanged:
+SQLite and Postgres sessions implement `binary.WriteSessionExtension` additively:
 
 ```go
 session, err := db.BeginWrite(ctx)
-
 if meta, ok := binary.MetadataFromWriteSession(session); ok {
     _ = meta.PutBinaryLink(ctx, binary.BinaryLink{
         ResourceID: "bin-1",
@@ -185,9 +188,53 @@ if meta, ok := binary.MetadataFromWriteSession(session); ok {
         CreatedAt:  time.Now().UTC(),
     })
 }
-
 _ = session.ResourceStore().Create(ctx, envelope)
 err = session.Commit(ctx)
+```
+
+### 7. Chunk sync export/import (parallel to resource sync)
+
+```go
+chunkSync, err := binary.NewChunkSyncService(xfer)
+plan, err := chunkSync.ExportPlan(ctx, "blob-1")
+chunk, err := chunkSync.ExportChunk(ctx, "blob-1", 0)
+
+session, err := chunkSync.StartImport(ctx, *plan, "", nil)
+_, err = chunkSync.ApplyChunk(ctx, session.ID, *chunk)
+manifest, err := chunkSync.FinalizeImport(ctx, session.ID)
+```
+
+Use when devices or hubs exchange blob bytes outside the FHIR event log.
+
+### 8. Lifecycle and retention (`LifecycleService`)
+
+```go
+life, err := binary.NewLifecycleService(blobs, meta)
+err = life.DeleteBlob(ctx, blobID, time.Now().UTC()) // ErrRetentionLocked until RetainUntil
+```
+
+## Examples
+
+**Stream upload without buffering entire file:**
+
+```go
+if streamStore, ok := blobs.(binary.BlobStoreWithStream); ok {
+    desc, err := streamStore.PutStream(ctx, blobID, reader, size, contentType)
+}
+```
+
+**Prefixed files over legacy store (package artifacts):**
+
+```go
+prefixed := binary.NewPrefixedFileStore(legacyBlobStore, "packages/", "my.pkg", "application/octet-stream")
+```
+
+**Verify attachment carries pointer only before sync:**
+
+```go
+if binary.ResourceHasPayloadBytes(docJSON) {
+    return fmt.Errorf("inline payload bytes must be stripped before sync")
+}
 ```
 
 ## Schema
@@ -203,35 +250,43 @@ New blob tables (separate from legacy `binary_object`):
 | `blob_sync_status` | Transfer progress per blob |
 | `blob_transfer_session` | Resumable upload/download session state |
 
-Migrations: `pkg/sqlite/migrations/0005_blob.sql`, `pkg/sqlite/migrations/0006_blob_policy.sql`, `pkg/postgres/migrations/0006_blob.sql`, `pkg/postgres/migrations/0007_blob_policy.sql`.
+Migrations: `pkg/sqlite/migrations/0005_blob.sql`, `0006_blob_policy.sql`, `pkg/postgres/migrations/0006_blob.sql`, `0007_blob_policy.sql`.
 
-## Mental model
+## Configuration / key types
 
-```
-pkg/types   → canonical FHIR JSON (ResourceEnvelope)
-pkg/core    → resource CRUD; metadata-only sync path
-pkg/binary  → blob payloads, manifests, transfer, FHIR linkage, S3 URLs, retention
-pkg/sqlite  → SQLiteBlobStore + BlobMetadataStore adapters
-pkg/postgres → PostgresBlobStore + BlobMetadataStore adapters (tenant-scoped)
-```
-
-**One line:** `pkg/binary` is the **file cabinet for clinical attachments** — payloads stay out of FHIR JSON and resource events; metadata travels through normal sync; bytes move through a dedicated blob path.
+| Symbol | Role |
+|--------|------|
+| `DefaultChunkSize` | `1 << 20` (1 MiB) |
+| `TransferConfig` | Blobs, chunks, metadata, transfers, chunk size, `KeyResolver` |
+| `UploadRequest` | Size, content type, expected chunks, retention, encryption |
+| `BackendKind` | `local_file`, `sqlite`, `postgres`, `s3`, … |
+| `EncryptionAES256GCM` | Supported via `KeyResolver` |
 
 ## Where it fits
 
 | Layer | Role |
 |-------|------|
 | **store** | Legacy `BinaryStore` / `BlobStore` on `binary_object` |
-| **binary** | Rich blob API — manifests, chunks, transfer, links |
-| **sqlite / postgres** | Backend adapters and schema only |
-| **core** | Resource-focused; integrates via JSON helpers and optional shared sessions |
-| **sync** | Resource metadata events unchanged; blob sync invoked separately |
+| **binary** | Rich blob API — manifests, chunks, transfer, links, S3, encryption |
+| **sqlite / postgres** | Backend adapters and schema |
+| **core** | Resource-focused; integrates via JSON helpers and shared sessions |
+| **sync** | Resource metadata events; blob bytes via separate transfer/sync path |
+| **http** | May serve downloaded artifacts when wired by runtime (not owned here) |
 
-## Current limits
+## Limits
 
-- Hash-based deduplication at the manifest layer; cross-backend garbage collection deferred
-- Blob sync is not wired into `pkg/sync` engine yet — application code invokes blob transfer after resource metadata sync
-- `LocalFileBlobStore` does not persist manifests unless paired with a `MetadataStore`
-- S3 support is HTTP/presign based; multipart upload orchestration is not implemented yet
+- Hash-based deduplication at finalize; cross-backend garbage collection deferred
+- `pkg/sync.Engine` does not invoke blob transfer — orchestrate after metadata sync
+- `LocalFileBlobStore` does not persist manifests unless paired with `MetadataStore`
+- S3: signed URL and PUT/GET streaming; full multipart upload orchestration is limited
+- Encryption requires caller-provided `KeyResolver`; no built-in KMS integration
+- Retention enforcement depends on `LifecycleService` invocation — not automatic on all deletes
 
-See [doc.go](./doc.go) for the full API and design boundaries.
+## Related docs
+
+- [docs/architecture.md](../../docs/architecture.md) — metadata vs payload separation
+- [pkg/core/README.md](../core/README.md) — FHIR writes and sessions
+- [pkg/sync/README.md](../sync/README.md) — resource-only replication
+- [pkg/store/README.md](../store/README.md) — legacy blob store contracts
+- [pkg/sqlite/README.md](../sqlite/README.md) / [pkg/postgres/README.md](../postgres/README.md) — chunk/metadata adapters
+- [doc.go](./doc.go) — full API and design boundaries

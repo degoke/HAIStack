@@ -1,4 +1,4 @@
-.PHONY: help fmt format fmt-check format-check vet lint test test-short test-race build tidy clean ci ci-pr all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks
+.PHONY: help fmt format fmt-check format-check vet lint test test-short test-race build tidy clean ci ci-pr all ig validate-ig conformance-lock research research-ai-pipeline research-policy research-conversion research-terminology research-benchmarks check-package-readmes
 
 GO ?= go
 GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
@@ -23,6 +23,9 @@ fmt-check format-check: ## Verify Go files are formatted
 		echo "$$files"; \
 		exit 1; \
 	fi
+
+check-package-readmes: ## Verify pkg/*/README.md required section headings (optional local check)
+	bash scripts/check-package-readmes.sh
 
 vet: ## Run go vet
 	$(GO) vet ./...

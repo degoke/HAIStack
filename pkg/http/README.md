@@ -9,21 +9,56 @@ FHIR REST API adapter for the haistack monorepo.
 | Concern | Owner |
 |---------|-------|
 | HTTP routing and method validation | `pkg/http` |
-| Request/response JSON translation | `pkg/http` |
+| Request/response JSON and XML translation | `pkg/http` |
 | OperationOutcome error rendering | `pkg/http` |
 | CapabilityStatement from registry snapshot | `pkg/http` |
-| Pluggable auth middleware | `pkg/http` |
+| Pluggable auth middleware and SMART scope filters | `pkg/http` |
 | CRUD, history, transaction bundles | `pkg/core` |
 | Search planning and execution | `pkg/search` |
 | Enabled resource types and SearchParameters | `pkg/registry` |
 | Policy decisions | `pkg/auth` |
+
+Entrypoints include `NewHandler(Config)`, optional `NewRootHandlerWithSyncMiddleware` for sync routes, and health probes `/health` and `/healthz`.
 
 It does **not**:
 
 - Open databases or manage tenants (`pkg/sqlite`, `pkg/postgres`)
 - Index resources or compile search plans (`pkg/search` write path)
 - Validate profiles or assign version IDs (`pkg/core`, `pkg/types`)
-- Issue or validate SMART/OAuth tokens (`pkg/smart`) — callers wire token resolution into `PrincipalResolver`
+- Issue or validate SMART/OAuth tokens (`pkg/smart`, `pkg/oauth`) — callers wire token resolution into `PrincipalResolver`
+
+## How it fits in the ecosystem
+
+```
+  Client (FHIR REST, Bulk Data, SDC ops)
+           |
+           v
+  pkg/http (router, negotiation, errors, auth middleware)
+           |
+     +-----+-----+-----+-----+
+     v     v     v     v     v
+  core  search registry auth  optional: bulk, SDC, terminology, sync hub
+     |     |       |
+     v     v       v
+  store backends (sqlite / postgres TenantDB)
+```
+
+| Direction | Package | Relationship |
+|-----------|---------|--------------|
+| Downstream | **core** | `ResourceService` — CRUD, history, transaction/batch, patch |
+| Downstream | **search** | `SearchService` — type search and POST `_search` |
+| Downstream | **registry** | `CapabilitySource` — `/metadata` |
+| Downstream | **auth** | `AuthChecker`, patient scope via `PatientReferenceResolver` |
+| Downstream | **sync** | Optional `/sync/push`, `/sync/pull` when hub middleware wired |
+| Optional | **export** / **bulkimport** | Bulk Data `$export` / `$import` services |
+| Optional | **hooks** | Four-point SPI on `Config.Hooks` |
+
+## When to use it
+
+- Serving a FHIR REST API from a Go binary or sidecar
+- Integration tests that exercise end-to-end JSON translation over real stores
+- Wiring SMART, API-key, or service-account auth via `PrincipalResolver` without changing core/search APIs
+- Exposing terminology, SDC, measure evaluation, or bulk operations through optional service interfaces
 
 ## Import alias
 
@@ -35,6 +70,139 @@ import (
 
     hahttp "github.com/degoke/haistack/pkg/http"
 )
+```
+
+## Usage modes
+
+### 1. Minimal handler (CRUD only)
+
+```go
+handler, err := hahttp.NewHandler(hahttp.Config{
+    ResourceService: hahttp.CoreResourceService{Svc: coreSvc},
+})
+if err != nil {
+    log.Fatal(err)
+}
+nethttp.ListenAndServe(":8080", handler)
+```
+
+Without `SearchService` or `CapabilitySource`, type-level search and `/metadata` return not-supported outcomes.
+
+### 2. Full stack (CRUD + search + metadata + auth)
+
+```go
+snapshot, _ := manager.RebuildSnapshot(ctx)
+
+handler, err := hahttp.NewHandler(hahttp.Config{
+    BasePath:         "/fhir",
+    ResourceService:  hahttp.CoreResourceService{Svc: coreSvc},
+    SearchService:    hahttp.SearchServiceAdapter{Svc: searchSvc},
+    CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: snapshot},
+    ServerMetadata: hahttp.ServerMetadata{
+        SoftwareName:    "my-fhir-server",
+        SoftwareVersion: "1.0.0",
+        ServerName:      "Production FHIR Server",
+    },
+    PrincipalResolver: func(ctx context.Context, r *nethttp.Request) (auth.Principal, auth.TenantContext, error) {
+        return principal, tenant, nil
+    },
+    AuthChecker: hahttp.PolicyAuthChecker{Engine: authEngine},
+})
+```
+
+When `PrincipalResolver` and `AuthChecker` are both set, built-in middleware runs before handlers. Set `AuthMiddleware` instead for fully custom wrapping.
+
+### 3. Bulk Data, SDC, and terminology extensions
+
+Wire optional services on `Config`:
+
+```go
+handler, err := hahttp.NewHandler(hahttp.Config{
+    ResourceService:        hahttp.CoreResourceService{Svc: coreSvc},
+    BulkExportService:      exportSvc,
+    BulkImportService:      importSvc,
+    SDCService:             sdcAdapter,
+    MeasureEvaluateService: measureSvc,
+    TerminologyService:     terminologySvc,
+    TerminologyScope:       tenantID,
+    ValidateService:        validateAdapter,
+})
+```
+
+When a service is nil, related routes return FHIR `OperationOutcome` with not-supported or not-implemented semantics.
+
+### 4. Sync hub routes with authentication
+
+```go
+root, err := hahttp.NewRootHandlerWithSyncMiddleware(hahttp.RootConfig{
+    FHIR:           fhirHandler,
+    Hub:            scopedHub, // implements sync.ScopedHubServer
+    SyncMiddleware: authMiddleware,
+})
+```
+
+Expose `POST /sync/push` and `GET /sync/pull`. Pull defaults to 100 events; limit query accepts 1–1000.
+
+### 5. Custom service implementations (mocks and alternate backends)
+
+Implement narrow interfaces directly:
+
+```go
+type myResources struct{}
+
+func (m myResources) Create(ctx context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) { ... }
+func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.ResourceEnvelope, error) { ... }
+// Update, Delete, History, ProcessTransactionBundle, ProcessBatchBundle, Patch
+```
+
+### 6. Rate limiting and hooks
+
+```go
+handler, err := hahttp.NewHandler(hahttp.Config{
+    ResourceService: hahttp.CoreResourceService{Svc: coreSvc},
+    RateLimit: hahttp.RateLimitConfig{
+        Requests: 1000,
+        Window:   time.Minute,
+    },
+    Hooks: myHooks, // implements hooks.Hooks
+})
+```
+
+Process-local limiter emits 429 with `Retry-After`; use a shared edge limiter for multi-instance deployments.
+
+## Examples
+
+**Patient compartment read:**
+
+```http
+GET /fhir/Patient/{id}/$everything
+Accept: application/fhir+json
+```
+
+**Conditional update:**
+
+```http
+PUT /fhir/Patient?identifier=system|value
+If-Match: W/"version-id"
+```
+
+**Async bulk export kickoff:**
+
+```http
+GET /fhir/Patient/$export
+Prefer: respond-async
+```
+
+Returns 202 with `Content-Location` when `BulkExportService` is configured.
+
+**SMART scope filter enforcement:**
+
+```go
+handler, err := hahttp.NewHandler(hahttp.Config{
+    AuthBundleResolver: smartResolver,
+    ScopeFilterMatcher: smart.DefaultScopeFilterMatcher(),
+    // PrincipalResolver + AuthChecker …
+})
 ```
 
 ## Supported endpoints (MVP)
@@ -57,102 +225,18 @@ Base path defaults to `/fhir` (configurable via `Config.BasePath`).
 | `GET` | `/fhir/{ResourceType}/{id}/_history` | Instance history (`_since`, `_at`) | 200 + history Bundle |
 | `GET` | `/fhir/{ResourceType}/{id}/_history/{vid}` | vread | 200 + resource, 410 if deleted |
 | `GET` | `/fhir/Patient/{id}/$everything` | Patient compartment bundle | 200 + searchset Bundle |
-| `GET` | `/fhir/$export` | System bulk export kickoff (`Prefer: respond-async`) | 202 + `Content-Location` when `BulkExportService` configured |
-| `GET` | `/fhir/Patient/$export` | All-patient bulk export kickoff | 202 when configured |
-| `GET` | `/fhir/Patient/{id}/$export` | Patient compartment bulk export | 202 when configured |
-| `GET` | `/fhir/Group/{id}/$export` | Group bulk export kickoff | 202 + `Content-Location` when configured |
-| `GET` | `/fhir/$export/status/{jobId}` | Poll status or fetch manifest | 202 in progress, 200 complete |
-| `DELETE` | `/fhir/$export/status/{jobId}` | Cancel export | 202 |
-| `GET` | `/fhir/$export/files/{jobId}/{file}` | Download NDJSON artifact | 200 |
-| `POST` | `/fhir/$import` | System bulk import kickoff (`Prefer: respond-async`, Parameters + NDJSON) | 202 + `Content-Location` when `BulkImportService` configured |
-| `GET` | `/fhir/$import/status/{jobId}` | Poll import status or fetch manifest | 202 in progress, 200 complete |
-| `DELETE` | `/fhir/$import/status/{jobId}` | Cancel import | 202 |
-| `GET` | `/fhir/$import/files/{jobId}/{file}` | Download import error NDJSON artifact | 200 |
-| `GET`/`POST` | `/fhir/Measure/{id}/$evaluate-measure` | CQF Measure evaluation (`MeasureEvaluateService`) | 200 + MeasureReport |
-| `GET`/`POST` | `/fhir/Measure/$evaluate-measure` | Type-level measure evaluation (`measure` canonical) | 200 + MeasureReport |
-| `GET`/`POST` | `/fhir/$operation` or resource operation path | Custom operation | 200 + returned resource |
-| `POST` | `/sync/push` | Sync push (via `NewRootHandlerWithSyncMiddleware`) | 200 + results |
-| `GET` | `/sync/pull` | Sync pull (via `NewRootHandlerWithSyncMiddleware`) | 200 + events |
+| Bulk `$export` / `$import` | various | Async bulk data | 202 / 200 / 404 |
+| Measure `$evaluate-measure` | type and instance | CQF evaluation | 200 + MeasureReport |
+| SDC on Questionnaire / QuestionnaireResponse | `$populate`, `$assemble`, … | SDC adapter | 200 or OperationOutcome |
+| `POST` / `GET` | `/sync/push`, `/sync/pull` | Sync hub (optional middleware) | 200 |
 
-`POST /fhir` accepts transaction and batch Bundles. JSON projections
-(`_summary`, `_elements`) and JSON/XML content negotiation are supported.
-Unsupported `Accept` or `_format` values return 406. JSON and XML request bodies
-are accepted for resource and Bundle writes.
+JSON projections (`_summary`, `_elements`) and JSON/XML content negotiation are supported. Unsupported `Accept` or `_format` values return 406.
 
-Set `Config.RateLimit` to enable a process-local fixed-window limiter. It emits
-429 `OperationOutcome` responses with `Retry-After` and rate-limit headers;
-multi-instance deployments should enforce an equivalent limit at a shared edge.
+### Deferred / requires wiring
 
-When exposing sync routes, apply authentication with
-`NewRootHandlerWithSyncMiddleware` or `RootConfig.SyncMiddleware`. A
-tenant-aware hub should implement `sync.ScopedHubServer`; the Postgres hub
-also requires a registered node for the tenant.
-
-SDC operations (`$populate`, `$assemble`, `$validate`, `$extract`, adaptive questionnaire routes) are supported on `Questionnaire` and `QuestionnaireResponse`.
-
-### Deferred
-
-- Configure `BulkExportService` (typically `pkg/export.Service` wired by `pkg/runtime`) to enable Bulk Data export
-- Configure `BulkImportService` (typically `pkg/bulkimport.Service` wired by `pkg/runtime`) to enable Bulk Data import
-- Full CapabilityStatement conformance coverage
-- SMART metadata and built-in token runtime
-
-## When to use it
-
-- Serving a FHIR REST API from a Go binary or sidecar
-- Integration tests that exercise end-to-end JSON translation over real stores
-- Wiring SMART, API-key, or service-account auth via `PrincipalResolver` without changing core/search APIs
-
-## Usage
-
-### Minimal handler (CRUD only)
-
-```go
-handler, err := hahttp.NewHandler(hahttp.Config{
-    ResourceService: hahttp.CoreResourceService{Svc: coreSvc},
-})
-if err != nil {
-    log.Fatal(err)
-}
-nethttp.ListenAndServe(":8080", handler)
-```
-
-### Full stack (CRUD + search + metadata + auth)
-
-```go
-snapshot, _ := manager.RebuildSnapshot(ctx)
-
-handler, err := hahttp.NewHandler(hahttp.Config{
-    BasePath:         "/fhir",
-    ResourceService:  hahttp.CoreResourceService{Svc: coreSvc},
-    SearchService:    hahttp.SearchServiceAdapter{Svc: searchSvc},
-    CapabilitySource: hahttp.RegistryCapabilitySource{Snapshot: snapshot},
-    ServerMetadata: hahttp.ServerMetadata{
-        SoftwareName:    "my-fhir-server",
-        SoftwareVersion: "1.0.0",
-        ServerName:      "Production FHIR Server",
-    },
-    PrincipalResolver: func(ctx context.Context, r *nethttp.Request) (auth.Principal, auth.TenantContext, error) {
-        // Resolve from Authorization header, session, SMART token, etc.
-        return principal, tenant, nil
-    },
-    AuthChecker: hahttp.PolicyAuthChecker{Engine: authEngine},
-})
-```
-
-When `PrincipalResolver` and `AuthChecker` are both set, built-in middleware runs before handlers. When neither is set, all requests pass through. Set `AuthMiddleware` instead for fully custom wrapping.
-
-### Custom service implementations
-
-Implement the narrow interfaces directly when you need mocks or alternate backends:
-
-```go
-type myResources struct{}
-
-func (m myResources) Create(ctx context.Context, resource *types.ResourceEnvelope) (*types.ResourceEnvelope, error) { ... }
-func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.ResourceEnvelope, error) { ... }
-// ... Update, Delete, History, ProcessTransactionBundle, ProcessBatchBundle, Patch
-```
+- Full CapabilityStatement conformance coverage for every optional service
+- SMART metadata and built-in token runtime (use `pkg/smart` + resolver)
+- Services nil → route-level not-supported responses
 
 ## Configuration reference
 
@@ -166,13 +250,16 @@ func (m myResources) Read(ctx context.Context, resourceType, id string) (*types.
 | `Codec` | no | `types.NewJSONCodec()` | FHIR JSON parse/serialize |
 | `AuthMiddleware` | no | nil | Custom outer middleware |
 | `PrincipalResolver` | no | nil | Identity extraction when auth enabled |
-| `AuthChecker` | no | nil | Read/write/search authorization |
-| `SDCService` | no | nil | SDC operations on Questionnaire / QuestionnaireResponse (`$populate`, `$assemble`, …) |
-| `MeasureEvaluateService` | no | nil | Measure/$evaluate-measure (MeasureReport) |
-| `BulkExportService` | no | nil | FHIR Bulk Data `$export` kickoff and status |
-| `BulkImportService` | no | nil | FHIR Bulk Data `$import` kickoff and status |
-| `OperationService` | no | nil | Generic custom `$operation` execution |
-| `RateLimit` | no | disabled | Process-local fixed-window request limiter |
+| `AuthChecker` | no | nil | Read/write/search/export authorization |
+| `AuthBundleResolver` | no | nil | SMART 2.2 scope filter context |
+| `PatientReferenceResolver` | no | nil | Patient-scoped read/search enforcement |
+| `SDCService` | no | nil | SDC operations |
+| `MeasureEvaluateService` | no | nil | Measure/$evaluate-measure |
+| `BulkExportService` / `BulkImportService` | no | nil | Bulk Data |
+| `TerminologyService` | no | nil | `$lookup`, `$expand`, `$validate-code` |
+| `OperationService` | no | nil | Custom `$operation` |
+| `RateLimit` | no | disabled | Process-local fixed-window limiter |
+| `Hooks` | no | nil | Incoming/outgoing HTTP + core storage hooks |
 
 ## Error responses
 
@@ -191,8 +278,6 @@ Handler failures return negotiated FHIR JSON or XML `OperationOutcome` bodies.
 | Unsupported HTTP method | 405 | `not-supported` |
 | Rate limit exceeded | 429 | `throttled` |
 
-Path/body validation at the HTTP layer (malformed ids, id mismatch on update, non-transaction POST to `/fhir`) is mapped to `invalid` or `not-supported` before reaching core.
-
 ## Response headers
 
 | Header | When set |
@@ -209,6 +294,7 @@ Path/body validation at the HTTP layer (malformed ids, id mismatch on update, no
 - **Read** → `CanReadResource`
 - **Write** (create/update/delete) → `CanWriteResource`
 - **Search** → `CanReadResource` on the resource type
+- **Export** → `CanBulkExport` when bulk export is configured
 
 For SMART-backed servers, resolve tokens in `PrincipalResolver` and optionally use `pkg/smart.AuthAdapter` to build `auth.ReadRequest` / `auth.WriteRequest` inside a custom `AuthChecker`.
 
@@ -225,7 +311,39 @@ For SMART-backed servers, resolve tokens in `PrincipalResolver` and optionally u
 | `writer.go` | Response writers and FHIR headers |
 | `bundle.go` | History, searchset, CapabilityStatement JSON |
 | `auth.go` | Built-in auth middleware |
-| `request.go` | Body parsing |
+| `sync.go` | Sync root handler and middleware |
+| `bulk.go` / `bulk_import.go` | Bulk Data routes |
+
+## Where it fits
+
+| Package | Role |
+|---------|------|
+| **http** | Transport adapter (this package) |
+| **core** | Resource lifecycle |
+| **search** | Search execution |
+| **registry** | Capability metadata |
+| **auth** / **smart** | Authorization |
+| **sync** | Optional hub protocol over HTTP |
+| **runtime** | Typical wiring of all services into `Config` |
+
+## Limits
+
+- No built-in OAuth authorization server — integrate `pkg/oauth` / `pkg/smart` externally
+- Rate limit is process-local unless supplemented at the gateway
+- CapabilityStatement reflects wired services; unwired operations appear absent or not-supported at runtime
+- XML support covers negotiated read/write paths; not every auxiliary admin route may expose XML
+- Sync routes require explicit middleware and registered hub nodes for Postgres tenants
+
+## Related docs
+
+- [docs/architecture.md](../../docs/architecture.md) — API layer placement
+- [pkg/core/README.md](../core/README.md) — resource service delegated by HTTP
+- [pkg/search/README.md](../search/README.md) — search adapter
+- [pkg/registry/README.md](../registry/README.md) — capability snapshot
+- [pkg/auth/README.md](../auth/README.md) — policy engine
+- [pkg/smart/README.md](../smart/README.md) — SMART scopes and auth bundle
+- [pkg/sync/README.md](../sync/README.md) — hub protocol behind sync routes
+- [doc.go](./doc.go) — endpoint list and design principles
 
 ## Testing
 
@@ -233,16 +351,5 @@ For SMART-backed servers, resolve tokens in `PrincipalResolver` and optionally u
 go test ./pkg/http/... -count=1
 ```
 
-- **Unit tests** (`http_test.go`) — mock services for every endpoint, auth paths, and error mapping
-- **Integration tests** (`integration_test.go`) — sqlite-backed core + search wired through adapters for end-to-end JSON translation
-
-## Related packages
-
-| Package | Relationship |
-|---------|--------------|
-| `pkg/core` | Resource lifecycle delegated via `ResourceService` |
-| `pkg/search` | Type-level search via `SearchService` |
-| `pkg/registry` | Capability snapshot for `/metadata` |
-| `pkg/auth` | Optional authorization via `AuthChecker` |
-| `pkg/smart` | Token/scope → principal (caller-wired, not built-in) |
-| `pkg/types` | `ResourceEnvelope`, `ResourceCodec`, `OperationOutcome` |
+- **Unit tests** (`http_test.go`) — mock services for endpoints, auth paths, and error mapping
+- **Integration tests** (`integration_test.go`) — sqlite-backed core + search wired through adapters

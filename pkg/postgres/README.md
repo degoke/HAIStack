@@ -16,6 +16,105 @@ In simple terms, it is **the source of truth on the server**:
 
 It does **not** parse FHIR, run FHIRPath, or implement HTTP APIs. It is pure persistence: open a database, then read and write through small interfaces defined in [`pkg/store`](../store).
 
+## How it fits in the ecosystem
+
+`pkg/postgres` is the **authoritative server adapter** for haistack. Edge SQLite databases hold offline copies; accepted writes land here with tenant isolation, server-assigned version IDs, and a global `event_log` sequence used for sync and replay.
+
+```mermaid
+flowchart TB
+  subgraph clients["Clients & edge"]
+    DEV["Devices pkg/sqlite"]
+    API["API / runtime"]
+  end
+
+  subgraph pg_pkg["pkg/postgres"]
+    POOL["DB pool pgx"]
+    TEN["TenantDB per tenant_id"]
+    AW["ApplyWrite coordinator"]
+  end
+
+  subgraph store_if["pkg/store"]
+    RS["ResourceStore"]
+    EV["EventStore event_log"]
+    IDR["IDRegistryStore"]
+  end
+
+  subgraph pg["PostgreSQL"]
+    TBL["tenant-scoped tables JSONB"]
+  end
+
+  DEV -->|sync push| API
+  API --> TEN
+  TEN --> AW
+  AW --> RS
+  AW --> EV
+  AW --> IDR
+  POOL --> TEN
+  RS --> TBL
+  EV --> TBL
+```
+
+| Direction | Component | Relationship |
+|-----------|-----------|--------------|
+| **Upstream** | `pkg/runtime` | Opens DSN, migrates schema, resolves `Tenant(tenantID)` per request |
+| **Upstream** | `pkg/core` | May orchestrate writes via `TenantDB` sessions (version policy in core) or callers use `ApplyWrite` for server-native assignment |
+| **Upstream** | `pkg/sync` | Consumes `EventStore.ReadSince`, inbox/conflict stores for multi-node sync |
+| **Upstream** | Sync from `pkg/sqlite` | Devices push bundles; server accepts via `WriteOutcomeAccepted` or records conflicts |
+| **Contract** | `pkg/store` | Every accessor on `TenantDB` returns interface types |
+| **Downstream** | PostgreSQL 16+ | JSONB resource payloads, BIGSERIAL event sequences, tenant row registry |
+| **Peer** | `pkg/sqlite` | Non-authoritative local replica; server wins on conflict policy (upstream) |
+
+Rejected and conflicted write outcomes **never** mutate `resource` or `event_log` rows — only audit (and conflict table for conflicts), which keeps the server a trustworthy source of truth.
+
+## Usage modes
+
+### Shared pool, tenant-scoped operations
+
+**When:** One Postgres cluster serves many customers; every query must include `tenant_id`.
+
+**How:** `postgres.Open`, then `db.Tenant("tenant-acme")` for all reads/writes. `EnsureTenant` runs implicitly on write paths to register the tenant row.
+
+```go
+if err := db.EnsureTenant(ctx, "tenant-acme"); err != nil { /* … */ }
+tdb := db.Tenant("tenant-acme")
+```
+
+### Accepted write pipeline (`ApplyWrite`)
+
+**When:** API or sync ingest accepts a create/update/delete and needs version ID + global event sequence assigned atomically.
+
+**How:** Pass `postgres.Write` with `Outcome` empty or `WriteOutcomeAccepted`, prepared search entries, and optional audit. Result carries server `VersionID` and event `Sequence`.
+
+### Rejection and conflict recording
+
+**When:** Validation fails, version mismatch, or sync detects concurrent edits — you must log the attempt without changing stored FHIR content.
+
+**How:** Call `ApplyWrite` with `WriteOutcomeRejected` or `WriteOutcomeConflicted` and populate `RejectionReason` / conflict version fields. Resource row unchanged; audit and optional `sync_conflict` updated.
+
+### Event replay for sync workers
+
+**When:** A worker projects changes to analytics, search rebuilds, or downstream systems.
+
+**How:** `tdb.EventStore().ReadSince(ctx, afterSeq, limit)` across tenants via per-tenant cursors in `CursorStore`. Global ordering is per-tenant event log sequence in MVP.
+
+### Manual multi-step server transactions
+
+**When:** Custom ingest needs ID registry reservation, conflict checks, and resource write in one transaction beyond what a single `ApplyWrite` struct expresses.
+
+**How:** `session, _ := tdb.BeginWrite(ctx)` (or `BeginSession`), use session stores plus `IDRegistry()` / `ConflictStore()` / `AuditStore()` on Postgres session types, then commit.
+
+### Operational stores (jobs, blobs, nodes, analytics)
+
+**When:** Server-side background work, binary storage, edge node registration, or reporting snapshots.
+
+**How:** Access `JobStore`, `BlobStore`, `BinaryStore`, `NodeRegistry`, `MaterializedViewStore`, `ReportingTableStore`, and `AnalyticsStore` from the same `TenantDB` without separate connection pools.
+
+### Custom schema deployment
+
+**When:** Haistack tables must live in a non-`public` schema.
+
+**How:** `postgres.Open(ctx, dsn, postgres.WithSchema("haistack"))` before `Migrate`.
+
 ## SQLite vs Postgres
 
 | | **Postgres** (`pkg/postgres`) | **SQLite** (`pkg/sqlite`) |
@@ -128,6 +227,27 @@ All hang off the same `TenantDB`:
 
 For manual multi-step writes in one transaction, use `BeginWrite` / `Session` and commit when done.
 
+**Ensure tenant then read across stores:**
+
+```go
+tdb := db.Tenant("clinic-42")
+_ = db.EnsureTenant(ctx, "clinic-42")
+pat, err := tdb.ResourceStore().Read(ctx, "Patient", "pat-123")
+hist, err := tdb.HistoryStore().GetHistory(ctx, "Patient", "pat-123")
+```
+
+**Replay tenant events for a sync cursor:**
+
+```go
+const worker = "analytics-projector"
+cur, _ := tdb.CursorStore().GetCursor(ctx, worker)
+var after int64
+if cur.Position != "" {
+    after, _ = strconv.ParseInt(cur.Position, 10, 64)
+}
+batch, _ := tdb.EventStore().ReadSince(ctx, after, 200)
+```
+
 ## Where it fits
 
 | Layer | Role |
@@ -159,11 +279,15 @@ TEST_POSTGRES_DSN='postgres://user:pass@localhost:5432/haistack?sslmode=disable'
 
 Without Docker or `TEST_POSTGRES_DSN`, integration tests skip.
 
-## MVP limits
+## Limits
 
 - Single Postgres database per `DB` (no built-in sharding or read-replica routing)
 - Blob `Location` stores an opaque string; no object-storage SDK integration
 - Partitioning, archival, and warehouse export cursors are future work
 - FHIR validation, HTTP, and business rules live in upstream packages
 
-See [doc.go](./doc.go) for design principles, schema tables, file layout, and the full write coordinator behavior.
+## Related docs
+
+- [pkg/store/README.md](../store/README.md) — tenant-scoped contracts
+- [pkg/runtime/README.md](../runtime/README.md) — edge/cloud modes
+- [doc.go](./doc.go) — write coordinator and schema
