@@ -18,16 +18,16 @@ type phiPathBundle struct {
 }
 
 type fhirPathPHIIndex struct {
-	mu          sync.RWMutex
-	engine      fhirpath.Engine
-	profiles    validate.ProfileCatalog
-	rules       PHIStructureRules
-	catalog     *PHICatalog
-	mode        PHIMode
-	evalMode    EvalMode
-	base        map[string]phiPathBundle
-	byProfile   map[string]phiPathBundle
-	merged      map[string]phiPathBundle
+	mu        sync.RWMutex
+	engine    fhirpath.Engine
+	profiles  validate.ProfileCatalog
+	rules     PHIStructureRules
+	catalog   *PHICatalog
+	mode      PHIMode
+	evalMode  EvalMode
+	base      map[string]phiPathBundle
+	byProfile map[string]phiPathBundle
+	merged    map[string]phiPathBundle
 }
 
 func newFHIRPathPHIIndex(engine fhirpath.Engine, profiles validate.ProfileCatalog, rules PHIStructureRules, catalog *PHICatalog, mode PHIMode, evalMode EvalMode) *fhirPathPHIIndex {

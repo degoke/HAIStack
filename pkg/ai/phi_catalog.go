@@ -38,15 +38,15 @@ type PHICatalog struct {
 // DefaultPHICatalog returns the built-in PHI profile for FHIR R4 tool output.
 func DefaultPHICatalog() *PHICatalog {
 	return &PHICatalog{
-		ResourceElements:     defaultPHIResourceElements(),
-		GlobalElements:       []string{"text", "note"},
-		GlobalPathSuffixes:   defaultGlobalPathSuffixes(),
-		ResourcePathSuffixes: defaultResourcePathSuffixes(),
+		ResourceElements:           defaultPHIResourceElements(),
+		GlobalElements:             []string{"text", "note"},
+		GlobalPathSuffixes:         defaultGlobalPathSuffixes(),
+		ResourcePathSuffixes:       defaultResourcePathSuffixes(),
 		StrictConfidentialityCodes: []string{"R", "V", "M"},
 		StrictSecurityLabels: map[string][]string{
-			V3ConfidentialityCodeSystem:                          {"R", "V", "M"},
+			V3ConfidentialityCodeSystem:                             {"R", "V", "M"},
 			"http://terminology.hl7.org/CodeSystem/security-labels": {"ETH", "PSY", "STD", "C", "R", "V", "EMP", "AFF", "PAT", "SDV"},
-			"http://terminology.hl7.org/CodeSystem/v3-ActCode":     {"ETH", "PSY", "STD", "C", "R", "V", "EMP", "AFF", "PAT", "SDV"},
+			"http://terminology.hl7.org/CodeSystem/v3-ActCode":      {"ETH", "PSY", "STD", "C", "R", "V", "EMP", "AFF", "PAT", "SDV"},
 		},
 		StrictAllowPathSuffixes: []string{
 			"resourceType", "id", "meta.versionId", "meta.lastUpdated",
@@ -208,7 +208,7 @@ var defaultPassiveSensitiveKeys = map[string]bool{
 	"valueAttachment": true, "valueDate": true, "valueDateTime": true, "valueTime": true,
 	"valueInstant": true, "valueUri": true, "valueUrl": true, "valuePeriod": true,
 	"valueQuantity": true, "valueIdentifier": true,
-	"text": true, // CodeableConcept.text, Narrative sibling keys handled via paths
+	"text":  true, // CodeableConcept.text, Narrative sibling keys handled via paths
 	"value": true,
 }
 

@@ -21,20 +21,20 @@ type jsonScrubDocumentOpts struct {
 type jsonScrubResolve func(resourceType string, resourceJSON []byte) (segmentIdx, catalogIdx *pathIndex, strict bool, err error)
 
 type jsonScrubber struct {
-	catalog         *PHICatalog
-	placeholderJSON []byte
-	resolve         jsonScrubResolve
-	resourceType    string
-	segmentIdx      *pathIndex
-	catalogIdx      *pathIndex
-	strict          bool
-	docPath         []string
-	resPath         []string
-	contextStack    []jsonScrubContext
-	redactionSet    map[string]struct{}
-	patchKeys       map[string]struct{}
-	patchPaths      [][]string
-	walkErr         error
+	catalog              *PHICatalog
+	placeholderJSON      []byte
+	resolve              jsonScrubResolve
+	resourceType         string
+	segmentIdx           *pathIndex
+	catalogIdx           *pathIndex
+	strict               bool
+	docPath              []string
+	resPath              []string
+	contextStack         []jsonScrubContext
+	redactionSet         map[string]struct{}
+	patchKeys            map[string]struct{}
+	patchPaths           [][]string
+	walkErr              error
 	embedResourceObjects bool
 }
 

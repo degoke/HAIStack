@@ -43,10 +43,10 @@ type Config struct {
 	EvalMode EvalMode
 	// SharedFHIRDeidentifier reuses a process-wide FHIRDeidentifier (default true).
 	SharedFHIRDeidentifier *bool
-	ModelRouter           *ModelRouter
-	Citations             *CitationBuilder
-	Formatter             *ContextFormatter
-	Now                   func() time.Time
+	ModelRouter            *ModelRouter
+	Citations              *CitationBuilder
+	Formatter              *ContextFormatter
+	Now                    func() time.Time
 }
 
 // Executor validates requests, enforces policy, invokes backing packages, builds
@@ -81,11 +81,11 @@ func NewExecutor(cfg Config) (*Executor, error) {
 			useShared = *cfg.SharedFHIRDeidentifier
 		}
 		deidCfg := FHIRDeidentifierConfig{
-			Catalog:    DefaultPHICatalog(),
-			Profiles:   cfg.ProfileCatalog,
-			Mode:       cfg.PHIMode,
-			EvalMode:   cfg.EvalMode,
-			UseShared:  useShared,
+			Catalog:   DefaultPHICatalog(),
+			Profiles:  cfg.ProfileCatalog,
+			Mode:      cfg.PHIMode,
+			EvalMode:  cfg.EvalMode,
+			UseShared: useShared,
 		}
 		deid, deidErr := NewFHIRDeidentifierWithConfig(deidCfg)
 		if deidErr != nil {

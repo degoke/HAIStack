@@ -58,18 +58,18 @@ type SliceDiscriminator struct {
 
 // ElementDefinition is one snapshot or differential element.
 type ElementDefinition struct {
-	Path        string
-	Min         int
-	Max         string
-	Types       []string
-	MustSupport bool
-	IsSummary   bool
+	Path          string
+	Min           int
+	Max           string
+	Types         []string
+	MustSupport   bool
+	IsSummary     bool
 	ExtensionURLs []string
-	Constraints []ElementConstraint
-	Binding     *ElementBinding
-	Slicing     *ElementSlicing
-	SliceName   string
-	Pattern     map[string]interface{}
+	Constraints   []ElementConstraint
+	Binding       *ElementBinding
+	Slicing       *ElementSlicing
+	SliceName     string
+	Pattern       map[string]interface{}
 }
 
 // StructureDefinition is the subset of a FHIR StructureDefinition used for
@@ -169,7 +169,7 @@ type elementDefinitionJSON struct {
 	Max         string `json:"max"`
 	MustSupport *bool  `json:"mustSupport"`
 	IsSummary   *bool  `json:"isSummary"`
-	Type []struct {
+	Type        []struct {
 		Code string `json:"code"`
 	} `json:"type"`
 	Extension []struct {
