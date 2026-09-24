@@ -39,7 +39,6 @@ App: model URL/provider + optional system prompt
 | Policy + de-id + audit | Unchanged on `Executor`; use `HarnessExecutorGuardrails` when wiring production agents |
 | Approval-gated writes | `ChatResult.PendingApprovals`; resume with `ExecuteHarnessTool` + `ApprovalToken` |
 | Citations for grounding | Per-tool `ToolResult.Citations`; aggregated on `ChatResult.Citations` |
-| OAuth / SMART | **Out of scope** (host app) |
 | Long-term chat storage | **Out of scope today** — see [Conversation storage](#conversation-storage) |
 | Free-form FHIR answer validation | **Out of scope** — see [Why not validate arbitrary FHIR JSON?](#why-not-validate-arbitrary-fhir-json) |
 | OAuth / SMART login | **Out of scope** — see [Why OAuth/SMART is outside the harness](#why-oauthsmart-is-outside-the-harness) |
