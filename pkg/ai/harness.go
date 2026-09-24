@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/degoke/haistack/pkg/store"
 	"github.com/google/uuid"
 )
 
@@ -37,6 +38,10 @@ type HarnessConfig struct {
 	AutoConversationID bool
 	// ToolCallProtocol selects native function tools, prompt JSON in text, or both (default native).
 	ToolCallProtocol ToolCallProtocol
+	// ConversationStore persists harness sessions (pkg/store.ConversationStore).
+	ConversationStore store.ConversationStore
+	// DisableConversationPersist skips SaveConversation after Chat when a store is configured.
+	DisableConversationPersist bool
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -149,6 +154,9 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		return nil, ErrInvalidInput
 	}
 	h.ensureConversationID()
+	if err := h.restoreConversationIfStored(ctx); err != nil {
+		return nil, err
+	}
 	h.session.Messages = append(h.session.Messages, ChatMessage{
 		Role:    ChatRoleUser,
 		Content: userMessage,
@@ -179,7 +187,11 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		h.session.Messages = append(h.session.Messages, assistant)
 
 		if len(toolCalls) == 0 {
-			return h.buildChatResult(resp.Content, toolSummaries), nil
+			result := h.buildChatResult(resp.Content, toolSummaries)
+			if err := h.persistConversationIfConfigured(ctx); err != nil {
+				return nil, err
+			}
+			return result, nil
 		}
 
 		for _, tc := range toolCalls {

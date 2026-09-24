@@ -37,6 +37,7 @@ var (
 	_ store.BlobStoreWithStream       = (*postgres.BlobStore)(nil)
 	_ store.BlobStoreWithOpen         = (*postgres.BlobStore)(nil)
 	_ store.AuditStore                = (*postgres.AuditStore)(nil)
+	_ store.ConversationStore       = (*postgres.ConversationStore)(nil)
 	_ store.SubscriptionStore         = (*postgres.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*postgres.SubscriptionDeliveryStore)(nil)
 	_ store.ModuleStore               = (*postgres.ModuleStore)(nil)

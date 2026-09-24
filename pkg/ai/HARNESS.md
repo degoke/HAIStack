@@ -28,7 +28,7 @@ App: model URL/provider + optional system prompt
 
 | Discussed responsibility | API / behavior |
 |--------------------------|----------------|
-| Session: `conversationId`, message history | `Session`, `SetConversationID`, `NewHarnessWithSession`; in-memory only (no long-term store) |
+| Session: `conversationId`, message history | `Session`, `SetConversationID`, `NewHarnessWithSession`; optional `store.ConversationStore` (SQLite/Postgres) |
 | Model seam: URL + provider | `OpenAICompatibleAdapter`, `ChatModel`, optional `ModelAdapterChatModel` bridge for local stubs |
 | Model routing hint | `HarnessConfig.ModelHint` → `ChatRequest.Hint`; `ModelRouter` still used via `Executor.InvokeModel` |
 | Orchestration loop | `Harness.Chat`: user → model → tools → `ExecuteTool` → tool messages → repeat until text |
@@ -45,19 +45,31 @@ App: model URL/provider + optional system prompt
 
 ## Conversation storage
 
-**Today:** `Harness` keeps `Session.Messages` and `Session.ConversationID` **in memory only**
-inside the process. `SetConversationID` / `AutoConversationID` correlate executor audit
-and policy checks; nothing is written to SQLite/Postgres by the harness itself.
+**Store interface:** `pkg/store.ConversationStore` (`Get`, `Put`, `Delete`, `List`) with
+`ConversationRecord` rows (tenant, actor, subject, messages JSON, timestamps).
 
-**Proposed v2 seam (not built yet):** a small `ConversationStore` interface (`Load`/`Save`
-`Session` by `conversationID`). The **host app** implements it against its own database
-(tenant-scoped rows, encryption at rest, retention policy). The harness would **orchestrate
-only**: load session → `Chat` (append messages) → save session. It would not choose schema,
-encryption keys, or how long transcripts live — exactly like auth: the harness receives
-`Actor`/`Subject` from middleware that already ran OAuth; it does not perform login itself.
+**Backends (HAIStack convention):**
 
-Until `ConversationStore` exists, apps can persist `ChatResult.Messages` after each turn
-or keep a live `Harness` in memory for the duration of one HTTP/WebSocket request.
+| Backend | Constructor |
+|---------|-------------|
+| SQLite | `db.ConversationStore(tenantID)` |
+| Postgres | `tdb.ConversationStore()` (tenant-scoped) |
+
+**Harness wiring:**
+
+```go
+h, _ := ai.NewHarness(ai.HarnessConfig{
+    ConversationStore: stack.DB.ConversationStore("tenant-a"),
+    TenantID:          "tenant-a",
+    AutoConversationID: true,
+})
+h.SetConversationID("conv-123") // or rely on auto UUID
+_, _ = h.Chat(ctx, "Hello")      // loads existing row when present, saves after turn
+```
+
+`LoadConversation` / `SaveConversation` are also available for explicit control.
+Retention, encryption, and export policy remain application concerns; the store only
+persists the transcript blob the harness already uses in memory.
 
 ## Tool-calling protocols
 

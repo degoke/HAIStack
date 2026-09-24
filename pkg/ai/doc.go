@@ -44,6 +44,7 @@
 //   - HarnessExecutorGuardrails / BlockDirectWriteTools / AutoConversationID: production agent wiring.
 //   - ModelAdapterChatModel: bridge legacy ModelAdapter stubs to Harness.Chat.
 //   - ToolCallProtocol / ParsePromptToolCalls: native and prompt-JSON tool loops.
+//   - LoadConversation / SaveConversation: optional store.ConversationStore persistence.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
 //   - Deidentifier: required output scrubbing seam whenever policy requests

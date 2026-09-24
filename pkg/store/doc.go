@@ -173,6 +173,11 @@
 //     limit). Distinct from AnalyticsStore: audit entries capture actor, action, and outcome
 //     for compliance review.
 //
+// ConversationStore — agent harness chat transcripts:
+//
+//   - Get(ctx, id), Put(ctx, record), Delete(ctx, id), List(ctx, query).
+//   - ConversationRecord stores tenant-scoped message JSON for pkg/ai Harness sessions.
+//
 // JobStore — durable background job queue:
 //
 //   - Enqueue(ctx, job), ClaimNext(ctx, jobType), Update(ctx, job), Get(ctx, id).

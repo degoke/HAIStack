@@ -175,6 +175,11 @@ func (db *DB) AuditStore() *AuditStore {
 	return newAuditStore(db.sql)
 }
 
+// ConversationStore returns a tenant-scoped agent conversation store.
+func (db *DB) ConversationStore(tenantID string) *ConversationStore {
+	return newConversationStore(db.sql, tenantID)
+}
+
 // SubscriptionStore returns a connection-scoped subscription registry store.
 func (db *DB) SubscriptionStore() *SubscriptionStore {
 	return newSubscriptionStore(db.sql)
