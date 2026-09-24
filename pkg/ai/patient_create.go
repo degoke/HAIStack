@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -235,6 +236,12 @@ func extractFencedBlock(content, lang string) string {
 
 // CommitPatientCreateFromSession is deprecated: use CommitWriteFromSession.
 func (h *Harness) CommitPatientCreateFromSession(ctx context.Context) (*ToolResult, error) {
+	if h == nil {
+		return nil, errors.New("ai: nil harness")
+	}
+	if err := h.ensureSessionLoaded(ctx); err != nil {
+		return nil, err
+	}
 	draft, ok := ExtractPatientCreateDraft(h.session.Messages)
 	if !ok {
 		return nil, fmt.Errorf("%w: no patient_create draft in session", ErrInvalidInput)

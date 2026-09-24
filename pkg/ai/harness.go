@@ -43,29 +43,35 @@ type HarnessConfig struct {
 	SessionService store.SessionService
 	// AppName scopes sessions (ADK app_name); defaults to DefaultHarnessAppName.
 	AppName string
-	// SessionEventLimit limits events loaded from SessionService on restore (0 = all events).
-	SessionEventLimit int
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
 // Executor, and session history (persisted via SessionService when configured).
 // It does not replace policy, audit, or FHIR validation on the executor path.
 type Harness struct {
-	cfg     HarnessConfig
-	session Session
+	cfg               HarnessConfig
+	session           Session
+	persistedEvents   []store.SessionEvent
+	activeInvocationID string
 }
 
-// Session holds conversation identity, scratchpad state, and the working message
-// list for the current Chat turn. With SessionService configured, messages are
-// reloaded from the store at the start of each Chat.
+// Session is the harness view of a stored agent session after load (or ephemeral test mode).
+// ConversationID is set before Chat; Messages and State come from SessionService when configured.
 type Session struct {
 	ConversationID string
 	Messages       []ChatMessage
 	State          map[string]any
 }
 
+// ChatOptions configures one user turn. InvocationID enables idempotent retries when SessionService is set.
+type ChatOptions struct {
+	UserMessage  string
+	InvocationID string
+}
+
 // ChatResult is the outcome of one Harness.Chat user turn.
 type ChatResult struct {
+	InvocationID     string
 	Answer           string
 	Messages         []ChatMessage
 	ToolResults      []HarnessToolResult
@@ -104,8 +110,8 @@ func NewHarness(cfg HarnessConfig) (*Harness, error) {
 	return &Harness{cfg: cfg}, nil
 }
 
-// NewHarnessWithSession binds conversation id and state before Chat. When SessionService
-// is configured, preloaded Messages are ignored; history is loaded from the store.
+// NewHarnessWithSession binds a conversation id before Chat. With SessionService, transcript
+// and state are always loaded from the store (preloaded Messages/State are ignored).
 func NewHarnessWithSession(cfg HarnessConfig, session Session) (*Harness, error) {
 	h, err := NewHarness(cfg)
 	if err != nil {
@@ -115,7 +121,7 @@ func NewHarnessWithSession(cfg HarnessConfig, session Session) (*Harness, error)
 	return h, nil
 }
 
-// Session returns the current in-memory session (including messages appended by Chat).
+// Session returns the loaded session view (from SessionService after load/Chat, or ephemeral test history).
 func (h *Harness) Session() Session {
 	if h == nil {
 		return Session{}
@@ -129,7 +135,9 @@ func (h *Harness) ExecuteHarnessTool(ctx context.Context, req ToolRequest) (*Too
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
-	h.ensureConversationID()
+	if err := h.ensureSessionLoaded(ctx); err != nil {
+		return nil, err
+	}
 	if req.Actor == "" {
 		req.Actor = h.cfg.Actor
 	}
@@ -156,23 +164,41 @@ func (h *Harness) SetConversationID(id string) {
 // Chat handles one user message: model completion, optional tool calls through
 // Executor, and a final natural-language answer when the model stops requesting tools.
 func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, error) {
+	return h.ChatWithOptions(ctx, ChatOptions{UserMessage: userMessage})
+}
+
+// ChatWithOptions runs one user turn with an optional invocation id for idempotent retries.
+func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
-	userMessage = trimSpace(userMessage)
+	userMessage := trimSpace(opts.UserMessage)
 	if userMessage == "" {
 		return nil, ErrInvalidInput
 	}
-	h.ensureConversationID()
-	if err := h.restoreAgentSessionIfStored(ctx); err != nil {
+	invocationID := trimSpace(opts.InvocationID)
+	if invocationID == "" {
+		invocationID = uuid.NewString()
+	}
+	if err := h.ensureSessionLoaded(ctx); err != nil {
 		return nil, err
 	}
-	h.session.Messages = append(h.session.Messages, ChatMessage{
-		Role:    ChatRoleUser,
-		Content: userMessage,
-	})
-	if err := h.appendSessionEvent(ctx, NewUserSessionEvent(userMessage)); err != nil {
-		return nil, err
+	h.activeInvocationID = invocationID
+
+	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
+		return h.buildChatResult(invocationID, answer, nil), nil
+	}
+
+	skipUserAppend := hasUserEventForInvocation(h.persistedEvents, invocationID)
+	if !skipUserAppend {
+		h.session.Messages = append(h.session.Messages, ChatMessage{
+			Role:    ChatRoleUser,
+			Content: userMessage,
+		})
+		if err := h.appendSessionEvent(ctx, NewUserSessionEvent(userMessage)); err != nil {
+			h.activeInvocationID = ""
+			return nil, err
+		}
 	}
 
 	tools := h.chatTools()
@@ -186,10 +212,12 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			Hint:         h.cfg.ModelHint,
 		})
 		if err != nil {
+			h.activeInvocationID = ""
 			return nil, err
 		}
 		toolCalls, promptErr := h.resolveToolCalls(resp, tools)
 		if promptErr != nil {
+			h.activeInvocationID = ""
 			return nil, promptErr
 		}
 		assistant := ChatMessage{
@@ -199,11 +227,13 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		}
 		h.session.Messages = append(h.session.Messages, assistant)
 		if err := h.appendSessionEvent(ctx, NewModelSessionEvent(resp.Content, toolCalls)); err != nil {
+			h.activeInvocationID = ""
 			return nil, err
 		}
 
 		if len(toolCalls) == 0 {
-			return h.buildChatResult(resp.Content, toolSummaries), nil
+			h.activeInvocationID = ""
+			return h.buildChatResult(invocationID, resp.Content, toolSummaries), nil
 		}
 
 		for _, tc := range toolCalls {
@@ -220,6 +250,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 					Content:    errContent,
 				})
 				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, errContent)); err != nil {
+					h.activeInvocationID = ""
 					return nil, err
 				}
 				continue
@@ -234,6 +265,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				toolMsg := ChatMessage{Role: ChatRoleTool, ToolCallID: tc.ID, Content: content}
 				h.session.Messages = append(h.session.Messages, toolMsg)
 				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
+					h.activeInvocationID = ""
 					return nil, err
 				}
 				continue
@@ -257,11 +289,13 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				Content:    content,
 			})
 			if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
+				h.activeInvocationID = ""
 				return nil, err
 			}
 		}
 	}
 
+	h.activeInvocationID = ""
 	return nil, fmt.Errorf("ai: exceeded max tool rounds (%d)", h.cfg.MaxToolRounds)
 }
 
@@ -324,8 +358,9 @@ func (h *Harness) ensureConversationID() {
 	h.session.ConversationID = uuid.NewString()
 }
 
-func (h *Harness) buildChatResult(answer string, toolSummaries []HarnessToolResult) *ChatResult {
+func (h *Harness) buildChatResult(invocationID, answer string, toolSummaries []HarnessToolResult) *ChatResult {
 	return &ChatResult{
+		InvocationID:     invocationID,
 		Answer:           answer,
 		Messages:         append([]ChatMessage(nil), h.session.Messages...),
 		ToolResults:      toolSummaries,

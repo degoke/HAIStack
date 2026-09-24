@@ -25,7 +25,7 @@ func (h *Harness) LoadAgentSession(ctx context.Context, sessionID string) error 
 	if err != nil {
 		return err
 	}
-	h.session = SessionFromAgentSession(rec)
+	h.bindAgentSession(rec, sessionID)
 	return nil
 }
 
@@ -54,21 +54,22 @@ func (h *Harness) userID() string {
 	return strings.TrimSpace(h.cfg.Actor)
 }
 
-func (h *Harness) getSessionConfig() *store.GetSessionConfig {
-	if h.cfg.SessionEventLimit <= 0 {
-		return nil
-	}
-	return &store.GetSessionConfig{NumRecentEvents: h.cfg.SessionEventLimit}
-}
-
 func (h *Harness) getSessionParams(sessionID string) store.GetSessionParams {
 	return store.GetSessionParams{
 		TenantID:  h.cfg.TenantID,
 		AppName:   h.appName(),
 		UserID:    h.userID(),
 		SessionID: sessionID,
-		Config:    h.getSessionConfig(),
 	}
+}
+
+// ensureSessionLoaded binds conversation id and reloads session events and state from SessionService.
+func (h *Harness) ensureSessionLoaded(ctx context.Context) error {
+	if h == nil {
+		return errors.New("ai: nil harness")
+	}
+	h.ensureConversationID()
+	return h.restoreAgentSessionIfStored(ctx)
 }
 
 // restoreAgentSessionIfStored reloads transcript and state from SessionService before each Chat.
@@ -78,7 +79,6 @@ func (h *Harness) restoreAgentSessionIfStored(ctx context.Context) error {
 		return nil
 	}
 	sessionID := h.session.ConversationID
-	initialState := h.session.State
 	rec, err := h.cfg.SessionService.GetSession(ctx, h.getSessionParams(sessionID))
 	if errors.Is(err, store.ErrSessionNotFound) {
 		return h.createAgentSession(ctx, sessionID)
@@ -86,12 +86,18 @@ func (h *Harness) restoreAgentSessionIfStored(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	h.bindAgentSession(rec, sessionID)
+	return nil
+}
+
+func (h *Harness) bindAgentSession(rec *store.AgentSession, sessionID string) {
 	h.session = SessionFromAgentSession(rec)
 	h.session.ConversationID = sessionID
-	if len(initialState) > 0 && len(h.session.State) == 0 {
-		h.session.State = initialState
+	if rec != nil {
+		h.persistedEvents = append([]store.SessionEvent(nil), rec.Events...)
+	} else {
+		h.persistedEvents = nil
 	}
-	return nil
 }
 
 func (h *Harness) createAgentSession(ctx context.Context, sessionID string) error {
@@ -104,21 +110,24 @@ func (h *Harness) createAgentSession(ctx context.Context, sessionID string) erro
 		UserID:       h.userID(),
 		SessionID:    sessionID,
 		Subject:      h.cfg.Subject,
-		InitialState: h.session.State,
+		InitialState: map[string]any{},
 	})
 	if err != nil {
 		return err
 	}
-	h.session = SessionFromAgentSession(rec)
-	h.session.ConversationID = sessionID
+	h.bindAgentSession(rec, sessionID)
 	return nil
 }
 
 func (h *Harness) appendSessionEvent(ctx context.Context, event store.SessionEvent) error {
+	event = tagInvocation(event, h.activeInvocationID)
 	if h.cfg.SessionService == nil || trimSpace(h.session.ConversationID) == "" {
+		if h.activeInvocationID != "" {
+			h.persistedEvents = append(h.persistedEvents, event)
+		}
 		return nil
 	}
-	_, err := h.cfg.SessionService.AppendEvent(ctx, store.AppendEventParams{
+	stored, err := h.cfg.SessionService.AppendEvent(ctx, store.AppendEventParams{
 		TenantID:  h.cfg.TenantID,
 		AppName:   h.appName(),
 		UserID:    h.userID(),
@@ -127,6 +136,11 @@ func (h *Harness) appendSessionEvent(ctx context.Context, event store.SessionEve
 	})
 	if err != nil {
 		return err
+	}
+	if stored != nil {
+		h.persistedEvents = append(h.persistedEvents, *stored)
+	} else {
+		h.persistedEvents = append(h.persistedEvents, event)
 	}
 	h.applySessionStateDelta(event.StateDelta)
 	return nil

@@ -158,6 +158,9 @@ func (h *Harness) CommitWriteFromSession(ctx context.Context) (*ToolResult, erro
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
+	if err := h.ensureSessionLoaded(ctx); err != nil {
+		return nil, err
+	}
 	draft, ok := ExtractResourceWriteDraft(h.session.Messages)
 	if !ok {
 		return nil, fmt.Errorf("%w: no write_resource draft in session", ErrInvalidInput)

@@ -81,9 +81,19 @@ _, _ = h.Chat(ctx, "Hello") // creates session if missing; appends events each t
 
 `LoadAgentSession` / `CreateAgentSession` for explicit control.
 
-With `SessionService` configured, **each `Chat` reloads events from the store** before handling the user message (the store is the source of truth across instances and process restarts). `Harness.Session().State` mirrors persisted session state; use event `StateDelta` for updates.
+With `SessionService` configured, **each `Chat` reloads events from the store** before handling the user message. The database is the only source of truth for transcript and session state (not preloaded `Session` fields). `CommitWriteFromSession` and `ExecuteHarnessTool` also reload from the store when `SessionService` is set.
+
+**Invocation IDs (idempotent turns):** pass a stable id per user turn via `ChatWithOptions`. All events in that turn share `invocationId`. Retrying the same id after a partial failure does not duplicate the user event; resuming continues the tool loop from stored events. A completed turn returns the stored final answer without calling the model again.
+
+```go
+inv := uuid.NewString()
+res, err := h.ChatWithOptions(ctx, ai.ChatOptions{UserMessage: "…", InvocationID: inv})
+// res.InvocationID == inv
+```
 
 Invalid tool arguments produce a **tool** message (persisted and included in the next model request), same as executor failures.
+
+Session compaction / context windowing is **not** implemented yet (future work).
 
 ## Tool-calling protocols
 
