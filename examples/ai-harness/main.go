@@ -61,28 +61,59 @@ func run() error {
 		return err
 	}
 
+	const tenantID = "demo-tenant"
+	sessionSvc := stack.DB.SessionService(tenantID)
+
 	model := &scriptedChatModel{patientID: created.ID}
-	h, err := ai.NewHarness(ai.HarnessConfig{
+	cfg := ai.HarnessConfig{
 		Executor:                  exec,
 		Model:                     model,
 		Actor:                     "demo-agent",
+		TenantID:                  tenantID,
+		AppName:                   "ai-harness-example",
+		SessionService:            sessionSvc,
 		SystemPrompt:              "Use FHIR tools for facts.",
 		ToolContextFormat:         ai.ToolContextMarkdown,
-		AutoConversationID:        true,
 		BlockDirectWriteTools:     true,
 		EnableProposeWriteHelper: true,
-	})
+	}
+	h, err := ai.NewHarness(cfg)
 	if err != nil {
 		return err
 	}
+	h.SetConversationID("demo-session-1")
 
 	res, err := h.Chat(ctx, "Who is our demo patient?")
 	if err != nil {
 		return err
 	}
 
+	// Resume the same ADK-style session in a fresh harness (events reloaded from SQLite).
+	h2, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:                  exec,
+		Model:                     &scriptedChatModel{patientID: created.ID},
+		Actor:                     "demo-agent",
+		TenantID:                  tenantID,
+		AppName:                   "ai-harness-example",
+		SessionService:            sessionSvc,
+		SystemPrompt:              "Use FHIR tools for facts.",
+		ToolContextFormat:         ai.ToolContextMarkdown,
+		BlockDirectWriteTools:     true,
+		EnableProposeWriteHelper: true,
+	})
+	if err != nil {
+		return err
+	}
+	h2.SetConversationID("demo-session-1")
+	res2, err := h2.Chat(ctx, "Summarize what you found earlier.")
+	if err != nil {
+		return err
+	}
+
 	fmt.Println("Harness answer:")
 	fmt.Println(res.Answer)
+	fmt.Println("Follow-up (session resumed):")
+	fmt.Println(res2.Answer)
 	fmt.Println("Citations:")
 	for _, c := range res.Citations {
 		fmt.Println(" -", c.Ref)
@@ -98,8 +129,12 @@ type scriptedChatModel struct {
 
 func (m *scriptedChatModel) Name() string { return "scripted" }
 
-func (m *scriptedChatModel) Chat(_ context.Context, _ ai.ChatRequest) (*ai.ChatResponse, error) {
+func (m *scriptedChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	m.step++
+	// After session restore, prior user/assistant/tool messages are already in context.
+	if len(req.Messages) > 2 && m.step == 1 {
+		return &ai.ChatResponse{Content: "Earlier I loaded the demo patient from FHIR (see prior tool result)."}, nil
+	}
 	if m.step == 1 {
 		return &ai.ChatResponse{
 			ToolCalls: []ai.ChatToolCall{{

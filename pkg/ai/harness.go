@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/degoke/haistack/pkg/store"
 	"github.com/google/uuid"
@@ -42,6 +43,8 @@ type HarnessConfig struct {
 	SessionService store.SessionService
 	// AppName scopes sessions (ADK app_name); defaults to DefaultHarnessAppName.
 	AppName string
+	// SessionEventLimit limits events loaded from SessionService on restore (0 = all events).
+	SessionEventLimit int
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -92,6 +95,9 @@ func NewHarness(cfg HarnessConfig) (*Harness, error) {
 	}
 	if cfg.MaxToolRounds <= 0 {
 		cfg.MaxToolRounds = DefaultMaxToolRounds
+	}
+	if cfg.SessionService != nil && strings.TrimSpace(cfg.TenantID) == "" {
+		return nil, errors.New("ai: harness SessionService requires TenantID")
 	}
 	return &Harness{cfg: cfg}, nil
 }
@@ -189,7 +195,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			ToolCalls: toolCalls,
 		}
 		h.session.Messages = append(h.session.Messages, assistant)
-		if err := h.appendSessionEvent(ctx, NewModelSessionEvent(resp.Content, resp.ToolCalls)); err != nil {
+		if err := h.appendSessionEvent(ctx, NewModelSessionEvent(resp.Content, toolCalls)); err != nil {
 			return nil, err
 		}
 
@@ -203,11 +209,15 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			if parseErr != nil {
 				summary.Err = fmt.Errorf("ai: tool %q arguments: %w", tc.Name, parseErr)
 				toolSummaries = append(toolSummaries, summary)
+				errContent := toolErrorContent(summary.Err)
 				h.session.Messages = append(h.session.Messages, ChatMessage{
 					Role:       ChatRoleTool,
 					ToolCallID: tc.ID,
-					Content:    toolErrorContent(summary.Err),
+					Content:    errContent,
 				})
+				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, errContent)); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if tc.Name == ToolProposeWriteResource || tc.Name == ToolProposePatientCreate {

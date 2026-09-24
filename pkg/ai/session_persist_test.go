@@ -3,6 +3,7 @@ package ai_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,6 +65,17 @@ func (m *memSessionService) AppendEvent(_ context.Context, params store.AppendEv
 	defer m.mu.Unlock()
 	key := sessionKey(params.TenantID, params.AppName, params.UserID, params.SessionID)
 	m.events[key] = append(m.events[key], params.Event)
+	if rec, ok := m.sessions[key]; ok && len(params.Event.StateDelta) > 0 {
+		if rec.State == nil {
+			rec.State = map[string]any{}
+		}
+		for k, v := range params.Event.StateDelta {
+			if strings.HasPrefix(k, "app:") || strings.HasPrefix(k, "user:") {
+				continue
+			}
+			rec.State[k] = v
+		}
+	}
 	return &params.Event, nil
 }
 
@@ -133,5 +145,99 @@ func TestHarness_SessionServiceCreateOnMissing(t *testing.T) {
 	})
 	if errors.Is(err, store.ErrSessionNotFound) {
 		t.Fatal("expected session to be created")
+	}
+}
+
+func TestHarness_SessionServiceRequiresTenantID(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{})
+	_, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:       h.exec,
+		Model:          &recordingChatModel{},
+		SessionService: &memSessionService{sessions: map[string]*store.AgentSession{}, events: map[string][]store.SessionEvent{}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "TenantID") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHarness_SessionServicePromptJSONPersistsToolCalls(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients:     true,
+		allowPatientRead: true,
+	})
+	svc := &memSessionService{sessions: map[string]*store.AgentSession{}, events: map[string][]store.SessionEvent{}}
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{Content: `{"tool":"read_fhir_resource","input":{"resourceType":"Patient","id":"pat-jane"}}`},
+		{Content: "done"},
+	}}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:         h.exec,
+		Model:            model,
+		Actor:            "user-1",
+		TenantID:         "tenant-a",
+		SessionService:   svc,
+		ToolCallProtocol: ai.ToolCallProtocolPromptJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.SetConversationID("conv-prompt")
+	_, err = harness.Chat(context.Background(), "load")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := svc.GetSession(context.Background(), store.GetSessionParams{
+		TenantID: "tenant-a", AppName: ai.DefaultHarnessAppName, UserID: "user-1", SessionID: "conv-prompt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundModelWithTools bool
+	for _, ev := range rec.Events {
+		if ev.Author == store.SessionAuthorModel && len(ev.ToolCalls) > 0 {
+			foundModelWithTools = true
+			if ev.ToolCalls[0].Name != ai.ToolReadFhirResource {
+				t.Fatalf("tool = %q", ev.ToolCalls[0].Name)
+			}
+		}
+	}
+	if !foundModelWithTools {
+		t.Fatal("expected model event with persisted tool calls")
+	}
+
+	harness2, _ := ai.NewHarness(ai.HarnessConfig{
+		Executor: h.exec, Model: &recordingChatModel{responses: []*ai.ChatResponse{{Content: "hi again"}}},
+		Actor: "user-1", TenantID: "tenant-a", SessionService: svc, ToolCallProtocol: ai.ToolCallProtocolPromptJSON,
+	})
+	harness2.SetConversationID("conv-prompt")
+	_, err = harness2.Chat(context.Background(), "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(harness2.Session().Messages) < 4 {
+		t.Fatalf("restored messages = %d", len(harness2.Session().Messages))
+	}
+}
+
+func TestHarness_NewHarnessWithSessionPreservesMessagesOnCreate(t *testing.T) {
+	svc := &memSessionService{sessions: map[string]*store.AgentSession{}, events: map[string][]store.SessionEvent{}}
+	h := newTestHarness(t, harnessOptions{})
+	preload := ai.Session{
+		ConversationID: "preloaded",
+		Messages:       []ai.ChatMessage{{Role: ai.ChatRoleUser, Content: "seed"}},
+	}
+	harness, err := ai.NewHarnessWithSession(ai.HarnessConfig{
+		Executor: h.exec, Model: &recordingChatModel{responses: []*ai.ChatResponse{{Content: "ok"}}},
+		Actor: "u", TenantID: "t", SessionService: svc,
+	}, preload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if harness.Session().Messages[0].Content != "seed" {
+		t.Fatalf("messages = %+v", harness.Session().Messages)
 	}
 }
