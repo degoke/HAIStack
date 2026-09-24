@@ -70,6 +70,14 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	return &Executor{cfg: cfg}, nil
 }
 
+// ToolDescriptors returns model-facing metadata for tools on this executor.
+func (e *Executor) ToolDescriptors() []ToolDescriptor {
+	if e == nil || e.cfg.Registry == nil {
+		return GenericToolDescriptors()
+	}
+	return e.cfg.Registry.AllToolDescriptors()
+}
+
 // InvokeModel routes an optional model invocation using the configured ModelRouter.
 // Tool execution does not require a model adapter; this helper is for callers that
 // want to combine tool output with model generation in the same session.

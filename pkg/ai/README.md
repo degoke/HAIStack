@@ -19,10 +19,22 @@ pre-registered in `Registry`.
 In short: **given policy rules and typed tool input, produce safe structured
 context with citations and audit records.**
 
+## Agent harness (Phase A)
+
+For upstream apps that only configure **model URL + system prompt**, use
+`Harness.Chat` on top of the same `Executor`. See [HARNESS.md](./HARNESS.md)
+for architecture, phased rollout, and an OpenAI-compatible adapter
+(`OpenAICompatibleAdapter`).
+
+```go
+h, _ := ai.NewHarness(ai.HarnessConfig{Executor: exec, Model: chatModel, Actor: "agent-1"})
+res, _ := h.Chat(ctx, "Find patient Jane")
+```
+
 ## What it does not do
 
 - Expose raw FHIR REST or arbitrary SQL to models
-- Own OAuth, conversation storage, or prompt templates (host app responsibility)
+- Own OAuth or long-term conversation storage (in-memory session only in v1 harness)
 - Replace `pkg/auth` — use `AIPolicyAdapter` or `AllowListPolicy` for decisions
 - Guarantee model output safety beyond tool boundaries and policy
 
