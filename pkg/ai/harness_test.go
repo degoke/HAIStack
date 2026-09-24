@@ -55,6 +55,12 @@ func TestHarness_Chat_PolicyApprovalEndsTurn(t *testing.T) {
 	if model.calls != 1 {
 		t.Fatalf("model calls = %d, want 1 (turn should end after approval-required)", model.calls)
 	}
+	if res.Answer != ai.PolicyApprovalPauseAnswer {
+		t.Fatalf("answer = %q, want policy pause message", res.Answer)
+	}
+	if res.PendingApprovals[0].Input == nil {
+		t.Fatal("expected bundle retry input on pending approval")
+	}
 }
 
 type createOnceChatModel struct {

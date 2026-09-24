@@ -118,13 +118,29 @@ go run ./examples/smart-oauth
 Agent harness on top of governed AI tools:
 
 - `pkg/ai` `Harness.Chat` with scripted `ChatModel` (no external LLM)
-- markdown tool context, auto conversation id, blocked direct writes
+- sessions, `propose_write_plan`, host `CommitWritePlan`, blocked direct writes
 
 ```bash
 go run ./examples/ai-harness
 ```
 
-See also `pkg/ai/HARNESS.md` for the full harness design checklist.
+### `ai-harness-chat-approval`
+
+Policy-gated **Chat** write: turn ends with `PendingApprovals`; host approves token and resumes via `ExecuteHarnessTool` (direct write tools enabled).
+
+```bash
+go run ./examples/ai-harness-chat-approval
+```
+
+### `ai-harness-host-approval`
+
+Policy-gated **host** commit: `CommitWritePlan` returns `approval-required`; host retries with `CommitWriteOptions.ApprovalToken`.
+
+```bash
+go run ./examples/ai-harness-host-approval
+```
+
+Shared wiring lives in `examples/internal/aiharnessdemo`. See `pkg/ai/HARNESS.md` for the full harness design checklist.
 
 ### `ai-authz`
 

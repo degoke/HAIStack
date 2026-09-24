@@ -184,7 +184,7 @@ During **`Chat`**, when `RequireCommitConfirmation` is set, the harness runs `Co
 
 **Retry shapes:** `ChatResult.PendingApprovals` sets `Input` to the normalized **`execute_fhir_bundle`** payload (not shown in tool messages to the model). Retry with `ExecuteHarnessTool` using `pending.ToolName`, `pending.Input`, and `pending.Token`. For **`CommitWritePlan`** called directly by the host, keep the same `ResourceWritePlan` and pass `CommitWriteOptions.ApprovalToken` — `PendingApprovals.Input` is only populated for Chat-normalized writes.
 
-When a write tool returns **policy `approval-required`**, `Chat` ends the turn immediately (no further model rounds). The host approves the token and resumes with `ExecuteHarnessTool` or `CommitWritePlanWithOptions`; do not expect the model to complete the write in the same turn.
+When a write tool returns **policy `approval-required`**, `Chat` ends the turn immediately (no further model rounds). `ChatResult.Answer` is `PolicyApprovalPauseAnswer` and the assistant message is persisted on the session. The host approves the token and resumes with `ExecuteHarnessTool` or `CommitWritePlanWithOptions`; do not expect the model to complete the write in the same turn.
 
 **Plans and batch reads:** `ResourceWritePlan` supports `read` entries (batch `GET`) alongside creates/updates. `CommitWritePlanConfirm` sees the full plan including reads; commits use `bundleType=batch` when reads are present. **Commit** (`ToTransactionInput` / `CommitWritePlan`) requires at least one create or update; read-only plans are for confirmation or bundle preview only.
 

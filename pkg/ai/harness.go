@@ -14,6 +14,9 @@ import (
 // DefaultMaxToolRounds bounds the model ↔ tool loop in Harness.Chat.
 const DefaultMaxToolRounds = 8
 
+// PolicyApprovalPauseAnswer is the assistant text when Chat ends on policy approval-required.
+const PolicyApprovalPauseAnswer = "This write is pending host policy approval. Resume with PendingApprovals and ExecuteHarnessTool (or CommitWritePlanWithOptions) using ApprovalToken."
+
 // HarnessConfig wires an upstream app to Executor-backed tools through a ChatModel.
 type HarnessConfig struct {
 	Executor     *Executor
@@ -355,11 +358,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					continue
 				}
 				res, retryInput, execErr = h.executeHarnessWriteTool(ctx, toolReq)
-				if res != nil && res.ApprovalRequired && retryInput != nil {
-					summary.Input = retryInput
-				} else {
-					summary.Input = input
-				}
+				summary.Input = pendingWriteToolInput(tc.Name, input, retryInput)
 			} else if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
 				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {
 					summary.Err = preflightErr
@@ -397,7 +396,15 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 			if res != nil && res.ApprovalRequired && execErr == nil {
 				h.activeInvocationID = ""
 				_ = h.maybeCompactSession(ctx, tools)
-				return h.finalizeChatResult(invocationID, userMessage, "", toolSummaries, toolInputs)
+				pause := PolicyApprovalPauseAnswer
+				h.session.Messages = append(h.session.Messages, ChatMessage{
+					Role:    ChatRoleAssistant,
+					Content: pause,
+				})
+				if err := h.appendSessionEvent(ctx, NewModelSessionEvent(pause, nil)); err != nil {
+					return nil, err
+				}
+				return h.finalizeChatResult(invocationID, userMessage, pause, toolSummaries, toolInputs)
 			}
 		}
 		_ = h.maybeCompactSession(ctx, tools)
@@ -622,6 +629,36 @@ func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err 
 		return fmt.Sprintf("{\"error\":\"%s\"}", marshalErr.Error())
 	}
 	return string(out)
+}
+
+func pendingWriteToolInput(toolName string, raw map[string]any, bundleRetry map[string]any) map[string]any {
+	if bundleRetry != nil {
+		return bundleRetry
+	}
+	plan, err := writeToolPlan(toolName, raw)
+	if err != nil {
+		return raw
+	}
+	tx, err := plan.ToTransactionInput()
+	if err == nil {
+		return tx
+	}
+	return raw
+}
+
+func writeToolPlan(toolName string, input map[string]any) (ResourceWritePlan, error) {
+	switch toolName {
+	case ToolCreateFhirResource, ToolUpdateFhirResource:
+		draft, err := draftFromWriteToolInput(toolName, input)
+		if err != nil {
+			return ResourceWritePlan{}, err
+		}
+		return ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}, nil
+	case ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
+		return ResourceWritePlanFromTransactionInput(input)
+	default:
+		return ResourceWritePlan{}, fmt.Errorf("%w: %s", ErrInvalidInput, toolName)
+	}
 }
 
 func toolResultDataForModel(data any) any {

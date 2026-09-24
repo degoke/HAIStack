@@ -1,17 +1,14 @@
-// Command ai-harness demonstrates Harness.Chat with a scripted ChatModel (no HTTP LLM).
+// Command ai-harness demonstrates Harness.Chat, propose_write_plan, and host CommitWritePlan.
 package main
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/degoke/haistack/examples/internal/appkit"
+	"github.com/degoke/haistack/examples/internal/aiharnessdemo"
 	"github.com/degoke/haistack/pkg/ai"
-	"github.com/degoke/haistack/pkg/store"
-	"github.com/degoke/haistack/pkg/validate"
 )
 
 func main() {
@@ -23,38 +20,23 @@ func main() {
 
 func run() error {
 	ctx := context.Background()
-	tempDir, err := os.MkdirTemp("", "haistack-ai-harness-*")
+	stack, patientID, cleanup, err := aiharnessdemo.DemoPatient(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
+	defer cleanup()
 
-	stack, err := appkit.NewSQLiteStack(ctx, filepath.Join(tempDir, "ai.db"), "Patient")
+	exec, err := aiharnessdemo.NewExecutor(stack, nil, false)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = stack.Close() }()
+	sessionSvc := stack.DB.SessionService(aiharnessdemo.DemoTenantID)
 
-	patient, err := appkit.EnvelopeFromJSON("Patient", appkit.PatientJSON("Ava", "Chen", "+1-555-0142"))
-	if err != nil {
-		return err
-	}
-	created, err := stack.ResourceService.Create(ctx, patient)
-	if err != nil {
-		return err
-	}
-
-	approvalStore := ai.NewMemoryApprovalStore()
-	exec, err := newExampleExecutor(stack, approvalStore)
-	if err != nil {
-		return err
-	}
-
-	const tenantID = "demo-tenant"
-	sessionSvc := stack.DB.SessionService(tenantID)
-
-	model := &scriptedChatModel{patientID: created.ID}
-	h, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, model, true))
+	model := &scriptedChatModel{patientID: patientID}
+	h, err := ai.NewHarness(aiharnessdemo.HarnessConfig(exec, sessionSvc, model, true, func(plan ai.ResourceWritePlan) error {
+		fmt.Printf("Host confirmed write plan (%d entries, bundleType=%s)\n", len(plan.Entries), planBundleTypeLabel(plan))
+		return nil
+	}))
 	if err != nil {
 		return err
 	}
@@ -71,46 +53,19 @@ func run() error {
 	}
 	fmt.Println("Model proposed write plan (tool message in session).")
 
-	genderPlan := ai.ResourceWritePlan{
+	_, err = h.CommitWritePlan(ctx, ai.ResourceWritePlan{
 		Entries: []ai.ResourceWriteDraft{{
 			Operation:    ai.WriteOperationUpdate,
 			ResourceType: "Patient",
-			ID:           created.ID,
+			ID:           patientID,
 			Patches:      map[string]any{"gender": "female"},
 		}},
-	}
-	_, err = h.CommitWritePlan(ctx, genderPlan)
+	})
 	if err != nil {
 		return err
 	}
 
-	// Policy approval on host CommitWritePlan (same plan + ApprovalToken retry).
-	createPlan := ai.ResourceWritePlan{
-		Entries: []ai.ResourceWriteDraft{{
-			Operation:    ai.WriteOperationCreate,
-			ResourceType: "Patient",
-			Fields:       map[string]any{"gender": "unknown"},
-		}},
-	}
-	pending, err := h.CommitWritePlan(ctx, createPlan)
-	if err != nil {
-		return err
-	}
-	if pending != nil && pending.ApprovalRequired {
-		fmt.Printf("Host policy approval: tool=%s token=%s…\n", pending.ToolName, truncate(pending.ApprovalToken, 8))
-		if err := approvalStore.Approve(pending.ApprovalToken); err != nil {
-			return err
-		}
-		_, err = h.CommitWritePlanWithOptions(ctx, createPlan, ai.CommitWriteOptions{
-			ApprovalToken: pending.ApprovalToken,
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Println("Host resumed write after policy approval.")
-	}
-
-	h2, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, &scriptedChatModel{patientID: created.ID}, true))
+	h2, err := ai.NewHarness(aiharnessdemo.HarnessConfig(exec, sessionSvc, &scriptedChatModel{patientID: patientID}, true, nil))
 	if err != nil {
 		return err
 	}
@@ -131,79 +86,7 @@ func run() error {
 	for _, c := range res.Citations {
 		fmt.Println(" -", c.Ref)
 	}
-	if len(res.GroundingWarnings) > 0 {
-		fmt.Println("Grounding warnings:")
-		for _, w := range res.GroundingWarnings {
-			fmt.Println(" -", w)
-		}
-	}
 	return nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
-
-func newExampleExecutor(stack *appkit.SQLiteStack, approvalStore ai.ApprovalStore) (*ai.Executor, error) {
-	policy := ai.NewAllowListPolicy()
-	policy.Read["Patient"] = ai.ReadTypePolicy{AllowedFields: []string{"name", "gender"}}
-	policy.Search["Patient"] = ai.SearchTypePolicy{
-		AllowedParams: []string{"name"},
-		AllowedFields: []string{"name"},
-		MaxCount:      10,
-	}
-	policy.Write["Patient"] = ai.WriteTypePolicy{
-		CreateFields:   []string{"name", "gender"},
-		UpdateFields:   []string{"gender", "name"},
-		CreateApproval: approvalStore != nil,
-	}
-
-	validator, err := validate.NewEngine(validate.Config{})
-	if err != nil {
-		return nil, err
-	}
-	atomic := true
-	return ai.NewExecutor(ai.Config{
-		Resources:                stack.DB.ResourceStore(),
-		Search:                   stack.SearchService,
-		Core:                     stack.ResourceService,
-		Policy:                   policy,
-		Validator:                validator,
-		RequireValidatorOnWrites: true,
-		Audit:                    &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
-		AuditRequired:            true,
-		ApprovalStore:            approvalStore,
-		AIAttribution: ai.AIAttributionConfig{
-			Enabled:          true,
-			AgentDisplay:     "ai-harness-example",
-			AtomicProvenance: &atomic,
-		},
-	})
-}
-
-func exampleHarnessConfig(exec *ai.Executor, sessionSvc store.SessionService, tenantID string, model ai.ChatModel, blockDirectWrites bool) ai.HarnessConfig {
-	return ai.HarnessConfig{
-		Executor:                     exec,
-		Model:                        model,
-		Actor:                        "demo-agent",
-		TenantID:                     tenantID,
-		AppName:                      "ai-harness-example",
-		SessionService:               sessionSvc,
-		SystemPrompt:                 "Use FHIR tools for facts. Propose writes with propose_write_resource or propose_write_plan; the host commits.",
-		ToolContextFormat:            ai.ToolContextMarkdown,
-		BlockDirectWriteTools:        blockDirectWrites,
-		EnableProposeWriteHelper:     true,
-		EnableProposeWritePlanHelper: true,
-		Grounding:                    ai.GroundingConfig{Mode: ai.GroundingStandard},
-		RequireCommitConfirmation:    true,
-		CommitWritePlanConfirm: func(_ context.Context, plan ai.ResourceWritePlan) error {
-			fmt.Printf("Host confirmed write plan (%d entries, bundleType=%s)\n", len(plan.Entries), planBundleTypeLabel(plan))
-			return nil
-		},
-	}
 }
 
 func planBundleTypeLabel(plan ai.ResourceWritePlan) string {
@@ -218,7 +101,6 @@ func planBundleTypeLabel(plan ai.ResourceWritePlan) string {
 	return "transaction"
 }
 
-// scriptedChatModel fakes a tool-calling LLM for the example (read → final answer).
 type scriptedChatModel struct {
 	patientID    string
 	step         int

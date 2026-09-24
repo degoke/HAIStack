@@ -28,7 +28,7 @@ For upstream apps that only configure **model URL + system prompt**, use
 for the full discussion→implementation checklist, production guardrails
 (`HarnessExecutorGuardrails`), phased rollout, and `OpenAICompatibleAdapter`.
 
-Runnable demo: `go run ./examples/ai-harness`.
+Runnable demos: `go run ./examples/ai-harness`, `./examples/ai-harness-chat-approval`, `./examples/ai-harness-host-approval`.
 
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{
