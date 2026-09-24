@@ -27,8 +27,13 @@ for architecture, phased rollout, and an OpenAI-compatible adapter
 (`OpenAICompatibleAdapter`).
 
 ```go
-h, _ := ai.NewHarness(ai.HarnessConfig{Executor: exec, Model: chatModel, Actor: "agent-1"})
+h, _ := ai.NewHarness(ai.HarnessConfig{
+    Executor: exec, Model: chatModel, Actor: "agent-1",
+    ToolContextFormat: ai.ToolContextMarkdown,
+    EnablePatientCreateHelper: true,
+})
 res, _ := h.Chat(ctx, "Find patient Jane")
+// Multi-turn: call h.Chat again on the same instance to retain session history.
 ```
 
 ## What it does not do

@@ -20,6 +20,10 @@ type HarnessConfig struct {
 	Subject      string
 	// MaxToolRounds limits model completion rounds that include tool calls (default 8).
 	MaxToolRounds int
+	// ToolContextFormat selects JSON (default) or markdown summaries for tool messages.
+	ToolContextFormat ToolContextFormat
+	// EnablePatientCreateHelper exposes propose_patient_create in the harness tool list (Phase C).
+	EnablePatientCreateHelper bool
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -105,7 +109,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		Content: userMessage,
 	})
 
-	tools := ChatToolsFromDescriptors(h.cfg.Executor.ToolDescriptors())
+	tools := h.chatTools()
 	toolSummaries := make([]HarnessToolResult, 0)
 
 	for round := 0; round < h.cfg.MaxToolRounds; round++ {
@@ -145,6 +149,20 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				})
 				continue
 			}
+			if tc.Name == ToolProposePatientCreate {
+				content, proposeRes, proposeErr := h.handleProposePatientCreate(input)
+				summary.Err = proposeErr
+				if proposeRes != nil {
+					summary.Result = proposeRes
+				}
+				toolSummaries = append(toolSummaries, summary)
+				h.session.Messages = append(h.session.Messages, ChatMessage{
+					Role:       ChatRoleTool,
+					ToolCallID: tc.ID,
+					Content:    content,
+				})
+				continue
+			}
 			res, execErr := h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
 				ToolName:       tc.Name,
 				Actor:          h.cfg.Actor,
@@ -157,7 +175,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			summary.Err = execErr
 			toolSummaries = append(toolSummaries, summary)
 
-			content := toolResultContent(res, execErr)
+			content := h.formatToolResultContent(tc.Name, res, execErr)
 			h.session.Messages = append(h.session.Messages, ChatMessage{
 				Role:       ChatRoleTool,
 				ToolCallID: tc.ID,
@@ -169,12 +187,51 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 	return nil, fmt.Errorf("ai: exceeded max tool rounds (%d)", h.cfg.MaxToolRounds)
 }
 
-func toolResultContent(res *ToolResult, err error) string {
+func (h *Harness) chatTools() []ChatTool {
+	descriptors := h.cfg.Executor.ToolDescriptors()
+	if h.cfg.EnablePatientCreateHelper {
+		descriptors = append(descriptors, ProposePatientCreateToolDescriptor())
+	}
+	return ChatToolsFromDescriptors(descriptors)
+}
+
+func (h *Harness) handleProposePatientCreate(input map[string]any) (string, *ToolResult, error) {
+	draft, err := PatientCreateDraftFromMap(input)
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	writeInput, err := draft.ToWriteFhirResourceInput()
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	payload := map[string]any{
+		"status":                 "proposal",
+		"write_fhir_resource":    writeInput,
+		"commitHint":             "Call Harness.CommitPatientCreate with the same draft to execute policy + validation.",
+	}
+	out, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	return string(out), &ToolResult{
+		ToolName: ToolProposePatientCreate,
+		Data:     payload,
+		Context:  string(out),
+	}, nil
+}
+
+func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err error) string {
 	if err != nil {
 		return toolErrorContent(err)
 	}
 	if res == nil {
 		return "{}"
+	}
+	if h.cfg.ToolContextFormat == ToolContextMarkdown {
+		md, mdErr := NewMarkdownContextBuilder().FormatToolResult(toolName, res.Data, res.Citations)
+		if mdErr == nil && md != "" {
+			return md
+		}
 	}
 	if res.Context != "" {
 		return res.Context

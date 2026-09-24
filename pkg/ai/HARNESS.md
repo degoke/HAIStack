@@ -30,7 +30,7 @@ App: model endpoint + optional system prompt
 | **Session** | `conversationId` + in-memory `[]ChatMessage`; persistence is optional later |
 | **Model seam** | `ChatModel` + `OpenAICompatibleAdapter(baseURL, apiKey, model)`; also implements `ModelAdapter` for `InvokeModel` |
 | **Orchestration** | `Harness.Chat`: user message → model → tool calls → `ExecuteTool` → feed tool results → repeat until text answer |
-| **FHIR ergonomics** | Tool results use executor `Context` JSON; markdown narration is Phase B |
+| **FHIR ergonomics** | `ToolContextFormat`: JSON (default) or markdown tables/lists for read/search/view |
 | **Safety defaults** | All reads/writes go through executor policy, de-identification, and audit — unchanged |
 
 ## Intentionally outside the harness

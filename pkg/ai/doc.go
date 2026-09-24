@@ -38,6 +38,8 @@
 //     selection; tool execution remains useful without any model configured.
 //   - Harness / ChatModel / OpenAICompatibleAdapter: optional agent layer that
 //     runs a tool-calling conversation loop on top of ExecuteTool (see HARNESS.md).
+//   - MarkdownContextBuilder / ToolContextMarkdown: markdown summaries for tool rows.
+//   - PatientCreateDraft / CommitPatientCreate: structured Patient create proposals.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
 //   - Deidentifier: required output scrubbing seam whenever policy requests

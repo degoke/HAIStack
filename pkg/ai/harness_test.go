@@ -177,3 +177,115 @@ func TestOpenAICompatibleAdapter_RequestShape(t *testing.T) {
 		t.Fatalf("system message missing: %v", first)
 	}
 }
+
+func TestHarness_MultiTurnSessionRetainsHistory(t *testing.T) {
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{Content: "first answer"},
+		{Content: "second answer"},
+	}}
+	h := newTestHarness(t, harnessOptions{})
+	harness, err := ai.NewHarness(ai.HarnessConfig{Executor: h.exec, Model: model, Actor: "agent-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("model calls = %d", len(model.requests))
+	}
+	if len(model.requests[1].Messages) < 3 {
+		t.Fatalf("second request missing prior turns: %d messages", len(model.requests[1].Messages))
+	}
+}
+
+func TestHarness_MarkdownToolContext(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients:     true,
+		allowPatientRead: true,
+	})
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{ToolCalls: []ai.ChatToolCall{{
+			ID: "c1", Name: ai.ToolReadFhirResource,
+			Arguments: `{"resourceType":"Patient","id":"pat-jane"}`,
+		}}},
+		{Content: "done"},
+	}}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:          h.exec,
+		Model:             model,
+		Actor:             "agent-1",
+		ToolContextFormat: ai.ToolContextMarkdown,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "read jane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var toolMsg string
+	for _, m := range harness.Session().Messages {
+		if m.Role == ai.ChatRoleTool {
+			toolMsg = m.Content
+		}
+	}
+	if !strings.Contains(toolMsg, "### Patient/pat-jane") {
+		t.Fatalf("expected markdown read context, got: %s", toolMsg)
+	}
+}
+
+func TestHarness_ProposePatientCreateDoesNotWrite(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true})
+	before := len(h.resources.all())
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{ToolCalls: []ai.ChatToolCall{{
+			ID: "c1", Name: ai.ToolProposePatientCreate,
+			Arguments: `{"family":"Proposed","given":["Pat"]}`,
+		}}},
+		{Content: "proposed"},
+	}}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:                  h.exec,
+		Model:                     model,
+		Actor:                     "agent-1",
+		EnablePatientCreateHelper: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "register new patient")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.resources.all()) != before {
+		t.Fatal("propose tool should not commit write")
+	}
+	draft, ok := ai.ExtractPatientCreateDraft([]ai.ChatMessage{})
+	if ok {
+		t.Fatal("no fenced block expected")
+	}
+	_ = draft
+}
+
+type recordingChatModel struct {
+	requests  []ai.ChatRequest
+	responses []*ai.ChatResponse
+}
+
+func (m *recordingChatModel) Name() string { return "recording" }
+
+func (m *recordingChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
+	m.requests = append(m.requests, req)
+	if len(m.responses) == 0 {
+		return &ai.ChatResponse{Content: "ok"}, nil
+	}
+	resp := m.responses[0]
+	m.responses = m.responses[1:]
+	return resp, nil
+}
