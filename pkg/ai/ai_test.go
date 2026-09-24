@@ -968,21 +968,31 @@ func TestExecutorRequiresConversationIDWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestDeidentificationRequiresExplicitImplementation(t *testing.T) {
+func TestDeidentificationUsesDefaultFHIRDeidentifier(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{seedPatients: true, allowPatientRead: true})
 	h.policy.Read["Patient"] = ai.ReadTypePolicy{Deidentify: true}
-	h.exec, _ = ai.NewExecutor(ai.Config{
+	exec, err := ai.NewExecutor(ai.Config{
 		Resources: h.resources,
 		Policy:    h.policy,
 		Audit:     h.audit,
 		Now:       h.clock.Now,
 	})
-	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+	res, err := exec.ExecuteTool(context.Background(), ai.ToolRequest{
 		ToolName: ai.ToolReadFhirResource,
 		Input:    map[string]any{"resourceType": "Patient", "id": "pat-jane"},
 	})
-	if !errors.Is(err, ai.ErrMissingDeidentifier) {
-		t.Fatalf("err = %v, want ErrMissingDeidentifier", err)
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	data := dataMap(t, res.Data)
+	if data["name"] != ai.DefaultRedactedValue {
+		t.Fatalf("name = %v, want default FHIR de-identification", data["name"])
+	}
+	if len(res.Redactions) == 0 {
+		t.Fatal("expected redactions from default deidentifier")
 	}
 }
 

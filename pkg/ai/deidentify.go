@@ -2,6 +2,9 @@ package ai
 
 import "context"
 
+// DefaultRedactedValue is the placeholder written when a PHI field is removed.
+const DefaultRedactedValue = "[redacted]"
+
 // DeidentifyRequest carries output data to scrub before returning to a model.
 type DeidentifyRequest struct {
 	ToolName     string
@@ -11,8 +14,10 @@ type DeidentifyRequest struct {
 	Data         any
 }
 
-// Deidentifier is the optional output scrubbing seam. The default implementation
-// is a pass-through.
+// Deidentifier is the optional output scrubbing seam. FHIRDeidentifier handles
+// read_fhir_resource, search_fhir_resources, and run_view only; other tool
+// names return ErrUnsupportedDeidentifyTool unless you use PassThroughDeidentifier
+// or a custom DeidentifierFunc. Executor wires FHIRDeidentifier by default.
 type Deidentifier interface {
 	Deidentify(ctx context.Context, req DeidentifyRequest) (any, []string, error)
 }

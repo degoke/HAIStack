@@ -35,10 +35,18 @@ type Config struct {
 	Approval              ApprovalHook
 	ApprovalStore         ApprovalStore
 	Deidentify            Deidentifier
-	ModelRouter           *ModelRouter
-	Citations             *CitationBuilder
-	Formatter             *ContextFormatter
-	Now                   func() time.Time
+	// ProfileCatalog enables StructureDefinition-driven FHIRPath PHI rules on the
+	// default FHIRDeidentifier when Deidentify is nil.
+	ProfileCatalog validate.ProfileCatalog
+	// PHIMode / EvalMode tune default FHIRDeidentifier performance vs coverage.
+	PHIMode  PHIMode
+	EvalMode EvalMode
+	// SharedFHIRDeidentifier reuses a process-wide FHIRDeidentifier (default true).
+	SharedFHIRDeidentifier *bool
+	ModelRouter            *ModelRouter
+	Citations              *CitationBuilder
+	Formatter              *ContextFormatter
+	Now                    func() time.Time
 	// AIAttribution stamps AIAST meta.security and optional Provenance on AI-mediated writes.
 	AIAttribution AIAttributionConfig
 	// RequireValidatorOnWrites rejects writes when Validator is nil (production guardrail).
@@ -73,6 +81,27 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	}
 	if cfg.RequireValidatorOnWrites && cfg.Validator == nil {
 		return nil, fmt.Errorf("%w: validator required when RequireValidatorOnWrites is set", ErrMissingDependency)
+	}
+	if cfg.Deidentify == nil {
+		useShared := true
+		if cfg.SharedFHIRDeidentifier != nil {
+			useShared = *cfg.SharedFHIRDeidentifier
+		}
+		deidCfg := FHIRDeidentifierConfig{
+			Catalog:   DefaultPHICatalog(),
+			Profiles:  cfg.ProfileCatalog,
+			Mode:      cfg.PHIMode,
+			EvalMode:  cfg.EvalMode,
+			UseShared: useShared,
+		}
+		deid, deidErr := NewFHIRDeidentifierWithConfig(deidCfg)
+		if deidErr != nil {
+			return nil, deidErr
+		}
+		cfg.Deidentify = deid
+		if fd, ok := cfg.Deidentify.(*FHIRDeidentifier); ok {
+			_ = WarmPathIndex(context.Background(), fd, DefaultWarmResourceTypes...)
+		}
 	}
 	return &Executor{cfg: cfg}, nil
 }
@@ -306,11 +335,21 @@ func (e *Executor) execRead(ctx context.Context, req ToolRequest, input map[stri
 		if e.cfg.Deidentify == nil {
 			return nil, nil, "", nil, ErrMissingDeidentifier
 		}
+		if len(decision.AllowedFields) > 0 {
+			if err := mergeDeidentifyMetaFields(filtered, env.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		data, redactions, err = e.cfg.Deidentify.Deidentify(ctx, DeidentifyRequest{
 			ToolName: ToolReadFhirResource, ResourceType: parsed.ResourceType, Data: filtered,
 		})
 		if err != nil {
 			return nil, nil, "", nil, err
+		}
+		if len(decision.AllowedFields) > 0 {
+			if m, ok := data.(map[string]any); ok {
+				data = projectResourceMap(m, decision.AllowedFields)
+			}
 		}
 	}
 
@@ -378,10 +417,16 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if err != nil {
 			return nil, nil, "", nil, err
 		}
+		if decision.Deidentify && !decision.AllowAllFields {
+			if err := mergeDeidentifyMetaFields(item, res.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		resources = append(resources, item)
 	}
 
 	included := make([]map[string]any, 0, len(result.Included))
+	var includedAllowedFields [][]string
 	var includedResources []*types.ResourceEnvelope
 	for _, inc := range result.Included {
 		if inc.Resource == nil {
@@ -401,7 +446,13 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if itemErr != nil {
 			return nil, nil, "", nil, itemErr
 		}
+		if decision.Deidentify && len(readDecision.AllowedFields) > 0 {
+			if err := mergeDeidentifyMetaFields(item, inc.Resource.JSON); err != nil {
+				return nil, nil, "", nil, err
+			}
+		}
 		included = append(included, item)
+		includedAllowedFields = append(includedAllowedFields, readDecision.AllowedFields)
 		includedResources = append(includedResources, inc.Resource)
 	}
 
@@ -426,6 +477,7 @@ func (e *Executor) execSearch(ctx context.Context, req ToolRequest, input map[st
 		if err != nil {
 			return nil, nil, "", nil, err
 		}
+		data = projectSearchResultData(data, decision.AllowAllFields, decision.AllowedFields, includedAllowedFields)
 	}
 
 	citations := e.cfg.Citations.SearchCitationsWithIncludes(parsed.ResourceType, params, result.Resources, includedResources)
