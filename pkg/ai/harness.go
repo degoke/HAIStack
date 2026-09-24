@@ -531,7 +531,7 @@ func (h *Harness) handleProposeWritePlan(input map[string]any) (string, *ToolRes
 	}
 	payload := map[string]any{
 		"status":     "proposal",
-		"tool":       ToolExecuteFhirTransaction,
+		"tool":       ToolExecuteFhirBundle,
 		"input":      txInput,
 		"entryCount": len(plan.Entries),
 		"commitHint": "Call Harness.CommitWritePlan with the same entries; the host runs a transaction bundle and adds Provenance when configured.",
@@ -558,7 +558,7 @@ func (h *Harness) executeHarnessWriteTool(ctx context.Context, toolName string, 
 			return nil, err
 		}
 		plan = ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}
-	case ToolExecuteFhirTransaction:
+	case ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
 		plan, err = ResourceWritePlanFromTransactionInput(input)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, toolName)

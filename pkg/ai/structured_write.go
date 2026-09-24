@@ -194,7 +194,7 @@ func (h *Harness) CommitWritePlan(ctx context.Context, plan ResourceWritePlan) (
 	return h.CommitWritePlanWithOptions(ctx, plan, CommitWriteOptions{})
 }
 
-// CommitWritePlanWithOptions runs host confirmation then execute_fhir_transaction for the plan.
+// CommitWritePlanWithOptions runs host confirmation then execute_fhir_bundle for the plan.
 func (h *Harness) CommitWritePlanWithOptions(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
@@ -211,7 +211,7 @@ func (h *Harness) executeCommitPlan(ctx context.Context, plan ResourceWritePlan,
 		return nil, err
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
-		ToolName:       ToolExecuteFhirTransaction,
+		ToolName:       ToolExecuteFhirBundle,
 		Actor:          h.cfg.Actor,
 		TenantID:       h.cfg.TenantID,
 		Subject:        h.cfg.Subject,
@@ -280,8 +280,8 @@ func (h *Harness) confirmCommitWritePlan(ctx context.Context, plan ResourceWrite
 	if len(plan.Entries) == 1 && h.cfg.CommitWriteConfirm != nil {
 		return h.cfg.CommitWriteConfirm(ctx, plan.Entries[0])
 	}
-	if h.cfg.CommitWriteConfirm == nil && h.cfg.CommitWritePlanConfirm == nil {
-		return ErrCommitNotConfirmed
+	if len(plan.Entries) > 1 {
+		return fmt.Errorf("%w: multi-entry plan requires CommitWritePlanConfirm (%d entries)", ErrCommitNotConfirmed, len(plan.Entries))
 	}
 	return ErrCommitNotConfirmed
 }
@@ -291,7 +291,7 @@ func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, toolName stri
 	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation || !IsWriteTool(toolName) {
 		return nil
 	}
-	if toolName == ToolExecuteFhirTransaction {
+	if toolName == ToolExecuteFhirBundle || toolName == ToolExecuteFhirTransaction {
 		plan, err := ResourceWritePlanFromTransactionInput(input)
 		if err != nil {
 			return err

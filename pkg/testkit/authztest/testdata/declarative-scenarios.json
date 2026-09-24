@@ -306,6 +306,15 @@
       "action": "execute-ai-tool",
       "toolName": "execute_fhir_transaction",
       "expectAllow": false
+    },
+    {
+      "id": "ai_tool_bundle_denied",
+      "doc": "execute_fhir_bundle is denied by default.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "execute-ai-tool",
+      "toolName": "execute_fhir_bundle",
+      "expectAllow": false
     }
   ]
 }

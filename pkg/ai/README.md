@@ -12,7 +12,7 @@ v1 centers on six generic tools that sit in front of the existing stack:
 - `run_view` — execute a registered ViewDefinition for structured context
 - `create_fhir_resource` — structured create with field maps, validation, and optional approval
 - `update_fhir_resource` — updates via patch-path `patches` only (FHIR Patch path syntax such as `name[0].family`; not FHIRPath `.where()` expressions)
-- `execute_fhir_transaction` — atomic multi-entry writes (POST/PUT) with optional bundled Provenance when AI attribution is enabled
+- `execute_fhir_bundle` — FHIR transaction or batch bundles (POST/PUT; batch allows GET); deprecated alias `execute_fhir_transaction`
 
 Convenience wrappers (`get_patient_summary`, `get_upcoming_appointments`,
 `search_patient_by_phone`) delegate to these generic operations and are
@@ -315,7 +315,7 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 
 Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
 
-### `execute_fhir_transaction`
+### `execute_fhir_bundle`
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -326,7 +326,9 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys
 - `PUT` — same shape as update (`id` and `patches` required).
 - `GET` — **batch only**: `resourceType` + `id` (read through policy).
 
-The **model never submits Provenance**; when `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes. **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_transaction` (`bundleType=transaction`) so Provenance is included in that bundle. Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or the transaction tool is used. With `bundleType=batch`, entries are independent.
+The tool name `execute_fhir_transaction` is a deprecated alias for the same operation.
+
+The **model never submits Provenance**; when `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes. **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_bundle` (`bundleType=transaction`) so Provenance is included in that bundle. Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or this bundle tool is used. With `bundleType=batch`, entries are independent.
 
 ## Safety model
 

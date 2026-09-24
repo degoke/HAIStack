@@ -49,8 +49,8 @@ func GenericToolDescriptors() []ToolDescriptor {
 			InputKeys:   []string{"resourceType", "id", "patches"},
 		},
 		{
-			Name:        ToolExecuteFhirTransaction,
-			Description: "Execute a FHIR bundle: bundleType transaction (atomic, default) or batch (independent entries). Entries: POST fields, PUT patches, batch GET read. Provenance POSTs are appended when AI attribution is on (atomic only with transaction).",
+			Name:        ToolExecuteFhirBundle,
+			Description: "Execute a FHIR bundle (bundleType transaction or batch). Entries: POST fields, PUT patches; batch allows GET. Host adds Provenance when AI attribution is on. Deprecated alias: execute_fhir_transaction.",
 			Generic:     true,
 			InputKeys:   []string{"bundleType", "entries"},
 		},
@@ -60,7 +60,7 @@ func GenericToolDescriptors() []ToolDescriptor {
 // IsWriteTool reports whether name is a FHIR write tool (create, update, or transaction).
 func IsWriteTool(name string) bool {
 	switch name {
-	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolExecuteFhirTransaction:
+	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
 		return true
 	default:
 		return false

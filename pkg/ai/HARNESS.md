@@ -178,6 +178,8 @@ _, err := h.CommitWrite(ctx, draft) // ErrCommitNotConfirmed when hook missing o
 
 Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation.
 
+**Policy write approval vs host confirm:** `ApprovalStore` / `WriteTypePolicy` approval tokens are enforced on direct executor tools when the model (or host) calls `create_fhir_resource`, `update_fhir_resource`, or `execute_fhir_bundle` with a user-initiated tool request. Harness `CommitWrite` / `CommitWritePlan` commit through an internal bundle path that does not run that approval gate; only `CommitWriteConfirm` / `CommitWritePlanConfirm` apply unless you extend the harness or enforce policy inside those callbacks.
+
 ## AI Transparency (HL7 AI on FHIR IG)
 
 When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated creates/updates:
@@ -186,7 +188,11 @@ When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated c
 2. Add `meta.extension` (`urn:haistack:fhir:StructureDefinition:ai-agent-context`) with `conversationId` / `actor`—**does not overwrite** clinical `meta.source`.
 3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on). Provenance uses R4 `CodeableConcept` for `entity.role`.
 
-**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true): the clinical write succeeds even if Provenance `Create` fails unless `AtomicProvenance` is true. With `AtomicProvenance`, single create/update and `execute_fhir_transaction` commit clinical resources and Provenance in one `ProcessTransactionBundle` call.
+**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true) on direct `create_fhir_resource` / `update_fhir_resource` calls. **Harness** `CommitWrite` / `CommitWritePlan` always use `execute_fhir_bundle` with `bundleType=transaction` (host adds Provenance in that bundle); harness does **not** read `AtomicProvenance`.
+
+**AtomicProvenance** (executor config only): when true, direct single create/update tools use a one-entry transaction bundle plus Provenance instead of a separate Provenance `Create`.
+
+**Multi-entry commits:** set `CommitWritePlanConfirm` when the plan has more than one entry; `CommitWriteConfirm` alone only applies to single-entry plans.
 
 Provenance is created via `Core.Create` (system side-effect, not create/update tool policy). Ensure the core store allows `Provenance` creates for the executor principal.
 

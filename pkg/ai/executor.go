@@ -218,7 +218,7 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execCreateFhirResource(ctx, req, input)
 	case ToolUpdateFhirResource:
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execUpdateFhirResource(ctx, req, input)
-	case ToolExecuteFhirTransaction:
+	case ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execExecuteFhirTransaction(ctx, req, input)
 	default:
 		err = fmt.Errorf("%w: %s", ErrToolNotFound, req.ToolName)

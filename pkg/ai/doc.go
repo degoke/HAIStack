@@ -11,7 +11,7 @@
 //   - run_view
 //   - create_fhir_resource
 //   - update_fhir_resource
-//   - execute_fhir_transaction
+//   - execute_fhir_bundle (alias: execute_fhir_transaction)
 //
 // These are constrained, typed, audited operations in front of pkg/view,
 // pkg/search, pkg/core, and pkg/validate — not raw FHIR server passthroughs.

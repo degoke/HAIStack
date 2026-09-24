@@ -31,7 +31,7 @@ func (p ResourceWritePlan) Validate() error {
 	return nil
 }
 
-// ToTransactionInput builds execute_fhir_transaction input (transaction bundle; host adds Provenance).
+// ToTransactionInput builds execute_fhir_bundle input (transaction bundle; host adds Provenance).
 func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func ExtractResourceWritePlan(messages []ChatMessage) (ResourceWritePlan, bool) 
 	return ResourceWritePlan{}, false
 }
 
-// ResourceWritePlanFromTransactionInput converts execute_fhir_transaction input to a plan (clinical entries only).
+// ResourceWritePlanFromTransactionInput converts execute_fhir_bundle input to a plan (clinical entries only).
 func ResourceWritePlanFromTransactionInput(input map[string]any) (ResourceWritePlan, error) {
 	specs, err := parseBundleEntries(input)
 	if err != nil {
