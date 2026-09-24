@@ -26,10 +26,12 @@ type HarnessConfig struct {
 	MaxToolRounds int
 	// ToolContextFormat selects JSON (default) or markdown summaries for tool messages.
 	ToolContextFormat ToolContextFormat
-	// EnablePatientCreateHelper exposes propose_patient_create in the harness tool list (Phase C).
+	// EnableProposeWriteHelper exposes propose_write_resource in the harness tool list.
+	EnableProposeWriteHelper bool
+	// EnablePatientCreateHelper is deprecated: use EnableProposeWriteHelper (kept for compatibility).
 	EnablePatientCreateHelper bool
 	// BlockDirectWriteTools removes write_fhir_resource from the model tool list so commits
-	// go through structured helpers (e.g. CommitPatientCreate) instead of free-form tool args.
+	// go through structured helpers (e.g. CommitWrite) instead of free-form tool args.
 	BlockDirectWriteTools bool
 	// AutoConversationID assigns a UUID when Chat runs without SetConversationID (useful with RequireConversationID).
 	AutoConversationID bool
@@ -187,8 +189,8 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				})
 				continue
 			}
-			if tc.Name == ToolProposePatientCreate {
-				content, proposeRes, proposeErr := h.handleProposePatientCreate(input)
+			if tc.Name == ToolProposeWriteResource || tc.Name == ToolProposePatientCreate {
+				content, proposeRes, proposeErr := h.handleProposeWrite(input, tc.Name)
 				summary.Err = proposeErr
 				if proposeRes != nil {
 					summary.Result = proposeRes
@@ -227,8 +229,8 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 
 func (h *Harness) chatTools() []ChatTool {
 	descriptors := FilterToolDescriptorsForHarness(h.cfg.Executor.ToolDescriptors(), h.cfg.BlockDirectWriteTools)
-	if h.cfg.EnablePatientCreateHelper {
-		descriptors = append(descriptors, ProposePatientCreateToolDescriptor())
+	if h.cfg.EnableProposeWriteHelper || h.cfg.EnablePatientCreateHelper {
+		descriptors = append(descriptors, ProposeWriteResourceToolDescriptor())
 	}
 	return ChatToolsFromDescriptors(descriptors)
 }
@@ -265,26 +267,36 @@ func pendingApprovalsFromResults(toolSummaries []HarnessToolResult) []HarnessPen
 	return out
 }
 
-func (h *Harness) handleProposePatientCreate(input map[string]any) (string, *ToolResult, error) {
-	draft, err := PatientCreateDraftFromMap(input)
-	if err != nil {
-		return toolErrorContent(err), nil, err
+func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (string, *ToolResult, error) {
+	var writeInput map[string]any
+	var err error
+	if toolName == ToolProposePatientCreate {
+		patient, err := PatientCreateDraftFromMap(input)
+		if err != nil {
+			return toolErrorContent(err), nil, err
+		}
+		writeInput, err = patient.ToWriteFhirResourceInput()
+	} else {
+		draft, mapErr := ResourceWriteDraftFromMap(input)
+		if mapErr != nil {
+			return toolErrorContent(mapErr), nil, mapErr
+		}
+		writeInput, err = draft.ToWriteFhirResourceInput()
 	}
-	writeInput, err := draft.ToWriteFhirResourceInput()
 	if err != nil {
 		return toolErrorContent(err), nil, err
 	}
 	payload := map[string]any{
-		"status":                 "proposal",
-		"write_fhir_resource":    writeInput,
-		"commitHint":             "Call Harness.CommitPatientCreate with the same draft to execute policy + validation.",
+		"status":              "proposal",
+		"write_fhir_resource": writeInput,
+		"commitHint":          "Call Harness.CommitWrite with the same structured draft to execute policy + validation.",
 	}
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return toolErrorContent(err), nil, err
 	}
 	return string(out), &ToolResult{
-		ToolName: ToolProposePatientCreate,
+		ToolName: toolName,
 		Data:     payload,
 		Context:  string(out),
 	}, nil

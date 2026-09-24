@@ -70,7 +70,7 @@ func run() error {
 		ToolContextFormat:         ai.ToolContextMarkdown,
 		AutoConversationID:        true,
 		BlockDirectWriteTools:     true,
-		EnablePatientCreateHelper: true,
+		EnableProposeWriteHelper: true,
 	})
 	if err != nil {
 		return err

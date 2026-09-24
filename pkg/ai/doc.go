@@ -39,7 +39,8 @@
 //   - Harness / ChatModel / OpenAICompatibleAdapter: optional agent layer that
 //     runs a tool-calling conversation loop on top of ExecuteTool (see HARNESS.md).
 //   - MarkdownContextBuilder / ToolContextMarkdown: markdown summaries for tool rows.
-//   - PatientCreateDraft / CommitPatientCreate: structured Patient create proposals.
+//   - ResourceWriteDraft / CommitWrite: structured create/update proposals (any type).
+//   - PatientCreateDraft: convenience wrapper for Patient create (deprecated path).
 //   - HarnessExecutorGuardrails / BlockDirectWriteTools / AutoConversationID: production agent wiring.
 //   - ModelAdapterChatModel: bridge legacy ModelAdapter stubs to Harness.Chat.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification

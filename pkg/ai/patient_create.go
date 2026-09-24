@@ -3,17 +3,15 @@ package ai
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
 
-// ToolProposePatientCreate is a harness-only tool name. It never commits FHIR data;
-// it returns a validated write_fhir_resource input map for operator review or
-// Harness.CommitPatientCreate.
+// ToolProposePatientCreate is deprecated: use ToolProposeWriteResource.
 const ToolProposePatientCreate = "propose_patient_create"
 
-// PatientCreateDraft is structured patient demographics from conversation (not raw FHIR JSON).
+// PatientCreateDraft is a convenience wrapper for Patient create proposals.
+// Prefer ResourceWriteDraft for generic create/update flows.
 type PatientCreateDraft struct {
 	Family    string
 	Given     []string
@@ -31,6 +29,15 @@ func (d PatientCreateDraft) Validate() error {
 		return fmt.Errorf("%w: at least one given name is required", ErrInvalidInput)
 	}
 	return nil
+}
+
+// ToResourceWriteDraft converts the patient-specific draft to a generic write draft.
+func (d PatientCreateDraft) ToResourceWriteDraft() (ResourceWriteDraft, error) {
+	input, err := d.ToWriteFhirResourceInput()
+	if err != nil {
+		return ResourceWriteDraft{}, err
+	}
+	return ResourceWriteDraftFromMap(input)
 }
 
 // ToWriteFhirResourceInput returns write_fhir_resource tool input only (no execution).
@@ -123,13 +130,56 @@ func ExtractPatientCreateDraft(messages []ChatMessage) (PatientCreateDraft, bool
 	return PatientCreateDraft{}, false
 }
 
-// ProposePatientCreateToolDescriptor returns harness-only tool metadata.
+// ProposePatientCreateToolDescriptor is deprecated: use ProposeWriteResourceToolDescriptor.
 func ProposePatientCreateToolDescriptor() ToolDescriptor {
-	return ToolDescriptor{
-		Name:        ToolProposePatientCreate,
-		Description: "Propose a new Patient create using structured demographics; returns write_fhir_resource input without committing",
-		Generic:     false,
-		InputKeys:   []string{"family", "given", "gender", "birthDate", "phone"},
+	d := ProposeWriteResourceToolDescriptor()
+	d.Name = ToolProposePatientCreate
+	d.Description = "Deprecated alias for propose_write_resource (Patient-oriented fields)"
+	d.InputKeys = []string{"family", "given", "gender", "birthDate", "phone"}
+	return d
+}
+
+func patientDraftFromWriteFields(fields map[string]any) (PatientCreateDraft, error) {
+	names := sliceOfMapsFromPatientFields(fields["name"])
+	if len(names) == 0 {
+		return PatientCreateDraft{}, fmt.Errorf("%w: patient name is required", ErrInvalidInput)
+	}
+	n := names[0]
+	given := stringSliceField(n, "given")
+	family := stringField(n, "family")
+	phone := ""
+	if telecom := sliceOfMapsFromPatientFields(fields["telecom"]); len(telecom) > 0 {
+		phone = stringField(telecom[0], "value")
+	}
+	return PatientCreateDraft{
+		Family:    family,
+		Given:     given,
+		Gender:    stringField(fields, "gender"),
+		BirthDate: stringField(fields, "birthDate"),
+		Phone:     phone,
+	}, nil
+}
+
+func sliceOfMapsFromPatientFields(raw any) []map[string]any {
+	if raw == nil {
+		return nil
+	}
+	if m, ok := raw.(map[string]any); ok {
+		return []map[string]any{m}
+	}
+	switch items := raw.(type) {
+	case []map[string]any:
+		return items
+	case []any:
+		out := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 
@@ -183,12 +233,8 @@ func extractFencedBlock(content, lang string) string {
 	return strings.TrimSpace(rest[:end])
 }
 
-// CommitPatientCreateFromSession extracts a patient_create fenced block from the session
-// and commits via CommitPatientCreate.
+// CommitPatientCreateFromSession is deprecated: use CommitWriteFromSession.
 func (h *Harness) CommitPatientCreateFromSession(ctx context.Context) (*ToolResult, error) {
-	if h == nil {
-		return nil, errors.New("ai: nil harness")
-	}
 	draft, ok := ExtractPatientCreateDraft(h.session.Messages)
 	if !ok {
 		return nil, fmt.Errorf("%w: no patient_create draft in session", ErrInvalidInput)
@@ -196,21 +242,11 @@ func (h *Harness) CommitPatientCreateFromSession(ctx context.Context) (*ToolResu
 	return h.CommitPatientCreate(ctx, draft)
 }
 
-// CommitPatientCreate executes write_fhir_resource for a validated draft via Executor.
+// CommitPatientCreate is deprecated: use CommitWrite with ResourceWriteDraft.
 func (h *Harness) CommitPatientCreate(ctx context.Context, draft PatientCreateDraft) (*ToolResult, error) {
-	if h == nil {
-		return nil, errors.New("ai: nil harness")
-	}
-	input, err := draft.ToWriteFhirResourceInput()
+	generic, err := draft.ToResourceWriteDraft()
 	if err != nil {
 		return nil, err
 	}
-	return h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
-		ToolName:       ToolWriteFhirResource,
-		Actor:          h.cfg.Actor,
-		TenantID:       h.cfg.TenantID,
-		Subject:        h.cfg.Subject,
-		Input:          input,
-		ConversationID: h.session.ConversationID,
-	})
+	return h.CommitWrite(ctx, generic)
 }

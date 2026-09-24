@@ -32,7 +32,7 @@ Runnable demo: `go run ./examples/ai-harness`.
 h, _ := ai.NewHarness(ai.HarnessConfig{
     Executor: exec, Model: chatModel, Actor: "agent-1",
     ToolContextFormat: ai.ToolContextMarkdown,
-    EnablePatientCreateHelper: true,
+    EnableProposeWriteHelper: true,
 })
 res, _ := h.Chat(ctx, "Find patient Jane")
 // Multi-turn: call h.Chat again on the same instance to retain session history.
