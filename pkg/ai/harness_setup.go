@@ -40,6 +40,12 @@ func HarnessGroundingGuardrails(hcfg HarnessConfig) []string {
 	if mode != GroundingOff && hcfg.ToolContextFormat != ToolContextMarkdown {
 		notes = append(notes, "set ToolContextFormat to markdown so tool rows are easier for models to quote accurately")
 	}
+	if hcfg.RequireCommitConfirmation && hcfg.CommitWriteConfirm == nil {
+		notes = append(notes, "RequireCommitConfirmation is true but CommitWriteConfirm is nil (CommitWrite will fail)")
+	}
+	if hcfg.Executor != nil && hcfg.Executor.Policy() == nil {
+		notes = append(notes, "Executor policy is required for PreflightSearchPolicy during Chat")
+	}
 	return notes
 }
 

@@ -47,6 +47,10 @@ type HarnessConfig struct {
 	SessionCompaction SessionCompactionConfig
 	// Grounding reduces hallucination via prompts, citation checks, and optional strict enforcement.
 	Grounding GroundingConfig
+	// RequireCommitConfirmation requires CommitWriteConfirm before CommitWrite / CommitWriteFromSession.
+	RequireCommitConfirmation bool
+	// CommitWriteConfirm is invoked before executing write_fhir_resource via CommitWrite.
+	CommitWriteConfirm func(ctx context.Context, draft ResourceWriteDraft) error
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -200,7 +204,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	h.activeInvocationID = invocationID
 
 	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
-		return h.finalizeChatResult(invocationID, userMessage, answer, nil)
+		return h.finalizeChatResult(invocationID, userMessage, answer, nil, nil)
 	}
 
 	tools := h.chatTools()
@@ -219,6 +223,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	}
 
 	toolSummaries := make([]HarnessToolResult, 0)
+	toolInputs := make([]map[string]any, 0)
 
 	for round := 0; round < h.cfg.MaxToolRounds; round++ {
 		resp, err := h.cfg.Model.Chat(ctx, ChatRequest{
@@ -250,7 +255,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 		if len(toolCalls) == 0 {
 			h.activeInvocationID = ""
 			_ = h.maybeCompactSession(ctx, tools)
-			return h.finalizeChatResult(invocationID, userMessage, resp.Content, toolSummaries)
+			return h.finalizeChatResult(invocationID, userMessage, resp.Content, toolSummaries, toolInputs)
 		}
 
 		for _, tc := range toolCalls {
@@ -259,6 +264,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 			if parseErr != nil {
 				summary.Err = fmt.Errorf("ai: tool %q arguments: %w", tc.Name, parseErr)
 				toolSummaries = append(toolSummaries, summary)
+				toolInputs = append(toolInputs, input)
 				errContent := toolErrorContent(summary.Err)
 				// Tool-role message is sent to the model on the next completion round (same as executor errors).
 				h.session.Messages = append(h.session.Messages, ChatMessage{
@@ -279,6 +285,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					summary.Result = proposeRes
 				}
 				toolSummaries = append(toolSummaries, summary)
+				toolInputs = append(toolInputs, input)
 				toolMsg := ChatMessage{Role: ChatRoleTool, ToolCallID: tc.ID, Content: content}
 				h.session.Messages = append(h.session.Messages, toolMsg)
 				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
@@ -287,17 +294,35 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				}
 				continue
 			}
-			res, execErr := h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
+			toolReq := ToolRequest{
 				ToolName:       tc.Name,
 				Actor:          h.cfg.Actor,
 				TenantID:       h.cfg.TenantID,
 				Subject:        h.cfg.Subject,
 				Input:          input,
 				ConversationID: h.session.ConversationID,
-			})
+			}
+			if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
+				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {
+					summary.Err = preflightErr
+					toolSummaries = append(toolSummaries, summary)
+					toolInputs = append(toolInputs, input)
+					errContent := toolErrorContent(preflightErr)
+					h.session.Messages = append(h.session.Messages, ChatMessage{
+						Role: ChatRoleTool, ToolCallID: tc.ID, Content: errContent,
+					})
+					if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, errContent)); err != nil {
+						h.activeInvocationID = ""
+						return nil, err
+					}
+					continue
+				}
+			}
+			res, execErr := h.cfg.Executor.ExecuteTool(ctx, toolReq)
 			summary.Result = res
 			summary.Err = execErr
 			toolSummaries = append(toolSummaries, summary)
+			toolInputs = append(toolInputs, input)
 
 			content := h.formatToolResultContent(tc.Name, res, execErr)
 			h.session.Messages = append(h.session.Messages, ChatMessage{

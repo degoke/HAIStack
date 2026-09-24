@@ -141,7 +141,9 @@ The harness sits on top of `Executor` tools so answers are tied to **read / sear
 | **Executor** | Policy, validation, citations on every tool, audit, de-id, approval tokens on writes |
 | **Harness prompts** | `GroundingConfig` appends `DefaultFHIRGroundingSystemPrompt` (use tools for facts; no invented ids) |
 | **Post-checks** | `AnalyzeAnswerGrounding` warns when the answer cites `Resource/id` literals missing from `ChatResult.Citations` |
-| **Strict mode** | `GroundingMode: strict` returns `ErrUngroundedAnswer` if a data-style question is answered without read/search/view evidence, or if uncited refs appear |
+| **Clinical values** | `AnalyzeClinicalValueGrounding` flags numbers/units (e.g. `142 mg/dL`) not present in tool JSON |
+| **Search params** | `PreflightSearchPolicy` runs before `search_fhir_resources`; `AnalyzeSearchParamGrounding` flags narrative search params not used in tool calls |
+| **Strict mode** | `GroundingMode: strict` returns `ErrUngroundedAnswer` on any grounding warning (missing tool evidence, uncited refs, hallucinated values, search param mismatch) |
 
 ```go
 Grounding: ai.GroundingConfig{Mode: ai.GroundingStandard}, // default
@@ -155,6 +157,44 @@ ToolContextFormat: ai.ToolContextMarkdown,
 `ChatResult.GroundingWarnings` lists non-fatal issues in standard mode. Writes still require host approval via `PendingApprovals` + `ExecuteHarnessTool` with `ApprovalToken`.
 
 `HarnessGroundingGuardrails(hcfg)` complements `HarnessExecutorGuardrails` for wiring checks.
+
+## Host confirmation before commit
+
+`CommitWrite` / `CommitWriteFromSession` execute `write_fhir_resource` through the executor. Enable an explicit host gate:
+
+```go
+h, _ := ai.NewHarness(ai.HarnessConfig{
+    RequireCommitConfirmation: true,
+    CommitWriteConfirm: func(ctx context.Context, draft ai.ResourceWriteDraft) error {
+        // UI / workflow approval; return nil to allow commit
+        return nil
+    },
+})
+_, err := h.CommitWrite(ctx, draft) // ErrCommitNotConfirmed when hook missing or returns error
+```
+
+Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation.
+
+## AI Transparency (HL7 AI on FHIR IG)
+
+When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated creates/updates:
+
+1. Stamp `meta.security` with **AIAST** (`http://terminology.hl7.org/CodeSystem/v3-ObservationValue`) per [AI Transparency requirements](https://build.fhir.org/ig/HL7/aitransparency-ig/en/requirements.html).
+2. Set `meta.source` to a conversation-scoped URN when `ConversationID` is present on the tool request.
+3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on).
+
+Wire attribution on the same executor used by the harness; pass `ConversationID` on `CommitWrite` via session (`Harness` sets it from the active session).
+
+```go
+exec, _ := ai.NewExecutor(ai.Config{
+    // ...
+    AIAttribution: ai.AIAttributionConfig{
+        Enabled: true,
+        AgentDisplay: "My Clinical Agent",
+        ModelID:      "gpt-4.1",
+    },
+})
+```
 
 ## Why not validate arbitrary FHIR JSON?
 

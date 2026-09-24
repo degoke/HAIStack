@@ -39,6 +39,8 @@ type Config struct {
 	Citations             *CitationBuilder
 	Formatter             *ContextFormatter
 	Now                   func() time.Time
+	// AIAttribution stamps AIAST meta.security and optional Provenance on AI-mediated writes.
+	AIAttribution AIAttributionConfig
 }
 
 // Executor validates requests, enforces policy, invokes backing packages, builds
@@ -68,6 +70,14 @@ func NewExecutor(cfg Config) (*Executor, error) {
 		cfg.Registry = NewRegistry()
 	}
 	return &Executor{cfg: cfg}, nil
+}
+
+// Policy returns the configured policy engine (for harness preflight checks).
+func (e *Executor) Policy() PolicyEngine {
+	if e == nil {
+		return nil
+	}
+	return e.cfg.Policy
 }
 
 // ToolDescriptors returns model-facing metadata for tools on this executor.
@@ -559,6 +569,18 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		}
 	}
 
+	if parsed.Operation == "create" {
+		jsonData, err = e.stampWriteJSONForAttribution(jsonData, req)
+		if err != nil {
+			return nil, nil, "", false, "", nil, err
+		}
+	} else if parsed.Operation == "update" {
+		merged, err = e.stampWriteJSONForAttribution(merged, req)
+		if err != nil {
+			return nil, nil, "", false, "", nil, err
+		}
+	}
+
 	if e.cfg.Validator != nil {
 		candidate := jsonData
 		if parsed.Operation == "update" {
@@ -660,6 +682,9 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrValidationFailed, err)
 		}
 		return nil, nil, "", false, "", nil, err
+	}
+	if provErr := e.recordWriteProvenance(ctx, req, written); provErr != nil {
+		return nil, nil, "", false, "", nil, provErr
 	}
 
 	data := map[string]any{

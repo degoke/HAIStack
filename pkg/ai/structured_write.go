@@ -134,10 +134,24 @@ func ProposeWriteResourceToolDescriptor() ToolDescriptor {
 	}
 }
 
+// CommitWriteOptions configures host confirmation for CommitWrite.
+type CommitWriteOptions struct {
+	// SkipHostConfirm bypasses RequireCommitConfirmation (tests and trusted automation only).
+	SkipHostConfirm bool
+}
+
 // CommitWrite executes write_fhir_resource for a validated draft via Executor.
 func (h *Harness) CommitWrite(ctx context.Context, draft ResourceWriteDraft) (*ToolResult, error) {
+	return h.CommitWriteWithOptions(ctx, draft, CommitWriteOptions{})
+}
+
+// CommitWriteWithOptions executes write_fhir_resource after optional host confirmation.
+func (h *Harness) CommitWriteWithOptions(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
+	}
+	if err := h.confirmCommitWrite(ctx, draft, opts); err != nil {
+		return nil, err
 	}
 	input, err := draft.ToWriteFhirResourceInput()
 	if err != nil {
@@ -155,6 +169,11 @@ func (h *Harness) CommitWrite(ctx context.Context, draft ResourceWriteDraft) (*T
 
 // CommitWriteFromSession extracts a write_resource (or legacy patient_create) block and commits.
 func (h *Harness) CommitWriteFromSession(ctx context.Context) (*ToolResult, error) {
+	return h.CommitWriteFromSessionWithOptions(ctx, CommitWriteOptions{})
+}
+
+// CommitWriteFromSessionWithOptions commits a session draft after optional host confirmation.
+func (h *Harness) CommitWriteFromSessionWithOptions(ctx context.Context, opts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
@@ -165,5 +184,15 @@ func (h *Harness) CommitWriteFromSession(ctx context.Context) (*ToolResult, erro
 	if !ok {
 		return nil, fmt.Errorf("%w: no write_resource draft in session", ErrInvalidInput)
 	}
-	return h.CommitWrite(ctx, draft)
+	return h.CommitWriteWithOptions(ctx, draft, opts)
+}
+
+func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) error {
+	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
+		return nil
+	}
+	if h.cfg.CommitWriteConfirm == nil {
+		return ErrCommitNotConfirmed
+	}
+	return h.cfg.CommitWriteConfirm(ctx, draft)
 }

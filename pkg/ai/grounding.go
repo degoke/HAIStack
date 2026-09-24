@@ -27,6 +27,12 @@ type GroundingConfig struct {
 	RequireToolEvidenceOnDataQuestions bool
 	// RejectUncitedResourceRefs fails the turn when the answer mentions Resource/id literals not present in citations (strict).
 	RejectUncitedResourceRefs bool
+	// RejectUncitedClinicalValues fails when the answer states clinical numbers/units not present in tool JSON (strict).
+	RejectUncitedClinicalValues bool
+	// ValidateSearchParamsInAnswer warns when the answer cites search parameters not used in search tool calls.
+	ValidateSearchParamsInAnswer bool
+	// PreflightSearchPolicy runs policy.CheckSearch before search_fhir_resources executes (strict default).
+	PreflightSearchPolicy bool
 }
 
 // DefaultFHIRGroundingSystemPrompt instructs models to stay on the executor tool path.
@@ -79,6 +85,15 @@ func (c GroundingConfig) effectiveStrict() GroundingConfig {
 	}
 	if !out.RejectUncitedResourceRefs {
 		out.RejectUncitedResourceRefs = true
+	}
+	if !out.RejectUncitedClinicalValues {
+		out.RejectUncitedClinicalValues = true
+	}
+	if !out.ValidateSearchParamsInAnswer {
+		out.ValidateSearchParamsInAnswer = true
+	}
+	if !out.PreflightSearchPolicy {
+		out.PreflightSearchPolicy = true
 	}
 	return out
 }
@@ -174,13 +189,20 @@ func (h *Harness) effectiveSystemPrompt(tools []ChatTool) string {
 	return AppendGroundingSystemPrompt(base, h.groundingConfig())
 }
 
-func (h *Harness) finalizeChatResult(invocationID, userMessage, answer string, toolSummaries []HarnessToolResult) (*ChatResult, error) {
+func (h *Harness) finalizeChatResult(invocationID, userMessage, answer string, toolSummaries []HarnessToolResult, toolInputs []map[string]any) (*ChatResult, error) {
 	res := h.buildChatResult(invocationID, answer, toolSummaries)
 	gcfg := h.groundingConfig()
 	if gcfg.Mode == GroundingOff {
 		return res, nil
 	}
+	records := toolCallRecords(toolSummaries, toolInputs)
 	res.GroundingWarnings = AnalyzeAnswerGrounding(answer, res.Citations)
+	if gcfg.ValidateSearchParamsInAnswer {
+		res.GroundingWarnings = append(res.GroundingWarnings, AnalyzeSearchParamGrounding(answer, records)...)
+	}
+	if gcfg.RejectUncitedClinicalValues || gcfg.Mode == GroundingStrict {
+		res.GroundingWarnings = append(res.GroundingWarnings, AnalyzeClinicalValueGrounding(answer, toolSummaries)...)
+	}
 	if gcfg.RequireToolEvidenceOnDataQuestions && looksLikeFHIRDataQuestion(userMessage) && !hasFHIREvidence(toolSummaries) {
 		msg := "FHIR data question answered without successful read/search/view tool evidence"
 		res.GroundingWarnings = append(res.GroundingWarnings, msg)
@@ -188,7 +210,18 @@ func (h *Harness) finalizeChatResult(invocationID, userMessage, answer string, t
 			return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, msg)
 		}
 	}
-	if gcfg.RejectUncitedResourceRefs && len(res.GroundingWarnings) > 0 && gcfg.Mode == GroundingStrict {
+	if gcfg.RejectUncitedResourceRefs && gcfg.Mode == GroundingStrict {
+		var refWarnings []string
+		for _, w := range res.GroundingWarnings {
+			if strings.Contains(w, "without a matching tool citation") {
+				refWarnings = append(refWarnings, w)
+			}
+		}
+		if len(refWarnings) > 0 {
+			return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, strings.Join(refWarnings, "; "))
+		}
+	}
+	if gcfg.Mode == GroundingStrict && len(res.GroundingWarnings) > 0 {
 		return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, strings.Join(res.GroundingWarnings, "; "))
 	}
 	return res, nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ type testHarness struct {
 	search    *search.Service
 	views     *view.Executor
 	core      *core.ResourceService
+	coreMem   *memBackend
 	policy    *ai.AllowListPolicy
 	audit     *fakeAuditLogger
 	approval  *fakeApprovalHook
@@ -112,11 +114,12 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 	}
 
 	var coreSvc *core.ResourceService
+	var coreMem *memBackend
 	var validator validate.Engine
 	if opts.withCore {
-		mem := newMemBackend()
+		coreMem = newMemBackend()
 		for _, res := range resources.all() {
-			if err := mem.Create(ctx, res); err != nil {
+			if err := coreMem.Create(ctx, res); err != nil {
 				t.Fatalf("seed core: %v", err)
 			}
 		}
@@ -131,9 +134,9 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		}
 		var err error
 		coreSvc, err = core.NewResourceService(core.ResourceServiceConfig{
-			Resources: mem,
-			History:   mem,
-			Sessions:  mem,
+			Resources: coreMem,
+			History:   coreMem,
+			Sessions:  coreMem,
 			Validator: coreValidator,
 		})
 		if err != nil {
@@ -177,6 +180,9 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		Approval:   approval,
 		Deidentify: deid,
 		Now:        clock.Now,
+		AIAttribution: ai.AIAttributionConfig{
+			Enabled: opts.enableAIAttribution,
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewExecutor ai: %v", err)
@@ -187,6 +193,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		search:    searchSvc,
 		views:     viewExec,
 		core:      coreSvc,
+		coreMem:   coreMem,
 		policy:    policy,
 		audit:     audit,
 		approval:  approval,
@@ -210,6 +217,7 @@ type harnessOptions struct {
 	allowPatientWrite       bool
 	writeRequiresApproval   bool
 	approvalGranted         bool
+	enableAIAttribution     bool
 }
 
 type memResourceStore struct {
@@ -391,6 +399,19 @@ func newMemBackend() *memBackend {
 }
 
 func (m *memBackend) key(resourceType, id string) string { return resourceType + "/" + id }
+
+func (m *memBackend) countResourceType(resourceType string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	prefix := resourceType + "/"
+	n := 0
+	for k := range m.resources {
+		if strings.HasPrefix(k, prefix) {
+			n++
+		}
+	}
+	return n
+}
 
 func (m *memBackend) Create(_ context.Context, res *types.ResourceEnvelope) error {
 	m.mu.Lock()
