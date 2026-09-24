@@ -45,6 +45,8 @@ type HarnessConfig struct {
 	AppName string
 	// SessionCompaction optionally summarizes older events into append-only checkpoint events.
 	SessionCompaction SessionCompactionConfig
+	// Grounding reduces hallucination via prompts, citation checks, and optional strict enforcement.
+	Grounding GroundingConfig
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -78,8 +80,9 @@ type ChatResult struct {
 	Answer           string
 	Messages         []ChatMessage
 	ToolResults      []HarnessToolResult
-	Citations        []Citation
-	PendingApprovals []HarnessPendingApproval
+	Citations          []Citation
+	PendingApprovals   []HarnessPendingApproval
+	GroundingWarnings  []string
 }
 
 // HarnessPendingApproval captures approval-required writes surfaced during Chat.
@@ -197,7 +200,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	h.activeInvocationID = invocationID
 
 	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
-		return h.buildChatResult(invocationID, answer, nil), nil
+		return h.finalizeChatResult(invocationID, userMessage, answer, nil)
 	}
 
 	tools := h.chatTools()
@@ -221,7 +224,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 		resp, err := h.cfg.Model.Chat(ctx, ChatRequest{
 			Messages:     h.session.Messages,
 			Tools:        h.nativeToolsForModel(tools),
-			SystemPrompt: h.systemPromptForModel(tools),
+			SystemPrompt: h.effectiveSystemPrompt(tools),
 			Hint:         h.cfg.ModelHint,
 		})
 		if err != nil {
@@ -247,7 +250,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 		if len(toolCalls) == 0 {
 			h.activeInvocationID = ""
 			_ = h.maybeCompactSession(ctx, tools)
-			return h.buildChatResult(invocationID, resp.Content, toolSummaries), nil
+			return h.finalizeChatResult(invocationID, userMessage, resp.Content, toolSummaries)
 		}
 
 		for _, tc := range toolCalls {

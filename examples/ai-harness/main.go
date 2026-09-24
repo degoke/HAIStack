@@ -76,6 +76,7 @@ func run() error {
 		ToolContextFormat:         ai.ToolContextMarkdown,
 		BlockDirectWriteTools:     true,
 		EnableProposeWriteHelper: true,
+		Grounding:                 ai.GroundingConfig{Mode: ai.GroundingStandard},
 	}
 	h, err := ai.NewHarness(cfg)
 	if err != nil {
@@ -100,6 +101,7 @@ func run() error {
 		ToolContextFormat:         ai.ToolContextMarkdown,
 		BlockDirectWriteTools:     true,
 		EnableProposeWriteHelper: true,
+		Grounding:                 ai.GroundingConfig{Mode: ai.GroundingStandard},
 	})
 	if err != nil {
 		return err

@@ -27,6 +27,22 @@ func HarnessExecutorGuardrails(cfg Config) []string {
 	return notes
 }
 
+// HarnessGroundingGuardrails returns wiring notes for FHIR grounding behind Harness.
+func HarnessGroundingGuardrails(hcfg HarnessConfig) []string {
+	var notes []string
+	mode := hcfg.Grounding.Mode
+	if mode == "" {
+		mode = GroundingStandard
+	}
+	if mode == GroundingStrict && !hcfg.BlockDirectWriteTools {
+		notes = append(notes, "GroundingStrict: enable BlockDirectWriteTools so writes go through propose_write_resource / CommitWrite")
+	}
+	if mode != GroundingOff && hcfg.ToolContextFormat != ToolContextMarkdown {
+		notes = append(notes, "set ToolContextFormat to markdown so tool rows are easier for models to quote accurately")
+	}
+	return notes
+}
+
 // FormatHarnessExecutorGuardrails renders guardrail notes as bullet lines (empty when OK).
 func FormatHarnessExecutorGuardrails(cfg Config) string {
 	notes := HarnessExecutorGuardrails(cfg)

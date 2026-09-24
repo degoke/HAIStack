@@ -132,6 +132,30 @@ h, _ := ai.NewHarness(ai.HarnessConfig{
 })
 ```
 
+## Grounding and anti-hallucination
+
+The harness sits on top of `Executor` tools so answers are tied to **read / search / view / structured write** paths—not free-form FHIR JSON.
+
+| Layer | What it does |
+|-------|----------------|
+| **Executor** | Policy, validation, citations on every tool, audit, de-id, approval tokens on writes |
+| **Harness prompts** | `GroundingConfig` appends `DefaultFHIRGroundingSystemPrompt` (use tools for facts; no invented ids) |
+| **Post-checks** | `AnalyzeAnswerGrounding` warns when the answer cites `Resource/id` literals missing from `ChatResult.Citations` |
+| **Strict mode** | `GroundingMode: strict` returns `ErrUngroundedAnswer` if a data-style question is answered without read/search/view evidence, or if uncited refs appear |
+
+```go
+Grounding: ai.GroundingConfig{Mode: ai.GroundingStandard}, // default
+// Production agents handling chart questions:
+Grounding: ai.GroundingConfig{Mode: ai.GroundingStrict},
+BlockDirectWriteTools: true,
+EnableProposeWriteHelper: true,
+ToolContextFormat: ai.ToolContextMarkdown,
+```
+
+`ChatResult.GroundingWarnings` lists non-fatal issues in standard mode. Writes still require host approval via `PendingApprovals` + `ExecuteHarnessTool` with `ApprovalToken`.
+
+`HarnessGroundingGuardrails(hcfg)` complements `HarnessExecutorGuardrails` for wiring checks.
+
 ## Why not validate arbitrary FHIR JSON?
 
 Models can hallucinate invalid or unsafe resources. The executor **does not** accept
