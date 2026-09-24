@@ -288,6 +288,15 @@
       "action": "execute-ai-tool",
       "toolName": "create_fhir_resource",
       "expectAllow": false
+    },
+    {
+      "id": "ai_tool_update_denied",
+      "doc": "update_fhir_resource is denied by default.",
+      "principal": "clinician",
+      "policy": "base",
+      "action": "execute-ai-tool",
+      "toolName": "update_fhir_resource",
+      "expectAllow": false
     }
   ]
 }

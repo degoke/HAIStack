@@ -9,6 +9,7 @@ import (
 
 	"github.com/degoke/haistack/examples/internal/appkit"
 	"github.com/degoke/haistack/pkg/ai"
+	"github.com/degoke/haistack/pkg/validate"
 )
 
 func main() {
@@ -49,13 +50,19 @@ func run() error {
 		MaxCount:      10,
 	}
 
+	validator, err := validate.NewEngine(validate.Config{})
+	if err != nil {
+		return err
+	}
 	exec, err := ai.NewExecutor(ai.Config{
-		Resources:     stack.DB.ResourceStore(),
-		Search:        stack.SearchService,
-		Core:          stack.ResourceService,
-		Policy:        policy,
-		Audit:         &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
-		AuditRequired: true,
+		Resources:                stack.DB.ResourceStore(),
+		Search:                   stack.SearchService,
+		Core:                     stack.ResourceService,
+		Policy:                   policy,
+		Validator:                validator,
+		RequireValidatorOnWrites: true,
+		Audit:                    &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
+		AuditRequired:            true,
 		AIAttribution: ai.AIAttributionConfig{
 			Enabled:      true,
 			AgentDisplay: "ai-harness-example",

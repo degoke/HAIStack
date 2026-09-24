@@ -42,8 +42,8 @@ func (d ResourceWriteDraft) Validate() error {
 			return fmt.Errorf("%w: at least one field is required for create", ErrInvalidInput)
 		}
 		for key := range d.Fields {
-			if key == "resourceType" || key == "id" {
-				return fmt.Errorf("%w: field %q cannot be set in fields map", ErrInvalidInput, key)
+			if err := validateWriteKey(key); err != nil {
+				return err
 			}
 		}
 	case WriteOperationUpdate:
@@ -63,8 +63,8 @@ func (d ResourceWriteDraft) Validate() error {
 }
 
 func validateDraftPatchPath(resourceType, path string) error {
-	if path == "resourceType" || path == "id" {
-		return fmt.Errorf("%w: patch key %q is not allowed", ErrInvalidInput, path)
+	if err := validateWriteKey(path); err != nil {
+		return err
 	}
 	if err := core.ValidateFHIRResourcePath(resourceType, path); err != nil {
 		return fmt.Errorf("%w: invalid FHIRPath %q: %v", ErrInvalidInput, path, err)

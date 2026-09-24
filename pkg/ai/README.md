@@ -11,7 +11,7 @@ v1 centers on five generic tools that sit in front of the existing stack:
 - `search_fhir_resources` — search with allow-listed parameters and bounded paging
 - `run_view` — execute a registered ViewDefinition for structured context
 - `create_fhir_resource` — structured create with field maps, validation, and optional approval
-- `update_fhir_resource` — updates via FHIRPath `patches` only (no field-map updates)
+- `update_fhir_resource` — updates via patch-path `patches` only (FHIR Patch path syntax such as `name[0].family`; not FHIRPath `.where()` expressions)
 
 Convenience wrappers (`get_patient_summary`, `get_upcoming_appointments`,
 `search_patient_by_phone`) delegate to these generic operations and are
@@ -310,9 +310,9 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 |-------|----------|-------------|
 | `resourceType` | yes | FHIR resource type |
 | `id` | yes | Existing resource id |
-| `patches` | yes | Map of FHIRPath → value |
+| `patches` | yes | Map of patch path → value (same path rules as FHIR Patch, not FHIRPath functions) |
 
-Writes do not accept arbitrary full Resource JSON or PATCH documents.
+Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
 
 ## Safety model
 
@@ -322,7 +322,7 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents.
 - Unlisted views cannot be executed
 - Search requests containing any parameter not on the allow-list are denied
 - Search results expose only `resourceType`/`id` unless `AllowedFields` or `AllowAllFields` is configured
-- Write fields not on the allow-list are rejected
+- Write fields not on the allow-list are rejected; for updates each patch key must match an `UpdateFields` entry exactly (e.g. `name[0].family` ≠ `name.family`)
 - `SearchTypePolicy.MaxCount` bounds page size
 - `_include` and `_revinclude` directives require exact policy allow-list entries
 

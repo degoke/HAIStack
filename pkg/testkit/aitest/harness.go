@@ -19,8 +19,10 @@ import (
 
 // Harness wires an ai.Executor with optional search, views, core, and policy fakes.
 type Harness struct {
-	Resources *storetest.ResourceStore
-	Search    *search.Service
+	Resources   *storetest.ResourceStore
+	SearchIndex   *storetest.SearchStore // populated when WithSearch; updated atomically with Core writes
+	SearchIndexer search.Indexer         // same indexer wired into Core when WithSearch && WithCore
+	Search        *search.Service
 	Views     *view.Executor
 	Core      *core.ResourceService
 	Policy    *ai.AllowListPolicy
@@ -210,8 +212,10 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	}
 
 	return &Harness{
-		Resources: resources,
-		Search:    searchSvc,
+		Resources:   resources,
+		SearchIndex:   indexedStore,
+		SearchIndexer: searchIndexer,
+		Search:        searchSvc,
 		Views:     viewExec,
 		Core:      coreSvc,
 		Policy:    policy,

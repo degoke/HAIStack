@@ -61,7 +61,8 @@
 //
 // create_fhir_resource: resourceType, optional id, fields (approved top-level FHIR fields)
 //
-// update_fhir_resource: resourceType, id, patches (FHIRPath keys → values)
+// update_fhir_resource: resourceType, id, patches (FHIR Patch path keys → values;
+// not full FHIRPath expressions with functions)
 //
 // # Typical usage
 //

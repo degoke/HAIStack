@@ -96,6 +96,9 @@ func parseCreateInput(input map[string]any) (CreateInput, error) {
 	if len(fields) == 0 {
 		return CreateInput{}, fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
 	}
+	if err := validateWriteMapKeys(fields); err != nil {
+		return CreateInput{}, err
+	}
 	return CreateInput{ResourceType: rt, ID: id, Fields: fields}, nil
 }
 
@@ -127,14 +130,43 @@ func parsePatches(raw any, resourceType string) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: at least one patch is required", ErrInvalidInput)
 	}
 	for path := range m {
-		if path == "resourceType" || path == "id" {
-			return nil, fmt.Errorf("%w: patch key %q is not allowed", ErrInvalidInput, path)
+		if err := validateWriteKey(path); err != nil {
+			return nil, err
 		}
 		if err := core.ValidateFHIRResourcePath(resourceType, path); err != nil {
 			return nil, fmt.Errorf("%w: invalid FHIRPath %q: %v", ErrInvalidInput, path, err)
 		}
 	}
 	return m, nil
+}
+
+// validateWriteMapKeys rejects map keys that would set resource identity (resourceType/id).
+func validateWriteMapKeys(m map[string]any) error {
+	for key := range m {
+		if err := validateWriteKey(key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateWriteKey rejects keys/paths that target resourceType or id (tool input sets those).
+func validateWriteKey(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "resourceType" || key == "id" {
+		return fmt.Errorf("%w: %q cannot be set in fields or patches", ErrInvalidInput, key)
+	}
+	first := key
+	if dot := strings.IndexByte(key, '.'); dot >= 0 {
+		first = key[:dot]
+	}
+	if br := strings.IndexByte(first, '['); br >= 0 {
+		first = first[:br]
+	}
+	if first == "resourceType" || first == "id" {
+		return fmt.Errorf("%w: path %q cannot modify resourceType or id", ErrInvalidInput, key)
+	}
+	return nil
 }
 
 func parseFields(raw any) (map[string]any, error) {

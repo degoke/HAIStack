@@ -71,6 +71,9 @@ func (e *Executor) execPersistWrite(ctx context.Context, req ToolRequest, params
 	if err := e.ensureWriteValidator(); err != nil {
 		return nil, nil, "", false, "", nil, err
 	}
+	if err := validateWriteMapKeys(params.Allowed); err != nil {
+		return nil, nil, "", false, "", nil, err
+	}
 
 	decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
 		Actor: req.Actor, Subject: req.Subject,
@@ -86,12 +89,6 @@ func (e *Executor) execPersistWrite(ctx context.Context, req ToolRequest, params
 	if !decision.Allowed {
 		return nil, nil, "", false, "", nil, fmt.Errorf("%w: write %s %s", ErrPolicyDenied, params.Operation, params.ResourceType)
 	}
-	for field := range params.Allowed {
-		if field == "resourceType" || field == "id" {
-			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %q cannot be written", ErrPolicyDenied, field)
-		}
-	}
-
 	allowed := filterAllowedFields(params.Allowed, decision.AllowedFields)
 	jsonData, err := params.buildJSON(allowed)
 	if err != nil {

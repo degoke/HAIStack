@@ -207,8 +207,9 @@ exec, _ := ai.NewExecutor(ai.Config{
 
 Models can hallucinate invalid or unsafe resources. The executor **does not** accept
 full Resource JSON from model text. Creates use `create_fhir_resource` with an allow-listed **fields** map;
-updates use `update_fhir_resource` with **patches** keyed by FHIRPath so policy, validation, and approval
-run on explicit paths. Set `RequireValidatorOnWrites` on the executor to require `pkg/validate` on every commit.
+updates use `update_fhir_resource` with **patches** keyed by FHIR Patch paths (e.g. `name[0].family`), not
+FHIRPath functions such as `Patient.name.where(...)`. Policy `UpdateFields` must list patch keys exactly.
+Set `RequireValidatorOnWrites` on the executor to require `pkg/validate` on every commit.
 The harness reinforces that with `BlockDirectWriteTools` + `propose_write_resource` →
 `CommitWrite`. Validating arbitrary generated FHIR would duplicate `pkg/validate` on
 untrusted blobs and still bypass field-level policy.

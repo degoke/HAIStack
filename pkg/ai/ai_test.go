@@ -283,7 +283,7 @@ func TestRunView_PolicyDenied(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_CreateSuccess(t *testing.T) {
+func TestCreateFhirResource_Success(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		allowPatientWrite: true,
@@ -315,7 +315,7 @@ func TestWriteFhirResource_CreateSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_UpdateSuccess(t *testing.T) {
+func TestUpdateFhirResource_Success(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:      true,
 		withCore:          true,
@@ -343,7 +343,7 @@ func TestWriteFhirResource_UpdateSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_BlockedField(t *testing.T) {
+func TestCreateFhirResource_BlockedField(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		allowPatientWrite: true,
@@ -365,7 +365,7 @@ func TestWriteFhirResource_BlockedField(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_BlockedResourceType(t *testing.T) {
+func TestCreateFhirResource_BlockedResourceType(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true})
 	ctx := context.Background()
 
@@ -384,7 +384,7 @@ func TestWriteFhirResource_BlockedResourceType(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_ValidationFailure(t *testing.T) {
+func TestCreateFhirResource_ValidationFailure(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		withValidator:     true,
@@ -411,7 +411,7 @@ func TestWriteFhirResource_ValidationFailure(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_ApprovalRequired(t *testing.T) {
+func TestCreateFhirResource_ApprovalRequired(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:              true,
 		allowPatientWrite:     true,
@@ -975,8 +975,8 @@ func TestWriteRejectsReservedFields(t *testing.T) {
 			"fields":       map[string]any{"id": "forged"},
 		},
 	})
-	if !errors.Is(err, ai.ErrPolicyDenied) {
-		t.Fatalf("err = %v, want ErrPolicyDenied", err)
+	if !errors.Is(err, ai.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
 

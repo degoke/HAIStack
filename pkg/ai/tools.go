@@ -15,7 +15,7 @@ type ToolDescriptor struct {
 	InputKeys   []string `json:"inputKeys,omitempty"`
 }
 
-// GenericToolDescriptors returns metadata for the four built-in generic tools.
+// GenericToolDescriptors returns metadata for the five built-in generic tools.
 func GenericToolDescriptors() []ToolDescriptor {
 	return []ToolDescriptor{
 		{
@@ -44,14 +44,14 @@ func GenericToolDescriptors() []ToolDescriptor {
 		},
 		{
 			Name:        ToolUpdateFhirResource,
-			Description: "Update a FHIR resource using FHIRPath keys mapped to values (patches object)",
+			Description: "Update a FHIR resource using patch-path keys (FHIR Patch path syntax, e.g. name[0].family—not FHIRPath functions like .where()) mapped to values in patches",
 			Generic:     true,
 			InputKeys:   []string{"resourceType", "id", "patches"},
 		},
 	}
 }
 
-// IsWriteTool reports whether name is a FHIR write tool (create, update, or legacy write).
+// IsWriteTool reports whether name is a FHIR write tool (create or update).
 func IsWriteTool(name string) bool {
 	switch name {
 	case ToolCreateFhirResource, ToolUpdateFhirResource:

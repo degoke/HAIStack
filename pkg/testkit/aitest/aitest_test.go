@@ -70,6 +70,7 @@ func TestHarnessApprovedUpdateUsesApprovalStoreAndSharedResources(t *testing.T) 
 }
 
 func TestHarnessCoreWritesUpdateSharedResources(t *testing.T) {
+	ctx := context.Background()
 	h := aitest.NewHarness(t, aitest.Options{
 		SeedPatients:       true,
 		WithSearch:         true,
@@ -77,7 +78,7 @@ func TestHarnessCoreWritesUpdateSharedResources(t *testing.T) {
 		AllowPatientWrite:  true,
 		AllowPatientSearch: true,
 	})
-	_, err := h.Executor.ExecuteTool(context.Background(), ai.ToolRequest{
+	_, err := h.Executor.ExecuteTool(ctx, ai.ToolRequest{
 		ToolName: ai.ToolUpdateFhirResource,
 		Input: map[string]any{
 			"resourceType": "Patient",

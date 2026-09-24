@@ -106,6 +106,10 @@ type ViewTypePolicy struct {
 }
 
 // WriteTypePolicy configures write access for one resource type.
+//
+// CreateFields lists allowed top-level field names (and dotted top-level paths for create).
+// UpdateFields lists allowed patch keys for update_fhir_resource; matching is exact
+// (e.g. name[0].family and name.family are different keys). Do not list resourceType or id.
 type WriteTypePolicy struct {
 	CreateFields   []string
 	UpdateFields   []string
@@ -307,6 +311,9 @@ func (p *AllowListPolicy) CheckWrite(_ context.Context, req WritePolicyRequest) 
 		return &WritePolicyDecision{Allowed: false}, nil
 	}
 	for field := range req.Fields {
+		if err := validateWriteKey(field); err != nil {
+			return nil, err
+		}
 		if !slices.Contains(allowedFields, field) {
 			return nil, fmt.Errorf("%w: field %q not allowed for %s %s", ErrPolicyDenied, field, req.Operation, req.ResourceType)
 		}
