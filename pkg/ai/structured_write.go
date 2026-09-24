@@ -99,18 +99,6 @@ func (d ResourceWriteDraft) ToExecutorToolInput() (string, map[string]any, error
 	}
 }
 
-// ToWriteFhirResourceInput is deprecated; use ToExecutorToolInput.
-func (d ResourceWriteDraft) ToWriteFhirResourceInput() (map[string]any, error) {
-	tool, input, err := d.ToExecutorToolInput()
-	if err != nil {
-		return nil, err
-	}
-	if tool == ToolUpdateFhirResource {
-		return nil, fmt.Errorf("%w: updates must use update_fhir_resource", ErrInvalidInput)
-	}
-	return input, nil
-}
-
 // ResourceWriteDraftFromMap parses harness tool arguments or JSON objects.
 func ResourceWriteDraftFromMap(input map[string]any) (ResourceWriteDraft, error) {
 	if input == nil {
@@ -283,17 +271,6 @@ func draftFromWriteToolInput(toolName string, input map[string]any) (ResourceWri
 			ResourceType: parsed.ResourceType,
 			ID:           parsed.ID,
 			Patches:      parsed.Patches,
-		}, nil
-	case ToolWriteFhirResource:
-		parsed, err := parseWriteInput(input)
-		if err != nil {
-			return ResourceWriteDraft{}, err
-		}
-		return ResourceWriteDraft{
-			Operation:    parsed.Operation,
-			ResourceType: parsed.ResourceType,
-			ID:           parsed.ID,
-			Fields:       parsed.Fields,
 		}, nil
 	default:
 		return ResourceWriteDraft{}, fmt.Errorf("%w: not a write tool", ErrInvalidInput)

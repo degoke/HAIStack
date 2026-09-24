@@ -14,12 +14,12 @@ func TestPatientCreateDraft_ToWriteInput(t *testing.T) {
 		Gender: "male",
 		Phone:  "555-0199",
 	}
-	input, err := draft.ToWriteFhirResourceInput()
+	input, err := draft.ToCreateFhirResourceInput()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input["operation"] != ai.WriteOperationCreate {
-		t.Fatalf("operation = %v", input["operation"])
+	if input["resourceType"] != "Patient" {
+		t.Fatalf("resourceType = %v", input["resourceType"])
 	}
 	fields, _ := input["fields"].(map[string]any)
 	if fields == nil {

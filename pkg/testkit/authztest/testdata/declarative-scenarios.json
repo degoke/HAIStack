@@ -281,12 +281,12 @@
       "expectAllow": true
     },
     {
-      "id": "ai_tool_write_denied",
-      "doc": "write_fhir_resource is denied by default.",
+      "id": "ai_tool_create_denied",
+      "doc": "create_fhir_resource is denied by default.",
       "principal": "clinician",
       "policy": "base",
       "action": "execute-ai-tool",
-      "toolName": "write_fhir_resource",
+      "toolName": "create_fhir_resource",
       "expectAllow": false
     }
   ]

@@ -176,7 +176,11 @@ func (e *Executor) recordWriteProvenance(ctx context.Context, req ToolRequest, w
 		return ProvenanceRecordResult{}
 	}
 	if cfg.provenanceBestEffort() {
-		_ = e.logAudit(ctx, req, ToolWriteFhirResource, "provenance-failed", map[string]string{
+		toolName := req.ToolName
+		if toolName == "" {
+			toolName = ToolCreateFhirResource
+		}
+		_ = e.logAudit(ctx, req, toolName, "provenance-failed", map[string]string{
 			"error":        err.Error(),
 			"resourceType": written.ResourceType,
 			"id":           written.ID,

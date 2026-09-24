@@ -34,17 +34,30 @@ func (d PatientCreateDraft) Validate() error {
 
 // ToResourceWriteDraft converts the patient-specific draft to a generic write draft.
 func (d PatientCreateDraft) ToResourceWriteDraft() (ResourceWriteDraft, error) {
-	input, err := d.ToWriteFhirResourceInput()
+	if err := d.Validate(); err != nil {
+		return ResourceWriteDraft{}, err
+	}
+	_, input, err := d.toCreateInput()
 	if err != nil {
 		return ResourceWriteDraft{}, err
 	}
-	return ResourceWriteDraftFromMap(input)
+	fields, _ := input["fields"].(map[string]any)
+	return ResourceWriteDraft{
+		Operation:    WriteOperationCreate,
+		ResourceType: "Patient",
+		Fields:       fields,
+	}, nil
 }
 
-// ToWriteFhirResourceInput returns write_fhir_resource tool input only (no execution).
-func (d PatientCreateDraft) ToWriteFhirResourceInput() (map[string]any, error) {
+// ToCreateFhirResourceInput returns create_fhir_resource tool input only (no execution).
+func (d PatientCreateDraft) ToCreateFhirResourceInput() (map[string]any, error) {
+	_, input, err := d.toCreateInput()
+	return input, err
+}
+
+func (d PatientCreateDraft) toCreateInput() (string, map[string]any, error) {
 	if err := d.Validate(); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	name := map[string]any{
 		"family": d.Family,
@@ -67,8 +80,7 @@ func (d PatientCreateDraft) ToWriteFhirResourceInput() (map[string]any, error) {
 			},
 		}
 	}
-	return map[string]any{
-		"operation":    WriteOperationCreate,
+	return ToolCreateFhirResource, map[string]any{
 		"resourceType": "Patient",
 		"fields":       fields,
 	}, nil

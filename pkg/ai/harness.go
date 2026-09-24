@@ -32,7 +32,7 @@ type HarnessConfig struct {
 	EnableProposeWriteHelper bool
 	// EnablePatientCreateHelper is deprecated: use EnableProposeWriteHelper (kept for compatibility).
 	EnablePatientCreateHelper bool
-	// BlockDirectWriteTools removes write_fhir_resource from the model tool list so commits
+	// BlockDirectWriteTools removes create/update FHIR write tools from the model tool list so commits
 	// go through structured helpers (e.g. CommitWrite) instead of free-form tool args.
 	BlockDirectWriteTools bool
 	// AutoConversationID assigns a UUID when Chat runs without SetConversationID (useful with RequireConversationID).
@@ -49,7 +49,7 @@ type HarnessConfig struct {
 	Grounding GroundingConfig
 	// RequireCommitConfirmation requires CommitWriteConfirm before CommitWrite / CommitWriteFromSession.
 	RequireCommitConfirmation bool
-	// CommitWriteConfirm is invoked before executing write_fhir_resource via CommitWrite.
+	// CommitWriteConfirm is invoked before executing FHIR write tools via CommitWrite.
 	CommitWriteConfirm func(ctx context.Context, draft ResourceWriteDraft) error
 }
 
@@ -463,7 +463,7 @@ func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (str
 		if perr != nil {
 			return toolErrorContent(perr), nil, perr
 		}
-		writeInput, err = patient.ToWriteFhirResourceInput()
+		writeInput, err = patient.ToCreateFhirResourceInput()
 		execTool = ToolCreateFhirResource
 	} else {
 		draft, mapErr := ResourceWriteDraftFromMap(input)

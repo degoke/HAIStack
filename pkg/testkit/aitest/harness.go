@@ -179,7 +179,7 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	if opts.AllowPatientWrite {
 		policy.Write["Patient"] = ai.WriteTypePolicy{
 			CreateFields:   []string{"name", "gender"},
-			UpdateFields:   []string{"name"},
+			UpdateFields:   []string{"name", "name[0].family"},
 			CreateApproval: opts.WriteRequiresApproval,
 			UpdateApproval: opts.WriteRequiresApproval,
 		}

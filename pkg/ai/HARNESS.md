@@ -163,7 +163,7 @@ ToolContextFormat: ai.ToolContextMarkdown,
 
 ## Host confirmation before commit
 
-All `write_fhir_resource` paths through the harness share the same gate: `Chat` tool execution, `ExecuteHarnessTool`, and `CommitWrite` / `CommitWriteFromSession`. Enable an explicit host callback:
+All FHIR write tool paths through the harness share the same gate: `Chat` tool execution, `ExecuteHarnessTool`, and `CommitWrite` / `CommitWriteFromSession`. Enable an explicit host callback:
 
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{
@@ -188,7 +188,7 @@ When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated c
 
 **Provenance is best-effort by default** (`ProvenanceBestEffort`, default true): the clinical write succeeds even if Provenance `Create` fails; audit outcome `provenance-failed` and `provenanceWarning` on the tool result. For atomic write+Provenance, use `core.ResourceService.ProcessTransactionBundle` in your deployment (not automatic on the executor path).
 
-Provenance is created via `Core.Create` (system side-effect, not `write_fhir_resource` policy). Ensure the core store allows `Provenance` creates for the executor principal.
+Provenance is created via `Core.Create` (system side-effect, not create/update tool policy). Ensure the core store allows `Provenance` creates for the executor principal.
 
 Wire attribution on the same executor used by the harness; pass `ConversationID` on writes via session (`Harness` sets it from the active session).
 

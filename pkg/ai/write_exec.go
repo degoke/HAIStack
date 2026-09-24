@@ -55,24 +55,6 @@ func (e *Executor) execUpdateFhirResource(ctx context.Context, req ToolRequest, 
 	})
 }
 
-func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[string]any) (any, []Citation, string, bool, string, []string, error) {
-	parsed, err := parseWriteInput(input)
-	if err != nil {
-		return nil, nil, "", false, "", nil, err
-	}
-	if parsed.Operation == WriteOperationUpdate {
-		return nil, nil, "", false, "", nil, fmt.Errorf("%w: updates must use %s with FHIRPath patches (not fields)", ErrInvalidInput, ToolUpdateFhirResource)
-	}
-	createInput := map[string]any{
-		"resourceType": parsed.ResourceType,
-		"fields":       parsed.Fields,
-	}
-	if parsed.ID != "" {
-		createInput["id"] = parsed.ID
-	}
-	return e.execCreateFhirResource(ctx, req, createInput)
-}
-
 type persistWriteParams struct {
 	Operation    string
 	ResourceType string

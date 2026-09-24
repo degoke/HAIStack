@@ -3,13 +3,14 @@
 //
 // # Scope
 //
-// v1 centers on four generic, policy-bounded tools rather than a large catalog of
+// v1 centers on five generic, policy-bounded tools rather than a large catalog of
 // hard-coded domain tools:
 //
 //   - read_fhir_resource
 //   - search_fhir_resources
 //   - run_view
-//   - write_fhir_resource
+//   - create_fhir_resource
+//   - update_fhir_resource
 //
 // These are constrained, typed, audited operations in front of pkg/view,
 // pkg/search, pkg/core, and pkg/validate — not raw FHIR server passthroughs.
@@ -58,8 +59,9 @@
 //
 // run_view: viewName, optional version, parameters, limit, offset
 //
-// write_fhir_resource: operation (create|update), resourceType, id (update
-// only), fields (approved top-level FHIR fields only)
+// create_fhir_resource: resourceType, optional id, fields (approved top-level FHIR fields)
+//
+// update_fhir_resource: resourceType, id, patches (FHIRPath keys → values)
 //
 // # Typical usage
 //
@@ -73,7 +75,7 @@
 //	policy.Views["patient_summary_view"] = ai.ViewTypePolicy{}
 //	policy.Write["Patient"] = ai.WriteTypePolicy{
 //	    CreateFields: []string{"name", "gender"},
-//	    UpdateFields: []string{"name"},
+//	    UpdateFields: []string{"name[0].family"},
 //	}
 //
 //	exec, err := ai.NewExecutor(ai.Config{
@@ -119,7 +121,7 @@
 //
 //   - haistack-view: run_view delegates to view.Executor for structured rows.
 //   - haistack-search: search_fhir_resources delegates to search.Service.
-//   - haistack-core: write_fhir_resource commits through core.ResourceService.
+//   - haistack-core: create/update FHIR tools commit through core.ResourceService.
 //   - haistack-validate: optional Validator on the write path.
 //   - haistack-auth: auth.AIPolicyAdapter implements PolicyEngine with
 //     principal/tenant decisions and optional AIConstraints for field narrowing.

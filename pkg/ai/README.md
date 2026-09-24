@@ -5,12 +5,13 @@ audited tools — not arbitrary FHIR server commands.
 
 ## What it does
 
-v1 centers on four generic tools that sit in front of the existing stack:
+v1 centers on five generic tools that sit in front of the existing stack:
 
 - `read_fhir_resource` — read one resource through policy allow-lists
 - `search_fhir_resources` — search with allow-listed parameters and bounded paging
 - `run_view` — execute a registered ViewDefinition for structured context
-- `write_fhir_resource` — structured create/update with validation and optional approval
+- `create_fhir_resource` — structured create with field maps, validation, and optional approval
+- `update_fhir_resource` — updates via FHIRPath `patches` only (no field-map updates)
 
 Convenience wrappers (`get_patient_summary`, `get_upcoming_appointments`,
 `search_patient_by_phone`) delegate to these generic operations and are
@@ -70,7 +71,7 @@ res, _ := h.Chat(ctx, "Find patient Jane")
 
 | Direction | Package | Relationship |
 |-----------|---------|--------------|
-| Upstream | **core** | Validated writes for `write_fhir_resource` |
+| Upstream | **core** | Validated writes for `create_fhir_resource` / `update_fhir_resource` |
 | Upstream | **search** | Parameterized lookup for `search_fhir_resources` |
 | Upstream | **view** | `run_view` executes registered ViewDefinitions |
 | Upstream | **validate** | Structural checks on write field maps |
@@ -137,9 +138,8 @@ exec, err := ai.NewExecutor(ai.Config{
     RequireConversationID: true,
 })
 res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
-    ToolName: ai.ToolWriteFhirResource,
+    ToolName: ai.ToolCreateFhirResource,
     Input: map[string]any{
-        "operation": "create",
         "resourceType": "Patient",
         "fields": map[string]any{"name": []any{map[string]any{"family": "Smith"}}},
     },
@@ -296,16 +296,23 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 | `limit` | no | Max rows returned |
 | `offset` | no | Row offset |
 
-### `write_fhir_resource`
+### `create_fhir_resource`
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `operation` | yes | `create` or `update` |
 | `resourceType` | yes | FHIR resource type |
-| `id` | update only | Existing resource id |
+| `id` | no | Optional client-assigned id |
 | `fields` | yes | Approved top-level FHIR fields |
 
-Writes do not accept arbitrary FHIR JSON or PATCH documents.
+### `update_fhir_resource`
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `resourceType` | yes | FHIR resource type |
+| `id` | yes | Existing resource id |
+| `patches` | yes | Map of FHIRPath → value |
+
+Writes do not accept arbitrary full Resource JSON or PATCH documents.
 
 ## Safety model
 
@@ -336,7 +343,7 @@ Citations attach provenance for model grounding:
 - Resource refs (`Patient/pat-1`) for reads and search matches
 - View name, version, and columns for `run_view`
 - Search parameter names for `search_fhir_resources`
-- Written resource ref and operation for `write_fhir_resource`
+- Written resource ref and operation for create/update tools
 
 Audit records capture actor, subject, tool name, outcome, and request scope.
 Outcomes include `success`, `denied`, `validation-failed`, and
@@ -349,7 +356,7 @@ Outcomes include `success`, `denied`, `validation-failed`, and
 | **ai** | Policy-governed tool harness (this package) |
 | **view** | Structured projections for `run_view` |
 | **search** | Parameterized lookup for `search_fhir_resources` |
-| **core** | Validated writes for `write_fhir_resource` |
+| **core** | Validated writes for create/update FHIR tools |
 | **validate** | Structural validation on write path |
 | **auth** | `AIPolicyAdapter` implements `PolicyEngine` with principal/tenant decisions; optional decision audit via `pkg/audit` |
 | **audit** | Shared audit event library used by AI `AuditStoreAdapter` |

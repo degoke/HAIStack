@@ -137,40 +137,6 @@ func parsePatches(raw any, resourceType string) (map[string]any, error) {
 	return m, nil
 }
 
-func parseWriteInput(input map[string]any) (WriteInput, error) {
-	op, err := requireString(input, "operation")
-	if err != nil {
-		return WriteInput{}, err
-	}
-	if op != "create" && op != "update" {
-		return WriteInput{}, fmt.Errorf("%w: operation must be create or update", ErrInvalidInput)
-	}
-	rt, err := requireString(input, "resourceType")
-	if err != nil {
-		return WriteInput{}, err
-	}
-	id, err := optionalStringValue(input, "id")
-	if err != nil {
-		return WriteInput{}, err
-	}
-	if op == "update" && id == "" {
-		return WriteInput{}, fmt.Errorf("%w: id is required for update", ErrInvalidInput)
-	}
-	fields, err := parseFields(input["fields"])
-	if err != nil {
-		return WriteInput{}, err
-	}
-	if len(fields) == 0 {
-		return WriteInput{}, fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
-	}
-	return WriteInput{
-		Operation:    op,
-		ResourceType: rt,
-		ID:           id,
-		Fields:       fields,
-	}, nil
-}
-
 func parseFields(raw any) (map[string]any, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("%w: fields is required", ErrInvalidInput)

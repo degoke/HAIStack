@@ -1,6 +1,6 @@
 package ai
 
-// Write operation constants for write_fhir_resource input.
+// Write operation constants for harness drafts and policy.
 const (
 	WriteOperationCreate = "create"
 	WriteOperationUpdate = "update"
@@ -54,7 +54,7 @@ func GenericToolDescriptors() []ToolDescriptor {
 // IsWriteTool reports whether name is a FHIR write tool (create, update, or legacy write).
 func IsWriteTool(name string) bool {
 	switch name {
-	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolWriteFhirResource:
+	case ToolCreateFhirResource, ToolUpdateFhirResource:
 		return true
 	default:
 		return false

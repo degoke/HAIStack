@@ -9,10 +9,8 @@ const (
 	ToolReadFhirResource    = "read_fhir_resource"
 	ToolSearchFhirResources = "search_fhir_resources"
 	ToolRunView             = "run_view"
-	ToolCreateFhirResource  = "create_fhir_resource"
-	ToolUpdateFhirResource  = "update_fhir_resource"
-	// ToolWriteFhirResource is deprecated: use create_fhir_resource / update_fhir_resource.
-	ToolWriteFhirResource = "write_fhir_resource"
+	ToolCreateFhirResource = "create_fhir_resource"
+	ToolUpdateFhirResource = "update_fhir_resource"
 )
 
 // Convenience tool names built on the generic core.
@@ -81,14 +79,6 @@ type ViewInput struct {
 	Parameters map[string]any
 	Limit      int
 	Offset     int
-}
-
-// WriteInput is the typed input for legacy write_fhir_resource (create only).
-type WriteInput struct {
-	Operation    string
-	ResourceType string
-	ID           string
-	Fields       map[string]any
 }
 
 // CreateInput is the typed input for create_fhir_resource.

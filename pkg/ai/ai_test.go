@@ -980,22 +980,6 @@ func TestWriteRejectsReservedFields(t *testing.T) {
 	}
 }
 
-func TestLegacyWriteFhirResource_RejectsUpdate(t *testing.T) {
-	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true, seedPatients: true})
-	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
-		Input: map[string]any{
-			"operation":    "update",
-			"resourceType": "Patient",
-			"id":           "pat-jane",
-			"fields":       map[string]any{"gender": "male"},
-		},
-	})
-	if !errors.Is(err, ai.ErrInvalidInput) {
-		t.Fatalf("err = %v, want ErrInvalidInput", err)
-	}
-}
-
 func TestNewExecutorRequiresValidatorWhenWriteValidationRequired(t *testing.T) {
 	_, err := ai.NewExecutor(ai.Config{
 		Policy:                   ai.NewAllowListPolicy(),
