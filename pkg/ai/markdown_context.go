@@ -36,7 +36,7 @@ func (b *MarkdownContextBuilder) FormatToolResult(toolName string, data any, cit
 		return formatSearchMarkdown(data, citations)
 	case ToolReadFhirResource:
 		return formatReadMarkdown(data, citations)
-	case ToolWriteFhirResource:
+	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolWriteFhirResource:
 		return formatWriteMarkdown(data, citations)
 	default:
 		if data == nil {

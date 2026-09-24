@@ -41,6 +41,8 @@ type Config struct {
 	Now                   func() time.Time
 	// AIAttribution stamps AIAST meta.security and optional Provenance on AI-mediated writes.
 	AIAttribution AIAttributionConfig
+	// RequireValidatorOnWrites rejects writes when Validator is nil (production guardrail).
+	RequireValidatorOnWrites bool
 }
 
 // Executor validates requests, enforces policy, invokes backing packages, builds
@@ -68,6 +70,9 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	}
 	if cfg.Registry == nil {
 		cfg.Registry = NewRegistry()
+	}
+	if cfg.RequireValidatorOnWrites && cfg.Validator == nil {
+		return nil, fmt.Errorf("%w: validator required when RequireValidatorOnWrites is set", ErrMissingDependency)
 	}
 	return &Executor{cfg: cfg}, nil
 }
@@ -209,6 +214,10 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 		data, citations, outcome, redactions, err = e.execSearch(ctx, req, input)
 	case ToolRunView:
 		data, citations, outcome, redactions, err = e.execView(ctx, req, input)
+	case ToolCreateFhirResource:
+		data, citations, outcome, approval, approvalToken, redactions, err = e.execCreateFhirResource(ctx, req, input)
+	case ToolUpdateFhirResource:
+		data, citations, outcome, approval, approvalToken, redactions, err = e.execUpdateFhirResource(ctx, req, input)
 	case ToolWriteFhirResource:
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execWrite(ctx, req, input)
 	default:
@@ -520,185 +529,6 @@ func (e *Executor) execView(ctx context.Context, req ToolRequest, input map[stri
 		result.ViewName, result.Version, result.Metadata.SourceResourceType, columnNames, result.Rows,
 	)
 	return data, citations, "success", redactions, nil
-}
-
-func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[string]any) (any, []Citation, string, bool, string, []string, error) {
-	if e.cfg.Core == nil {
-		return nil, nil, "", false, "", nil, fmt.Errorf("%w: core service required for writes", ErrMissingDependency)
-	}
-	parsed, err := parseWriteInput(input)
-	if err != nil {
-		return nil, nil, "", false, "", nil, err
-	}
-
-	decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
-		Actor: req.Actor, Subject: req.Subject,
-		Operation: parsed.Operation, ResourceType: parsed.ResourceType,
-		ID: parsed.ID, Fields: parsed.Fields,
-	})
-	if err != nil {
-		return nil, nil, "", false, "", nil, err
-	}
-	if decision == nil {
-		return nil, nil, "", false, "", nil, fmt.Errorf("%w: write policy returned no decision", ErrPolicyDenied)
-	}
-	if !decision.Allowed {
-		return nil, nil, "", false, "", nil, fmt.Errorf("%w: write %s %s", ErrPolicyDenied, parsed.Operation, parsed.ResourceType)
-	}
-	for field := range parsed.Fields {
-		if field == "resourceType" || field == "id" {
-			return nil, nil, "", false, "", nil, fmt.Errorf("%w: field %q cannot be written", ErrPolicyDenied, field)
-		}
-	}
-
-	allowedFields := filterAllowedFields(parsed.Fields, decision.AllowedFields)
-	jsonData, err := envelopeJSON(parsed.ResourceType, parsed.ID, allowedFields)
-	if err != nil {
-		return nil, nil, "", false, "", nil, err
-	}
-	var existing *types.ResourceEnvelope
-	var merged []byte
-	if parsed.Operation == "update" {
-		existing, err = e.cfg.Core.Read(ctx, parsed.ResourceType, parsed.ID)
-		if err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-		merged, err = mergeUpdateJSON(existing.JSON, allowedFields)
-		if err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-	}
-
-	if parsed.Operation == "create" {
-		jsonData, err = e.stampWriteJSONForAttribution(jsonData, req)
-		if err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-	} else if parsed.Operation == "update" {
-		merged, err = e.stampWriteJSONForAttribution(merged, req)
-		if err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-	}
-
-	if e.cfg.Validator != nil {
-		candidate := jsonData
-		if parsed.Operation == "update" {
-			candidate = merged
-		}
-		env := &types.ResourceEnvelope{ResourceType: parsed.ResourceType, ID: parsed.ID, JSON: candidate}
-		result, valErr := e.cfg.Validator.Validate(ctx, env, validate.ValidateOptions{})
-		if valErr != nil {
-			return nil, nil, "", false, "", nil, valErr
-		}
-		if result != nil && !result.Valid {
-			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %d issue(s)", ErrValidationFailed, len(result.Issues))
-		}
-	}
-
-	preview := map[string]any{
-		"operation":    parsed.Operation,
-		"resourceType": parsed.ResourceType,
-		"fields":       allowedFields,
-	}
-	if parsed.ID != "" {
-		preview["id"] = parsed.ID
-	}
-
-	approvalReq := ApprovalRequest{
-		Actor: req.Actor, Subject: req.Subject,
-		Operation: parsed.Operation, ResourceType: parsed.ResourceType,
-		ID: parsed.ID, Fields: allowedFields, Preview: preview,
-	}
-	if decision.RequiresApproval {
-		var approval *ApprovalResult
-		if req.ApprovalToken != "" {
-			if e.cfg.ApprovalStore == nil {
-				return nil, nil, "", false, "", nil, ErrMissingApprovalStore
-			}
-			if verifyErr := e.cfg.ApprovalStore.VerifyAndConsume(ctx, req.ApprovalToken, approvalReq); verifyErr != nil {
-				return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrApprovalTokenInvalid, verifyErr)
-			}
-			approval = &ApprovalResult{Approved: true, Token: req.ApprovalToken}
-		} else if e.cfg.Approval != nil {
-			approval, err = e.cfg.Approval.RequestApproval(ctx, approvalReq)
-			if err != nil {
-				return nil, nil, "", false, "", nil, err
-			}
-		} else if e.cfg.ApprovalStore != nil {
-			token, createErr := e.cfg.ApprovalStore.CreatePending(ctx, approvalReq)
-			if createErr != nil {
-				return nil, nil, "", false, "", nil, createErr
-			}
-			return preview, nil, "approval-required", true, token, nil, nil
-		} else {
-			return nil, nil, "", false, "", nil, ErrMissingApprovalStore
-		}
-		if approval == nil || !approval.Approved {
-			token := ""
-			if approval != nil {
-				token = approval.Token
-			}
-			if token == "" && e.cfg.ApprovalStore != nil {
-				token, err = e.cfg.ApprovalStore.CreatePending(ctx, approvalReq)
-				if err != nil {
-					return nil, nil, "", false, "", nil, err
-				}
-			}
-			return preview, nil, "approval-required", true, token, nil, nil
-		}
-		if approval.Token == "" {
-			return nil, nil, "", false, "", nil, ErrApprovalTokenRequired
-		}
-		if req.ApprovalToken == "" {
-			if e.cfg.ApprovalStore == nil {
-				return nil, nil, "", false, "", nil, ErrMissingApprovalStore
-			}
-			if verifyErr := e.cfg.ApprovalStore.VerifyAndConsume(ctx, approval.Token, approvalReq); verifyErr != nil {
-				return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrApprovalTokenInvalid, verifyErr)
-			}
-		}
-	} else if req.ApprovalToken != "" {
-		return nil, nil, "", false, "", nil, fmt.Errorf("%w: approval token supplied for a write that does not require approval", ErrInvalidInput)
-	}
-
-	var written *types.ResourceEnvelope
-	switch parsed.Operation {
-	case "create":
-		written, err = e.cfg.Core.Create(ctx, &types.ResourceEnvelope{
-			ResourceType: parsed.ResourceType,
-			ID:           parsed.ID,
-			JSON:         jsonData,
-		})
-	case "update":
-		written, err = e.cfg.Core.Update(ctx, &types.ResourceEnvelope{
-			ResourceType: parsed.ResourceType,
-			ID:           parsed.ID,
-			JSON:         merged,
-		})
-	}
-	if err != nil {
-		if core.KindOf(err) == core.ErrorKindInvalid {
-			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrValidationFailed, err)
-		}
-		return nil, nil, "", false, "", nil, err
-	}
-	prov := e.recordWriteProvenance(ctx, req, written)
-	if prov.Err != nil && !e.cfg.AIAttribution.provenanceBestEffort() {
-		return nil, nil, "", false, "", nil, prov.Err
-	}
-
-	data := map[string]any{
-		"operation":    parsed.Operation,
-		"resourceType": written.ResourceType,
-		"id":           written.ID,
-		"versionId":    written.VersionID,
-	}
-	if prov.Warning != "" {
-		data["provenanceWarning"] = prov.Warning
-	}
-	citations := []Citation{e.cfg.Citations.WriteCitation(parsed.Operation, written.ResourceType, written.ID)}
-	return data, citations, "success", false, "", nil, nil
 }
 
 func mergeUpdateJSON(existing []byte, fields map[string]any) ([]byte, error) {

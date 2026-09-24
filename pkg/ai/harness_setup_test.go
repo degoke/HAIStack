@@ -21,8 +21,8 @@ func TestHarnessExecutorGuardrails(t *testing.T) {
 func TestFilterToolDescriptorsForHarness(t *testing.T) {
 	filtered := ai.FilterToolDescriptorsForHarness(ai.GenericToolDescriptors(), true)
 	for _, d := range filtered {
-		if d.Name == ai.ToolWriteFhirResource {
-			t.Fatal("write tool should be filtered")
+		if ai.IsWriteTool(d.Name) {
+			t.Fatalf("write tool %q should be filtered", d.Name)
 		}
 	}
 }

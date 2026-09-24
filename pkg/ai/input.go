@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/degoke/haistack/pkg/core"
 )
 
 func parseReadInput(input map[string]any) (ReadInput, error) {
@@ -76,6 +78,63 @@ func parseViewInput(input map[string]any) (ViewInput, error) {
 		Limit:      limit,
 		Offset:     offset,
 	}, nil
+}
+
+func parseCreateInput(input map[string]any) (CreateInput, error) {
+	rt, err := requireString(input, "resourceType")
+	if err != nil {
+		return CreateInput{}, err
+	}
+	id, err := optionalStringValue(input, "id")
+	if err != nil {
+		return CreateInput{}, err
+	}
+	fields, err := parseFields(input["fields"])
+	if err != nil {
+		return CreateInput{}, err
+	}
+	if len(fields) == 0 {
+		return CreateInput{}, fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
+	}
+	return CreateInput{ResourceType: rt, ID: id, Fields: fields}, nil
+}
+
+func parseUpdateInput(input map[string]any) (UpdateInput, error) {
+	if raw, ok := input["fields"]; ok && raw != nil {
+		return UpdateInput{}, fmt.Errorf("%w: updates must use %q with FHIRPath keys, not fields", ErrInvalidInput, "patches")
+	}
+	rt, err := requireString(input, "resourceType")
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	id, err := requireString(input, "id")
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	patches, err := parsePatches(input["patches"], rt)
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	return UpdateInput{ResourceType: rt, ID: id, Patches: patches}, nil
+}
+
+func parsePatches(raw any, resourceType string) (map[string]any, error) {
+	m, err := parseFields(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(m) == 0 {
+		return nil, fmt.Errorf("%w: at least one patch is required", ErrInvalidInput)
+	}
+	for path := range m {
+		if path == "resourceType" || path == "id" {
+			return nil, fmt.Errorf("%w: patch key %q is not allowed", ErrInvalidInput, path)
+		}
+		if err := core.ValidateFHIRResourcePath(resourceType, path); err != nil {
+			return nil, fmt.Errorf("%w: invalid FHIRPath %q: %v", ErrInvalidInput, path, err)
+		}
+	}
+	return m, nil
 }
 
 func parseWriteInput(input map[string]any) (WriteInput, error) {

@@ -151,7 +151,7 @@ func (r *Registry) List() []*ToolSpec {
 // IsGeneric reports whether name is a built-in generic tool.
 func IsGeneric(name string) bool {
 	switch name {
-	case ToolReadFhirResource, ToolSearchFhirResources, ToolRunView, ToolWriteFhirResource:
+	case ToolReadFhirResource, ToolSearchFhirResources, ToolRunView, ToolCreateFhirResource, ToolUpdateFhirResource, ToolWriteFhirResource:
 		return true
 	default:
 		return false

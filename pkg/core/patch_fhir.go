@@ -427,6 +427,37 @@ func mutateJSON(current any, segments []fhirPathSeg, value any, mode setMode) (a
 	}
 }
 
+// ValidateFHIRResourcePath checks that path is a supported FHIR path for resource updates.
+func ValidateFHIRResourcePath(resourceType, path string) error {
+	_, err := parseFHIRPatchPath(strings.TrimSpace(path), resourceType)
+	return err
+}
+
+// ApplyPathUpdates applies FHIR-path keyed values to an in-memory resource JSON object.
+// Path keys follow the same rules as FHIR Patch paths (see parseFHIRPatchPath).
+func ApplyPathUpdates(resourceType string, root map[string]any, patches map[string]any) error {
+	if root == nil {
+		return fmt.Errorf("resource document is required")
+	}
+	for path, value := range patches {
+		segs, err := parseFHIRPatchPath(path, resourceType)
+		if err != nil {
+			return fmt.Errorf("patch %q: %w", path, err)
+		}
+		updated, err := setJSONSegments(root, segs, value, setModeReplace)
+		if err != nil {
+			return fmt.Errorf("patch %q: %w", path, err)
+		}
+		if updatedMap, ok := updated.(map[string]any); ok && len(segs) > 0 {
+			// setJSONSegments returns the root when mutation is in-place; keep root synced.
+			for k, v := range updatedMap {
+				root[k] = v
+			}
+		}
+	}
+	return nil
+}
+
 func fhirPatchValue(part map[string]any) any {
 	if res, ok := part["resource"]; ok {
 		return res

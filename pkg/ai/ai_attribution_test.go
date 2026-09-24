@@ -12,11 +12,10 @@ func TestExecutor_WriteAIAttribution(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true, enableAIAttribution: true})
 	ctx := context.Background()
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName:       ai.ToolWriteFhirResource,
+		ToolName:       ai.ToolCreateFhirResource,
 		Actor:          "agent-1",
 		ConversationID: "conv-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields": map[string]any{
 				"name": []any{map[string]any{"family": "Lee"}},
@@ -65,11 +64,10 @@ func TestExecutor_ProvenanceBestEffort(t *testing.T) {
 	})
 	ctx := context.Background()
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName:       ai.ToolWriteFhirResource,
+		ToolName:       ai.ToolCreateFhirResource,
 		Actor:          "agent-1",
 		ConversationID: "conv-2",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields":       map[string]any{"gender": "female"},
 		},

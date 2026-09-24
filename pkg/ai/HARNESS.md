@@ -35,7 +35,7 @@ App: model URL/provider + optional system prompt
 | Tool protocol | **Native** function tools (`ToolCallProtocolNative`), **prompt JSON** (`ToolCallProtocolPromptJSON`), or **both** (`ToolCallProtocolBoth`) |
 | FHIR narration (markdown) | `ToolContextMarkdown` + `MarkdownContextBuilder` for read/search/view |
 | Structured writes (any resource) | `ResourceWriteDraft`, `propose_write_resource`, `CommitWrite` / `CommitWriteFromSession` (`PatientCreateDraft` is a convenience wrapper) |
-| No arbitrary FHIR JSON commits | `BlockDirectWriteTools` hides `write_fhir_resource` from the model; commits go through validated maps |
+| No arbitrary FHIR JSON commits | `BlockDirectWriteTools` hides write tools; **create** uses field maps, **update** uses FHIRPath `patches` only |
 | Policy + de-id + audit | Unchanged on `Executor`; use `HarnessExecutorGuardrails` when wiring production agents |
 | Approval-gated writes | `ChatResult.PendingApprovals`; resume with `ExecuteHarnessTool` + `ApprovalToken` |
 | Citations for grounding | Per-tool `ToolResult.Citations`; aggregated on `ChatResult.Citations` |
@@ -206,8 +206,9 @@ exec, _ := ai.NewExecutor(ai.Config{
 ## Why not validate arbitrary FHIR JSON?
 
 Models can hallucinate invalid or unsafe resources. The executor **does not** accept
-full Resource JSON from model text. Writes must go through `write_fhir_resource` with
-an allow-listed **field map** so policy, validation, and approval run on known keys.
+full Resource JSON from model text. Creates use `create_fhir_resource` with an allow-listed **fields** map;
+updates use `update_fhir_resource` with **patches** keyed by FHIRPath so policy, validation, and approval
+run on explicit paths. Set `RequireValidatorOnWrites` on the executor to require `pkg/validate` on every commit.
 The harness reinforces that with `BlockDirectWriteTools` + `propose_write_resource` →
 `CommitWrite`. Validating arbitrary generated FHIR would duplicate `pkg/validate` on
 untrusted blobs and still bypass field-level policy.

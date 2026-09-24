@@ -173,8 +173,8 @@ func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolReq
 	if req.ConversationID == "" {
 		req.ConversationID = h.session.ConversationID
 	}
-	if req.ToolName == ToolWriteFhirResource {
-		if err := h.confirmBeforeWriteToolInput(ctx, req.Input, commitOpts); err != nil {
+	if IsWriteTool(req.ToolName) {
+		if err := h.confirmBeforeWriteToolInput(ctx, req.ToolName, req.Input, commitOpts); err != nil {
 			return nil, err
 		}
 	}
@@ -313,8 +313,8 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				Input:          input,
 				ConversationID: h.session.ConversationID,
 			}
-			if tc.Name == ToolWriteFhirResource {
-				if confirmErr := h.confirmBeforeWriteToolInput(ctx, input, CommitWriteOptions{}); confirmErr != nil {
+			if IsWriteTool(tc.Name) {
+				if confirmErr := h.confirmBeforeWriteToolInput(ctx, tc.Name, input, CommitWriteOptions{}); confirmErr != nil {
 					summary.Err = confirmErr
 					toolSummaries = append(toolSummaries, summary)
 					toolInputs = append(toolInputs, input)
@@ -456,34 +456,37 @@ func pendingApprovalsFromResults(toolSummaries []HarnessToolResult) []HarnessPen
 
 func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (string, *ToolResult, error) {
 	var writeInput map[string]any
+	var execTool string
 	var err error
 	if toolName == ToolProposePatientCreate {
-		patient, err := PatientCreateDraftFromMap(input)
-		if err != nil {
-			return toolErrorContent(err), nil, err
+		patient, perr := PatientCreateDraftFromMap(input)
+		if perr != nil {
+			return toolErrorContent(perr), nil, perr
 		}
 		writeInput, err = patient.ToWriteFhirResourceInput()
+		execTool = ToolCreateFhirResource
 	} else {
 		draft, mapErr := ResourceWriteDraftFromMap(input)
 		if mapErr != nil {
 			return toolErrorContent(mapErr), nil, mapErr
 		}
-		writeInput, err = draft.ToWriteFhirResourceInput()
+		execTool, writeInput, err = draft.ToExecutorToolInput()
 	}
 	if err != nil {
 		return toolErrorContent(err), nil, err
 	}
 	payload := map[string]any{
-		"status":              "proposal",
-		"write_fhir_resource": writeInput,
-		"commitHint":          "Call Harness.CommitWrite with the same structured draft to execute policy + validation.",
+		"status":     "proposal",
+		"tool":       execTool,
+		"input":      writeInput,
+		"commitHint": "Call Harness.CommitWrite with the same structured draft to execute policy + validation.",
 	}
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return toolErrorContent(err), nil, err
 	}
 	return string(out), &ToolResult{
-		ToolName: toolName,
+		ToolName: execTool,
 		Data:     payload,
 		Context:  string(out),
 	}, nil

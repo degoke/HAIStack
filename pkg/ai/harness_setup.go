@@ -24,6 +24,11 @@ func HarnessExecutorGuardrails(cfg Config) []string {
 	if cfg.Deidentify == nil {
 		notes = append(notes, "configure Config.Deidentify when policy enables Deidentify on read/search/view tools")
 	}
+	if !cfg.RequireValidatorOnWrites {
+		notes = append(notes, "set Config.RequireValidatorOnWrites and Config.Validator so all create/update commits are validated")
+	} else if cfg.Validator == nil {
+		notes = append(notes, "Config.RequireValidatorOnWrites is true but Config.Validator is nil")
+	}
 	return notes
 }
 
@@ -71,7 +76,7 @@ func FilterToolDescriptorsForHarness(descriptors []ToolDescriptor, blockDirectWr
 	}
 	out := make([]ToolDescriptor, 0, len(descriptors))
 	for _, d := range descriptors {
-		if d.Name == ToolWriteFhirResource {
+		if IsWriteTool(d.Name) {
 			continue
 		}
 		out = append(out, d)

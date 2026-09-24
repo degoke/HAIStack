@@ -13,23 +13,29 @@ func TestResourceWriteDraft_CreateAndUpdate(t *testing.T) {
 		ResourceType: "Patient",
 		Fields:       map[string]any{"gender": "female"},
 	}
-	input, err := create.ToWriteFhirResourceInput()
+	tool, input, err := create.ToExecutorToolInput()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input["operation"] != ai.WriteOperationCreate {
-		t.Fatalf("op = %v", input["operation"])
+	if tool != ai.ToolCreateFhirResource {
+		t.Fatalf("tool = %v", tool)
+	}
+	if input["fields"] == nil {
+		t.Fatal("expected fields")
 	}
 
 	update := ai.ResourceWriteDraft{
 		Operation:    ai.WriteOperationUpdate,
 		ResourceType: "Patient",
 		ID:           "p1",
-		Fields:       map[string]any{"gender": "male"},
+		Patches:      map[string]any{"gender": "male"},
 	}
-	_, err = update.ToWriteFhirResourceInput()
+	tool, input, err = update.ToExecutorToolInput()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if tool != ai.ToolUpdateFhirResource || input["patches"] == nil {
+		t.Fatalf("tool=%v input=%v", tool, input)
 	}
 }
 

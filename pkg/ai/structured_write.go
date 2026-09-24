@@ -6,21 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/degoke/haistack/pkg/core"
 )
 
-// ToolProposeWriteResource is a harness-only tool. It returns write_fhir_resource input
+// ToolProposeWriteResource is a harness-only tool. It returns create/update tool input
 // without committing; use Harness.CommitWrite to execute through Executor policy.
 const ToolProposeWriteResource = "propose_write_resource"
 
-// ResourceWriteDraft is a structured create/update proposal (field map), not arbitrary FHIR JSON.
+// ResourceWriteDraft is a structured create/update proposal, not arbitrary full Resource JSON.
+// Create uses top-level fields; update uses FHIRPath patches only.
 type ResourceWriteDraft struct {
 	Operation    string
 	ResourceType string
 	ID           string
 	Fields       map[string]any
+	Patches      map[string]any
 }
 
-// Validate checks the draft matches write_fhir_resource input rules at the harness layer.
+// Validate checks the draft matches executor write tool rules at the harness layer.
 func (d ResourceWriteDraft) Validate() error {
 	op := strings.TrimSpace(d.Operation)
 	if op != WriteOperationCreate && op != WriteOperationUpdate {
@@ -32,31 +36,79 @@ func (d ResourceWriteDraft) Validate() error {
 	if op == WriteOperationUpdate && strings.TrimSpace(d.ID) == "" {
 		return fmt.Errorf("%w: id is required for update", ErrInvalidInput)
 	}
-	if len(d.Fields) == 0 {
-		return fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
-	}
-	for key := range d.Fields {
-		if key == "resourceType" || key == "id" {
-			return fmt.Errorf("%w: field %q cannot be set in fields map", ErrInvalidInput, key)
+	switch op {
+	case WriteOperationCreate:
+		if len(d.Fields) == 0 {
+			return fmt.Errorf("%w: at least one field is required for create", ErrInvalidInput)
+		}
+		for key := range d.Fields {
+			if key == "resourceType" || key == "id" {
+				return fmt.Errorf("%w: field %q cannot be set in fields map", ErrInvalidInput, key)
+			}
+		}
+	case WriteOperationUpdate:
+		if len(d.Fields) != 0 {
+			return fmt.Errorf("%w: updates must use patches (FHIRPath keys), not fields", ErrInvalidInput)
+		}
+		if len(d.Patches) == 0 {
+			return fmt.Errorf("%w: at least one patch is required for update", ErrInvalidInput)
+		}
+		for path := range d.Patches {
+			if err := validateDraftPatchPath(d.ResourceType, path); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// ToWriteFhirResourceInput returns write_fhir_resource tool input only (no execution).
-func (d ResourceWriteDraft) ToWriteFhirResourceInput() (map[string]any, error) {
+func validateDraftPatchPath(resourceType, path string) error {
+	if path == "resourceType" || path == "id" {
+		return fmt.Errorf("%w: patch key %q is not allowed", ErrInvalidInput, path)
+	}
+	if err := core.ValidateFHIRResourcePath(resourceType, path); err != nil {
+		return fmt.Errorf("%w: invalid FHIRPath %q: %v", ErrInvalidInput, path, err)
+	}
+	return nil
+}
+
+// ToExecutorToolInput returns the create_fhir_resource or update_fhir_resource tool input (no execution).
+func (d ResourceWriteDraft) ToExecutorToolInput() (string, map[string]any, error) {
 	if err := d.Validate(); err != nil {
+		return "", nil, err
+	}
+	rt := strings.TrimSpace(d.ResourceType)
+	switch strings.TrimSpace(d.Operation) {
+	case WriteOperationCreate:
+		out := map[string]any{
+			"resourceType": rt,
+			"fields":       d.Fields,
+		}
+		if id := strings.TrimSpace(d.ID); id != "" {
+			out["id"] = id
+		}
+		return ToolCreateFhirResource, out, nil
+	case WriteOperationUpdate:
+		return ToolUpdateFhirResource, map[string]any{
+			"resourceType": rt,
+			"id":           strings.TrimSpace(d.ID),
+			"patches":      d.Patches,
+		}, nil
+	default:
+		return "", nil, fmt.Errorf("%w: unknown operation", ErrInvalidInput)
+	}
+}
+
+// ToWriteFhirResourceInput is deprecated; use ToExecutorToolInput.
+func (d ResourceWriteDraft) ToWriteFhirResourceInput() (map[string]any, error) {
+	tool, input, err := d.ToExecutorToolInput()
+	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{
-		"operation":    strings.TrimSpace(d.Operation),
-		"resourceType": strings.TrimSpace(d.ResourceType),
-		"fields":       d.Fields,
+	if tool == ToolUpdateFhirResource {
+		return nil, fmt.Errorf("%w: updates must use update_fhir_resource", ErrInvalidInput)
 	}
-	if id := strings.TrimSpace(d.ID); id != "" {
-		out["id"] = id
-	}
-	return out, nil
+	return input, nil
 }
 
 // ResourceWriteDraftFromMap parses harness tool arguments or JSON objects.
@@ -73,15 +125,14 @@ func ResourceWriteDraftFromMap(input map[string]any) (ResourceWriteDraft, error)
 		return ResourceWriteDraft{}, err
 	}
 	id, _ := optionalStringValue(input, "id")
-	fields, err := parseFields(input["fields"])
-	if err != nil {
-		return ResourceWriteDraft{}, err
-	}
+	fields, _ := parseFields(input["fields"])
+	patches, _ := parsePatches(input["patches"], rt)
 	return ResourceWriteDraft{
 		Operation:    op,
 		ResourceType: rt,
 		ID:           id,
 		Fields:       fields,
+		Patches:      patches,
 	}, nil
 }
 
@@ -128,9 +179,9 @@ func ExtractResourceWriteDraft(messages []ChatMessage) (ResourceWriteDraft, bool
 func ProposeWriteResourceToolDescriptor() ToolDescriptor {
 	return ToolDescriptor{
 		Name:        ToolProposeWriteResource,
-		Description: "Propose a create or update using structured fields; returns write_fhir_resource input without committing",
+		Description: "Propose a create or update; returns create_fhir_resource or update_fhir_resource input without committing",
 		Generic:     false,
-		InputKeys:   []string{"operation", "resourceType", "id", "fields"},
+		InputKeys:   []string{"operation", "resourceType", "id", "fields", "patches"},
 	}
 }
 
@@ -140,12 +191,12 @@ type CommitWriteOptions struct {
 	SkipHostConfirm bool
 }
 
-// CommitWrite executes write_fhir_resource for a validated draft via Executor.
+// CommitWrite executes the appropriate write tool for a validated draft via Executor.
 func (h *Harness) CommitWrite(ctx context.Context, draft ResourceWriteDraft) (*ToolResult, error) {
 	return h.CommitWriteWithOptions(ctx, draft, CommitWriteOptions{})
 }
 
-// CommitWriteWithOptions executes write_fhir_resource after optional host confirmation.
+// CommitWriteWithOptions executes a write tool after optional host confirmation.
 func (h *Harness) CommitWriteWithOptions(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
@@ -153,12 +204,12 @@ func (h *Harness) CommitWriteWithOptions(ctx context.Context, draft ResourceWrit
 	if err := h.confirmCommitWrite(ctx, draft, opts); err != nil {
 		return nil, err
 	}
-	input, err := draft.ToWriteFhirResourceInput()
+	toolName, input, err := draft.ToExecutorToolInput()
 	if err != nil {
 		return nil, err
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
-		ToolName:       ToolWriteFhirResource,
+		ToolName:       toolName,
 		Actor:          h.cfg.Actor,
 		TenantID:       h.cfg.TenantID,
 		Subject:        h.cfg.Subject,
@@ -197,14 +248,54 @@ func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDra
 	return h.cfg.CommitWriteConfirm(ctx, draft)
 }
 
-// confirmBeforeWriteToolInput applies the same host gate as CommitWrite for write_fhir_resource tool input.
-func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, input map[string]any, opts CommitWriteOptions) error {
-	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
+// confirmBeforeWriteToolInput applies the same host gate as CommitWrite for FHIR write tools.
+func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, toolName string, input map[string]any, opts CommitWriteOptions) error {
+	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation || !IsWriteTool(toolName) {
 		return nil
 	}
-	draft, err := ResourceWriteDraftFromMap(input)
+	draft, err := draftFromWriteToolInput(toolName, input)
 	if err != nil {
 		return err
 	}
 	return h.confirmCommitWrite(ctx, draft, opts)
+}
+
+func draftFromWriteToolInput(toolName string, input map[string]any) (ResourceWriteDraft, error) {
+	switch toolName {
+	case ToolCreateFhirResource:
+		parsed, err := parseCreateInput(input)
+		if err != nil {
+			return ResourceWriteDraft{}, err
+		}
+		return ResourceWriteDraft{
+			Operation:    WriteOperationCreate,
+			ResourceType: parsed.ResourceType,
+			ID:           parsed.ID,
+			Fields:       parsed.Fields,
+		}, nil
+	case ToolUpdateFhirResource:
+		parsed, err := parseUpdateInput(input)
+		if err != nil {
+			return ResourceWriteDraft{}, err
+		}
+		return ResourceWriteDraft{
+			Operation:    WriteOperationUpdate,
+			ResourceType: parsed.ResourceType,
+			ID:           parsed.ID,
+			Patches:      parsed.Patches,
+		}, nil
+	case ToolWriteFhirResource:
+		parsed, err := parseWriteInput(input)
+		if err != nil {
+			return ResourceWriteDraft{}, err
+		}
+		return ResourceWriteDraft{
+			Operation:    parsed.Operation,
+			ResourceType: parsed.ResourceType,
+			ID:           parsed.ID,
+			Fields:       parsed.Fields,
+		}, nil
+	default:
+		return ResourceWriteDraft{}, fmt.Errorf("%w: not a write tool", ErrInvalidInput)
+	}
 }

@@ -128,7 +128,7 @@ func TestOpenAICompatibleAdapter_InvokeLegacy(t *testing.T) {
 
 func TestChatToolsFromDescriptors(t *testing.T) {
 	tools := ai.ChatToolsFromDescriptors(ai.GenericToolDescriptors())
-	if len(tools) != 4 {
+	if len(tools) != 5 {
 		t.Fatalf("tools = %d", len(tools))
 	}
 	if tools[0].Name != ai.ToolReadFhirResource {
@@ -317,8 +317,8 @@ func TestHarness_BlockDirectWriteTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tool := range model.requests[0].Tools {
-		if tool.Name == ai.ToolWriteFhirResource {
-			t.Fatal("write tool should be blocked")
+		if ai.IsWriteTool(tool.Name) {
+			t.Fatalf("write tool %q should be blocked", tool.Name)
 		}
 	}
 }

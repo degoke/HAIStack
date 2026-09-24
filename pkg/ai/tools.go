@@ -37,11 +37,27 @@ func GenericToolDescriptors() []ToolDescriptor {
 			InputKeys:   []string{"viewName", "version", "parameters", "limit", "offset"},
 		},
 		{
-			Name:        ToolWriteFhirResource,
-			Description: "Create or update a resource using structured field-level input",
+			Name:        ToolCreateFhirResource,
+			Description: "Create a FHIR resource using structured top-level fields (not full Resource JSON)",
 			Generic:     true,
-			InputKeys:   []string{"operation", "resourceType", "id", "fields"},
+			InputKeys:   []string{"resourceType", "id", "fields"},
 		},
+		{
+			Name:        ToolUpdateFhirResource,
+			Description: "Update a FHIR resource using FHIRPath keys mapped to values (patches object)",
+			Generic:     true,
+			InputKeys:   []string{"resourceType", "id", "patches"},
+		},
+	}
+}
+
+// IsWriteTool reports whether name is a FHIR write tool (create, update, or legacy write).
+func IsWriteTool(name string) bool {
+	switch name {
+	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolWriteFhirResource:
+		return true
+	default:
+		return false
 	}
 }
 
