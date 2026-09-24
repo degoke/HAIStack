@@ -33,9 +33,15 @@ var (
 	// configured on the Executor.
 	ErrMissingDependency = errors.New("ai: missing backing dependency")
 
-	// ErrMissingDeidentifier is returned when policy requires de-identification
-	// but no scrubbing implementation is configured.
+	// ErrMissingDeidentifier is returned when a nil FHIRDeidentifier is used or
+	// de-identification is invoked without a configured implementation. Executor
+	// defaults Config.Deidentify to DefaultDeidentifier when unset.
 	ErrMissingDeidentifier = errors.New("ai: missing deidentifier")
+
+	// ErrUnsupportedDeidentifyTool is returned when FHIRDeidentifier receives a
+	// ToolName it does not handle. Custom tools must use DeidentifierFunc or
+	// PassThroughDeidentifier explicitly.
+	ErrUnsupportedDeidentifyTool = errors.New("ai: unsupported tool for FHIR de-identification")
 
 	// ErrMissingAudit is returned when audit is required but not configured.
 	ErrMissingAudit = errors.New("ai: missing audit logger")

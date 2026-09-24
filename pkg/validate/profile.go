@@ -58,15 +58,18 @@ type SliceDiscriminator struct {
 
 // ElementDefinition is one snapshot or differential element.
 type ElementDefinition struct {
-	Path        string
-	Min         int
-	Max         string
-	Types       []string
-	Constraints []ElementConstraint
-	Binding     *ElementBinding
-	Slicing     *ElementSlicing
-	SliceName   string
-	Pattern     map[string]interface{}
+	Path          string
+	Min           int
+	Max           string
+	Types         []string
+	MustSupport   bool
+	IsSummary     bool
+	ExtensionURLs []string
+	Constraints   []ElementConstraint
+	Binding       *ElementBinding
+	Slicing       *ElementSlicing
+	SliceName     string
+	Pattern       map[string]interface{}
 }
 
 // StructureDefinition is the subset of a FHIR StructureDefinition used for
@@ -161,12 +164,17 @@ func isStructureDefinitionJSON(raw []byte) bool {
 }
 
 type elementDefinitionJSON struct {
-	Path string `json:"path"`
-	Min  *int   `json:"min"`
-	Max  string `json:"max"`
-	Type []struct {
+	Path        string `json:"path"`
+	Min         *int   `json:"min"`
+	Max         string `json:"max"`
+	MustSupport *bool  `json:"mustSupport"`
+	IsSummary   *bool  `json:"isSummary"`
+	Type        []struct {
 		Code string `json:"code"`
 	} `json:"type"`
+	Extension []struct {
+		URL string `json:"url"`
+	} `json:"extension"`
 	Constraint []struct {
 		Key        string `json:"key"`
 		Severity   string `json:"severity"`
@@ -227,6 +235,17 @@ func parseStructureDefinition(raw []byte) (*StructureDefinition, bool, error) {
 				Path: el.Path,
 				Min:  min,
 				Max:  el.Max,
+			}
+			if el.MustSupport != nil {
+				parsed.MustSupport = *el.MustSupport
+			}
+			if el.IsSummary != nil {
+				parsed.IsSummary = *el.IsSummary
+			}
+			for _, ext := range el.Extension {
+				if ext.URL != "" {
+					parsed.ExtensionURLs = append(parsed.ExtensionURLs, ext.URL)
+				}
 			}
 			for _, typ := range el.Type {
 				if typ.Code != "" {

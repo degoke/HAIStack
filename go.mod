@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/buger/jsonparser v1.1.1
 	github.com/google/fhir/go v0.7.4
 	github.com/google/uuid v1.6.0
 	github.com/iimos/ucum v0.0.3

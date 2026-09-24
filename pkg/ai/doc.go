@@ -31,15 +31,27 @@
 //     builds citations, and emits audit records via ExecuteTool and InvokeModel.
 //   - GenericToolDescriptors / Registry.AllToolDescriptors: model-facing tool
 //     discovery metadata.
-//   - ContextFormatter: converts tool output into model-facing JSON context.
+//   - ContextFormatter: converts already de-identified tool output into model-facing
+//     JSON context (Executor runs Deidentify on structured Data first when policy
+//     requires it, so the formatter does not perform a separate PHI scrub pass).
 //   - CitationBuilder: attaches provenance from resource refs, search params,
 //     view columns, and write metadata.
 //   - ModelRouter / Executor.InvokeModel: optional local/cloud model adapter
 //     selection; tool execution remains useful without any model configured.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
-//   - Deidentifier: required output scrubbing seam whenever policy requests
-//     de-identification; pass-through must be explicitly opted into.
+//   - Deidentifier / FHIRDeidentifier / PHICatalog / ProfileCatalog: Executor
+//     defaults to FHIRDeidentifier when Config.Deidentify is nil; override with
+//     any Deidentifier. FHIRDeidentifier handles read_fhir_resource,
+//     search_fhir_resources, and run_view only (other ToolName values return
+//     ErrUnsupportedDeidentifyTool). It derives segment paths from PHICatalog,
+//     StructureDefinitions (base type and meta.profile), and FHIRPath expression
+//     text (not runtime FHIRPath evaluation), scrubs JSON in one pass (including
+//     nested contained and Bundle entries), and applies meta.security strict mode
+//     when policy sets Deidentify. Narrow AllowedFields projections still merge
+//     meta.security and meta.profile from the full resource for scrubbing, then
+//     drop meta from output when not allow-listed. Output is for model-facing
+//     tool context, not for persisting de-identified FHIR resources.
 //
 // # Tool input shapes
 //
@@ -89,7 +101,8 @@
 //
 // ExecuteTool resolves convenience wrappers through Registry, validates typed
 // input, runs the matching PolicyEngine check, invokes the backing package,
-// optionally de-identifies output, formats model context, builds citations, and
+// optionally de-identifies structured tool output (before ContextFormatter),
+// formats model context, builds citations, and
 // writes audit records on success, denial, validation failure, and
 // approval-required outcomes. InvokeModel audits invoke-model when a model
 // adapter actually runs.

@@ -130,16 +130,51 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 
 ### 4. De-identified context
 
-Set `Deidentify: true` on read/search/view policies and provide an explicit `Deidentifier`:
+Set `Deidentify: true` on read/search/view policies. Omit `Deidentify` on `Config` to use
+the built-in shared `FHIRDeidentifier`, or construct one explicitly:
 
 ```go
+deid, err := ai.NewFHIRDeidentifier(ai.DefaultPHICatalog())
+if err != nil {
+    return err
+}
 exec, err := ai.NewExecutor(ai.Config{
-    Policy:       deidPolicy,
-    Deidentifier: myDeidentifier,
+    Policy:     deidPolicy,
+    Deidentify: deid,
 })
 ```
 
-The executor refuses to silently pass through PHI when de-identification is required.
+`Executor` uses a shared `FHIRDeidentifier` (`PHIModeStandard`, `EvalModeKeywordsOnly`)
+when `Config.Deidentify` is nil, warms path indexes for common resource types at
+startup, and passes `ProfileCatalog` when set. Override with `PHIMode`, `EvalMode`,
+or a custom `Deidentifier`.
+
+`FHIRDeidentifier` applies (on `read_fhir_resource`, `search_fhir_resources`, and
+`run_view` only; other tool names return `ErrUnsupportedDeidentifyTool` — use a
+custom `Deidentifier` for bespoke tools):
+
+- **FHIRPath expression text** expanded to JSON segment paths at index build (no
+  runtime FHIRPath evaluation against live values during scrubbing)
+- **StructureDefinition-driven paths** when `ProfileCatalog` / `Executor.ProfileCatalog` is set (base type SD plus **`meta.profile`** URLs on each resource instance)
+- **Keyword-style FHIRPath strings** (for example `text.\`div\``) that do not map to a single catalog segment
+- **PHICatalog** path suffixes and passive element names at any depth
+- **`meta.security`** labels (v3 confidentiality and HL7 security-labels by default)
+
+When policy uses a narrow `AllowedFields` projection, the executor temporarily
+merges `meta.security` and `meta.profile` from the full resource for scrub
+decisions, then removes `meta` from model output if it was not allow-listed.
+
+Customize `PHICatalog`, `PHIStructureRules`, or implement `Deidentifier` for site-specific rules.
+
+```go
+snapshot, _ := manager.RebuildSnapshot(ctx)
+exec, _ := ai.NewExecutor(ai.Config{
+    Policy:         policy,
+    ProfileCatalog: validate.NewRegistryProfileCatalog(snapshot),
+})
+```
+
+The executor refuses to silently skip de-identification when policy requires it.
 
 ### 5. Model routing (optional)
 
