@@ -173,10 +173,16 @@
 //     limit). Distinct from AnalyticsStore: audit entries capture actor, action, and outcome
 //     for compliance review.
 //
-// ConversationStore — agent harness chat transcripts:
+// ConversationStore — agent harness chat transcripts (legacy snapshot API):
 //
 //   - Get(ctx, id), Put(ctx, record), Delete(ctx, id), List(ctx, query).
-//   - ConversationRecord stores tenant-scoped message JSON for pkg/ai Harness sessions.
+//   - Prefer SessionService for ADK-style append-only events.
+//
+// SessionService — agent sessions (Google ADK SessionService analogue):
+//
+//   - CreateSession, GetSession, ListSessions, DeleteSession, AppendEvent.
+//   - Session-scoped state plus optional app:/user: prefixed state deltas on events.
+//   - Backed by hai_agent_session / hai_agent_session_event tables in SQLite and Postgres.
 //
 // JobStore — durable background job queue:
 //

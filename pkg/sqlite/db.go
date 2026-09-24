@@ -180,6 +180,11 @@ func (db *DB) ConversationStore(tenantID string) *ConversationStore {
 	return newConversationStore(db.sql, tenantID)
 }
 
+// SessionService returns a tenant-scoped ADK-style agent session service.
+func (db *DB) SessionService(tenantID string) *SessionService {
+	return newSessionService(db.sql, tenantID)
+}
+
 // SubscriptionStore returns a connection-scoped subscription registry store.
 func (db *DB) SubscriptionStore() *SubscriptionStore {
 	return newSubscriptionStore(db.sql)

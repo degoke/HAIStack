@@ -100,6 +100,11 @@ func (tdb *TenantDB) ConversationStore() *ConversationStore {
 	return newConversationStore(tdb.pool, tdb.tenantID)
 }
 
+// SessionService returns a tenant-scoped ADK-style agent session service.
+func (tdb *TenantDB) SessionService() *SessionService {
+	return newSessionService(tdb.pool, tdb.tenantID)
+}
+
 // ModuleStore returns a tenant-scoped module store.
 func (tdb *TenantDB) ModuleStore() *ModuleStore {
 	return newModuleStore(tdb.pool, tdb.tenantID)

@@ -38,9 +38,13 @@ type HarnessConfig struct {
 	AutoConversationID bool
 	// ToolCallProtocol selects native function tools, prompt JSON in text, or both (default native).
 	ToolCallProtocol ToolCallProtocol
-	// ConversationStore persists harness sessions (pkg/store.ConversationStore).
+	// SessionService persists ADK-style sessions (events + state) — preferred over ConversationStore.
+	SessionService store.SessionService
+	// AppName scopes sessions (ADK app_name); defaults to DefaultHarnessAppName.
+	AppName string
+	// ConversationStore is deprecated: use SessionService.
 	ConversationStore store.ConversationStore
-	// DisableConversationPersist skips SaveConversation after Chat when a store is configured.
+	// DisableConversationPersist skips legacy SaveConversation after Chat.
 	DisableConversationPersist bool
 }
 
@@ -56,6 +60,7 @@ type Harness struct {
 type Session struct {
 	ConversationID string
 	Messages       []ChatMessage
+	State          map[string]any
 }
 
 // ChatResult is the outcome of one Harness.Chat user turn.
@@ -154,13 +159,16 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		return nil, ErrInvalidInput
 	}
 	h.ensureConversationID()
-	if err := h.restoreConversationIfStored(ctx); err != nil {
+	if err := h.restoreAgentSessionIfStored(ctx); err != nil {
 		return nil, err
 	}
 	h.session.Messages = append(h.session.Messages, ChatMessage{
 		Role:    ChatRoleUser,
 		Content: userMessage,
 	})
+	if err := h.appendSessionEvent(ctx, NewUserSessionEvent(userMessage)); err != nil {
+		return nil, err
+	}
 
 	tools := h.chatTools()
 	toolSummaries := make([]HarnessToolResult, 0)
@@ -185,10 +193,13 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			ToolCalls: toolCalls,
 		}
 		h.session.Messages = append(h.session.Messages, assistant)
+		if err := h.appendSessionEvent(ctx, NewModelSessionEvent(resp.Content, resp.ToolCalls)); err != nil {
+			return nil, err
+		}
 
 		if len(toolCalls) == 0 {
 			result := h.buildChatResult(resp.Content, toolSummaries)
-			if err := h.persistConversationIfConfigured(ctx); err != nil {
+			if err := h.persistSessionIfConfigured(ctx); err != nil {
 				return nil, err
 			}
 			return result, nil
@@ -214,11 +225,11 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 					summary.Result = proposeRes
 				}
 				toolSummaries = append(toolSummaries, summary)
-				h.session.Messages = append(h.session.Messages, ChatMessage{
-					Role:       ChatRoleTool,
-					ToolCallID: tc.ID,
-					Content:    content,
-				})
+				toolMsg := ChatMessage{Role: ChatRoleTool, ToolCallID: tc.ID, Content: content}
+				h.session.Messages = append(h.session.Messages, toolMsg)
+				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			res, execErr := h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
@@ -239,6 +250,9 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				ToolCallID: tc.ID,
 				Content:    content,
 			})
+			if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
+				return nil, err
+			}
 		}
 	}
 

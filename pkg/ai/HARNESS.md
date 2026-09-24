@@ -28,7 +28,7 @@ App: model URL/provider + optional system prompt
 
 | Discussed responsibility | API / behavior |
 |--------------------------|----------------|
-| Session: `conversationId`, message history | `Session`, `SetConversationID`, `NewHarnessWithSession`; optional `store.ConversationStore` (SQLite/Postgres) |
+| Session: `conversationId`, events, state | `Session` + `store.SessionService` (ADK-style); legacy `ConversationStore` deprecated |
 | Model seam: URL + provider | `OpenAICompatibleAdapter`, `ChatModel`, optional `ModelAdapterChatModel` bridge for local stubs |
 | Model routing hint | `HarnessConfig.ModelHint` → `ChatRequest.Hint`; `ModelRouter` still used via `Executor.InvokeModel` |
 | Orchestration loop | `Harness.Chat`: user → model → tools → `ExecuteTool` → tool messages → repeat until text |
@@ -43,33 +43,46 @@ App: model URL/provider + optional system prompt
 | Free-form FHIR answer validation | **Out of scope** — see [Why not validate arbitrary FHIR JSON?](#why-not-validate-arbitrary-fhir-json) |
 | OAuth / SMART login | **Out of scope** — see [Why OAuth/SMART is outside the harness](#why-oauthsmart-is-outside-the-harness) |
 
-## Conversation storage
+## Session storage (Google ADK-style)
 
-**Store interface:** `pkg/store.ConversationStore` (`Get`, `Put`, `Delete`, `List`) with
-`ConversationRecord` rows (tenant, actor, subject, messages JSON, timestamps).
+Modeled after [ADK SessionService](https://adk.dev/sessions/session/): a **session** has
+`id`, `app_name`, `user_id`, scratchpad **state**, and append-only **events** (user/model/tool
+turns). State deltas on events support `app:` and `user:` key prefixes (app/user scoped state tables).
 
-**Backends (HAIStack convention):**
+**Store interface:** `pkg/store.SessionService`
+
+| Method | Role |
+|--------|------|
+| `CreateSession` | New thread |
+| `GetSession` | Load state + events (`GetSessionConfig` for recent events / after timestamp) |
+| `AppendEvent` | Persist one step (skips `partial` events) |
+| `ListSessions` / `DeleteSession` | Metadata lifecycle |
+| `GetUserState` / `GetAppState` | Cross-session scratchpads |
+
+**Backends:**
 
 | Backend | Constructor |
 |---------|-------------|
-| SQLite | `db.ConversationStore(tenantID)` |
-| Postgres | `tdb.ConversationStore()` (tenant-scoped) |
+| SQLite | `db.SessionService(tenantID)` |
+| Postgres | `tdb.SessionService()` |
 
 **Harness wiring:**
 
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{
-    ConversationStore: stack.DB.ConversationStore("tenant-a"),
-    TenantID:          "tenant-a",
+    SessionService: stack.DB.SessionService("tenant-a"),
+    TenantID:       "tenant-a",
+    AppName:        "my-agent",
+    Actor:          "user-123", // ADK user_id
     AutoConversationID: true,
 })
-h.SetConversationID("conv-123") // or rely on auto UUID
-_, _ = h.Chat(ctx, "Hello")      // loads existing row when present, saves after turn
+_, _ = h.Chat(ctx, "Hello") // creates session if missing; appends events each turn
 ```
 
-`LoadConversation` / `SaveConversation` are also available for explicit control.
-Retention, encryption, and export policy remain application concerns; the store only
-persists the transcript blob the harness already uses in memory.
+`LoadAgentSession` / `CreateAgentSession` for explicit control. Legacy `ConversationStore`
+(snapshot messages JSON) remains for compatibility but is deprecated.
+
+`Harness.Session().State` mirrors persisted session state; use event `StateDelta` for updates.
 
 ## Tool-calling protocols
 
