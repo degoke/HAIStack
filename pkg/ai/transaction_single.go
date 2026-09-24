@@ -89,7 +89,7 @@ func (e *Executor) execPersistWriteViaTransaction(ctx context.Context, req ToolR
 	default:
 		return nil, nil, "", false, "", nil, fmt.Errorf("%w: unknown operation %q", ErrInvalidInput, params.Operation)
 	}
-	data, citations, outcome, approval, token, redactions, err := e.execTransactionSpecs(ctx, req, []transactionEntrySpec{spec}, false)
+	data, citations, outcome, approval, token, redactions, err := e.execBundleSpecs(ctx, req, "transaction", []transactionEntrySpec{spec}, false)
 	if err != nil {
 		return nil, nil, "", false, "", nil, err
 	}

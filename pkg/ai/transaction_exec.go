@@ -23,14 +23,14 @@ type transactionEntrySpec struct {
 }
 
 func (e *Executor) execExecuteFhirTransaction(ctx context.Context, req ToolRequest, input map[string]any) (any, []Citation, string, bool, string, []string, error) {
-	specs, err := parseTransactionInput(input)
+	bundleType, specs, err := parseBundleInput(input)
 	if err != nil {
 		return nil, nil, "", false, "", nil, err
 	}
-	return e.execTransactionSpecs(ctx, req, specs, true)
+	return e.execBundleSpecs(ctx, req, bundleType, specs, true)
 }
 
-func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, specs []transactionEntrySpec, userInitiated bool) (any, []Citation, string, bool, string, []string, error) {
+func (e *Executor) execBundleSpecs(ctx context.Context, req ToolRequest, bundleType string, specs []transactionEntrySpec, userInitiated bool) (any, []Citation, string, bool, string, []string, error) {
 	if e.cfg.Core == nil {
 		return nil, nil, "", false, "", nil, fmt.Errorf("%w: core service required for transaction writes", ErrMissingDependency)
 	}
@@ -45,36 +45,15 @@ func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, sp
 	approvalFields := map[string]any{}
 	requiresApproval := false
 	for i, spec := range specs {
-		op, fields, err := transactionEntryPolicyFields(spec)
-		if err != nil {
+		if err := e.preflightBundleEntry(ctx, req, bundleType, i, spec, &requiresApproval, approvalFields); err != nil {
 			return nil, nil, "", false, "", nil, err
-		}
-		if err := validateWriteMapKeys(fields); err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-		decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
-			Actor: req.Actor, Subject: req.Subject,
-			Operation: op, ResourceType: spec.ResourceType,
-			ID: spec.ID, Fields: fields,
-		})
-		if err != nil {
-			return nil, nil, "", false, "", nil, err
-		}
-		if decision == nil || !decision.Allowed {
-			return nil, nil, "", false, "", nil, fmt.Errorf("%w: transaction entry %d %s %s", ErrPolicyDenied, i, op, spec.ResourceType)
-		}
-		if decision.RequiresApproval {
-			requiresApproval = true
-		}
-		for k, v := range fields {
-			approvalFields[fmt.Sprintf("%d.%s", i, k)] = v
 		}
 	}
 
 	if userInitiated && requiresApproval {
 		approvalReq := ApprovalRequest{
 			Actor: req.Actor, Subject: req.Subject,
-			Operation: "transaction", ResourceType: "Bundle",
+			Operation: bundleType, ResourceType: "Bundle",
 			Fields: approvalFields, Preview: preview,
 		}
 		if _, token, outcome, approvalErr := e.handleWriteApproval(ctx, req, approvalReq); approvalErr != nil {
@@ -84,7 +63,7 @@ func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, sp
 		}
 	}
 
-	bundleEntries, writtenTargets, err := e.buildTransactionBundleEntries(ctx, req, specs)
+	bundleEntries, writtenTargets, err := e.buildBundleEntries(ctx, req, bundleType, specs)
 	if err != nil {
 		return nil, nil, "", false, "", nil, err
 	}
@@ -106,17 +85,28 @@ func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, sp
 
 	bundleJSON, err := json.Marshal(map[string]any{
 		"resourceType": "Bundle",
-		"type":         "transaction",
+		"type":         bundleType,
 		"entry":        bundleEntries,
 	})
 	if err != nil {
 		return nil, nil, "", false, "", nil, err
 	}
 
-	resp, err := e.cfg.Core.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
-		ResourceType: "Bundle",
-		JSON:         bundleJSON,
-	})
+	var resp *types.ResourceEnvelope
+	switch bundleType {
+	case "transaction":
+		resp, err = e.cfg.Core.ProcessTransactionBundle(ctx, &types.ResourceEnvelope{
+			ResourceType: "Bundle",
+			JSON:         bundleJSON,
+		})
+	case "batch":
+		resp, err = e.cfg.Core.ProcessBatchBundle(ctx, &types.ResourceEnvelope{
+			ResourceType: "Bundle",
+			JSON:         bundleJSON,
+		})
+	default:
+		return nil, nil, "", false, "", nil, fmt.Errorf("%w: unknown bundleType %q", ErrInvalidInput, bundleType)
+	}
 	if err != nil {
 		if core.KindOf(err) == core.ErrorKindInvalid {
 			return nil, nil, "", false, "", nil, fmt.Errorf("%w: %v", ErrValidationFailed, err)
@@ -124,9 +114,10 @@ func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, sp
 		return nil, nil, "", false, "", nil, err
 	}
 
-	citations := []Citation{e.cfg.Citations.WriteCitation("transaction", "Bundle", "")}
+	citations := []Citation{e.cfg.Citations.WriteCitation(bundleType, "Bundle", "")}
 	data := map[string]any{
-		"operation":    "transaction",
+		"operation":    bundleType,
+		"bundleType":   bundleType,
 		"resourceType": "Bundle",
 		"entryCount":   len(bundleEntries),
 	}
@@ -136,7 +127,64 @@ func (e *Executor) execTransactionSpecs(ctx context.Context, req ToolRequest, sp
 	return data, citations, "success", false, "", nil, nil
 }
 
-func transactionEntryPolicyFields(spec transactionEntrySpec) (operation string, fields map[string]any, err error) {
+func (e *Executor) preflightBundleEntry(
+	ctx context.Context,
+	req ToolRequest,
+	bundleType string,
+	index int,
+	spec transactionEntrySpec,
+	requiresApproval *bool,
+	approvalFields map[string]any,
+) error {
+	method := strings.ToUpper(strings.TrimSpace(spec.Method))
+	if method == "GET" {
+		if bundleType != "batch" {
+			return fmt.Errorf("%w: GET is only supported in batch bundles", ErrInvalidInput)
+		}
+		id := strings.TrimSpace(spec.ID)
+		if id == "" {
+			return fmt.Errorf("%w: GET entry requires id", ErrInvalidInput)
+		}
+		decision, err := e.cfg.Policy.CheckRead(ctx, ReadPolicyRequest{
+			Actor: req.Actor, Subject: req.Subject,
+			ResourceType: spec.ResourceType, ID: id,
+		})
+		if err != nil {
+			return err
+		}
+		if decision == nil || !decision.Allowed {
+			return fmt.Errorf("%w: batch entry %d read %s", ErrPolicyDenied, index, spec.ResourceType)
+		}
+		return nil
+	}
+	op, fields, err := bundleEntryPolicyFields(spec)
+	if err != nil {
+		return err
+	}
+	if err := validateWriteMapKeys(fields); err != nil {
+		return err
+	}
+	decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
+		Actor: req.Actor, Subject: req.Subject,
+		Operation: op, ResourceType: spec.ResourceType,
+		ID: spec.ID, Fields: fields,
+	})
+	if err != nil {
+		return err
+	}
+	if decision == nil || !decision.Allowed {
+		return fmt.Errorf("%w: bundle entry %d %s %s", ErrPolicyDenied, index, op, spec.ResourceType)
+	}
+	if decision.RequiresApproval {
+		*requiresApproval = true
+	}
+	for k, v := range fields {
+		approvalFields[fmt.Sprintf("%d.%s", index, k)] = v
+	}
+	return nil
+}
+
+func bundleEntryPolicyFields(spec transactionEntrySpec) (operation string, fields map[string]any, err error) {
 	method := strings.ToUpper(strings.TrimSpace(spec.Method))
 	switch method {
 	case "POST":
@@ -153,17 +201,28 @@ func transactionEntryPolicyFields(spec transactionEntrySpec) (operation string, 
 		}
 		return WriteOperationUpdate, spec.Patches, nil
 	default:
-		return "", nil, fmt.Errorf("%w: unsupported transaction method %q (use POST or PUT)", ErrInvalidInput, spec.Method)
+		return "", nil, fmt.Errorf("%w: unsupported bundle method %q", ErrInvalidInput, spec.Method)
 	}
 }
 
-func (e *Executor) buildTransactionBundleEntries(ctx context.Context, req ToolRequest, specs []transactionEntrySpec) ([]map[string]any, []string, error) {
+func (e *Executor) buildBundleEntries(ctx context.Context, req ToolRequest, bundleType string, specs []transactionEntrySpec) ([]map[string]any, []string, error) {
 	var bundleEntries []map[string]any
 	var provenanceTargets []string
 	for _, spec := range specs {
 		method := strings.ToUpper(strings.TrimSpace(spec.Method))
 		rt := strings.TrimSpace(spec.ResourceType)
 		switch method {
+		case "GET":
+			if bundleType != "batch" {
+				return nil, nil, fmt.Errorf("%w: GET is only supported in batch bundles", ErrInvalidInput)
+			}
+			id := strings.TrimSpace(spec.ID)
+			bundleEntries = append(bundleEntries, map[string]any{
+				"request": map[string]any{
+					"method": "GET",
+					"url":    rt + "/" + id,
+				},
+			})
 		case "POST":
 			op := WriteOperationCreate
 			decision, err := e.cfg.Policy.CheckWrite(ctx, WritePolicyRequest{
@@ -249,7 +308,7 @@ func (e *Executor) buildTransactionBundleEntries(ctx context.Context, req ToolRe
 			})
 			provenanceTargets = append(provenanceTargets, rt+"/"+id)
 		default:
-			return nil, nil, fmt.Errorf("%w: unsupported transaction method %q", ErrInvalidInput, spec.Method)
+			return nil, nil, fmt.Errorf("%w: unsupported bundle method %q", ErrInvalidInput, spec.Method)
 		}
 	}
 	return bundleEntries, provenanceTargets, nil

@@ -50,9 +50,9 @@ func GenericToolDescriptors() []ToolDescriptor {
 		},
 		{
 			Name:        ToolExecuteFhirTransaction,
-			Description: "Execute a FHIR transaction bundle atomically (POST create entries with fields, PUT update entries with patches). When AI attribution is enabled, Provenance is included in the same transaction.",
+			Description: "Execute a FHIR bundle: bundleType transaction (atomic, default) or batch (independent entries). Entries: POST fields, PUT patches, batch GET read. Provenance POSTs are appended when AI attribution is on (atomic only with transaction).",
 			Generic:     true,
-			InputKeys:   []string{"entries"},
+			InputKeys:   []string{"bundleType", "entries"},
 		},
 	}
 }

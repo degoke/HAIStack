@@ -319,12 +319,14 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys
 
 | Field | Required | Description |
 |-------|----------|-------------|
+| `bundleType` | no | `transaction` (default, all-or-nothing) or `batch` (per-entry success/failure) |
 | `entries` | yes | Array of `{method, resourceType, id?, fields?, patches?, fullUrl?}` |
 
 - `POST` — same shape as create (`fields` required).
 - `PUT` — same shape as update (`id` and `patches` required).
+- `GET` — **batch only**: `resourceType` + `id` (read through policy).
 
-When `AIAttribution.Enabled` and Provenance creation are on, the executor appends one Provenance entry per clinical write inside the same transaction. Set `AtomicProvenance` on the executor to use the same behavior for single create/update tools.
+When `AIAttribution.Enabled` and Provenance creation are on, the executor appends one Provenance POST per clinical write. With `bundleType=transaction`, clinical writes and Provenance commit atomically; with `batch`, each entry is independent. Set `AtomicProvenance` on the executor to route single create/update through a transaction bundle.
 
 ## Safety model
 

@@ -102,7 +102,28 @@ func parseCreateInput(input map[string]any) (CreateInput, error) {
 	return CreateInput{ResourceType: rt, ID: id, Fields: fields}, nil
 }
 
-func parseTransactionInput(input map[string]any) ([]transactionEntrySpec, error) {
+func parseBundleInput(input map[string]any) (string, []transactionEntrySpec, error) {
+	bundleType := "transaction"
+	if raw, ok := input["bundleType"]; ok && raw != nil {
+		s, ok := raw.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return "", nil, fmt.Errorf("%w: bundleType must be transaction or batch", ErrInvalidInput)
+		}
+		bundleType = strings.ToLower(strings.TrimSpace(s))
+	}
+	switch bundleType {
+	case "transaction", "batch":
+	default:
+		return "", nil, fmt.Errorf("%w: bundleType must be transaction or batch", ErrInvalidInput)
+	}
+	specs, err := parseBundleEntries(input)
+	if err != nil {
+		return "", nil, err
+	}
+	return bundleType, specs, nil
+}
+
+func parseBundleEntries(input map[string]any) ([]transactionEntrySpec, error) {
 	raw, ok := input["entries"]
 	if !ok {
 		return nil, fmt.Errorf("%w: entries is required", ErrInvalidInput)
