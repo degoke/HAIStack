@@ -6,10 +6,10 @@ import "sync/atomic"
 type CompactionMetricKind string
 
 const (
-	CompactionMetricCheck         CompactionMetricKind = "check"
-	CompactionMetricSkippedUnder  CompactionMetricKind = "skipped_under_limit"
-	CompactionMetricCompacted     CompactionMetricKind = "compacted"
-	CompactionMetricFailed        CompactionMetricKind = "failed"
+	CompactionMetricCheck        CompactionMetricKind = "check"
+	CompactionMetricSkippedUnder CompactionMetricKind = "skipped_under_limit"
+	CompactionMetricCompacted    CompactionMetricKind = "compacted"
+	CompactionMetricFailed       CompactionMetricKind = "failed"
 )
 
 // CompactionMetricEvent is emitted when compaction is evaluated or runs.
@@ -33,12 +33,12 @@ type SessionCompactionMetrics struct {
 }
 
 type compactionMetrics struct {
-	checks            atomic.Uint64
-	skipped           atomic.Uint64
-	compactions       atomic.Uint64
-	failures          atomic.Uint64
-	lastActiveTokens  atomic.Int64
-	lastTokensAfter   atomic.Int64
+	checks           atomic.Uint64
+	skipped          atomic.Uint64
+	compactions      atomic.Uint64
+	failures         atomic.Uint64
+	lastActiveTokens atomic.Int64
+	lastTokensAfter  atomic.Int64
 }
 
 func (m *compactionMetrics) snapshot() SessionCompactionMetrics {

@@ -169,8 +169,8 @@ func (s *SessionService) ListSessions(ctx context.Context, params store.ListSess
 	for rows.Next() {
 		var (
 			id, tenantID, app, user string
-			subject                  *string
-			updated                  time.Time
+			subject                 *string
+			updated                 time.Time
 		)
 		if err := rows.Scan(&id, &tenantID, &app, &user, &subject, &updated); err != nil {
 			return nil, err

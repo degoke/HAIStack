@@ -105,8 +105,8 @@ func (e *Executor) execPersistWrite(ctx context.Context, req ToolRequest, params
 	}
 
 	preview := map[string]any{
-		"operation":    params.Operation,
-		"resourceType": params.ResourceType,
+		"operation":       params.Operation,
+		"resourceType":    params.ResourceType,
 		params.PreviewKey: allowed,
 	}
 	if params.ID != "" {

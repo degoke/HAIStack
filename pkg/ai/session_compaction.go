@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	defaultRetainRecentEvents   = 12
-	defaultMinEventsToCompact   = 16
+	defaultRetainRecentEvents    = 12
+	defaultMinEventsToCompact    = 16
 	defaultCompactHeadroomTokens = 2048
-	compactionSystemPrefix      = "Earlier conversation summary (checkpoint):\n"
+	compactionSystemPrefix       = "Earlier conversation summary (checkpoint):\n"
 )
 
 // SessionCompactionSummarizeInput is passed to a custom compaction summarizer.
@@ -131,11 +131,11 @@ func NewCompactionSessionEvent(summary string, coveredCount int, lastCoveredEven
 		Content:   summary,
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
-			store.SessionEventMetadataCompaction:          "true",
-			store.SessionMetadataCoveredEventCount:        strconv.Itoa(coveredCount),
-			store.SessionMetadataLastCoveredEventID:       lastCoveredEventID,
+			store.SessionEventMetadataCompaction:            "true",
+			store.SessionMetadataCoveredEventCount:          strconv.Itoa(coveredCount),
+			store.SessionMetadataLastCoveredEventID:         lastCoveredEventID,
 			store.SessionMetadataCompactionBasisTailEventID: basisTailEventID,
-			store.SessionMetadataActiveTokensEstimate:     strconv.Itoa(activeTokensEstimate),
+			store.SessionMetadataActiveTokensEstimate:       strconv.Itoa(activeTokensEstimate),
 		},
 	}
 }

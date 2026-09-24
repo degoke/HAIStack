@@ -19,19 +19,19 @@ import (
 
 // Harness wires an ai.Executor with optional search, views, core, and policy fakes.
 type Harness struct {
-	Resources   *storetest.ResourceStore
+	Resources     *storetest.ResourceStore
 	SearchIndex   *storetest.SearchStore // populated when WithSearch; updated atomically with Core writes
 	SearchIndexer search.Indexer         // same indexer wired into Core when WithSearch && WithCore
 	Search        *search.Service
-	Views     *view.Executor
-	Core      *core.ResourceService
-	Policy    *ai.AllowListPolicy
-	Audit     *FakeAuditLogger
-	Approval  *FakeApprovalHook
-	Deid      *FakeDeidentifier
-	Model     *FakeModelAdapter
-	Executor  *ai.Executor
-	Clock     *FixedClock
+	Views         *view.Executor
+	Core          *core.ResourceService
+	Policy        *ai.AllowListPolicy
+	Audit         *FakeAuditLogger
+	Approval      *FakeApprovalHook
+	Deid          *FakeDeidentifier
+	Model         *FakeModelAdapter
+	Executor      *ai.Executor
+	Clock         *FixedClock
 }
 
 // Options configures which subsystems the harness enables.
@@ -212,19 +212,19 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	}
 
 	return &Harness{
-		Resources:   resources,
+		Resources:     resources,
 		SearchIndex:   indexedStore,
 		SearchIndexer: searchIndexer,
 		Search:        searchSvc,
-		Views:     viewExec,
-		Core:      coreSvc,
-		Policy:    policy,
-		Audit:     audit,
-		Approval:  approval,
-		Deid:      deid,
-		Model:     model,
-		Executor:  exec,
-		Clock:     clock,
+		Views:         viewExec,
+		Core:          coreSvc,
+		Policy:        policy,
+		Audit:         audit,
+		Approval:      approval,
+		Deid:          deid,
+		Model:         model,
+		Executor:      exec,
+		Clock:         clock,
 	}
 }
 

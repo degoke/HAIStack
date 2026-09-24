@@ -33,7 +33,7 @@ func TestPatientCreateDraft_ToWriteInput(t *testing.T) {
 
 func TestExtractPatientCreateDraft(t *testing.T) {
 	msgs := []ai.ChatMessage{{
-		Role: ai.ChatRoleAssistant,
+		Role:    ai.ChatRoleAssistant,
 		Content: "Here is the draft:\n```patient_create\n{\"family\":\"Lee\",\"given\":[\"Sam\"]}\n```",
 	}}
 	draft, ok := ai.ExtractPatientCreateDraft(msgs)

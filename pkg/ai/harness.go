@@ -85,13 +85,13 @@ type ChatOptions struct {
 
 // ChatResult is the outcome of one Harness.Chat user turn.
 type ChatResult struct {
-	InvocationID     string
-	Answer           string
-	Messages         []ChatMessage
-	ToolResults      []HarnessToolResult
-	Citations          []Citation
-	PendingApprovals   []HarnessPendingApproval
-	GroundingWarnings  []string
+	InvocationID      string
+	Answer            string
+	Messages          []ChatMessage
+	ToolResults       []HarnessToolResult
+	Citations         []Citation
+	PendingApprovals  []HarnessPendingApproval
+	GroundingWarnings []string
 }
 
 // HarnessPendingApproval captures approval-required writes surfaced during Chat.

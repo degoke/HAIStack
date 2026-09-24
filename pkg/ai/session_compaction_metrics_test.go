@@ -18,10 +18,10 @@ func TestHarness_CompactionMetricsAndCustomSummarizer(t *testing.T) {
 	}
 	model := &recordingChatModel{responses: []*ai.ChatResponse{{Content: "ok"}}}
 	harness, err := ai.NewHarness(ai.HarnessConfig{
-		Executor: h.exec,
-		Model:    model,
-		Actor:    "u",
-		TenantID: "t",
+		Executor:       h.exec,
+		Model:          model,
+		Actor:          "u",
+		TenantID:       "t",
 		SessionService: svc,
 		SessionCompaction: ai.SessionCompactionConfig{
 			MaxContextTokens:   10,

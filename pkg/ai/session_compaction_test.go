@@ -40,10 +40,10 @@ func TestHarness_SessionCompactionAppendsCheckpoint(t *testing.T) {
 	}
 	model := &recordingChatModel{responses: []*ai.ChatResponse{{Content: "answer"}}}
 	harness, err := ai.NewHarness(ai.HarnessConfig{
-		Executor: h.exec,
-		Model:    model,
-		Actor:    "u",
-		TenantID: "t",
+		Executor:       h.exec,
+		Model:          model,
+		Actor:          "u",
+		TenantID:       "t",
 		SessionService: svc,
 		SessionCompaction: ai.SessionCompactionConfig{
 			MaxContextTokens:   80,

@@ -13,12 +13,12 @@ import (
 )
 
 type transactionEntrySpec struct {
-	Method       string
-	ResourceType string
-	ID           string
-	Fields       map[string]any
-	Patches      map[string]any
-	FullURL      string
+	Method        string
+	ResourceType  string
+	ID            string
+	Fields        map[string]any
+	Patches       map[string]any
+	FullURL       string
 	ProvenanceRef string // set after build: target reference for optional Provenance entry
 }
 

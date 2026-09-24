@@ -66,16 +66,16 @@ func TestHarness_ProposeWriteDoesNotCommit(t *testing.T) {
 	before := len(h.resources.all())
 	model := &recordingChatModel{responses: []*ai.ChatResponse{
 		{ToolCalls: []ai.ChatToolCall{{
-			ID:   "c1",
-			Name: ai.ToolProposeWriteResource,
+			ID:        "c1",
+			Name:      ai.ToolProposeWriteResource,
 			Arguments: `{"operation":"create","resourceType":"Patient","fields":{"gender":"unknown"}}`,
 		}}},
 		{Content: "proposed"},
 	}}
 	harness, err := ai.NewHarness(ai.HarnessConfig{
-		Executor:                  h.exec,
-		Model:                     model,
-		Actor:                     "agent-1",
+		Executor:                 h.exec,
+		Model:                    model,
+		Actor:                    "agent-1",
 		EnableProposeWriteHelper: true,
 	})
 	if err != nil {

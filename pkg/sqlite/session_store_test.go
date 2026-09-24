@@ -15,10 +15,10 @@ func TestSessionServiceCreateAppendGet(t *testing.T) {
 	svc := db.SessionService("tenant-a")
 
 	created, err := svc.CreateSession(ctx, store.CreateSessionParams{
-		TenantID: "tenant-a",
-		AppName:  "demo-app",
-		UserID:   "user-1",
-		Subject:  "patient/p1",
+		TenantID:     "tenant-a",
+		AppName:      "demo-app",
+		UserID:       "user-1",
+		Subject:      "patient/p1",
 		InitialState: map[string]any{"locale": "en"},
 	})
 	if err != nil {
