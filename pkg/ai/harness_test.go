@@ -204,6 +204,37 @@ func TestHarness_MultiTurnSessionRetainsHistory(t *testing.T) {
 	}
 }
 
+func TestHarness_InvalidToolArgumentsReturnedToModel(t *testing.T) {
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{ToolCalls: []ai.ChatToolCall{{
+			ID: "c1", Name: ai.ToolReadFhirResource, Arguments: "not-valid-json",
+		}}},
+		{Content: "I will fix the tool call."},
+	}}
+	h := newTestHarness(t, harnessOptions{})
+	harness, err := ai.NewHarness(ai.HarnessConfig{Executor: h.exec, Model: model, Actor: "agent-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "read patient")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.requests) < 2 {
+		t.Fatalf("expected second model round, got %d", len(model.requests))
+	}
+	var sawToolError bool
+	for _, m := range model.requests[1].Messages {
+		if m.Role == ai.ChatRoleTool && strings.Contains(m.Content, "arguments") {
+			sawToolError = true
+			break
+		}
+	}
+	if !sawToolError {
+		t.Fatalf("second model request missing tool error message: %+v", model.requests[1].Messages)
+	}
+}
+
 func TestHarness_MarkdownToolContext(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:     true,

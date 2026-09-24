@@ -48,14 +48,16 @@ type HarnessConfig struct {
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
-// Executor, and in-memory session history. It does not replace policy, audit, or
-// FHIR validation on the executor path.
+// Executor, and session history (persisted via SessionService when configured).
+// It does not replace policy, audit, or FHIR validation on the executor path.
 type Harness struct {
 	cfg     HarnessConfig
 	session Session
 }
 
-// Session holds conversation identity and message history (in-memory v1).
+// Session holds conversation identity, scratchpad state, and the working message
+// list for the current Chat turn. With SessionService configured, messages are
+// reloaded from the store at the start of each Chat.
 type Session struct {
 	ConversationID string
 	Messages       []ChatMessage
@@ -102,7 +104,8 @@ func NewHarness(cfg HarnessConfig) (*Harness, error) {
 	return &Harness{cfg: cfg}, nil
 }
 
-// NewHarnessWithSession returns a harness that continues an existing session.
+// NewHarnessWithSession binds conversation id and state before Chat. When SessionService
+// is configured, preloaded Messages are ignored; history is loaded from the store.
 func NewHarnessWithSession(cfg HarnessConfig, session Session) (*Harness, error) {
 	h, err := NewHarness(cfg)
 	if err != nil {
@@ -210,6 +213,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 				summary.Err = fmt.Errorf("ai: tool %q arguments: %w", tc.Name, parseErr)
 				toolSummaries = append(toolSummaries, summary)
 				errContent := toolErrorContent(summary.Err)
+				// Tool-role message is sent to the model on the next completion round (same as executor errors).
 				h.session.Messages = append(h.session.Messages, ChatMessage{
 					Role:       ChatRoleTool,
 					ToolCallID: tc.ID,

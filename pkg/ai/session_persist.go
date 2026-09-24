@@ -37,7 +37,7 @@ func (h *Harness) CreateAgentSession(ctx context.Context, sessionID string) erro
 	if h.cfg.SessionService == nil {
 		return fmt.Errorf("ai: session service not configured")
 	}
-	return h.createAgentSessionPreserveMemory(ctx, sessionID)
+	return h.createAgentSession(ctx, trimSpace(sessionID))
 }
 
 func (h *Harness) appName() string {
@@ -71,60 +71,47 @@ func (h *Harness) getSessionParams(sessionID string) store.GetSessionParams {
 	}
 }
 
+// restoreAgentSessionIfStored reloads transcript and state from SessionService before each Chat.
+// When SessionService is configured, the store is the source of truth (not preloaded Session.Messages).
 func (h *Harness) restoreAgentSessionIfStored(ctx context.Context) error {
 	if h.cfg.SessionService == nil || trimSpace(h.session.ConversationID) == "" {
 		return nil
 	}
 	sessionID := h.session.ConversationID
+	initialState := h.session.State
 	rec, err := h.cfg.SessionService.GetSession(ctx, h.getSessionParams(sessionID))
 	if errors.Is(err, store.ErrSessionNotFound) {
-		return h.createAgentSessionPreserveMemory(ctx, sessionID)
+		return h.createAgentSession(ctx, sessionID)
 	}
 	if err != nil {
 		return err
 	}
-	if len(h.session.Messages) == 0 {
-		h.session = SessionFromAgentSession(rec)
-		return nil
+	h.session = SessionFromAgentSession(rec)
+	h.session.ConversationID = sessionID
+	if len(initialState) > 0 && len(h.session.State) == 0 {
+		h.session.State = initialState
 	}
-	h.mergeStoredSessionState(rec.State)
 	return nil
 }
 
-func (h *Harness) createAgentSessionPreserveMemory(ctx context.Context, sessionID string) error {
-	preserve := h.session
+func (h *Harness) createAgentSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return ErrInvalidInput
+	}
 	rec, err := h.cfg.SessionService.CreateSession(ctx, store.CreateSessionParams{
 		TenantID:     h.cfg.TenantID,
 		AppName:      h.appName(),
 		UserID:       h.userID(),
 		SessionID:    sessionID,
 		Subject:      h.cfg.Subject,
-		InitialState: preserve.State,
+		InitialState: h.session.State,
 	})
 	if err != nil {
 		return err
 	}
 	h.session = SessionFromAgentSession(rec)
 	h.session.ConversationID = sessionID
-	if len(preserve.Messages) > 0 {
-		h.session.Messages = preserve.Messages
-	}
-	if len(preserve.State) > 0 {
-		h.mergeStoredSessionState(preserve.State)
-	}
 	return nil
-}
-
-func (h *Harness) mergeStoredSessionState(stored map[string]any) {
-	if len(stored) == 0 {
-		return
-	}
-	if h.session.State == nil {
-		h.session.State = map[string]any{}
-	}
-	for k, v := range stored {
-		h.session.State[k] = v
-	}
 }
 
 func (h *Harness) appendSessionEvent(ctx context.Context, event store.SessionEvent) error {

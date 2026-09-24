@@ -219,12 +219,12 @@ func TestHarness_SessionServicePromptJSONPersistsToolCalls(t *testing.T) {
 	}
 }
 
-func TestHarness_NewHarnessWithSessionPreservesMessagesOnCreate(t *testing.T) {
+func TestHarness_SessionServiceIgnoresPreloadedMessages(t *testing.T) {
 	svc := &memSessionService{sessions: map[string]*store.AgentSession{}, events: map[string][]store.SessionEvent{}}
 	h := newTestHarness(t, harnessOptions{})
 	preload := ai.Session{
 		ConversationID: "preloaded",
-		Messages:       []ai.ChatMessage{{Role: ai.ChatRoleUser, Content: "seed"}},
+		Messages:       []ai.ChatMessage{{Role: ai.ChatRoleUser, Content: "should-not-appear"}},
 	}
 	harness, err := ai.NewHarnessWithSession(ai.HarnessConfig{
 		Executor: h.exec, Model: &recordingChatModel{responses: []*ai.ChatResponse{{Content: "ok"}}},
@@ -233,11 +233,13 @@ func TestHarness_NewHarnessWithSessionPreservesMessagesOnCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = harness.Chat(context.Background(), "next")
+	_, err = harness.Chat(context.Background(), "first")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if harness.Session().Messages[0].Content != "seed" {
-		t.Fatalf("messages = %+v", harness.Session().Messages)
+	for _, m := range harness.Session().Messages {
+		if m.Content == "should-not-appear" {
+			t.Fatal("preloaded messages must not be used when SessionService is configured")
+		}
 	}
 }

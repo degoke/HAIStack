@@ -11,7 +11,7 @@ App: model URL/provider + optional system prompt
             │
             ▼
      Agent / Harness
-  - Session (conversationId + in-memory messages)
+  - Session (conversationId; events via SessionService when configured)
   - ChatModel / OpenAI-compatible function tools
   - Orchestration loop (model ↔ ExecuteTool)
   - Optional markdown narration + structured write proposals
@@ -39,7 +39,7 @@ App: model URL/provider + optional system prompt
 | Policy + de-id + audit | Unchanged on `Executor`; use `HarnessExecutorGuardrails` when wiring production agents |
 | Approval-gated writes | `ChatResult.PendingApprovals`; resume with `ExecuteHarnessTool` + `ApprovalToken` |
 | Citations for grounding | Per-tool `ToolResult.Citations`; aggregated on `ChatResult.Citations` |
-| Long-term chat storage | **Out of scope today** — see [Conversation storage](#conversation-storage) |
+| Long-term chat storage | `store.SessionService` (SQLite/Postgres) — see [Session storage](#session-storage-google-adk-style) |
 | Free-form FHIR answer validation | **Out of scope** — see [Why not validate arbitrary FHIR JSON?](#why-not-validate-arbitrary-fhir-json) |
 | OAuth / SMART login | **Out of scope** — see [Why OAuth/SMART is outside the harness](#why-oauthsmart-is-outside-the-harness) |
 
@@ -81,7 +81,9 @@ _, _ = h.Chat(ctx, "Hello") // creates session if missing; appends events each t
 
 `LoadAgentSession` / `CreateAgentSession` for explicit control.
 
-`Harness.Session().State` mirrors persisted session state; use event `StateDelta` for updates.
+With `SessionService` configured, **each `Chat` reloads events from the store** before handling the user message (the store is the source of truth across instances and process restarts). `Harness.Session().State` mirrors persisted session state; use event `StateDelta` for updates.
+
+Invalid tool arguments produce a **tool** message (persisted and included in the next model request), same as executor failures.
 
 ## Tool-calling protocols
 
