@@ -73,7 +73,7 @@ func (h *Harness) userID() string {
 
 func (h *Harness) restoreAgentSessionIfStored(ctx context.Context) error {
 	if h.cfg.SessionService == nil || trimSpace(h.session.ConversationID) == "" {
-		return h.restoreConversationIfStored(ctx)
+		return nil
 	}
 	rec, err := h.cfg.SessionService.GetSession(ctx, store.GetSessionParams{
 		TenantID:  h.cfg.TenantID,
@@ -103,11 +103,4 @@ func (h *Harness) appendSessionEvent(ctx context.Context, event store.SessionEve
 		Event:     event,
 	})
 	return err
-}
-
-func (h *Harness) persistSessionIfConfigured(ctx context.Context) error {
-	if h.cfg.SessionService != nil {
-		return nil
-	}
-	return h.persistConversationIfConfigured(ctx)
 }

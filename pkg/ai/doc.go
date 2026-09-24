@@ -45,7 +45,6 @@
 //   - ModelAdapterChatModel: bridge legacy ModelAdapter stubs to Harness.Chat.
 //   - ToolCallProtocol / ParsePromptToolCalls: native and prompt-JSON tool loops.
 //   - SessionService integration: LoadAgentSession, append-only events, session state.
-//   - LoadConversation / SaveConversation: legacy ConversationStore snapshot API.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
 //   - Deidentifier: required output scrubbing seam whenever policy requests

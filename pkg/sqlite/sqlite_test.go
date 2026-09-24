@@ -33,7 +33,6 @@ var (
 	_ store.AuthStore                 = (*sqlite.AuthStore)(nil)
 	_ store.JobStore                  = (*sqlite.JobStore)(nil)
 	_ store.AuditStore                = (*sqlite.AuditStore)(nil)
-	_ store.ConversationStore       = (*sqlite.ConversationStore)(nil)
 	_ store.SessionService          = (*sqlite.SessionService)(nil)
 	_ store.SubscriptionStore         = (*sqlite.SubscriptionStore)(nil)
 	_ store.SubscriptionDeliveryStore = (*sqlite.SubscriptionDeliveryStore)(nil)

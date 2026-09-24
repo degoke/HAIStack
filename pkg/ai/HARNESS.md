@@ -28,7 +28,7 @@ App: model URL/provider + optional system prompt
 
 | Discussed responsibility | API / behavior |
 |--------------------------|----------------|
-| Session: `conversationId`, events, state | `Session` + `store.SessionService` (ADK-style); legacy `ConversationStore` deprecated |
+| Session: `conversationId`, events, state | `Session` + `store.SessionService` (ADK-style) |
 | Model seam: URL + provider | `OpenAICompatibleAdapter`, `ChatModel`, optional `ModelAdapterChatModel` bridge for local stubs |
 | Model routing hint | `HarnessConfig.ModelHint` → `ChatRequest.Hint`; `ModelRouter` still used via `Executor.InvokeModel` |
 | Orchestration loop | `Harness.Chat`: user → model → tools → `ExecuteTool` → tool messages → repeat until text |
@@ -79,8 +79,7 @@ h, _ := ai.NewHarness(ai.HarnessConfig{
 _, _ = h.Chat(ctx, "Hello") // creates session if missing; appends events each turn
 ```
 
-`LoadAgentSession` / `CreateAgentSession` for explicit control. Legacy `ConversationStore`
-(snapshot messages JSON) remains for compatibility but is deprecated.
+`LoadAgentSession` / `CreateAgentSession` for explicit control.
 
 `Harness.Session().State` mirrors persisted session state; use event `StateDelta` for updates.
 

@@ -173,11 +173,6 @@
 //     limit). Distinct from AnalyticsStore: audit entries capture actor, action, and outcome
 //     for compliance review.
 //
-// ConversationStore — agent harness chat transcripts (legacy snapshot API):
-//
-//   - Get(ctx, id), Put(ctx, record), Delete(ctx, id), List(ctx, query).
-//   - Prefer SessionService for ADK-style append-only events.
-//
 // SessionService — agent sessions (Google ADK SessionService analogue):
 //
 //   - CreateSession, GetSession, ListSessions, DeleteSession, AppendEvent.

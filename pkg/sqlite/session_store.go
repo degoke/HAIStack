@@ -154,7 +154,8 @@ func (s *SessionService) DeleteSession(ctx context.Context, params store.DeleteS
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
-	if rowsAffected(res) == 0 {
+	n, _ := res.RowsAffected()
+	if n == 0 {
 		return store.ErrSessionNotFound
 	}
 	return nil

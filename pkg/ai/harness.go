@@ -38,14 +38,10 @@ type HarnessConfig struct {
 	AutoConversationID bool
 	// ToolCallProtocol selects native function tools, prompt JSON in text, or both (default native).
 	ToolCallProtocol ToolCallProtocol
-	// SessionService persists ADK-style sessions (events + state) — preferred over ConversationStore.
+	// SessionService persists ADK-style sessions (events + state).
 	SessionService store.SessionService
 	// AppName scopes sessions (ADK app_name); defaults to DefaultHarnessAppName.
 	AppName string
-	// ConversationStore is deprecated: use SessionService.
-	ConversationStore store.ConversationStore
-	// DisableConversationPersist skips legacy SaveConversation after Chat.
-	DisableConversationPersist bool
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -198,11 +194,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		}
 
 		if len(toolCalls) == 0 {
-			result := h.buildChatResult(resp.Content, toolSummaries)
-			if err := h.persistSessionIfConfigured(ctx); err != nil {
-				return nil, err
-			}
-			return result, nil
+			return h.buildChatResult(resp.Content, toolSummaries), nil
 		}
 
 		for _, tc := range toolCalls {

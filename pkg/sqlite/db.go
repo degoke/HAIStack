@@ -175,11 +175,6 @@ func (db *DB) AuditStore() *AuditStore {
 	return newAuditStore(db.sql)
 }
 
-// ConversationStore returns a tenant-scoped agent conversation store.
-func (db *DB) ConversationStore(tenantID string) *ConversationStore {
-	return newConversationStore(db.sql, tenantID)
-}
-
 // SessionService returns a tenant-scoped ADK-style agent session service.
 func (db *DB) SessionService(tenantID string) *SessionService {
 	return newSessionService(db.sql, tenantID)
