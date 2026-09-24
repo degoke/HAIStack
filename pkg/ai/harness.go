@@ -182,6 +182,9 @@ func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolReq
 		req.ConversationID = h.session.ConversationID
 	}
 	if IsWriteTool(req.ToolName) {
+		if commitOpts.ApprovalToken == "" {
+			commitOpts.ApprovalToken = req.ApprovalToken
+		}
 		if err := h.confirmBeforeWriteToolInput(ctx, req.ToolName, req.Input, commitOpts); err != nil {
 			return nil, err
 		}

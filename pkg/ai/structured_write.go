@@ -182,7 +182,12 @@ type CommitWriteOptions struct {
 	// SkipHostConfirm bypasses RequireCommitConfirmation (tests and trusted automation only).
 	SkipHostConfirm bool
 	// ApprovalToken resumes a policy-gated commit (same bundle input as the pending approval).
+	// Host UI confirmation is not invoked again when ApprovalToken is set.
 	ApprovalToken string
+}
+
+func skipHostCommitConfirm(opts CommitWriteOptions) bool {
+	return opts.SkipHostConfirm || strings.TrimSpace(opts.ApprovalToken) != ""
 }
 
 // CommitWrite executes one write draft as a transaction bundle (host adds Provenance when configured).
@@ -268,7 +273,7 @@ func (h *Harness) CommitWritePlanFromSessionWithOptions(ctx context.Context, opt
 }
 
 func (h *Harness) confirmCommitWritePlan(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) error {
-	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
+	if skipHostCommitConfirm(opts) || !h.cfg.RequireCommitConfirmation {
 		return nil
 	}
 	if h.cfg.CommitWritePlanConfirm == nil {
@@ -279,7 +284,7 @@ func (h *Harness) confirmCommitWritePlan(ctx context.Context, plan ResourceWrite
 
 // confirmBeforeWriteToolInput applies the same host gate as CommitWrite for FHIR write tools.
 func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, toolName string, input map[string]any, opts CommitWriteOptions) error {
-	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation || !IsWriteTool(toolName) {
+	if skipHostCommitConfirm(opts) || !h.cfg.RequireCommitConfirmation || !IsWriteTool(toolName) {
 		return nil
 	}
 	if toolName == ToolExecuteFhirBundle || toolName == ToolExecuteFhirTransaction {

@@ -176,7 +176,7 @@ h, _ := ai.NewHarness(ai.HarnessConfig{
 _, err := h.CommitWrite(ctx, draft) // ErrCommitNotConfirmed when hook missing or returns error
 ```
 
-Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation. Pass `CommitWriteOptions.ApprovalToken` to resume policy-gated commits after `ApprovalStore` approval.
+Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation. Pass `CommitWriteOptions.ApprovalToken` to resume policy-gated commits after `ApprovalStore` approval; **host `CommitWritePlanConfirm` is not invoked again** when `ApprovalToken` is set (UI confirm already happened before the pending approval).
 
 During **`Chat`**, when `RequireCommitConfirmation` is set, the harness runs `CommitWritePlanConfirm` (via `confirmBeforeWriteToolInput`) **before** calling the executor; the internal bundle commit then uses `SkipHostConfirm` so the host callback is not invoked twice.
 

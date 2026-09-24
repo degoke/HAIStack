@@ -167,6 +167,65 @@ func TestHarness_CommitWritePlan_PolicyApproval(t *testing.T) {
 	}
 }
 
+func TestHarness_CommitWritePlan_ApprovalRetrySkipsHostConfirm(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+	})
+	store := ai.NewMemoryApprovalStore()
+	exec, err := ai.NewExecutor(ai.Config{
+		Core:          h.core,
+		Policy:        h.policy,
+		Audit:         h.audit,
+		ApprovalStore: store,
+		Now:           h.clock.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirms := 0
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:                  exec,
+		Model:                     &fakeChatModel{},
+		Actor:                     "agent-1",
+		RequireCommitConfirmation: true,
+		CommitWritePlanConfirm: func(ctx context.Context, plan ai.ResourceWritePlan) error {
+			confirms++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := ai.ResourceWritePlan{
+		Entries: []ai.ResourceWriteDraft{{
+			Operation:    ai.WriteOperationCreate,
+			ResourceType: "Patient",
+			Fields:       map[string]any{"gender": "unknown"},
+		}},
+	}
+	pending, err := harness.CommitWritePlan(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirms != 1 {
+		t.Fatalf("host confirms = %d, want 1 before policy approval", confirms)
+	}
+	if err := store.Approve(pending.ApprovalToken); err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.CommitWritePlanWithOptions(context.Background(), plan, ai.CommitWriteOptions{
+		ApprovalToken: pending.ApprovalToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirms != 1 {
+		t.Fatalf("host confirms = %d, want 1 after token retry (no second UI confirm)", confirms)
+	}
+}
+
 func TestHarness_CommitWritePlan_UpdateApproval(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
