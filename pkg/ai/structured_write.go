@@ -27,16 +27,20 @@ type ResourceWriteDraft struct {
 // Validate checks the draft matches executor write tool rules at the harness layer.
 func (d ResourceWriteDraft) Validate() error {
 	op := strings.TrimSpace(d.Operation)
-	if op != WriteOperationCreate && op != WriteOperationUpdate {
-		return fmt.Errorf("%w: operation must be create or update", ErrInvalidInput)
+	if op != WriteOperationCreate && op != WriteOperationUpdate && op != WriteOperationRead {
+		return fmt.Errorf("%w: operation must be create, update, or read", ErrInvalidInput)
 	}
 	if strings.TrimSpace(d.ResourceType) == "" {
 		return fmt.Errorf("%w: resourceType is required", ErrInvalidInput)
 	}
-	if op == WriteOperationUpdate && strings.TrimSpace(d.ID) == "" {
-		return fmt.Errorf("%w: id is required for update", ErrInvalidInput)
+	if (op == WriteOperationUpdate || op == WriteOperationRead) && strings.TrimSpace(d.ID) == "" {
+		return fmt.Errorf("%w: id is required for %s", ErrInvalidInput, op)
 	}
 	switch op {
+	case WriteOperationRead:
+		if len(d.Fields) != 0 || len(d.Patches) != 0 {
+			return fmt.Errorf("%w: read entries must not include fields or patches", ErrInvalidInput)
+		}
 	case WriteOperationCreate:
 		if len(d.Fields) == 0 {
 			return fmt.Errorf("%w: at least one field is required for create", ErrInvalidInput)

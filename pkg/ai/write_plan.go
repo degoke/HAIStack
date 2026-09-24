@@ -9,29 +9,62 @@ import (
 // ToolProposeWritePlan is a harness-only tool for multi-step write proposals.
 const ToolProposeWritePlan = "propose_write_plan"
 
-// ResourceWritePlan is an ordered list of create/update steps committed as one transaction bundle.
-// When AI attribution is enabled the executor may also append Provenance for clinical entries.
+// ResourceWritePlan is an ordered list of bundle steps (writes and optional batch reads).
+// When AI attribution is enabled the executor may also append Provenance for clinical writes.
 type ResourceWritePlan struct {
-	Entries []ResourceWriteDraft
+	// BundleType is transaction (default) or batch. Batch is required when Entries include reads.
+	BundleType string
+	Entries    []ResourceWriteDraft
 }
 
-// Validate checks each draft.
+// Validate checks each entry and bundle shape.
 func (p ResourceWritePlan) Validate() error {
 	if len(p.Entries) == 0 {
-		return fmt.Errorf("%w: at least one write entry is required", ErrInvalidInput)
+		return fmt.Errorf("%w: at least one plan entry is required", ErrInvalidInput)
 	}
+	hasRead := false
+	hasWrite := false
 	for i, d := range p.Entries {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("%w: entry %d: %v", ErrInvalidInput, i, err)
 		}
+		switch strings.TrimSpace(d.Operation) {
+		case WriteOperationRead:
+			hasRead = true
+		case WriteOperationCreate, WriteOperationUpdate:
+			hasWrite = true
+		}
 	}
+	bt := strings.TrimSpace(p.BundleType)
+	if bt == "" {
+		if hasRead {
+			bt = "batch"
+		} else {
+			bt = "transaction"
+		}
+	}
+	if hasRead && bt != "batch" {
+		return fmt.Errorf("%w: batch bundleType is required when plan includes read entries", ErrInvalidInput)
+	}
+	_ = hasWrite
+	_ = hasRead
 	return nil
 }
 
-// ToTransactionInput builds execute_fhir_bundle input (transaction bundle; host adds Provenance).
+// ToTransactionInput builds execute_fhir_bundle input.
 func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
+	}
+	bundleType := strings.TrimSpace(p.BundleType)
+	if bundleType == "" {
+		bundleType = "transaction"
+		for _, d := range p.Entries {
+			if strings.TrimSpace(d.Operation) == WriteOperationRead {
+				bundleType = "batch"
+				break
+			}
+		}
 	}
 	entries := make([]any, 0, len(p.Entries))
 	for _, d := range p.Entries {
@@ -42,7 +75,7 @@ func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
 		entries = append(entries, entry)
 	}
 	return map[string]any{
-		"bundleType": "transaction",
+		"bundleType": bundleType,
 		"entries":    entries,
 	}, nil
 }
@@ -50,6 +83,12 @@ func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
 func draftToTransactionEntry(d ResourceWriteDraft) (map[string]any, error) {
 	rt := strings.TrimSpace(d.ResourceType)
 	switch strings.TrimSpace(d.Operation) {
+	case WriteOperationRead:
+		return map[string]any{
+			"method":       "GET",
+			"resourceType": rt,
+			"id":           strings.TrimSpace(d.ID),
+		}, nil
 	case WriteOperationCreate:
 		out := map[string]any{
 			"method":       "POST",
@@ -74,6 +113,12 @@ func draftToTransactionEntry(d ResourceWriteDraft) (map[string]any, error) {
 
 // ResourceWritePlanFromMap parses harness tool arguments.
 func ResourceWritePlanFromMap(input map[string]any) (ResourceWritePlan, error) {
+	plan := ResourceWritePlan{}
+	if bt, err := optionalStringValue(input, "bundleType"); err != nil {
+		return ResourceWritePlan{}, err
+	} else {
+		plan.BundleType = bt
+	}
 	raw, ok := input["entries"]
 	if !ok {
 		return ResourceWritePlan{}, fmt.Errorf("%w: entries is required", ErrInvalidInput)
@@ -82,7 +127,7 @@ func ResourceWritePlanFromMap(input map[string]any) (ResourceWritePlan, error) {
 	if !ok || len(list) == 0 {
 		return ResourceWritePlan{}, fmt.Errorf("%w: entries must be a non-empty array", ErrInvalidInput)
 	}
-	plan := ResourceWritePlan{Entries: make([]ResourceWriteDraft, 0, len(list))}
+	plan.Entries = make([]ResourceWriteDraft, 0, len(list))
 	for i, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -126,16 +171,25 @@ func ExtractResourceWritePlan(messages []ChatMessage) (ResourceWritePlan, bool) 
 	return ResourceWritePlan{}, false
 }
 
-// ResourceWritePlanFromTransactionInput converts execute_fhir_bundle input to a plan (clinical entries only).
+// ResourceWritePlanFromTransactionInput converts execute_fhir_bundle input to a plan.
 func ResourceWritePlanFromTransactionInput(input map[string]any) (ResourceWritePlan, error) {
-	specs, err := parseBundleEntries(input)
+	bundleType, specs, err := parseBundleInput(input)
 	if err != nil {
 		return ResourceWritePlan{}, err
 	}
-	plan := ResourceWritePlan{Entries: make([]ResourceWriteDraft, 0, len(specs))}
+	plan := ResourceWritePlan{
+		BundleType: bundleType,
+		Entries:    make([]ResourceWriteDraft, 0, len(specs)),
+	}
 	for _, spec := range specs {
 		method := strings.ToUpper(strings.TrimSpace(spec.Method))
 		switch method {
+		case "GET":
+			plan.Entries = append(plan.Entries, ResourceWriteDraft{
+				Operation:    WriteOperationRead,
+				ResourceType: spec.ResourceType,
+				ID:           spec.ID,
+			})
 		case "POST":
 			plan.Entries = append(plan.Entries, ResourceWriteDraft{
 				Operation:    WriteOperationCreate,
@@ -151,7 +205,7 @@ func ResourceWritePlanFromTransactionInput(input map[string]any) (ResourceWriteP
 				Patches:      spec.Patches,
 			})
 		default:
-			return ResourceWritePlan{}, fmt.Errorf("%w: harness commit does not support bundle method %q in plan", ErrInvalidInput, spec.Method)
+			return ResourceWritePlan{}, fmt.Errorf("%w: plan does not support bundle method %q", ErrInvalidInput, spec.Method)
 		}
 	}
 	return plan, nil
@@ -161,8 +215,8 @@ func ResourceWritePlanFromTransactionInput(input map[string]any) (ResourceWriteP
 func ProposeWritePlanToolDescriptor() ToolDescriptor {
 	return ToolDescriptor{
 		Name:        ToolProposeWritePlan,
-		Description: "Propose multiple create/update steps; returns transaction bundle input without committing. Host CommitWritePlan executes and adds Provenance.",
+		Description: "Propose multiple create/update steps (and optional batch reads); returns execute_fhir_bundle input without committing. Host CommitWritePlan executes.",
 		Generic:     false,
-		InputKeys:   []string{"entries"},
+		InputKeys:   []string{"bundleType", "entries"},
 	}
 }

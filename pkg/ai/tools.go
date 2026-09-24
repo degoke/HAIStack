@@ -4,6 +4,8 @@ package ai
 const (
 	WriteOperationCreate = "create"
 	WriteOperationUpdate = "update"
+	// WriteOperationRead is a batch-bundle GET entry (read through policy); not a FHIR write.
+	WriteOperationRead = "read"
 )
 
 // ToolDescriptor describes one tool for model discovery and operator review.

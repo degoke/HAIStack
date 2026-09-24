@@ -182,7 +182,8 @@ func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolReq
 		if err := h.confirmBeforeWriteToolInput(ctx, req.ToolName, req.Input, commitOpts); err != nil {
 			return nil, err
 		}
-		return h.executeHarnessWriteTool(ctx, req)
+		res, _, execErr := h.executeHarnessWriteTool(ctx, req)
+		return res, execErr
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, req)
 }
@@ -337,6 +338,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 			}
 			var res *ToolResult
 			var execErr error
+			var retryInput map[string]any
 			if IsWriteTool(tc.Name) {
 				if confirmErr := h.confirmBeforeWriteToolInput(ctx, tc.Name, input, CommitWriteOptions{}); confirmErr != nil {
 					summary.Err = confirmErr
@@ -352,12 +354,11 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					}
 					continue
 				}
-				summary.Input = input
-				res, execErr = h.executeHarnessWriteTool(ctx, toolReq)
-				if res != nil && res.ApprovalRequired {
-					if retry := pendingWriteInput(res, input); retry != nil {
-						summary.Input = retry
-					}
+				res, retryInput, execErr = h.executeHarnessWriteTool(ctx, toolReq)
+				if res != nil && res.ApprovalRequired && retryInput != nil {
+					summary.Input = retryInput
+				} else {
+					summary.Input = input
 				}
 			} else if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
 				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {
@@ -484,15 +485,11 @@ func pendingApprovalsFromResults(toolSummaries []HarnessToolResult) []HarnessPen
 		if summary.Result.ToolName != "" {
 			toolName = summary.Result.ToolName
 		}
-		retryInput := summary.Input
-		if retryInput == nil {
-			retryInput = pendingWriteInput(summary.Result, nil)
-		}
 		out = append(out, HarnessPendingApproval{
 			ToolName: toolName,
 			Token:    summary.Result.ApprovalToken,
 			Preview:  summary.Result.Data,
-			Input:    retryInput,
+			Input:    summary.Input,
 		})
 	}
 	return out
@@ -564,62 +561,38 @@ func (h *Harness) handleProposeWritePlan(input map[string]any) (string, *ToolRes
 }
 
 // executeHarnessWriteTool commits writes through a transaction bundle (Provenance appended by executor attribution).
-func (h *Harness) executeHarnessWriteTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
+// When policy approval is required, retryInput is the execute_fhir_bundle input (not exposed on ToolResult.Data).
+func (h *Harness) executeHarnessWriteTool(ctx context.Context, req ToolRequest) (*ToolResult, map[string]any, error) {
 	var plan ResourceWritePlan
 	var err error
 	switch req.ToolName {
 	case ToolCreateFhirResource, ToolUpdateFhirResource:
-		draft, err := draftFromWriteToolInput(req.ToolName, req.Input)
-		if err != nil {
-			return nil, err
+		draft, derr := draftFromWriteToolInput(req.ToolName, req.Input)
+		if derr != nil {
+			return nil, nil, derr
 		}
 		plan = ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}
 	case ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
 		plan, err = ResourceWritePlanFromTransactionInput(req.Input)
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, req.ToolName)
+		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidInput, req.ToolName)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	txInput, err := plan.ToTransactionInput()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	res, err := h.executeCommitPlan(ctx, plan, CommitWriteOptions{
 		SkipHostConfirm: true,
 		ApprovalToken:   req.ApprovalToken,
 	})
+	var retry map[string]any
 	if err == nil && res != nil && res.ApprovalRequired {
-		harnessBundleRetryInput(res, txInput)
+		retry = txInput
 	}
-	return res, err
-}
-
-func harnessBundleRetryInput(res *ToolResult, txInput map[string]any) {
-	if res == nil || txInput == nil {
-		return
-	}
-	if m, ok := res.Data.(map[string]any); ok {
-		m["harnessRetryInput"] = txInput
-		return
-	}
-	res.Data = map[string]any{
-		"preview":           res.Data,
-		"harnessRetryInput": txInput,
-	}
-}
-
-func pendingWriteInput(res *ToolResult, fallback map[string]any) map[string]any {
-	if res == nil {
-		return fallback
-	}
-	if m, ok := res.Data.(map[string]any); ok {
-		if retry, ok := m["harnessRetryInput"].(map[string]any); ok {
-			return retry
-		}
-	}
-	return fallback
+	return res, retry, err
 }
 
 func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err error) string {
@@ -629,8 +602,9 @@ func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err 
 	if res == nil {
 		return "{}"
 	}
+	data := toolResultDataForModel(res.Data)
 	if h.cfg.ToolContextFormat == ToolContextMarkdown {
-		md, mdErr := NewMarkdownContextBuilder().FormatToolResult(toolName, res.Data, res.Citations)
+		md, mdErr := NewMarkdownContextBuilder().FormatToolResult(toolName, data, res.Citations)
 		if mdErr == nil && md != "" {
 			return md
 		}
@@ -638,11 +612,29 @@ func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err 
 	if res.Context != "" {
 		return res.Context
 	}
-	out, marshalErr := json.Marshal(res.Data)
+	out, marshalErr := json.Marshal(data)
 	if marshalErr != nil {
 		return fmt.Sprintf("{\"error\":\"%s\"}", marshalErr.Error())
 	}
 	return string(out)
+}
+
+func toolResultDataForModel(data any) any {
+	m, ok := data.(map[string]any)
+	if !ok {
+		return data
+	}
+	if _, has := m["harnessRetryInput"]; !has {
+		return data
+	}
+	copy := map[string]any{}
+	for k, v := range m {
+		if k == "harnessRetryInput" {
+			continue
+		}
+		copy[k] = v
+	}
+	return copy
 }
 
 func toolErrorContent(err error) string {

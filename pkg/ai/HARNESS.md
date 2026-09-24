@@ -178,7 +178,13 @@ _, err := h.CommitWrite(ctx, draft) // ErrCommitNotConfirmed when hook missing o
 
 Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation. Pass `CommitWriteOptions.ApprovalToken` to resume policy-gated commits after `ApprovalStore` approval.
 
-**Policy write approval vs host confirm:** `ApprovalStore` / `WriteTypePolicy` tokens apply to `execute_fhir_bundle`, including harness `CommitWrite` / `CommitWritePlan` and normalized harness write tools (create/update are committed as transaction bundles). Host UI confirmation is separate via `CommitWritePlanConfirm`. `ChatResult.PendingApprovals` includes `Input` (bundle shape) and `ToolName` `execute_fhir_bundle` for retries via `ExecuteHarnessTool` or `CommitWritePlanWithOptions` with the same token.
+During **`Chat`**, when `RequireCommitConfirmation` is set, the harness runs `CommitWritePlanConfirm` (via `confirmBeforeWriteToolInput`) **before** calling the executor; the internal bundle commit then uses `SkipHostConfirm` so the host callback is not invoked twice.
+
+**Policy write approval vs host confirm:** `ApprovalStore` / `WriteTypePolicy` tokens apply to `execute_fhir_bundle`, including harness `CommitWrite` / `CommitWritePlan` and normalized harness write tools (create/update are committed as transaction bundles). Host UI confirmation is separate via `CommitWritePlanConfirm`.
+
+**Retry shapes:** `ChatResult.PendingApprovals` sets `Input` to the normalized **`execute_fhir_bundle`** payload (not shown in tool messages to the model). Retry with `ExecuteHarnessTool` using `pending.ToolName`, `pending.Input`, and `pending.Token`. For **`CommitWritePlan`** called directly by the host, keep the same `ResourceWritePlan` and pass `CommitWriteOptions.ApprovalToken` — `PendingApprovals.Input` is only populated for Chat-normalized writes.
+
+**Plans and batch reads:** `ResourceWritePlan` supports `read` entries (batch `GET`) alongside creates/updates. `CommitWritePlanConfirm` sees the full plan including reads; commits use `bundleType=batch` when reads are present.
 
 ## AI Transparency (HL7 AI on FHIR IG)
 
@@ -188,7 +194,7 @@ When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated c
 2. Add `meta.extension` (`urn:haistack:fhir:StructureDefinition:ai-agent-context`) with `conversationId` / `actor`—**does not overwrite** clinical `meta.source`.
 3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on). Provenance uses R4 `CodeableConcept` for `entity.role`.
 
-**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true) on direct `create_fhir_resource` / `update_fhir_resource` calls. **Harness** `CommitWrite` / `CommitWritePlan` always use `execute_fhir_bundle` with `bundleType=transaction` (host adds Provenance in that bundle); harness does **not** read `AtomicProvenance`.
+**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true) on direct `create_fhir_resource` / `update_fhir_resource` calls. **Harness** `CommitWrite` / `CommitWritePlan` commit via `execute_fhir_bundle` (transaction by default, batch when the plan includes reads). Harness does **not** read `AtomicProvenance`. System Provenance is not auto-appended for a clinical target when the bundle already includes a `Provenance` POST covering that target.
 
 **AtomicProvenance** (executor config only): when true, direct single create/update tools use a one-entry transaction bundle plus Provenance instead of a separate Provenance `Create`.
 

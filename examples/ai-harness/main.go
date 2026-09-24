@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/degoke/haistack/examples/internal/appkit"
 	"github.com/degoke/haistack/pkg/ai"
@@ -43,7 +44,8 @@ func run() error {
 		return err
 	}
 
-	exec, err := newExampleExecutor(stack)
+	approvalStore := ai.NewMemoryApprovalStore()
+	exec, err := newExampleExecutor(stack, approvalStore)
 	if err != nil {
 		return err
 	}
@@ -52,7 +54,7 @@ func run() error {
 	sessionSvc := stack.DB.SessionService(tenantID)
 
 	model := &scriptedChatModel{patientID: created.ID}
-	h, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, model))
+	h, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, model, true))
 	if err != nil {
 		return err
 	}
@@ -63,20 +65,52 @@ func run() error {
 		return err
 	}
 
-	// Host commits a small write plan (transaction bundle + system Provenance when attribution is on).
-	_, err = h.CommitWritePlan(ctx, ai.ResourceWritePlan{
+	planRes, err := h.Chat(ctx, "Propose a write plan to set gender to female.")
+	if err != nil {
+		return err
+	}
+	fmt.Println("Model proposed write plan (tool message in session).")
+
+	genderPlan := ai.ResourceWritePlan{
 		Entries: []ai.ResourceWriteDraft{{
 			Operation:    ai.WriteOperationUpdate,
 			ResourceType: "Patient",
 			ID:           created.ID,
 			Patches:      map[string]any{"gender": "female"},
 		}},
-	})
+	}
+	_, err = h.CommitWritePlan(ctx, genderPlan)
 	if err != nil {
 		return err
 	}
 
-	h2, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, &scriptedChatModel{patientID: created.ID}))
+	// Policy approval on host CommitWritePlan (same plan + ApprovalToken retry).
+	createPlan := ai.ResourceWritePlan{
+		Entries: []ai.ResourceWriteDraft{{
+			Operation:    ai.WriteOperationCreate,
+			ResourceType: "Patient",
+			Fields:       map[string]any{"gender": "unknown"},
+		}},
+	}
+	pending, err := h.CommitWritePlan(ctx, createPlan)
+	if err != nil {
+		return err
+	}
+	if pending != nil && pending.ApprovalRequired {
+		fmt.Printf("Host policy approval: tool=%s token=%s…\n", pending.ToolName, truncate(pending.ApprovalToken, 8))
+		if err := approvalStore.Approve(pending.ApprovalToken); err != nil {
+			return err
+		}
+		_, err = h.CommitWritePlanWithOptions(ctx, createPlan, ai.CommitWriteOptions{
+			ApprovalToken: pending.ApprovalToken,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println("Host resumed write after policy approval.")
+	}
+
+	h2, err := ai.NewHarness(exampleHarnessConfig(exec, sessionSvc, tenantID, &scriptedChatModel{patientID: created.ID}, true))
 	if err != nil {
 		return err
 	}
@@ -90,6 +124,9 @@ func run() error {
 	fmt.Println(res.Answer)
 	fmt.Println("Follow-up (session resumed):")
 	fmt.Println(res2.Answer)
+	if len(planRes.ToolResults) > 0 {
+		fmt.Println("Write-plan tool calls:", len(planRes.ToolResults))
+	}
 	fmt.Println("Citations:")
 	for _, c := range res.Citations {
 		fmt.Println(" -", c.Ref)
@@ -103,7 +140,14 @@ func run() error {
 	return nil
 }
 
-func newExampleExecutor(stack *appkit.SQLiteStack) (*ai.Executor, error) {
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+func newExampleExecutor(stack *appkit.SQLiteStack, approvalStore ai.ApprovalStore) (*ai.Executor, error) {
 	policy := ai.NewAllowListPolicy()
 	policy.Read["Patient"] = ai.ReadTypePolicy{AllowedFields: []string{"name", "gender"}}
 	policy.Search["Patient"] = ai.SearchTypePolicy{
@@ -112,8 +156,9 @@ func newExampleExecutor(stack *appkit.SQLiteStack) (*ai.Executor, error) {
 		MaxCount:      10,
 	}
 	policy.Write["Patient"] = ai.WriteTypePolicy{
-		CreateFields: []string{"name", "gender"},
-		UpdateFields: []string{"gender", "name"},
+		CreateFields:   []string{"name", "gender"},
+		UpdateFields:   []string{"gender", "name"},
+		CreateApproval: approvalStore != nil,
 	}
 
 	validator, err := validate.NewEngine(validate.Config{})
@@ -130,6 +175,7 @@ func newExampleExecutor(stack *appkit.SQLiteStack) (*ai.Executor, error) {
 		RequireValidatorOnWrites: true,
 		Audit:                    &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
 		AuditRequired:            true,
+		ApprovalStore:            approvalStore,
 		AIAttribution: ai.AIAttributionConfig{
 			Enabled:          true,
 			AgentDisplay:     "ai-harness-example",
@@ -138,7 +184,7 @@ func newExampleExecutor(stack *appkit.SQLiteStack) (*ai.Executor, error) {
 	})
 }
 
-func exampleHarnessConfig(exec *ai.Executor, sessionSvc store.SessionService, tenantID string, model ai.ChatModel) ai.HarnessConfig {
+func exampleHarnessConfig(exec *ai.Executor, sessionSvc store.SessionService, tenantID string, model ai.ChatModel, blockDirectWrites bool) ai.HarnessConfig {
 	return ai.HarnessConfig{
 		Executor:                     exec,
 		Model:                        model,
@@ -148,29 +194,56 @@ func exampleHarnessConfig(exec *ai.Executor, sessionSvc store.SessionService, te
 		SessionService:               sessionSvc,
 		SystemPrompt:                 "Use FHIR tools for facts. Propose writes with propose_write_resource or propose_write_plan; the host commits.",
 		ToolContextFormat:            ai.ToolContextMarkdown,
-		BlockDirectWriteTools:        true,
+		BlockDirectWriteTools:        blockDirectWrites,
 		EnableProposeWriteHelper:     true,
 		EnableProposeWritePlanHelper: true,
 		Grounding:                    ai.GroundingConfig{Mode: ai.GroundingStandard},
 		RequireCommitConfirmation:    true,
 		CommitWritePlanConfirm: func(_ context.Context, plan ai.ResourceWritePlan) error {
-			fmt.Printf("Host confirmed write plan (%d entries)\n", len(plan.Entries))
+			fmt.Printf("Host confirmed write plan (%d entries, bundleType=%s)\n", len(plan.Entries), planBundleTypeLabel(plan))
 			return nil
 		},
 	}
 }
 
+func planBundleTypeLabel(plan ai.ResourceWritePlan) string {
+	if strings.TrimSpace(plan.BundleType) != "" {
+		return plan.BundleType
+	}
+	for _, e := range plan.Entries {
+		if e.Operation == ai.WriteOperationRead {
+			return "batch"
+		}
+	}
+	return "transaction"
+}
+
 // scriptedChatModel fakes a tool-calling LLM for the example (read → final answer).
 type scriptedChatModel struct {
-	patientID string
-	step      int
+	patientID    string
+	step         int
+	proposedPlan bool
 }
 
 func (m *scriptedChatModel) Name() string { return "scripted" }
 
 func (m *scriptedChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
 	m.step++
-	// After session restore, prior user/assistant/tool messages are already in context.
+	userMsg := lastUserMessage(req.Messages)
+
+	if strings.Contains(strings.ToLower(userMsg), "write plan") && !m.proposedPlan {
+		m.proposedPlan = true
+		return &ai.ChatResponse{
+			ToolCalls: []ai.ChatToolCall{{
+				ID:   "call_plan",
+				Name: ai.ToolProposeWritePlan,
+				Arguments: fmt.Sprintf(
+					`{"entries":[{"operation":"update","resourceType":"Patient","id":"%s","patches":{"gender":"female"}}]}`,
+					m.patientID,
+				),
+			}},
+		}, nil
+	}
 	if len(req.Messages) > 2 && m.step == 1 {
 		return &ai.ChatResponse{Content: "Earlier I loaded the demo patient from FHIR (see prior tool result)."}, nil
 	}
@@ -186,4 +259,13 @@ func (m *scriptedChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.Cha
 		}, nil
 	}
 	return &ai.ChatResponse{Content: "The demo patient record was loaded from FHIR."}, nil
+}
+
+func lastUserMessage(messages []ai.ChatMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == ai.ChatRoleUser {
+			return messages[i].Content
+		}
+	}
+	return ""
 }

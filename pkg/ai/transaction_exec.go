@@ -68,7 +68,11 @@ func (e *Executor) execBundleSpecs(ctx context.Context, req ToolRequest, bundleT
 		return nil, nil, "", false, "", nil, err
 	}
 	if e.cfg.AIAttribution.Enabled && e.cfg.AIAttribution.createProvenance() {
+		explicitProv := provenanceTargetsExplicitInSpecs(specs)
 		for _, target := range writtenTargets {
+			if provenanceTargetCovered(explicitProv, target) {
+				continue
+			}
 			provJSON, err := e.marshalAIProvenance(req, target)
 			if err != nil {
 				return nil, nil, "", false, "", nil, err
