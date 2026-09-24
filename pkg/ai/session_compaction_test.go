@@ -13,8 +13,10 @@ func TestEventsForModelContextUsesLatestCheckpoint(t *testing.T) {
 	events := []store.SessionEvent{
 		{ID: "1", Author: store.SessionAuthorUser, Content: "old user"},
 		{ID: "2", Author: store.SessionAuthorModel, Content: "old reply"},
-		{ID: "3", Author: store.SessionAuthorCompaction, Content: "summary one"},
 		{ID: "4", Author: store.SessionAuthorUser, Content: "new user"},
+		{ID: "3", Author: store.SessionAuthorCompaction, Content: "summary one", Metadata: map[string]string{
+			store.SessionMetadataLastCoveredEventID: "2",
+		}},
 	}
 	summary, active := ai.EventsForModelContext(events)
 	if summary != "summary one" || len(active) != 1 || active[0].Content != "new user" {
@@ -36,13 +38,10 @@ func TestHarness_SessionCompactionAppendsCheckpoint(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		big.WriteString("patient context line ")
 	}
-	summaryModel := &recordingChatModel{responses: []*ai.ChatResponse{
-		{Content: "compact summary of prior turns"},
-		{Content: "answer"},
-	}}
+	model := &recordingChatModel{responses: []*ai.ChatResponse{{Content: "answer"}}}
 	harness, err := ai.NewHarness(ai.HarnessConfig{
 		Executor: h.exec,
-		Model:    summaryModel,
+		Model:    model,
 		Actor:    "u",
 		TenantID: "t",
 		SessionService: svc,
@@ -50,6 +49,9 @@ func TestHarness_SessionCompactionAppendsCheckpoint(t *testing.T) {
 			MaxContextTokens:   80,
 			RetainRecentEvents: 2,
 			MinEventsToCompact: 4,
+			Summarizer: func(_ context.Context, _ ai.SessionCompactionSummarizeInput) (string, error) {
+				return "compact summary of prior turns", nil
+			},
 		},
 	})
 	if err != nil {

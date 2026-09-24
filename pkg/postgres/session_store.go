@@ -311,6 +311,9 @@ func (s *SessionService) listEvents(ctx context.Context, tenant, appName, userID
 		if cfg.NumRecentEvents > 0 && len(events) > cfg.NumRecentEvents {
 			events = events[len(events)-cfg.NumRecentEvents:]
 		}
+		if cfg.ActiveContextOnly {
+			events = store.ActiveContextEvents(events)
+		}
 	}
 	return events, nil
 }

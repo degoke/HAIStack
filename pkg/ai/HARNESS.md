@@ -95,22 +95,22 @@ Invalid tool arguments produce a **tool** message (persisted and included in the
 
 ### Session compaction (append-only checkpoints)
 
-When `SessionCompaction.MaxContextTokens` is set, the harness estimates **tokens** for the active model context (latest checkpoint summary + events after it). If over the limit, it summarizes older active events (custom `Summarizer` or default `ChatModel`), then appends a **`compaction` author** checkpoint event. Prior events remain in the database (append-only); `ChatMessagesFromSessionEvents` and `Harness.Session().Messages` only surface the checkpoint summary plus the retained tail.
+When `SessionCompaction.MaxContextTokens` is set, the harness estimates **tokens** for the active model context (checkpoint summary + tail after `lastCoveredEventId`, plus system prompt and tool schemas). Compaction runs when estimated tokens exceed `MaxContextTokens - CompactHeadroomTokens` (default headroom 2048). It summarizes older active events (custom `Summarizer` or default `ChatModel`), then appends a **`compaction` author** checkpoint event. Prior events remain in the database (append-only).
+
+**Tokenizer (OpenAI-compatible models):**
 
 ```go
+counter, err := ai.NewTiktokenContextCounter(ai.TiktokenCl100kBase) // or TiktokenO200kBase
 SessionCompaction: ai.SessionCompactionConfig{
-    MaxContextTokens:   100_000,
-    TokenCounter:       ai.EstimateChatMessagesTokens, // or a model-specific counter
-    Summarizer:         mySummarizer,                  // optional
-    OnMetric:           func(ev ai.CompactionMetricEvent) { /* telemetry */ },
-    RetainRecentEvents: 12,
-    MinEventsToCompact: 16,
+    MaxContextTokens:      100_000,
+    CompactHeadroomTokens: 4096,
+    TokenCounter:          counter,
 },
 ```
 
-Use `Harness.PersistedEvents()` for the full audit log. Use `store.SessionService.ListEventsAfter` (or `Harness.ActiveEventsAfterCheckpoint`) to fetch tail events after the latest checkpoint id without scanning the full log in application code.
+`GetSession` with `GetSessionConfig.ActiveContextOnly: true` (used automatically by the harness) returns only the latest checkpoint row and logical tail events for model context. Use `Harness.LoadFullEventLog` for the complete audit log.
 
-`Harness.CompactionMetrics()` exposes cumulative check/skip/compact/failure counts for the harness instance.
+`OnMetric` fires only on successful compaction or failure (not every under-limit check). `Harness.CompactionMetrics()` exposes cumulative counters on the harness instance.
 
 ## Tool-calling protocols
 

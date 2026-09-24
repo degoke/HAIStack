@@ -60,7 +60,25 @@ func (h *Harness) getSessionParams(sessionID string) store.GetSessionParams {
 		AppName:   h.appName(),
 		UserID:    h.userID(),
 		SessionID: sessionID,
+		Config:    &store.GetSessionConfig{ActiveContextOnly: true},
 	}
+}
+
+// LoadFullEventLog loads the complete append-only event history (including pre-checkpoint events).
+func (h *Harness) LoadFullEventLog(ctx context.Context) ([]store.SessionEvent, error) {
+	if h == nil || h.cfg.SessionService == nil || trimSpace(h.session.ConversationID) == "" {
+		return nil, nil
+	}
+	rec, err := h.cfg.SessionService.GetSession(ctx, store.GetSessionParams{
+		TenantID:  h.cfg.TenantID,
+		AppName:   h.appName(),
+		UserID:    h.userID(),
+		SessionID: h.session.ConversationID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rec.Events, nil
 }
 
 // ensureSessionLoaded binds conversation id and reloads session events and state from SessionService.

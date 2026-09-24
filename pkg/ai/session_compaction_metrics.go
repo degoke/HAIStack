@@ -80,7 +80,8 @@ func (h *Harness) recordCompactionMetric(ev CompactionMetricEvent) {
 	case CompactionMetricFailed:
 		h.compactionMetrics.failures.Add(1)
 	}
-	if h.cfg.SessionCompaction.OnMetric != nil {
+	if h.cfg.SessionCompaction.OnMetric != nil &&
+		(ev.Kind == CompactionMetricCompacted || ev.Kind == CompactionMetricFailed) {
 		h.cfg.SessionCompaction.OnMetric(ev)
 	}
 }

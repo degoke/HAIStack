@@ -194,12 +194,14 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	if err := h.ensureSessionLoaded(ctx); err != nil {
 		return nil, err
 	}
-	_ = h.maybeCompactSession(ctx)
 	h.activeInvocationID = invocationID
 
 	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
 		return h.buildChatResult(invocationID, answer, nil), nil
 	}
+
+	tools := h.chatTools()
+	_ = h.maybeCompactSession(ctx, tools)
 
 	skipUserAppend := hasUserEventForInvocation(h.persistedEvents, invocationID)
 	if !skipUserAppend {
@@ -213,7 +215,6 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 		}
 	}
 
-	tools := h.chatTools()
 	toolSummaries := make([]HarnessToolResult, 0)
 
 	for round := 0; round < h.cfg.MaxToolRounds; round++ {
@@ -245,7 +246,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 
 		if len(toolCalls) == 0 {
 			h.activeInvocationID = ""
-			_ = h.maybeCompactSession(ctx)
+			_ = h.maybeCompactSession(ctx, tools)
 			return h.buildChatResult(invocationID, resp.Content, toolSummaries), nil
 		}
 
@@ -306,6 +307,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				return nil, err
 			}
 		}
+		_ = h.maybeCompactSession(ctx, tools)
 	}
 
 	h.activeInvocationID = ""

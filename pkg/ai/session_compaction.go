@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	defaultRetainRecentEvents = 12
-	defaultMinEventsToCompact = 16
-	compactionSystemPrefix    = "Earlier conversation summary (checkpoint):\n"
+	defaultRetainRecentEvents   = 12
+	defaultMinEventsToCompact   = 16
+	defaultCompactHeadroomTokens = 2048
+	compactionSystemPrefix      = "Earlier conversation summary (checkpoint):\n"
 )
 
 // SessionCompactionSummarizeInput is passed to a custom compaction summarizer.
@@ -39,6 +40,8 @@ type SessionCompactionConfig struct {
 	RetainRecentEvents int
 	// MinEventsToCompact requires at least this many active events before compacting (default 16).
 	MinEventsToCompact int
+	// CompactHeadroomTokens compacts when active tokens exceed MaxContextTokens minus this buffer (default 2048).
+	CompactHeadroomTokens int
 }
 
 func (c SessionCompactionConfig) tokenCounter() ContextTokenCounter {
@@ -62,32 +65,22 @@ func (c SessionCompactionConfig) minEventsToCompact() int {
 	return defaultMinEventsToCompact
 }
 
+func (c SessionCompactionConfig) compactThreshold() int {
+	headroom := c.CompactHeadroomTokens
+	if headroom <= 0 {
+		headroom = defaultCompactHeadroomTokens
+	}
+	limit := c.MaxContextTokens - headroom
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
 // EventsForModelContext splits append-only history into the latest checkpoint summary and active tail events.
 func EventsForModelContext(events []store.SessionEvent) (checkpointSummary string, active []store.SessionEvent) {
-	checkpoint, ok := store.LatestCompactionEvent(events)
-	if !ok {
-		return "", append([]store.SessionEvent(nil), events...)
-	}
-	checkpointSummary = strings.TrimSpace(checkpoint.Content)
-	for i, ev := range events {
-		if ev.ID == checkpoint.ID {
-			active = append([]store.SessionEvent(nil), events[i+1:]...)
-			return checkpointSummary, active
-		}
-	}
-	// Fallback if checkpoint id missing from slice (should not happen).
-	lastIdx := -1
-	for i, ev := range events {
-		if !ev.Partial && ev.Author == store.SessionAuthorCompaction {
-			lastIdx = i
-		}
-	}
-	if lastIdx < 0 {
-		return "", append([]store.SessionEvent(nil), events...)
-	}
-	checkpointSummary = strings.TrimSpace(events[lastIdx].Content)
-	active = append([]store.SessionEvent(nil), events[lastIdx+1:]...)
-	return checkpointSummary, active
+	summary, active := store.ActiveContextView(events)
+	return strings.TrimSpace(summary), active
 }
 
 func chatMessagesFromCheckpoint(checkpointSummary string, active []store.SessionEvent) []ChatMessage {
@@ -132,39 +125,52 @@ func sessionEventsToChatMessages(events []store.SessionEvent) []ChatMessage {
 }
 
 // NewCompactionSessionEvent records a checkpoint summarizing prior active events (append-only).
-func NewCompactionSessionEvent(summary string, coveredCount int, lastCoveredEventID string, activeTokensEstimate int) store.SessionEvent {
+func NewCompactionSessionEvent(summary string, coveredCount int, lastCoveredEventID, basisTailEventID string, activeTokensEstimate int) store.SessionEvent {
 	return store.SessionEvent{
 		Author:    store.SessionAuthorCompaction,
 		Content:   summary,
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
-			store.SessionEventMetadataCompaction:    "true",
-			store.SessionMetadataCoveredEventCount:    strconv.Itoa(coveredCount),
-			store.SessionMetadataLastCoveredEventID:   lastCoveredEventID,
-			store.SessionMetadataActiveTokensEstimate: strconv.Itoa(activeTokensEstimate),
+			store.SessionEventMetadataCompaction:          "true",
+			store.SessionMetadataCoveredEventCount:        strconv.Itoa(coveredCount),
+			store.SessionMetadataLastCoveredEventID:       lastCoveredEventID,
+			store.SessionMetadataCompactionBasisTailEventID: basisTailEventID,
+			store.SessionMetadataActiveTokensEstimate:     strconv.Itoa(activeTokensEstimate),
 		},
 	}
 }
 
-func (h *Harness) maybeCompactSession(ctx context.Context) error {
+func (h *Harness) estimateCompactionTokens(messages []ChatMessage, tools []ChatTool) int {
+	cfg := h.cfg.SessionCompaction
+	counter := cfg.tokenCounter()
+	n := counter(messages)
+	sp := h.systemPromptForModel(tools)
+	if strings.TrimSpace(sp) != "" {
+		n += counter([]ChatMessage{{Role: ChatRoleSystem, Content: sp}})
+	}
+	n += estimateChatToolsTokens(tools, counter)
+	return n
+}
+
+func (h *Harness) maybeCompactSession(ctx context.Context, tools []ChatTool) error {
 	cfg := h.cfg.SessionCompaction
 	if cfg.MaxContextTokens <= 0 || h.cfg.SessionService == nil {
 		return nil
 	}
-	counter := cfg.tokenCounter()
+	threshold := cfg.compactThreshold()
 	checkpoint, active := EventsForModelContext(h.persistedEvents)
 	messages := chatMessagesFromCheckpoint(checkpoint, active)
-	activeTokens := counter(messages)
+	activeTokens := h.estimateCompactionTokens(messages, tools)
 	h.recordCompactionMetric(CompactionMetricEvent{
 		Kind:             CompactionMetricCheck,
 		ActiveTokens:     activeTokens,
-		MaxContextTokens: cfg.MaxContextTokens,
+		MaxContextTokens: threshold,
 	})
-	if activeTokens <= cfg.MaxContextTokens {
+	if activeTokens <= threshold {
 		h.recordCompactionMetric(CompactionMetricEvent{
 			Kind:             CompactionMetricSkippedUnder,
 			ActiveTokens:     activeTokens,
-			MaxContextTokens: cfg.MaxContextTokens,
+			MaxContextTokens: threshold,
 		})
 		return nil
 	}
@@ -180,47 +186,77 @@ func (h *Harness) maybeCompactSession(ctx context.Context) error {
 	if cut <= 0 {
 		return nil
 	}
+	basisCheckpointID := ""
+	if cp, ok := store.LatestCompactionEvent(h.persistedEvents); ok {
+		basisCheckpointID = cp.ID
+	}
+	basisTailID := active[len(active)-1].ID
+
 	toSummarize := active[:cut]
 	summary, err := h.summarizeForCompaction(ctx, checkpoint, toSummarize)
 	if err != nil {
 		h.recordCompactionMetric(CompactionMetricEvent{
 			Kind:             CompactionMetricFailed,
 			ActiveTokens:     activeTokens,
-			MaxContextTokens: cfg.MaxContextTokens,
+			MaxContextTokens: threshold,
 			Err:              err,
 		})
 		return err
 	}
+	if !h.verifyCompactionBasis(ctx, basisCheckpointID, basisTailID) {
+		return nil
+	}
 	lastID := toSummarize[len(toSummarize)-1].ID
-	if err := h.appendSessionEvent(ctx, NewCompactionSessionEvent(summary, len(toSummarize), lastID, 0)); err != nil {
+	simulatedActive := append([]store.SessionEvent(nil), active[cut:]...)
+	afterMessages := chatMessagesFromCheckpoint(summary, simulatedActive)
+	afterTokens := h.estimateCompactionTokens(afterMessages, tools)
+	if err := h.appendSessionEvent(ctx, NewCompactionSessionEvent(summary, len(toSummarize), lastID, basisTailID, afterTokens)); err != nil {
 		h.recordCompactionMetric(CompactionMetricEvent{
 			Kind:             CompactionMetricFailed,
 			ActiveTokens:     activeTokens,
-			MaxContextTokens: cfg.MaxContextTokens,
+			MaxContextTokens: threshold,
 			Err:              err,
 		})
 		return err
 	}
 	h.refreshMessagesFromPersistedEvents()
-	afterTokens := counter(h.session.Messages)
-	// Patch metadata with post-compaction token estimate on the event we just appended.
-	if len(h.persistedEvents) > 0 {
-		last := h.persistedEvents[len(h.persistedEvents)-1]
-		if last.Author == store.SessionAuthorCompaction {
-			if last.Metadata == nil {
-				last.Metadata = map[string]string{}
-			}
-			last.Metadata[store.SessionMetadataActiveTokensEstimate] = strconv.Itoa(afterTokens)
-			h.persistedEvents[len(h.persistedEvents)-1] = last
-		}
-	}
 	h.recordCompactionMetric(CompactionMetricEvent{
 		Kind:               CompactionMetricCompacted,
 		ActiveTokens:       activeTokens,
-		MaxContextTokens:   cfg.MaxContextTokens,
+		MaxContextTokens:   threshold,
 		EventsSummarized:   len(toSummarize),
 		TokensAfterCompact: afterTokens,
 	})
+	return nil
+}
+
+func (h *Harness) verifyCompactionBasis(ctx context.Context, checkpointID, tailID string) bool {
+	if h.cfg.SessionService == nil {
+		return true
+	}
+	if err := h.reloadActivePersistedEvents(ctx); err != nil {
+		return false
+	}
+	currentCheckpointID := ""
+	if cp, ok := store.LatestCompactionEvent(h.persistedEvents); ok {
+		currentCheckpointID = cp.ID
+	}
+	if currentCheckpointID != checkpointID {
+		return false
+	}
+	_, active := EventsForModelContext(h.persistedEvents)
+	if len(active) == 0 {
+		return tailID == ""
+	}
+	return active[len(active)-1].ID == tailID
+}
+
+func (h *Harness) reloadActivePersistedEvents(ctx context.Context) error {
+	rec, err := h.cfg.SessionService.GetSession(ctx, h.getSessionParams(h.session.ConversationID))
+	if err != nil {
+		return err
+	}
+	h.persistedEvents = append([]store.SessionEvent(nil), rec.Events...)
 	return nil
 }
 

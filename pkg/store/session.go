@@ -33,6 +33,9 @@ const SessionMetadataLastCoveredEventID = "lastCoveredEventId"
 // SessionMetadataActiveTokensEstimate records the estimated active context tokens after compaction.
 const SessionMetadataActiveTokensEstimate = "activeTokensEstimate"
 
+// SessionMetadataCompactionBasisTailEventID is the last active tail event id when compaction was planned.
+const SessionMetadataCompactionBasisTailEventID = "basisTailEventId"
+
 // SessionToolCall is a persisted tool invocation on a model event.
 type SessionToolCall struct {
 	ID        string `json:"id"`
@@ -82,6 +85,9 @@ type GetSessionConfig struct {
 	// NumRecentEvents limits how many events are returned (0 = none, <0 invalid).
 	NumRecentEvents int
 	AfterTimestamp  time.Time
+	// ActiveContextOnly returns only the latest compaction checkpoint (if any) and events after it.
+	// Use for model context; omit or set false for the full append-only audit log.
+	ActiveContextOnly bool
 }
 
 // CreateSessionParams creates a new session row.
