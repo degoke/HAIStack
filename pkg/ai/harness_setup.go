@@ -40,13 +40,13 @@ func HarnessGroundingGuardrails(hcfg HarnessConfig) []string {
 		mode = GroundingStandard
 	}
 	if mode == GroundingStrict && !hcfg.BlockDirectWriteTools {
-		notes = append(notes, "GroundingStrict: enable BlockDirectWriteTools so writes go through propose_write_resource / CommitWrite")
+		notes = append(notes, "GroundingStrict: enable BlockDirectWriteTools so writes go through propose_write_resource / propose_write_plan and CommitWrite / CommitWritePlan")
 	}
 	if mode != GroundingOff && hcfg.ToolContextFormat != ToolContextMarkdown {
 		notes = append(notes, "set ToolContextFormat to markdown so tool rows are easier for models to quote accurately")
 	}
-	if hcfg.RequireCommitConfirmation && hcfg.CommitWriteConfirm == nil {
-		notes = append(notes, "RequireCommitConfirmation is true but CommitWriteConfirm is nil (all FHIR write harness paths will fail)")
+	if hcfg.RequireCommitConfirmation && hcfg.CommitWritePlanConfirm == nil {
+		notes = append(notes, "RequireCommitConfirmation is true but CommitWritePlanConfirm is nil (all FHIR write harness paths will fail)")
 	}
 	if hcfg.Executor != nil && hcfg.Executor.Policy() == nil {
 		notes = append(notes, "Executor policy is required for PreflightSearchPolicy during Chat")

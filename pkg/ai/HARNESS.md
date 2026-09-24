@@ -168,17 +168,17 @@ All FHIR write tool paths through the harness share the same gate: `Chat` tool e
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{
     RequireCommitConfirmation: true,
-    CommitWriteConfirm: func(ctx context.Context, draft ai.ResourceWriteDraft) error {
-        // UI / workflow approval; return nil to allow commit
+    CommitWritePlanConfirm: func(ctx context.Context, plan ai.ResourceWritePlan) error {
+        // UI / workflow approval for single- or multi-entry plans; return nil to allow commit
         return nil
     },
 })
 _, err := h.CommitWrite(ctx, draft) // ErrCommitNotConfirmed when hook missing or returns error
 ```
 
-Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation.
+Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: true})` only in tests or trusted automation. Pass `CommitWriteOptions.ApprovalToken` to resume policy-gated commits after `ApprovalStore` approval.
 
-**Policy write approval vs host confirm:** `ApprovalStore` / `WriteTypePolicy` approval tokens are enforced on direct executor tools when the model (or host) calls `create_fhir_resource`, `update_fhir_resource`, or `execute_fhir_bundle` with a user-initiated tool request. Harness `CommitWrite` / `CommitWritePlan` commit through an internal bundle path that does not run that approval gate; only `CommitWriteConfirm` / `CommitWritePlanConfirm` apply unless you extend the harness or enforce policy inside those callbacks.
+**Policy write approval vs host confirm:** `ApprovalStore` / `WriteTypePolicy` tokens apply to `execute_fhir_bundle`, including harness `CommitWrite` / `CommitWritePlan` and normalized harness write tools (create/update are committed as transaction bundles). Host UI confirmation is separate via `CommitWritePlanConfirm`. `ChatResult.PendingApprovals` includes `Input` (bundle shape) and `ToolName` `execute_fhir_bundle` for retries via `ExecuteHarnessTool` or `CommitWritePlanWithOptions` with the same token.
 
 ## AI Transparency (HL7 AI on FHIR IG)
 
@@ -192,9 +192,7 @@ When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated c
 
 **AtomicProvenance** (executor config only): when true, direct single create/update tools use a one-entry transaction bundle plus Provenance instead of a separate Provenance `Create`.
 
-**Multi-entry commits:** set `CommitWritePlanConfirm` when the plan has more than one entry; `CommitWriteConfirm` alone only applies to single-entry plans.
-
-Provenance is created via `Core.Create` (system side-effect, not create/update tool policy). Ensure the core store allows `Provenance` creates for the executor principal.
+Provenance is created via `Core.Create` (system side-effect, not create/update tool policy). Ensure the core store allows `Provenance` creates for the executor principal. Bundle entries may include `Provenance` POSTs; when attribution is enabled the executor may still append its own Provenance for clinical writes.
 
 Wire attribution on the same executor used by the harness; pass `ConversationID` on writes via session (`Harness` sets it from the active session).
 
@@ -216,9 +214,9 @@ full Resource JSON from model text. Creates use `create_fhir_resource` with an a
 updates use `update_fhir_resource` with **patches** keyed by FHIR Patch paths (e.g. `name[0].family`), not
 FHIRPath functions such as `Patient.name.where(...)`. Policy `UpdateFields` must list patch keys exactly.
 Set `RequireValidatorOnWrites` on the executor to require `pkg/validate` on every commit.
-The harness reinforces that with `BlockDirectWriteTools` + `propose_write_resource` →
-`CommitWrite`. Validating arbitrary generated FHIR would duplicate `pkg/validate` on
-untrusted blobs and still bypass field-level policy.
+The harness reinforces structured writes with `BlockDirectWriteTools` + `propose_write_resource` /
+`propose_write_plan` → `CommitWrite` / `CommitWritePlan`. Prefer field maps and patch paths so
+policy and validation stay explicit; full Resource JSON in bundles is not the primary v1 shape.
 
 ## Why OAuth/SMART is outside the harness
 
@@ -298,9 +296,9 @@ _, _ = h.CommitWrite(ctx, draft)
 res, _ := h.Chat(ctx, "update patient ...")
 for _, pending := range res.PendingApprovals {
     _, _ = h.ExecuteHarnessTool(ctx, ai.ToolRequest{
-        ToolName: pending.ToolName,
-        Input:    /* same write input */,
-        ApprovalToken: approvedToken,
+        ToolName:      pending.ToolName,
+        Input:         pending.Input,
+        ApprovalToken: pending.Token,
     })
 }
 ```

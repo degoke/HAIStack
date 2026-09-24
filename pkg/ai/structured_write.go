@@ -177,6 +177,8 @@ func ProposeWriteResourceToolDescriptor() ToolDescriptor {
 type CommitWriteOptions struct {
 	// SkipHostConfirm bypasses RequireCommitConfirmation (tests and trusted automation only).
 	SkipHostConfirm bool
+	// ApprovalToken resumes a policy-gated commit (same bundle input as the pending approval).
+	ApprovalToken string
 }
 
 // CommitWrite executes one write draft as a transaction bundle (host adds Provenance when configured).
@@ -217,6 +219,7 @@ func (h *Harness) executeCommitPlan(ctx context.Context, plan ResourceWritePlan,
 		Subject:        h.cfg.Subject,
 		Input:          input,
 		ConversationID: h.session.ConversationID,
+		ApprovalToken:  opts.ApprovalToken,
 	})
 }
 
@@ -260,30 +263,14 @@ func (h *Harness) CommitWritePlanFromSessionWithOptions(ctx context.Context, opt
 	return h.CommitWritePlanWithOptions(ctx, plan, opts)
 }
 
-func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) error {
-	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
-		return nil
-	}
-	if h.cfg.CommitWriteConfirm == nil {
-		return ErrCommitNotConfirmed
-	}
-	return h.cfg.CommitWriteConfirm(ctx, draft)
-}
-
 func (h *Harness) confirmCommitWritePlan(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) error {
 	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
 		return nil
 	}
-	if h.cfg.CommitWritePlanConfirm != nil {
-		return h.cfg.CommitWritePlanConfirm(ctx, plan)
+	if h.cfg.CommitWritePlanConfirm == nil {
+		return ErrCommitNotConfirmed
 	}
-	if len(plan.Entries) == 1 && h.cfg.CommitWriteConfirm != nil {
-		return h.cfg.CommitWriteConfirm(ctx, plan.Entries[0])
-	}
-	if len(plan.Entries) > 1 {
-		return fmt.Errorf("%w: multi-entry plan requires CommitWritePlanConfirm (%d entries)", ErrCommitNotConfirmed, len(plan.Entries))
-	}
-	return ErrCommitNotConfirmed
+	return h.cfg.CommitWritePlanConfirm(ctx, plan)
 }
 
 // confirmBeforeWriteToolInput applies the same host gate as CommitWrite for FHIR write tools.

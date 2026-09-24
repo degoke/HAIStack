@@ -47,11 +47,9 @@ type HarnessConfig struct {
 	SessionCompaction SessionCompactionConfig
 	// Grounding reduces hallucination via prompts, citation checks, and optional strict enforcement.
 	Grounding GroundingConfig
-	// RequireCommitConfirmation requires CommitWriteConfirm before CommitWrite / CommitWriteFromSession.
+	// RequireCommitConfirmation requires CommitWritePlanConfirm before CommitWrite / CommitWritePlan.
 	RequireCommitConfirmation bool
-	// CommitWriteConfirm is invoked before CommitWrite when the plan has a single entry (unless CommitWritePlanConfirm is set).
-	CommitWriteConfirm func(ctx context.Context, draft ResourceWriteDraft) error
-	// CommitWritePlanConfirm is invoked before CommitWritePlan (multi-step or when set explicitly).
+	// CommitWritePlanConfirm is invoked before any commit (single- or multi-entry plans).
 	CommitWritePlanConfirm func(ctx context.Context, plan ResourceWritePlan) error
 	// EnableProposeWritePlanHelper exposes propose_write_plan in the harness tool list.
 	EnableProposeWritePlanHelper bool
@@ -98,11 +96,14 @@ type HarnessPendingApproval struct {
 	ToolName string
 	Token    string
 	Preview  any
+	// Input is the executor tool input to replay with ApprovalToken (often execute_fhir_bundle after harness normalization).
+	Input map[string]any
 }
 
 // HarnessToolResult summarizes one tool invocation performed during Chat.
 type HarnessToolResult struct {
 	ToolName string
+	Input    map[string]any
 	Result   *ToolResult
 	Err      error
 }
@@ -181,7 +182,7 @@ func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolReq
 		if err := h.confirmBeforeWriteToolInput(ctx, req.ToolName, req.Input, commitOpts); err != nil {
 			return nil, err
 		}
-		return h.executeHarnessWriteTool(ctx, req.ToolName, req.Input)
+		return h.executeHarnessWriteTool(ctx, req)
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, req)
 }
@@ -351,7 +352,13 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					}
 					continue
 				}
-				res, execErr = h.executeHarnessWriteTool(ctx, tc.Name, input)
+				summary.Input = input
+				res, execErr = h.executeHarnessWriteTool(ctx, toolReq)
+				if res != nil && res.ApprovalRequired {
+					if retry := pendingWriteInput(res, input); retry != nil {
+						summary.Input = retry
+					}
+				}
 			} else if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
 				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {
 					summary.Err = preflightErr
@@ -473,10 +480,19 @@ func pendingApprovalsFromResults(toolSummaries []HarnessToolResult) []HarnessPen
 		if summary.Result == nil || !summary.Result.ApprovalRequired {
 			continue
 		}
+		toolName := summary.ToolName
+		if summary.Result.ToolName != "" {
+			toolName = summary.Result.ToolName
+		}
+		retryInput := summary.Input
+		if retryInput == nil {
+			retryInput = pendingWriteInput(summary.Result, nil)
+		}
 		out = append(out, HarnessPendingApproval{
-			ToolName: summary.ToolName,
+			ToolName: toolName,
 			Token:    summary.Result.ApprovalToken,
 			Preview:  summary.Result.Data,
+			Input:    retryInput,
 		})
 	}
 	return out
@@ -507,7 +523,7 @@ func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (str
 		"status":     "proposal",
 		"tool":       execTool,
 		"input":      writeInput,
-		"commitHint": "Call Harness.CommitWrite with the same structured draft; the host commits via transaction bundle and adds Provenance when configured.",
+		"commitHint": "Call Harness.CommitWrite (single entry) or propose_write_plan + CommitWritePlan (multi-step); host commits via transaction bundle.",
 	}
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -548,25 +564,62 @@ func (h *Harness) handleProposeWritePlan(input map[string]any) (string, *ToolRes
 }
 
 // executeHarnessWriteTool commits writes through a transaction bundle (Provenance appended by executor attribution).
-func (h *Harness) executeHarnessWriteTool(ctx context.Context, toolName string, input map[string]any) (*ToolResult, error) {
+func (h *Harness) executeHarnessWriteTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
 	var plan ResourceWritePlan
 	var err error
-	switch toolName {
+	switch req.ToolName {
 	case ToolCreateFhirResource, ToolUpdateFhirResource:
-		draft, err := draftFromWriteToolInput(toolName, input)
+		draft, err := draftFromWriteToolInput(req.ToolName, req.Input)
 		if err != nil {
 			return nil, err
 		}
 		plan = ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}
 	case ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
-		plan, err = ResourceWritePlanFromTransactionInput(input)
+		plan, err = ResourceWritePlanFromTransactionInput(req.Input)
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, toolName)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, req.ToolName)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return h.executeCommitPlan(ctx, plan, CommitWriteOptions{SkipHostConfirm: true})
+	txInput, err := plan.ToTransactionInput()
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.executeCommitPlan(ctx, plan, CommitWriteOptions{
+		SkipHostConfirm: true,
+		ApprovalToken:   req.ApprovalToken,
+	})
+	if err == nil && res != nil && res.ApprovalRequired {
+		harnessBundleRetryInput(res, txInput)
+	}
+	return res, err
+}
+
+func harnessBundleRetryInput(res *ToolResult, txInput map[string]any) {
+	if res == nil || txInput == nil {
+		return
+	}
+	if m, ok := res.Data.(map[string]any); ok {
+		m["harnessRetryInput"] = txInput
+		return
+	}
+	res.Data = map[string]any{
+		"preview":           res.Data,
+		"harnessRetryInput": txInput,
+	}
+}
+
+func pendingWriteInput(res *ToolResult, fallback map[string]any) map[string]any {
+	if res == nil {
+		return fallback
+	}
+	if m, ok := res.Data.(map[string]any); ok {
+		if retry, ok := m["harnessRetryInput"].(map[string]any); ok {
+			return retry
+		}
+	}
+	return fallback
 }
 
 func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err error) string {

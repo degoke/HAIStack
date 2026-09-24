@@ -10,12 +10,12 @@ import (
 const ToolProposeWritePlan = "propose_write_plan"
 
 // ResourceWritePlan is an ordered list of create/update steps committed as one transaction bundle.
-// The model must not include Provenance; the host executor appends Provenance when AI attribution is enabled.
+// When AI attribution is enabled the executor may also append Provenance for clinical entries.
 type ResourceWritePlan struct {
 	Entries []ResourceWriteDraft
 }
 
-// Validate checks each draft and rejects clinical Provenance entries from the model.
+// Validate checks each draft.
 func (p ResourceWritePlan) Validate() error {
 	if len(p.Entries) == 0 {
 		return fmt.Errorf("%w: at least one write entry is required", ErrInvalidInput)
@@ -23,9 +23,6 @@ func (p ResourceWritePlan) Validate() error {
 	for i, d := range p.Entries {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("%w: entry %d: %v", ErrInvalidInput, i, err)
-		}
-		if strings.EqualFold(strings.TrimSpace(d.ResourceType), "Provenance") {
-			return fmt.Errorf("%w: entry %d: Provenance must not be proposed by the model (added by the host)", ErrInvalidInput, i)
 		}
 	}
 	return nil
@@ -137,9 +134,6 @@ func ResourceWritePlanFromTransactionInput(input map[string]any) (ResourceWriteP
 	}
 	plan := ResourceWritePlan{Entries: make([]ResourceWriteDraft, 0, len(specs))}
 	for _, spec := range specs {
-		if strings.EqualFold(strings.TrimSpace(spec.ResourceType), "Provenance") {
-			return ResourceWritePlan{}, fmt.Errorf("%w: Provenance entries are not allowed in model bundle input", ErrInvalidInput)
-		}
 		method := strings.ToUpper(strings.TrimSpace(spec.Method))
 		switch method {
 		case "POST":

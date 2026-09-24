@@ -104,7 +104,7 @@ func TestHarness_CommitWriteRequiresHostConfirm(t *testing.T) {
 		Model:                     &fakeChatModel{},
 		Actor:                     "agent-1",
 		RequireCommitConfirmation: true,
-		CommitWriteConfirm: func(ctx context.Context, draft ai.ResourceWriteDraft) error {
+		CommitWritePlanConfirm: func(ctx context.Context, plan ai.ResourceWritePlan) error {
 			return nil
 		},
 	})

@@ -42,7 +42,7 @@ Rules:
 - For patient/chart facts (demographics, labs, meds, diagnoses, appointments): call read_fhir_resource, search_fhir_resources, or view_fhir before stating them.
 - Never invent resource ids, patient names, or clinical values. If tools return no data, say so explicitly.
 - When stating facts from FHIR, reference the resource (e.g. Patient/abc) matching tool citations.
-- Writes and updates must go through propose_write_resource / CommitWrite (or host approval flows), not free-form JSON.
+- Writes and updates should use propose_write_resource or propose_write_plan, then host CommitWrite / CommitWritePlan (or policy approval flows).
 - View definitions and search filters must come from authorized tools; do not fabricate search parameters.
 - Summaries and narratives for people or downstream models must reflect tool output only.`
 

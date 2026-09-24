@@ -42,19 +42,6 @@ func TestResourceWritePlan_ToTransactionInput(t *testing.T) {
 	}
 }
 
-func TestResourceWritePlan_RejectsProvenance(t *testing.T) {
-	plan := ai.ResourceWritePlan{
-		Entries: []ai.ResourceWriteDraft{{
-			Operation:    ai.WriteOperationCreate,
-			ResourceType: "Provenance",
-			Fields:       map[string]any{"target": []any{}},
-		}},
-	}
-	if err := plan.Validate(); err == nil {
-		t.Fatal("expected error for model Provenance")
-	}
-}
-
 func TestHarness_CommitWritePlan(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true, seedPatients: true})
 	harness, err := ai.NewHarness(ai.HarnessConfig{
@@ -77,5 +64,61 @@ func TestHarness_CommitWritePlan(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CommitWritePlan: %v", err)
+	}
+}
+
+func TestHarness_CommitWritePlan_PolicyApproval(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+		seedPatients:          true,
+	})
+	store := ai.NewMemoryApprovalStore()
+	exec, err := ai.NewExecutor(ai.Config{
+		Core:          h.core,
+		Policy:        h.policy,
+		Audit:         h.audit,
+		ApprovalStore: store,
+		Now:           h.clock.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor: exec,
+		Model:    &fakeChatModel{},
+		Actor:    "agent-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := ai.ResourceWritePlan{
+		Entries: []ai.ResourceWriteDraft{
+			{
+				Operation:    ai.WriteOperationCreate,
+				ResourceType: "Patient",
+				Fields:       map[string]any{"gender": "unknown"},
+			},
+		},
+	}
+	pending, err := harness.CommitWritePlan(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("CommitWritePlan: %v", err)
+	}
+	if pending == nil || !pending.ApprovalRequired || pending.ApprovalToken == "" {
+		t.Fatalf("expected approval-required, got %#v", pending)
+	}
+	if err := store.Approve(pending.ApprovalToken); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := harness.CommitWritePlanWithOptions(context.Background(), plan, ai.CommitWriteOptions{
+		ApprovalToken: pending.ApprovalToken,
+	})
+	if err != nil {
+		t.Fatalf("approved commit: %v", err)
+	}
+	if committed.ApprovalRequired {
+		t.Fatal("write still pending after approval")
 	}
 }

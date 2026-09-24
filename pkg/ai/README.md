@@ -313,7 +313,7 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 | `id` | yes | Existing resource id |
 | `patches` | yes | Map of patch path → value (same path rules as FHIR Patch, not FHIRPath functions) |
 
-Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
+Creates and updates use structured `fields` / `patches` (not raw PATCH documents). Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
 
 ### `execute_fhir_bundle`
 
@@ -325,10 +325,11 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys
 - `POST` — same shape as create (`fields` required).
 - `PUT` — same shape as update (`id` and `patches` required).
 - `GET` — **batch only**: `resourceType` + `id` (read through policy).
+- `DELETE` — not exposed on the AI bundle tool in v1 (future).
 
 The tool name `execute_fhir_transaction` is a deprecated alias for the same operation.
 
-The **model never submits Provenance**; when `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes. **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_bundle` (`bundleType=transaction`) so Provenance is included in that bundle. Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or this bundle tool is used. With `bundleType=batch`, entries are independent.
+When `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes (in addition to any Provenance entries in the bundle). **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_bundle` (`bundleType=transaction`). Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or this bundle tool is used. With `bundleType=batch`, entries are independent.
 
 ## Safety model
 
@@ -388,7 +389,7 @@ Use `pkg/testkit/aitest` for executor harnesses with optional search, views, and
 ## Limits
 
 - Generic tools only; no raw FHIR server passthrough
-- Writes use structured field maps, not full resource JSON or PATCH
+- Writes default to structured field maps and patch paths (primary v1 shape)
 - Search scope is allow-listed even when more registry params exist
 - In-memory tool registry; persistent tool catalogs are future work
 - Model invocation is optional and separate from tool execution

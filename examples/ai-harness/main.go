@@ -153,10 +153,6 @@ func exampleHarnessConfig(exec *ai.Executor, sessionSvc store.SessionService, te
 		EnableProposeWritePlanHelper: true,
 		Grounding:                    ai.GroundingConfig{Mode: ai.GroundingStandard},
 		RequireCommitConfirmation:    true,
-		CommitWriteConfirm: func(_ context.Context, draft ai.ResourceWriteDraft) error {
-			fmt.Printf("Host confirmed single write: %s %s\n", draft.Operation, draft.ResourceType)
-			return nil
-		},
 		CommitWritePlanConfirm: func(_ context.Context, plan ai.ResourceWritePlan) error {
 			fmt.Printf("Host confirmed write plan (%d entries)\n", len(plan.Entries))
 			return nil
