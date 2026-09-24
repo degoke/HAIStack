@@ -283,7 +283,7 @@ func TestRunView_PolicyDenied(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_CreateSuccess(t *testing.T) {
+func TestCreateFhirResource_Success(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		allowPatientWrite: true,
@@ -291,10 +291,9 @@ func TestWriteFhirResource_CreateSuccess(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields": map[string]any{
 				"name": []map[string]string{{"family": "NewPatient"}},
@@ -316,7 +315,27 @@ func TestWriteFhirResource_CreateSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_UpdateSuccess(t *testing.T) {
+func TestUpdateFhirResource_ParentPolicyAllowsChildPatch(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients: true,
+		withCore:     true,
+	})
+	h.policy.Write["Patient"] = ai.WriteTypePolicy{UpdateFields: []string{"name"}}
+	ctx := context.Background()
+	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName: ai.ToolUpdateFhirResource,
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"id":           "pat-jane",
+			"patches":      map[string]any{"name[0].family": "PrefixOK"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+}
+
+func TestUpdateFhirResource_Success(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:      true,
 		withCore:          true,
@@ -325,14 +344,13 @@ func TestWriteFhirResource_UpdateSuccess(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolUpdateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "update",
 			"resourceType": "Patient",
 			"id":           "pat-jane",
-			"fields": map[string]any{
-				"name": []map[string]string{{"family": "Updated"}},
+			"patches": map[string]any{
+				"name[0].family": "Updated",
 			},
 		},
 	})
@@ -345,7 +363,7 @@ func TestWriteFhirResource_UpdateSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_BlockedField(t *testing.T) {
+func TestCreateFhirResource_BlockedField(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		allowPatientWrite: true,
@@ -353,10 +371,9 @@ func TestWriteFhirResource_BlockedField(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields": map[string]any{
 				"active": true,
@@ -368,15 +385,14 @@ func TestWriteFhirResource_BlockedField(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_BlockedResourceType(t *testing.T) {
+func TestCreateFhirResource_BlockedResourceType(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true})
 	ctx := context.Background()
 
 	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Observation",
 			"fields": map[string]any{
 				"status": "final",
@@ -388,7 +404,7 @@ func TestWriteFhirResource_BlockedResourceType(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_ValidationFailure(t *testing.T) {
+func TestCreateFhirResource_ValidationFailure(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:          true,
 		withValidator:     true,
@@ -397,10 +413,9 @@ func TestWriteFhirResource_ValidationFailure(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"id":           "bad id!",
 			"fields": map[string]any{
@@ -416,7 +431,7 @@ func TestWriteFhirResource_ValidationFailure(t *testing.T) {
 	}
 }
 
-func TestWriteFhirResource_ApprovalRequired(t *testing.T) {
+func TestCreateFhirResource_ApprovalRequired(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		withCore:              true,
 		allowPatientWrite:     true,
@@ -426,10 +441,9 @@ func TestWriteFhirResource_ApprovalRequired(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields": map[string]any{
 				"name": []map[string]string{{"family": "Pending"}},
@@ -624,8 +638,8 @@ func TestAllowListPolicy_RequiresExactIncludeDirectives(t *testing.T) {
 
 func TestGenericToolDescriptors(t *testing.T) {
 	descriptors := ai.GenericToolDescriptors()
-	if len(descriptors) != 4 {
-		t.Fatalf("len = %d, want 4", len(descriptors))
+	if len(descriptors) != 6 {
+		t.Fatalf("len = %d, want 6", len(descriptors))
 	}
 	if descriptors[0].Name != ai.ToolReadFhirResource || !descriptors[0].Generic {
 		t.Fatalf("first descriptor = %#v", descriptors[0])
@@ -870,10 +884,9 @@ func TestApprovalRequiredAuditOutcome(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Actor:    "agent-1",
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields":       map[string]any{"name": []map[string]string{{"family": "Pending"}}},
 		},
@@ -901,9 +914,8 @@ func TestApprovalStoreRequiresApprovalBeforeCommit(t *testing.T) {
 		Now:           h.clock.Now,
 	})
 	req := ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields":       map[string]any{"name": []map[string]string{{"family": "Pending"}}},
 		},
@@ -987,14 +999,47 @@ func TestDeidentificationUsesDefaultFHIRDeidentifier(t *testing.T) {
 func TestWriteRejectsReservedFields(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true})
 	_, err := h.exec.ExecuteTool(context.Background(), ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolCreateFhirResource,
 		Input: map[string]any{
-			"operation":    "create",
 			"resourceType": "Patient",
 			"fields":       map[string]any{"id": "forged"},
 		},
 	})
-	if !errors.Is(err, ai.ErrPolicyDenied) {
-		t.Fatalf("err = %v, want ErrPolicyDenied", err)
+	if !errors.Is(err, ai.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestCreateFhirResource_AtomicProvenance(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:            true,
+		allowPatientWrite:   true,
+		enableAIAttribution: true,
+		atomicProvenance:    true,
+	})
+	ctx := context.Background()
+	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName: ai.ToolCreateFhirResource,
+		Actor:    "agent-1",
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"fields":       map[string]any{"name": []map[string]string{{"family": "Txn"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	if h.coreMem.countResourceType("Provenance") != 1 {
+		t.Fatalf("provenance count = %d", h.coreMem.countResourceType("Provenance"))
+	}
+}
+
+func TestNewExecutorRequiresValidatorWhenWriteValidationRequired(t *testing.T) {
+	_, err := ai.NewExecutor(ai.Config{
+		Policy:                   ai.NewAllowListPolicy(),
+		RequireValidatorOnWrites: true,
+	})
+	if !errors.Is(err, ai.ErrMissingDependency) {
+		t.Fatalf("err = %v, want ErrMissingDependency", err)
 	}
 }

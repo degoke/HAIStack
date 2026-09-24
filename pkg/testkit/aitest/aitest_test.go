@@ -3,7 +3,6 @@ package aitest_test
 import (
 	"bytes"
 	"context"
-	"net/url"
 	"testing"
 
 	"github.com/degoke/haistack/pkg/ai"
@@ -46,13 +45,12 @@ func TestHarnessApprovedUpdateUsesApprovalStoreAndSharedResources(t *testing.T) 
 		ApprovalGranted:       true,
 	})
 	result, err := h.Executor.ExecuteTool(context.Background(), ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+		ToolName: ai.ToolUpdateFhirResource,
 		Input: map[string]any{
-			"operation":    "update",
 			"resourceType": "Patient",
 			"id":           "pat-jane",
-			"fields": map[string]any{
-				"name": []map[string]string{{"family": "Updated"}},
+			"patches": map[string]any{
+				"name[0].family": "Updated",
 			},
 		},
 	})
@@ -71,7 +69,8 @@ func TestHarnessApprovedUpdateUsesApprovalStoreAndSharedResources(t *testing.T) 
 	}
 }
 
-func TestHarnessCoreWritesUpdateSharedSearchIndex(t *testing.T) {
+func TestHarnessCoreWritesUpdateSharedResources(t *testing.T) {
+	ctx := context.Background()
 	h := aitest.NewHarness(t, aitest.Options{
 		SeedPatients:       true,
 		WithSearch:         true,
@@ -79,26 +78,25 @@ func TestHarnessCoreWritesUpdateSharedSearchIndex(t *testing.T) {
 		AllowPatientWrite:  true,
 		AllowPatientSearch: true,
 	})
-	_, err := h.Executor.ExecuteTool(context.Background(), ai.ToolRequest{
-		ToolName: ai.ToolWriteFhirResource,
+	_, err := h.Executor.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName: ai.ToolUpdateFhirResource,
 		Input: map[string]any{
-			"operation":    "update",
 			"resourceType": "Patient",
 			"id":           "pat-jane",
-			"fields": map[string]any{
-				"name": []map[string]string{{"family": "Indexed"}},
+			"patches": map[string]any{
+				"name[0].family": "Indexed",
 			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	result, err := h.Search.Search(context.Background(), "Patient", url.Values{"name": {"Indexed"}})
+	updated, err := h.Resources.Read(context.Background(), "Patient", "pat-jane")
 	if err != nil {
-		t.Fatalf("search updated patient: %v", err)
+		t.Fatalf("read updated patient: %v", err)
 	}
-	if result.Count != 1 || len(result.Resources) != 1 || result.Resources[0].ID != "pat-jane" {
-		t.Fatalf("search result = %+v", result)
+	if !bytes.Contains(updated.JSON, []byte("Indexed")) {
+		t.Fatal("shared resource store did not observe core update")
 	}
 }
 

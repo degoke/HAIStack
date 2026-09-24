@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ type testHarness struct {
 	search    *search.Service
 	views     *view.Executor
 	core      *core.ResourceService
+	coreMem   *memBackend
 	policy    *ai.AllowListPolicy
 	audit     *fakeAuditLogger
 	approval  *fakeApprovalHook
@@ -112,11 +114,13 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 	}
 
 	var coreSvc *core.ResourceService
+	var coreMem *memBackend
 	var validator validate.Engine
 	if opts.withCore {
-		mem := newMemBackend()
+		coreMem = newMemBackend()
+		coreMem.denyProvenanceCreate = opts.denyProvenanceCreate
 		for _, res := range resources.all() {
-			if err := mem.Create(ctx, res); err != nil {
+			if err := coreMem.Create(ctx, res); err != nil {
 				t.Fatalf("seed core: %v", err)
 			}
 		}
@@ -131,9 +135,9 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		}
 		var err error
 		coreSvc, err = core.NewResourceService(core.ResourceServiceConfig{
-			Resources: mem,
-			History:   mem,
-			Sessions:  mem,
+			Resources: coreMem,
+			History:   coreMem,
+			Sessions:  coreMem,
 			Validator: coreValidator,
 		})
 		if err != nil {
@@ -157,7 +161,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 	if opts.allowPatientWrite {
 		policy.Write["Patient"] = ai.WriteTypePolicy{
 			CreateFields:   []string{"name", "gender"},
-			UpdateFields:   []string{"name"},
+			UpdateFields:   []string{"name[0].family", "gender"},
 			CreateApproval: opts.writeRequiresApproval,
 		}
 	}
@@ -177,6 +181,10 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		Approval:   approval,
 		Deidentify: deid,
 		Now:        clock.Now,
+		AIAttribution: ai.AIAttributionConfig{
+			Enabled:          opts.enableAIAttribution,
+			AtomicProvenance: boolPtr(opts.atomicProvenance),
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewExecutor ai: %v", err)
@@ -187,6 +195,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		search:    searchSvc,
 		views:     viewExec,
 		core:      coreSvc,
+		coreMem:   coreMem,
 		policy:    policy,
 		audit:     audit,
 		approval:  approval,
@@ -210,6 +219,17 @@ type harnessOptions struct {
 	allowPatientWrite       bool
 	writeRequiresApproval   bool
 	approvalGranted         bool
+	enableAIAttribution     bool
+	atomicProvenance        bool
+	denyProvenanceCreate    bool
+}
+
+func boolPtr(v bool) *bool {
+	if !v {
+		return nil
+	}
+	b := true
+	return &b
 }
 
 type memResourceStore struct {
@@ -378,9 +398,10 @@ func (m *memSearchBackend) FieldValues(_ context.Context, resourceType, fieldKey
 }
 
 type memBackend struct {
-	mu        sync.Mutex
-	resources map[string]*types.ResourceEnvelope
-	history   map[string][]store.ResourceVersion
+	mu                   sync.Mutex
+	resources            map[string]*types.ResourceEnvelope
+	history              map[string][]store.ResourceVersion
+	denyProvenanceCreate bool
 }
 
 func newMemBackend() *memBackend {
@@ -392,9 +413,25 @@ func newMemBackend() *memBackend {
 
 func (m *memBackend) key(resourceType, id string) string { return resourceType + "/" + id }
 
+func (m *memBackend) countResourceType(resourceType string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	prefix := resourceType + "/"
+	n := 0
+	for k := range m.resources {
+		if strings.HasPrefix(k, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
 func (m *memBackend) Create(_ context.Context, res *types.ResourceEnvelope) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.denyProvenanceCreate && res.ResourceType == "Provenance" {
+		return fmt.Errorf("provenance create denied")
+	}
 	k := m.key(res.ResourceType, res.ID)
 	if _, ok := m.resources[k]; ok {
 		return fmt.Errorf("resource already exists")

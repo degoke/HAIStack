@@ -31,19 +31,19 @@ func (s *SearchStore) Index(_ context.Context, entry store.SearchIndexEntry) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := ResourceKey(entry.ResourceType, entry.ID)
+	fields := map[string]string{}
 	if prior, ok := s.entries[key]; ok {
-		s.removeLookupEntriesLocked(key, prior)
-		fields := cloneFields(prior.Fields)
-		for field, value := range entry.Fields {
-			fields[field] = value
-		}
-		entry.Fields = fields
+		fields = cloneFields(prior.Fields)
 	}
-	entry.Fields = cloneFields(entry.Fields)
-	s.entries[key] = entry
 	for field, value := range entry.Fields {
+		fields[field] = value
 		lookupKey := field + "=" + value
 		s.lookups[lookupKey] = appendUnique(s.lookups[lookupKey], key)
+	}
+	s.entries[key] = store.SearchIndexEntry{
+		ResourceType: entry.ResourceType,
+		ID:           entry.ID,
+		Fields:       fields,
 	}
 	return nil
 }
@@ -52,10 +52,23 @@ func (s *SearchStore) RemoveIndex(_ context.Context, resourceType, id string) er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := ResourceKey(resourceType, id)
-	if entry, ok := s.entries[key]; ok {
-		s.removeLookupEntriesLocked(key, entry)
-		delete(s.entries, key)
+	if _, ok := s.entries[key]; !ok {
+		return nil
 	}
+	for lookupKey, keys := range s.lookups {
+		kept := keys[:0]
+		for _, resourceKey := range keys {
+			if resourceKey != key {
+				kept = append(kept, resourceKey)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.lookups, lookupKey)
+		} else {
+			s.lookups[lookupKey] = kept
+		}
+	}
+	delete(s.entries, key)
 	return nil
 }
 
@@ -90,31 +103,30 @@ func (s *SearchStore) QueryPrepared(_ context.Context, query store.PreparedQuery
 // LookupMatch returns IDs matching one typed field predicate. It implements
 // store.SearchQueryExecutor so the same fake can back both search.Service and
 // core.ResourceService in an integration harness.
-func (s *SearchStore) LookupMatch(_ context.Context, match store.SearchMatch) ([]string, error) {
+func (s *SearchStore) LookupMatch(ctx context.Context, match store.SearchMatch) ([]string, error) {
 	if match.FieldKey == "" {
 		return nil, fmt.Errorf("search field key is required")
 	}
 	if match.Operator != "" && match.Operator != "=" && match.Operator != "eq" {
 		return nil, fmt.Errorf("unsupported search operator %q", match.Operator)
 	}
+	ids, err := s.Lookup(ctx, match.FieldKey, match.Value)
+	if err != nil {
+		return nil, err
+	}
+	if match.ResourceType == "" {
+		return ids, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	keys := make([]string, 0, len(s.entries))
-	for key := range s.entries {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	ids := make([]string, 0, len(keys))
-	for _, key := range keys {
-		entry := s.entries[key]
-		if match.ResourceType != "" && entry.ResourceType != match.ResourceType {
-			continue
-		}
-		if entry.Fields[match.FieldKey] == match.Value {
-			ids = append(ids, entry.ID)
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		entry, ok := s.entries[ResourceKey(match.ResourceType, id)]
+		if ok && entry.ResourceType == match.ResourceType {
+			filtered = append(filtered, id)
 		}
 	}
-	return ids, nil
+	return filtered, nil
 }
 
 // FieldValues returns indexed values for the requested resource IDs.
@@ -164,24 +176,6 @@ func (s *SearchStore) replaceFrom(source *SearchStore) {
 	s.entries = entries
 	s.lookups = lookups
 	s.mu.Unlock()
-}
-
-func (s *SearchStore) removeLookupEntriesLocked(resourceKey string, entry store.SearchIndexEntry) {
-	for field, value := range entry.Fields {
-		lookupKey := field + "=" + value
-		keys := s.lookups[lookupKey]
-		kept := keys[:0]
-		for _, key := range keys {
-			if key != resourceKey {
-				kept = append(kept, key)
-			}
-		}
-		if len(kept) == 0 {
-			delete(s.lookups, lookupKey)
-		} else {
-			s.lookups[lookupKey] = kept
-		}
-	}
 }
 
 func cloneFields(fields map[string]string) map[string]string {

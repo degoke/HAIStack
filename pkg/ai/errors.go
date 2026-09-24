@@ -64,4 +64,10 @@ var (
 	// ErrMissingApprovalStore is returned when a required approval cannot be
 	// verified because no approval store is configured.
 	ErrMissingApprovalStore = errors.New("ai: missing approval store")
+
+	// ErrUngroundedAnswer is returned when strict grounding checks fail (missing tool evidence or uncited refs).
+	ErrUngroundedAnswer = errors.New("ai: ungrounded answer")
+
+	// ErrCommitNotConfirmed is returned when host confirmation is required but not granted for CommitWrite.
+	ErrCommitNotConfirmed = errors.New("ai: commit write not confirmed")
 )

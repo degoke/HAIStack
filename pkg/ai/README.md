@@ -5,12 +5,14 @@ audited tools — not arbitrary FHIR server commands.
 
 ## What it does
 
-v1 centers on four generic tools that sit in front of the existing stack:
+v1 centers on six generic tools that sit in front of the existing stack:
 
 - `read_fhir_resource` — read one resource through policy allow-lists
 - `search_fhir_resources` — search with allow-listed parameters and bounded paging
 - `run_view` — execute a registered ViewDefinition for structured context
-- `write_fhir_resource` — structured create/update with validation and optional approval
+- `create_fhir_resource` — structured create with field maps, validation, and optional approval
+- `update_fhir_resource` — updates via patch-path `patches` only (FHIR Patch path syntax such as `name[0].family`; not FHIRPath `.where()` expressions)
+- `execute_fhir_bundle` — FHIR transaction or batch bundles (POST/PUT; batch allows GET); deprecated alias `execute_fhir_transaction`
 
 Convenience wrappers (`get_patient_summary`, `get_upcoming_appointments`,
 `search_patient_by_phone`) delegate to these generic operations and are
@@ -19,10 +21,29 @@ pre-registered in `Registry`.
 In short: **given policy rules and typed tool input, produce safe structured
 context with citations and audit records.**
 
+## Agent harness (Phase A)
+
+For upstream apps that only configure **model URL + system prompt**, use
+`Harness.Chat` on top of the same `Executor`. See [HARNESS.md](./HARNESS.md)
+for the full discussion→implementation checklist, production guardrails
+(`HarnessExecutorGuardrails`), phased rollout, and `OpenAICompatibleAdapter`.
+
+Runnable demos: `go run ./examples/ai-harness`, `./examples/ai-harness-chat-approval`, `./examples/ai-harness-host-approval`.
+
+```go
+h, _ := ai.NewHarness(ai.HarnessConfig{
+    Executor: exec, Model: chatModel, Actor: "agent-1",
+    ToolContextFormat: ai.ToolContextMarkdown,
+    EnableProposeWriteHelper: true,
+})
+res, _ := h.Chat(ctx, "Find patient Jane")
+// Multi-turn: call h.Chat again on the same instance to retain session history.
+```
+
 ## What it does not do
 
 - Expose raw FHIR REST or arbitrary SQL to models
-- Own OAuth, conversation storage, or prompt templates (host app responsibility)
+- Own OAuth or long-term conversation storage (in-memory session only in v1 harness)
 - Replace `pkg/auth` — use `AIPolicyAdapter` or `AllowListPolicy` for decisions
 - Guarantee model output safety beyond tool boundaries and policy
 
@@ -51,7 +72,7 @@ context with citations and audit records.**
 
 | Direction | Package | Relationship |
 |-----------|---------|--------------|
-| Upstream | **core** | Validated writes for `write_fhir_resource` |
+| Upstream | **core** | Validated writes for `create_fhir_resource` / `update_fhir_resource` |
 | Upstream | **search** | Parameterized lookup for `search_fhir_resources` |
 | Upstream | **view** | `run_view` executes registered ViewDefinitions |
 | Upstream | **validate** | Structural checks on write field maps |
@@ -118,9 +139,8 @@ exec, err := ai.NewExecutor(ai.Config{
     RequireConversationID: true,
 })
 res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
-    ToolName: ai.ToolWriteFhirResource,
+    ToolName: ai.ToolCreateFhirResource,
     Input: map[string]any{
-        "operation": "create",
         "resourceType": "Patient",
         "fields": map[string]any{"name": []any{map[string]any{"family": "Smith"}}},
     },
@@ -312,16 +332,39 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 | `limit` | no | Max rows returned |
 | `offset` | no | Row offset |
 
-### `write_fhir_resource`
+### `create_fhir_resource`
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `operation` | yes | `create` or `update` |
 | `resourceType` | yes | FHIR resource type |
-| `id` | update only | Existing resource id |
+| `id` | no | Optional client-assigned id |
 | `fields` | yes | Approved top-level FHIR fields |
 
-Writes do not accept arbitrary FHIR JSON or PATCH documents.
+### `update_fhir_resource`
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `resourceType` | yes | FHIR resource type |
+| `id` | yes | Existing resource id |
+| `patches` | yes | Map of patch path → value (same path rules as FHIR Patch, not FHIRPath functions) |
+
+Creates and updates use structured `fields` / `patches` (not raw PATCH documents). Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
+
+### `execute_fhir_bundle`
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `bundleType` | no | `transaction` (default, all-or-nothing) or `batch` (per-entry success/failure) |
+| `entries` | yes | Array of `{method, resourceType, id?, fields?, patches?, fullUrl?}` |
+
+- `POST` — same shape as create (`fields` required).
+- `PUT` — same shape as update (`id` and `patches` required).
+- `GET` — **batch only**: `resourceType` + `id` (read through policy).
+- `DELETE` — not exposed on the AI bundle tool in v1 (future).
+
+The tool name `execute_fhir_transaction` is a deprecated alias for the same operation.
+
+When `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes (in addition to any Provenance entries in the bundle). **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_bundle` (`bundleType=transaction`). Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or this bundle tool is used. With `bundleType=batch`, entries are independent.
 
 ## Safety model
 
@@ -331,7 +374,7 @@ Writes do not accept arbitrary FHIR JSON or PATCH documents.
 - Unlisted views cannot be executed
 - Search requests containing any parameter not on the allow-list are denied
 - Search results expose only `resourceType`/`id` unless `AllowedFields` or `AllowAllFields` is configured
-- Write fields not on the allow-list are rejected
+- Write fields not on the allow-list are rejected; for updates an `UpdateFields` parent path allows descendant patch paths (e.g. `name` allows `name[0].family`)
 - `SearchTypePolicy.MaxCount` bounds page size
 - `_include` and `_revinclude` directives require exact policy allow-list entries
 
@@ -352,7 +395,7 @@ Citations attach provenance for model grounding:
 - Resource refs (`Patient/pat-1`) for reads and search matches
 - View name, version, and columns for `run_view`
 - Search parameter names for `search_fhir_resources`
-- Written resource ref and operation for `write_fhir_resource`
+- Written resource ref and operation for create/update tools
 
 Audit records capture actor, subject, tool name, outcome, and request scope.
 Outcomes include `success`, `denied`, `validation-failed`, and
@@ -365,7 +408,7 @@ Outcomes include `success`, `denied`, `validation-failed`, and
 | **ai** | Policy-governed tool harness (this package) |
 | **view** | Structured projections for `run_view` |
 | **search** | Parameterized lookup for `search_fhir_resources` |
-| **core** | Validated writes for `write_fhir_resource` |
+| **core** | Validated writes for create/update FHIR tools |
 | **validate** | Structural validation on write path |
 | **auth** | `AIPolicyAdapter` implements `PolicyEngine` with principal/tenant decisions; optional decision audit via `pkg/audit` |
 | **audit** | Shared audit event library used by AI `AuditStoreAdapter` |
@@ -381,7 +424,7 @@ Use `pkg/testkit/aitest` for executor harnesses with optional search, views, and
 ## Limits
 
 - Generic tools only; no raw FHIR server passthrough
-- Writes use structured field maps, not full resource JSON or PATCH
+- Writes default to structured field maps and patch paths (primary v1 shape)
 - Search scope is allow-listed even when more registry params exist
 - In-memory tool registry; persistent tool catalogs are future work
 - Model invocation is optional and separate from tool execution

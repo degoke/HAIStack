@@ -1,9 +1,11 @@
 package ai
 
-// Write operation constants for write_fhir_resource input.
+// Write operation constants for harness drafts and policy.
 const (
 	WriteOperationCreate = "create"
 	WriteOperationUpdate = "update"
+	// WriteOperationRead is a batch-bundle GET entry (read through policy); not a FHIR write.
+	WriteOperationRead = "read"
 )
 
 // ToolDescriptor describes one tool for model discovery and operator review.
@@ -15,7 +17,7 @@ type ToolDescriptor struct {
 	InputKeys   []string `json:"inputKeys,omitempty"`
 }
 
-// GenericToolDescriptors returns metadata for the four built-in generic tools.
+// GenericToolDescriptors returns metadata for the six built-in generic tools.
 func GenericToolDescriptors() []ToolDescriptor {
 	return []ToolDescriptor{
 		{
@@ -37,11 +39,33 @@ func GenericToolDescriptors() []ToolDescriptor {
 			InputKeys:   []string{"viewName", "version", "parameters", "limit", "offset"},
 		},
 		{
-			Name:        ToolWriteFhirResource,
-			Description: "Create or update a resource using structured field-level input",
+			Name:        ToolCreateFhirResource,
+			Description: "Create a FHIR resource using structured top-level fields (not full Resource JSON)",
 			Generic:     true,
-			InputKeys:   []string{"operation", "resourceType", "id", "fields"},
+			InputKeys:   []string{"resourceType", "id", "fields"},
 		},
+		{
+			Name:        ToolUpdateFhirResource,
+			Description: "Update a FHIR resource using patch-path keys (FHIR Patch path syntax, e.g. name[0].family—not FHIRPath functions like .where()) mapped to values in patches",
+			Generic:     true,
+			InputKeys:   []string{"resourceType", "id", "patches"},
+		},
+		{
+			Name:        ToolExecuteFhirBundle,
+			Description: "Execute a FHIR bundle (bundleType transaction or batch). Entries: POST fields, PUT patches; batch allows GET. Host adds Provenance when AI attribution is on. Deprecated alias: execute_fhir_transaction.",
+			Generic:     true,
+			InputKeys:   []string{"bundleType", "entries"},
+		},
+	}
+}
+
+// IsWriteTool reports whether name is a FHIR write tool (create, update, or transaction).
+func IsWriteTool(name string) bool {
+	switch name {
+	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolExecuteFhirBundle, ToolExecuteFhirTransaction:
+		return true
+	default:
+		return false
 	}
 }
 

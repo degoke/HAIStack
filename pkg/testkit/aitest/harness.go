@@ -19,17 +19,19 @@ import (
 
 // Harness wires an ai.Executor with optional search, views, core, and policy fakes.
 type Harness struct {
-	Resources *storetest.ResourceStore
-	Search    *search.Service
-	Views     *view.Executor
-	Core      *core.ResourceService
-	Policy    *ai.AllowListPolicy
-	Audit     *FakeAuditLogger
-	Approval  *FakeApprovalHook
-	Deid      *FakeDeidentifier
-	Model     *FakeModelAdapter
-	Executor  *ai.Executor
-	Clock     *FixedClock
+	Resources     *storetest.ResourceStore
+	SearchIndex   *storetest.SearchStore // populated when WithSearch; updated atomically with Core writes
+	SearchIndexer search.Indexer         // same indexer wired into Core when WithSearch && WithCore
+	Search        *search.Service
+	Views         *view.Executor
+	Core          *core.ResourceService
+	Policy        *ai.AllowListPolicy
+	Audit         *FakeAuditLogger
+	Approval      *FakeApprovalHook
+	Deid          *FakeDeidentifier
+	Model         *FakeModelAdapter
+	Executor      *ai.Executor
+	Clock         *FixedClock
 }
 
 // Options configures which subsystems the harness enables.
@@ -179,7 +181,7 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	if opts.AllowPatientWrite {
 		policy.Write["Patient"] = ai.WriteTypePolicy{
 			CreateFields:   []string{"name", "gender"},
-			UpdateFields:   []string{"name"},
+			UpdateFields:   []string{"name", "name[0].family"},
 			CreateApproval: opts.WriteRequiresApproval,
 			UpdateApproval: opts.WriteRequiresApproval,
 		}
@@ -210,17 +212,19 @@ func NewHarness(t *testing.T, opts Options) *Harness {
 	}
 
 	return &Harness{
-		Resources: resources,
-		Search:    searchSvc,
-		Views:     viewExec,
-		Core:      coreSvc,
-		Policy:    policy,
-		Audit:     audit,
-		Approval:  approval,
-		Deid:      deid,
-		Model:     model,
-		Executor:  exec,
-		Clock:     clock,
+		Resources:     resources,
+		SearchIndex:   indexedStore,
+		SearchIndexer: searchIndexer,
+		Search:        searchSvc,
+		Views:         viewExec,
+		Core:          coreSvc,
+		Policy:        policy,
+		Audit:         audit,
+		Approval:      approval,
+		Deid:          deid,
+		Model:         model,
+		Executor:      exec,
+		Clock:         clock,
 	}
 }
 

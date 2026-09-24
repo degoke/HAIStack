@@ -173,6 +173,12 @@
 //     limit). Distinct from AnalyticsStore: audit entries capture actor, action, and outcome
 //     for compliance review.
 //
+// SessionService — agent sessions (Google ADK SessionService analogue):
+//
+//   - CreateSession, GetSession, ListEventsAfter, ListSessions, DeleteSession, AppendEvent.
+//   - Session-scoped state plus optional app:/user: prefixed state deltas on events.
+//   - Backed by hai_agent_session / hai_agent_session_event tables in SQLite and Postgres.
+//
 // JobStore — durable background job queue:
 //
 //   - Enqueue(ctx, job), ClaimNext(ctx, jobType), Update(ctx, job), Get(ctx, id).

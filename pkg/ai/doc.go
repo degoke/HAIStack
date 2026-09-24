@@ -3,13 +3,15 @@
 //
 // # Scope
 //
-// v1 centers on four generic, policy-bounded tools rather than a large catalog of
+// v1 centers on six generic, policy-bounded tools rather than a large catalog of
 // hard-coded domain tools:
 //
 //   - read_fhir_resource
 //   - search_fhir_resources
 //   - run_view
-//   - write_fhir_resource
+//   - create_fhir_resource
+//   - update_fhir_resource
+//   - execute_fhir_bundle (alias: execute_fhir_transaction)
 //
 // These are constrained, typed, audited operations in front of pkg/view,
 // pkg/search, pkg/core, and pkg/validate — not raw FHIR server passthroughs.
@@ -38,6 +40,15 @@
 //     view columns, and write metadata.
 //   - ModelRouter / Executor.InvokeModel: optional local/cloud model adapter
 //     selection; tool execution remains useful without any model configured.
+//   - Harness / ChatModel / OpenAICompatibleAdapter: optional agent layer that
+//     runs a tool-calling conversation loop on top of ExecuteTool (see HARNESS.md).
+//   - MarkdownContextBuilder / ToolContextMarkdown: markdown summaries for tool rows.
+//   - ResourceWriteDraft / CommitWrite: structured create/update proposals (any type).
+//   - PatientCreateDraft: convenience wrapper for Patient create (deprecated path).
+//   - HarnessExecutorGuardrails / BlockDirectWriteTools / AutoConversationID: production agent wiring.
+//   - ModelAdapterChatModel: bridge legacy ModelAdapter stubs to Harness.Chat.
+//   - ToolCallProtocol / ParsePromptToolCalls: native and prompt-JSON tool loops.
+//   - SessionService integration: LoadAgentSession, append-only events, session state.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
 //   - Deidentifier / FHIRDeidentifier / PHICatalog / ProfileCatalog: Executor
@@ -61,8 +72,10 @@
 //
 // run_view: viewName, optional version, parameters, limit, offset
 //
-// write_fhir_resource: operation (create|update), resourceType, id (update
-// only), fields (approved top-level FHIR fields only)
+// create_fhir_resource: resourceType, optional id, fields (approved top-level FHIR fields)
+//
+// update_fhir_resource: resourceType, id, patches (FHIR Patch path keys → values;
+// not full FHIRPath expressions with functions)
 //
 // # Typical usage
 //
@@ -76,7 +89,7 @@
 //	policy.Views["patient_summary_view"] = ai.ViewTypePolicy{}
 //	policy.Write["Patient"] = ai.WriteTypePolicy{
 //	    CreateFields: []string{"name", "gender"},
-//	    UpdateFields: []string{"name"},
+//	    UpdateFields: []string{"name[0].family"},
 //	}
 //
 //	exec, err := ai.NewExecutor(ai.Config{
@@ -123,7 +136,7 @@
 //
 //   - haistack-view: run_view delegates to view.Executor for structured rows.
 //   - haistack-search: search_fhir_resources delegates to search.Service.
-//   - haistack-core: write_fhir_resource commits through core.ResourceService.
+//   - haistack-core: create/update FHIR tools commit through core.ResourceService.
 //   - haistack-validate: optional Validator on the write path.
 //   - haistack-auth: auth.AIPolicyAdapter implements PolicyEngine with
 //     principal/tenant decisions and optional AIConstraints for field narrowing.

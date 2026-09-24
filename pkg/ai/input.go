@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/degoke/haistack/pkg/core"
 )
 
 func parseReadInput(input map[string]any) (ReadInput, error) {
@@ -78,38 +80,162 @@ func parseViewInput(input map[string]any) (ViewInput, error) {
 	}, nil
 }
 
-func parseWriteInput(input map[string]any) (WriteInput, error) {
-	op, err := requireString(input, "operation")
-	if err != nil {
-		return WriteInput{}, err
-	}
-	if op != "create" && op != "update" {
-		return WriteInput{}, fmt.Errorf("%w: operation must be create or update", ErrInvalidInput)
-	}
+func parseCreateInput(input map[string]any) (CreateInput, error) {
 	rt, err := requireString(input, "resourceType")
 	if err != nil {
-		return WriteInput{}, err
+		return CreateInput{}, err
 	}
 	id, err := optionalStringValue(input, "id")
 	if err != nil {
-		return WriteInput{}, err
-	}
-	if op == "update" && id == "" {
-		return WriteInput{}, fmt.Errorf("%w: id is required for update", ErrInvalidInput)
+		return CreateInput{}, err
 	}
 	fields, err := parseFields(input["fields"])
 	if err != nil {
-		return WriteInput{}, err
+		return CreateInput{}, err
 	}
 	if len(fields) == 0 {
-		return WriteInput{}, fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
+		return CreateInput{}, fmt.Errorf("%w: at least one field is required", ErrInvalidInput)
 	}
-	return WriteInput{
-		Operation:    op,
-		ResourceType: rt,
-		ID:           id,
-		Fields:       fields,
-	}, nil
+	if err := validateWriteMapKeys(fields); err != nil {
+		return CreateInput{}, err
+	}
+	return CreateInput{ResourceType: rt, ID: id, Fields: fields}, nil
+}
+
+func parseBundleInput(input map[string]any) (string, []transactionEntrySpec, error) {
+	bundleType := "transaction"
+	if raw, ok := input["bundleType"]; ok && raw != nil {
+		s, ok := raw.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return "", nil, fmt.Errorf("%w: bundleType must be transaction or batch", ErrInvalidInput)
+		}
+		bundleType = strings.ToLower(strings.TrimSpace(s))
+	}
+	switch bundleType {
+	case "transaction", "batch":
+	default:
+		return "", nil, fmt.Errorf("%w: bundleType must be transaction or batch", ErrInvalidInput)
+	}
+	specs, err := parseBundleEntries(input)
+	if err != nil {
+		return "", nil, err
+	}
+	return bundleType, specs, nil
+}
+
+func parseBundleEntries(input map[string]any) ([]transactionEntrySpec, error) {
+	raw, ok := input["entries"]
+	if !ok {
+		return nil, fmt.Errorf("%w: entries is required", ErrInvalidInput)
+	}
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return nil, fmt.Errorf("%w: entries must be a non-empty array", ErrInvalidInput)
+	}
+	out := make([]transactionEntrySpec, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: entries[%d] must be an object", ErrInvalidInput, i)
+		}
+		method, err := requireString(m, "method")
+		if err != nil {
+			return nil, fmt.Errorf("%w: entries[%d]: %v", ErrInvalidInput, i, err)
+		}
+		rt, err := requireString(m, "resourceType")
+		if err != nil {
+			return nil, fmt.Errorf("%w: entries[%d]: %v", ErrInvalidInput, i, err)
+		}
+		spec := transactionEntrySpec{
+			Method:       method,
+			ResourceType: rt,
+		}
+		if id, err := optionalStringValue(m, "id"); err != nil {
+			return nil, err
+		} else {
+			spec.ID = id
+		}
+		if fullURL, err := optionalStringValue(m, "fullUrl"); err != nil {
+			return nil, err
+		} else {
+			spec.FullURL = fullURL
+		}
+		if fields, err := parseFields(m["fields"]); err == nil && len(fields) > 0 {
+			spec.Fields = fields
+		}
+		if patches, err := parsePatches(m["patches"], rt); err == nil && len(patches) > 0 {
+			spec.Patches = patches
+		}
+		out = append(out, spec)
+	}
+	return out, nil
+}
+
+func parseUpdateInput(input map[string]any) (UpdateInput, error) {
+	if raw, ok := input["fields"]; ok && raw != nil {
+		return UpdateInput{}, fmt.Errorf("%w: updates must use %q with FHIRPath keys, not fields", ErrInvalidInput, "patches")
+	}
+	rt, err := requireString(input, "resourceType")
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	id, err := requireString(input, "id")
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	patches, err := parsePatches(input["patches"], rt)
+	if err != nil {
+		return UpdateInput{}, err
+	}
+	return UpdateInput{ResourceType: rt, ID: id, Patches: patches}, nil
+}
+
+func parsePatches(raw any, resourceType string) (map[string]any, error) {
+	m, err := parseFields(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(m) == 0 {
+		return nil, fmt.Errorf("%w: at least one patch is required", ErrInvalidInput)
+	}
+	for path := range m {
+		if err := validateWriteKey(path); err != nil {
+			return nil, err
+		}
+		if err := core.ValidateFHIRResourcePath(resourceType, path); err != nil {
+			return nil, fmt.Errorf("%w: invalid FHIRPath %q: %v", ErrInvalidInput, path, err)
+		}
+	}
+	return m, nil
+}
+
+// validateWriteMapKeys rejects map keys that would set resource identity (resourceType/id).
+func validateWriteMapKeys(m map[string]any) error {
+	for key := range m {
+		if err := validateWriteKey(key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateWriteKey rejects keys/paths that target resourceType or id (tool input sets those).
+func validateWriteKey(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "resourceType" || key == "id" {
+		return fmt.Errorf("%w: %q cannot be set in fields or patches", ErrInvalidInput, key)
+	}
+	first := key
+	if dot := strings.IndexByte(key, '.'); dot >= 0 {
+		first = key[:dot]
+	}
+	if br := strings.IndexByte(first, '['); br >= 0 {
+		first = first[:br]
+	}
+	if first == "resourceType" || first == "id" {
+		return fmt.Errorf("%w: path %q cannot modify resourceType or id", ErrInvalidInput, key)
+	}
+	return nil
 }
 
 func parseFields(raw any) (map[string]any, error) {
