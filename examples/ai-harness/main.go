@@ -231,6 +231,9 @@ func (m *scriptedChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.Cha
 	m.step++
 	userMsg := lastUserMessage(req.Messages)
 
+	if strings.Contains(strings.ToLower(userMsg), "summarize") {
+		return &ai.ChatResponse{Content: "Earlier I loaded the demo patient from FHIR (see prior tool result)."}, nil
+	}
 	if strings.Contains(strings.ToLower(userMsg), "write plan") && !m.proposedPlan {
 		m.proposedPlan = true
 		return &ai.ChatResponse{
@@ -243,9 +246,6 @@ func (m *scriptedChatModel) Chat(_ context.Context, req ai.ChatRequest) (*ai.Cha
 				),
 			}},
 		}, nil
-	}
-	if len(req.Messages) > 2 && m.step == 1 {
-		return &ai.ChatResponse{Content: "Earlier I loaded the demo patient from FHIR (see prior tool result)."}, nil
 	}
 	if m.step == 1 {
 		return &ai.ChatResponse{

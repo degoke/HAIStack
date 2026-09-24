@@ -394,6 +394,11 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				h.activeInvocationID = ""
 				return nil, err
 			}
+			if res != nil && res.ApprovalRequired && execErr == nil {
+				h.activeInvocationID = ""
+				_ = h.maybeCompactSession(ctx, tools)
+				return h.finalizeChatResult(invocationID, userMessage, "", toolSummaries, toolInputs)
+			}
 		}
 		_ = h.maybeCompactSession(ctx, tools)
 	}

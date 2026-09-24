@@ -3,6 +3,7 @@ package ai_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,69 @@ import (
 
 	"github.com/degoke/haistack/pkg/ai"
 )
+
+func TestHarness_Chat_PolicyApprovalEndsTurn(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:              true,
+		allowPatientWrite:     true,
+		writeRequiresApproval: true,
+	})
+	store := ai.NewMemoryApprovalStore()
+	exec, err := ai.NewExecutor(ai.Config{
+		Core:          h.core,
+		Policy:        h.policy,
+		Audit:         h.audit,
+		ApprovalStore: store,
+		Now:           h.clock.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &createOnceChatModel{}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:                  exec,
+		Model:                     model,
+		Actor:                     "agent-1",
+		BlockDirectWriteTools:     false,
+		RequireCommitConfirmation: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := harness.Chat(context.Background(), "create a patient")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(res.PendingApprovals) != 1 {
+		t.Fatalf("PendingApprovals = %d, want 1", len(res.PendingApprovals))
+	}
+	if res.PendingApprovals[0].Token == "" || res.PendingApprovals[0].Input == nil {
+		t.Fatalf("pending = %#v", res.PendingApprovals[0])
+	}
+	if model.calls != 1 {
+		t.Fatalf("model calls = %d, want 1 (turn should end after approval-required)", model.calls)
+	}
+}
+
+type createOnceChatModel struct {
+	calls int
+}
+
+func (m *createOnceChatModel) Name() string { return "create-once" }
+
+func (m *createOnceChatModel) Chat(_ context.Context, _ ai.ChatRequest) (*ai.ChatResponse, error) {
+	m.calls++
+	if m.calls > 1 {
+		return nil, fmt.Errorf("model invoked again after policy approval pause")
+	}
+	return &ai.ChatResponse{
+		ToolCalls: []ai.ChatToolCall{{
+			ID:        "call_create",
+			Name:      ai.ToolCreateFhirResource,
+			Arguments: `{"resourceType":"Patient","fields":{"gender":"unknown"}}`,
+		}},
+	}, nil
+}
 
 func TestHarness_ChatToolLoopWithFakeHTTPModel(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{

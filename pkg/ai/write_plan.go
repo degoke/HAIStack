@@ -23,16 +23,12 @@ func (p ResourceWritePlan) Validate() error {
 		return fmt.Errorf("%w: at least one plan entry is required", ErrInvalidInput)
 	}
 	hasRead := false
-	hasWrite := false
 	for i, d := range p.Entries {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("%w: entry %d: %v", ErrInvalidInput, i, err)
 		}
-		switch strings.TrimSpace(d.Operation) {
-		case WriteOperationRead:
+		if strings.TrimSpace(d.Operation) == WriteOperationRead {
 			hasRead = true
-		case WriteOperationCreate, WriteOperationUpdate:
-			hasWrite = true
 		}
 	}
 	bt := strings.TrimSpace(p.BundleType)
@@ -46,14 +42,26 @@ func (p ResourceWritePlan) Validate() error {
 	if hasRead && bt != "batch" {
 		return fmt.Errorf("%w: batch bundleType is required when plan includes read entries", ErrInvalidInput)
 	}
-	_ = hasWrite
-	_ = hasRead
 	return nil
 }
 
-// ToTransactionInput builds execute_fhir_bundle input.
-func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
+// ValidateForCommit checks Validate and requires at least one create/update (reads alone are confirm-only).
+func (p ResourceWritePlan) ValidateForCommit() error {
 	if err := p.Validate(); err != nil {
+		return err
+	}
+	for _, d := range p.Entries {
+		switch strings.TrimSpace(d.Operation) {
+		case WriteOperationCreate, WriteOperationUpdate:
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: commit requires at least one create or update entry", ErrInvalidInput)
+}
+
+// ToTransactionInput builds execute_fhir_bundle input for commit execution.
+func (p ResourceWritePlan) ToTransactionInput() (map[string]any, error) {
+	if err := p.ValidateForCommit(); err != nil {
 		return nil, err
 	}
 	bundleType := strings.TrimSpace(p.BundleType)

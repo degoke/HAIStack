@@ -67,6 +67,21 @@ func TestHarness_CommitWritePlan(t *testing.T) {
 	}
 }
 
+func TestResourceWritePlan_ReadOnlyCannotCommit(t *testing.T) {
+	plan := ai.ResourceWritePlan{
+		BundleType: "batch",
+		Entries: []ai.ResourceWriteDraft{
+			{Operation: ai.WriteOperationRead, ResourceType: "Patient", ID: "p1"},
+		},
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if _, err := plan.ToTransactionInput(); err == nil {
+		t.Fatal("expected commit error for read-only plan")
+	}
+}
+
 func TestResourceWritePlan_BatchReadAndUpdate(t *testing.T) {
 	plan := ai.ResourceWritePlan{
 		BundleType: "batch",
