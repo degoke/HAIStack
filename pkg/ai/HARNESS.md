@@ -93,7 +93,19 @@ res, err := h.ChatWithOptions(ctx, ai.ChatOptions{UserMessage: "…", Invocation
 
 Invalid tool arguments produce a **tool** message (persisted and included in the next model request), same as executor failures.
 
-Session compaction / context windowing is **not** implemented yet (future work).
+### Session compaction (append-only checkpoints)
+
+When `SessionCompaction.MaxContextChars` is set, the harness measures the **active** model context (latest checkpoint summary + events after it). If over the limit, it summarizes older active events using `ChatModel`, then appends a **`compaction` author** checkpoint event. Prior events remain in the database (append-only); `ChatMessagesFromSessionEvents` and `Harness.Session().Messages` only surface the checkpoint summary plus the retained tail.
+
+```go
+SessionCompaction: ai.SessionCompactionConfig{
+    MaxContextChars:    120_000,
+    RetainRecentEvents: 12,
+    MinEventsToCompact: 16,
+},
+```
+
+Use `Harness.PersistedEvents()` for the full audit log including pre-checkpoint events.
 
 ## Tool-calling protocols
 

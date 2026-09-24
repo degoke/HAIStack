@@ -25,33 +25,11 @@ func SessionFromAgentSession(rec *store.AgentSession) Session {
 	}
 }
 
-// ChatMessagesFromSessionEvents rebuilds model context from append-only history.
+// ChatMessagesFromSessionEvents rebuilds model context from append-only history,
+// using the latest compaction checkpoint plus events after it.
 func ChatMessagesFromSessionEvents(events []store.SessionEvent) []ChatMessage {
-	out := make([]ChatMessage, 0, len(events))
-	for _, ev := range events {
-		if ev.Partial {
-			continue
-		}
-		switch ev.Author {
-		case store.SessionAuthorUser:
-			out = append(out, ChatMessage{Role: ChatRoleUser, Content: ev.Content})
-		case store.SessionAuthorModel:
-			msg := ChatMessage{Role: ChatRoleAssistant, Content: ev.Content}
-			for _, tc := range ev.ToolCalls {
-				msg.ToolCalls = append(msg.ToolCalls, ChatToolCall{
-					ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments,
-				})
-			}
-			out = append(out, msg)
-		case store.SessionAuthorTool:
-			out = append(out, ChatMessage{
-				Role: ChatRoleTool, ToolCallID: ev.ToolCallID, Content: ev.Content,
-			})
-		case store.SessionAuthorSystem:
-			out = append(out, ChatMessage{Role: ChatRoleSystem, Content: ev.Content})
-		}
-	}
-	return out
+	checkpoint, active := EventsForModelContext(events)
+	return chatMessagesFromCheckpoint(checkpoint, active)
 }
 
 // NewUserSessionEvent records a user turn.

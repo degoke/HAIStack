@@ -43,6 +43,8 @@ type HarnessConfig struct {
 	SessionService store.SessionService
 	// AppName scopes sessions (ADK app_name); defaults to DefaultHarnessAppName.
 	AppName string
+	// SessionCompaction optionally summarizes older events into append-only checkpoint events.
+	SessionCompaction SessionCompactionConfig
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -129,6 +131,14 @@ func (h *Harness) Session() Session {
 	return h.session
 }
 
+// PersistedEvents returns the full append-only event log (including events before compaction checkpoints).
+func (h *Harness) PersistedEvents() []store.SessionEvent {
+	if h == nil {
+		return nil
+	}
+	return append([]store.SessionEvent(nil), h.persistedEvents...)
+}
+
 // ExecuteHarnessTool runs a single executor tool with harness actor/subject/conversation defaults.
 // Use this to resume approval-gated writes with ApprovalToken after Chat surfaces PendingApprovals.
 func (h *Harness) ExecuteHarnessTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
@@ -183,6 +193,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	if err := h.ensureSessionLoaded(ctx); err != nil {
 		return nil, err
 	}
+	_ = h.maybeCompactSession(ctx)
 	h.activeInvocationID = invocationID
 
 	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
@@ -233,6 +244,7 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 
 		if len(toolCalls) == 0 {
 			h.activeInvocationID = ""
+			_ = h.maybeCompactSession(ctx)
 			return h.buildChatResult(invocationID, resp.Content, toolSummaries), nil
 		}
 

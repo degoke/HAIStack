@@ -11,11 +11,21 @@ var ErrSessionNotFound = errors.New("session not found")
 
 // SessionEventAuthor identifies who produced an event (ADK-style roles).
 const (
-	SessionAuthorUser   = "user"
-	SessionAuthorModel  = "model"
-	SessionAuthorTool   = "tool"
-	SessionAuthorSystem = "system"
+	SessionAuthorUser       = "user"
+	SessionAuthorModel      = "model"
+	SessionAuthorTool       = "tool"
+	SessionAuthorSystem     = "system"
+	SessionAuthorCompaction = "compaction"
 )
+
+// SessionEventMetadataCompaction marks a checkpoint event that summarizes prior history.
+const SessionEventMetadataCompaction = "compaction"
+
+// SessionMetadataCoveredEventCount is the number of events summarized into a compaction checkpoint.
+const SessionMetadataCoveredEventCount = "coveredEventCount"
+
+// SessionMetadataLastCoveredEventID is the id of the last event included in the compaction summary.
+const SessionMetadataLastCoveredEventID = "lastCoveredEventId"
 
 // SessionToolCall is a persisted tool invocation on a model event.
 type SessionToolCall struct {
