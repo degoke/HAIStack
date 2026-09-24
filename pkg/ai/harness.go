@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 // DefaultMaxToolRounds bounds the model ↔ tool loop in Harness.Chat.
@@ -18,12 +20,19 @@ type HarnessConfig struct {
 	Actor        string
 	TenantID     string
 	Subject      string
+	// ModelHint is passed to ChatModel backends that support routing (e.g. local vs cloud).
+	ModelHint string
 	// MaxToolRounds limits model completion rounds that include tool calls (default 8).
 	MaxToolRounds int
 	// ToolContextFormat selects JSON (default) or markdown summaries for tool messages.
 	ToolContextFormat ToolContextFormat
 	// EnablePatientCreateHelper exposes propose_patient_create in the harness tool list (Phase C).
 	EnablePatientCreateHelper bool
+	// BlockDirectWriteTools removes write_fhir_resource from the model tool list so commits
+	// go through structured helpers (e.g. CommitPatientCreate) instead of free-form tool args.
+	BlockDirectWriteTools bool
+	// AutoConversationID assigns a UUID when Chat runs without SetConversationID (useful with RequireConversationID).
+	AutoConversationID bool
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -42,9 +51,18 @@ type Session struct {
 
 // ChatResult is the outcome of one Harness.Chat user turn.
 type ChatResult struct {
-	Answer      string
-	Messages    []ChatMessage
-	ToolResults []HarnessToolResult
+	Answer           string
+	Messages         []ChatMessage
+	ToolResults      []HarnessToolResult
+	Citations        []Citation
+	PendingApprovals []HarnessPendingApproval
+}
+
+// HarnessPendingApproval captures approval-required writes surfaced during Chat.
+type HarnessPendingApproval struct {
+	ToolName string
+	Token    string
+	Preview  any
 }
 
 // HarnessToolResult summarizes one tool invocation performed during Chat.
@@ -86,6 +104,28 @@ func (h *Harness) Session() Session {
 	return h.session
 }
 
+// ExecuteHarnessTool runs a single executor tool with harness actor/subject/conversation defaults.
+// Use this to resume approval-gated writes with ApprovalToken after Chat surfaces PendingApprovals.
+func (h *Harness) ExecuteHarnessTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
+	if h == nil {
+		return nil, errors.New("ai: nil harness")
+	}
+	h.ensureConversationID()
+	if req.Actor == "" {
+		req.Actor = h.cfg.Actor
+	}
+	if req.TenantID == "" {
+		req.TenantID = h.cfg.TenantID
+	}
+	if req.Subject == "" {
+		req.Subject = h.cfg.Subject
+	}
+	if req.ConversationID == "" {
+		req.ConversationID = h.session.ConversationID
+	}
+	return h.cfg.Executor.ExecuteTool(ctx, req)
+}
+
 // SetConversationID sets the correlation id used on executor tool requests.
 func (h *Harness) SetConversationID(id string) {
 	if h == nil {
@@ -104,6 +144,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 	if userMessage == "" {
 		return nil, ErrInvalidInput
 	}
+	h.ensureConversationID()
 	h.session.Messages = append(h.session.Messages, ChatMessage{
 		Role:    ChatRoleUser,
 		Content: userMessage,
@@ -117,6 +158,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 			Messages:     h.session.Messages,
 			Tools:        tools,
 			SystemPrompt: h.cfg.SystemPrompt,
+			Hint:         h.cfg.ModelHint,
 		})
 		if err != nil {
 			return nil, err
@@ -129,11 +171,7 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 		h.session.Messages = append(h.session.Messages, assistant)
 
 		if len(resp.ToolCalls) == 0 {
-			return &ChatResult{
-				Answer:      resp.Content,
-				Messages:    append([]ChatMessage(nil), h.session.Messages...),
-				ToolResults: toolSummaries,
-			}, nil
+			return h.buildChatResult(resp.Content, toolSummaries), nil
 		}
 
 		for _, tc := range resp.ToolCalls {
@@ -188,11 +226,43 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 }
 
 func (h *Harness) chatTools() []ChatTool {
-	descriptors := h.cfg.Executor.ToolDescriptors()
+	descriptors := FilterToolDescriptorsForHarness(h.cfg.Executor.ToolDescriptors(), h.cfg.BlockDirectWriteTools)
 	if h.cfg.EnablePatientCreateHelper {
 		descriptors = append(descriptors, ProposePatientCreateToolDescriptor())
 	}
 	return ChatToolsFromDescriptors(descriptors)
+}
+
+func (h *Harness) ensureConversationID() {
+	if h == nil || h.session.ConversationID != "" || !h.cfg.AutoConversationID {
+		return
+	}
+	h.session.ConversationID = uuid.NewString()
+}
+
+func (h *Harness) buildChatResult(answer string, toolSummaries []HarnessToolResult) *ChatResult {
+	return &ChatResult{
+		Answer:           answer,
+		Messages:         append([]ChatMessage(nil), h.session.Messages...),
+		ToolResults:      toolSummaries,
+		Citations:        MergeHarnessCitations(nil, toolSummaries),
+		PendingApprovals: pendingApprovalsFromResults(toolSummaries),
+	}
+}
+
+func pendingApprovalsFromResults(toolSummaries []HarnessToolResult) []HarnessPendingApproval {
+	var out []HarnessPendingApproval
+	for _, summary := range toolSummaries {
+		if summary.Result == nil || !summary.Result.ApprovalRequired {
+			continue
+		}
+		out = append(out, HarnessPendingApproval{
+			ToolName: summary.ToolName,
+			Token:    summary.Result.ApprovalToken,
+			Preview:  summary.Result.Data,
+		})
+	}
+	return out
 }
 
 func (h *Harness) handleProposePatientCreate(input map[string]any) (string, *ToolResult, error) {

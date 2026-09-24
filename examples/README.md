@@ -113,6 +113,19 @@ For zero-config local serving with the same stack, use `haistack serve` (see `cm
 go run ./examples/smart-oauth
 ```
 
+### `ai-harness`
+
+Agent harness on top of governed AI tools:
+
+- `pkg/ai` `Harness.Chat` with scripted `ChatModel` (no external LLM)
+- markdown tool context, auto conversation id, blocked direct writes
+
+```bash
+go run ./examples/ai-harness
+```
+
+See also `pkg/ai/HARNESS.md` for the full harness design checklist.
+
 ### `ai-authz`
 
 Governed AI access with:

@@ -23,8 +23,10 @@ context with citations and audit records.**
 
 For upstream apps that only configure **model URL + system prompt**, use
 `Harness.Chat` on top of the same `Executor`. See [HARNESS.md](./HARNESS.md)
-for architecture, phased rollout, and an OpenAI-compatible adapter
-(`OpenAICompatibleAdapter`).
+for the full discussion→implementation checklist, production guardrails
+(`HarnessExecutorGuardrails`), phased rollout, and `OpenAICompatibleAdapter`.
+
+Runnable demo: `go run ./examples/ai-harness`.
 
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{

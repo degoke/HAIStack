@@ -183,6 +183,19 @@ func extractFencedBlock(content, lang string) string {
 	return strings.TrimSpace(rest[:end])
 }
 
+// CommitPatientCreateFromSession extracts a patient_create fenced block from the session
+// and commits via CommitPatientCreate.
+func (h *Harness) CommitPatientCreateFromSession(ctx context.Context) (*ToolResult, error) {
+	if h == nil {
+		return nil, errors.New("ai: nil harness")
+	}
+	draft, ok := ExtractPatientCreateDraft(h.session.Messages)
+	if !ok {
+		return nil, fmt.Errorf("%w: no patient_create draft in session", ErrInvalidInput)
+	}
+	return h.CommitPatientCreate(ctx, draft)
+}
+
 // CommitPatientCreate executes write_fhir_resource for a validated draft via Executor.
 func (h *Harness) CommitPatientCreate(ctx context.Context, draft PatientCreateDraft) (*ToolResult, error) {
 	if h == nil {

@@ -240,6 +240,80 @@ func TestHarness_MarkdownToolContext(t *testing.T) {
 	}
 }
 
+func TestHarness_AutoConversationID(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients:     true,
+		allowPatientRead: true,
+	})
+	h.exec, _ = ai.NewExecutor(ai.Config{
+		Resources:             h.resources,
+		Policy:                h.policy,
+		RequireConversationID: true,
+	})
+	model := &recordingChatModel{responses: []*ai.ChatResponse{{Content: "ok"}}}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:           h.exec,
+		Model:              model,
+		Actor:              "agent-1",
+		AutoConversationID: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if harness.Session().ConversationID == "" {
+		t.Fatal("expected auto conversation id")
+	}
+}
+
+func TestHarness_BlockDirectWriteTools(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{})
+	model := &recordingChatModel{responses: []*ai.ChatResponse{{Content: "ok"}}}
+	harness, err := ai.NewHarness(ai.HarnessConfig{
+		Executor:              h.exec,
+		Model:                 model,
+		Actor:                 "agent-1",
+		BlockDirectWriteTools: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = harness.Chat(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range model.requests[0].Tools {
+		if tool.Name == ai.ToolWriteFhirResource {
+			t.Fatal("write tool should be blocked")
+		}
+	}
+}
+
+func TestHarness_ChatAggregatesCitations(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients:     true,
+		allowPatientRead: true,
+	})
+	model := &recordingChatModel{responses: []*ai.ChatResponse{
+		{ToolCalls: []ai.ChatToolCall{{
+			ID: "c1", Name: ai.ToolReadFhirResource,
+			Arguments: `{"resourceType":"Patient","id":"pat-jane"}`,
+		}}},
+		{Content: "done"},
+	}}
+	harness, _ := ai.NewHarness(ai.HarnessConfig{Executor: h.exec, Model: model, Actor: "agent-1"})
+	res, err := harness.Chat(context.Background(), "read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Citations) == 0 {
+		t.Fatal("expected citations on chat result")
+	}
+}
+
 func TestHarness_ProposePatientCreateDoesNotWrite(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{withCore: true, allowPatientWrite: true})
 	before := len(h.resources.all())

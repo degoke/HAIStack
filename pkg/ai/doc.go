@@ -40,6 +40,8 @@
 //     runs a tool-calling conversation loop on top of ExecuteTool (see HARNESS.md).
 //   - MarkdownContextBuilder / ToolContextMarkdown: markdown summaries for tool rows.
 //   - PatientCreateDraft / CommitPatientCreate: structured Patient create proposals.
+//   - HarnessExecutorGuardrails / BlockDirectWriteTools / AutoConversationID: production agent wiring.
+//   - ModelAdapterChatModel: bridge legacy ModelAdapter stubs to Harness.Chat.
 //   - ApprovalHook / ApprovalStore: human approval seam and token verification
 //     boundary for policy-gated writes.
 //   - Deidentifier: required output scrubbing seam whenever policy requests
