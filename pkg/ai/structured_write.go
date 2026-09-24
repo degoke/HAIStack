@@ -196,3 +196,15 @@ func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDra
 	}
 	return h.cfg.CommitWriteConfirm(ctx, draft)
 }
+
+// confirmBeforeWriteToolInput applies the same host gate as CommitWrite for write_fhir_resource tool input.
+func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, input map[string]any, opts CommitWriteOptions) error {
+	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
+		return nil
+	}
+	draft, err := ResourceWriteDraftFromMap(input)
+	if err != nil {
+		return err
+	}
+	return h.confirmCommitWrite(ctx, draft, opts)
+}

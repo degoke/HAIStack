@@ -118,6 +118,7 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 	var validator validate.Engine
 	if opts.withCore {
 		coreMem = newMemBackend()
+		coreMem.denyProvenanceCreate = opts.denyProvenanceCreate
 		for _, res := range resources.all() {
 			if err := coreMem.Create(ctx, res); err != nil {
 				t.Fatalf("seed core: %v", err)
@@ -218,6 +219,7 @@ type harnessOptions struct {
 	writeRequiresApproval   bool
 	approvalGranted         bool
 	enableAIAttribution     bool
+	denyProvenanceCreate    bool
 }
 
 type memResourceStore struct {
@@ -386,9 +388,10 @@ func (m *memSearchBackend) FieldValues(_ context.Context, resourceType, fieldKey
 }
 
 type memBackend struct {
-	mu        sync.Mutex
-	resources map[string]*types.ResourceEnvelope
-	history   map[string][]store.ResourceVersion
+	mu                   sync.Mutex
+	resources            map[string]*types.ResourceEnvelope
+	history              map[string][]store.ResourceVersion
+	denyProvenanceCreate bool
 }
 
 func newMemBackend() *memBackend {
@@ -416,6 +419,9 @@ func (m *memBackend) countResourceType(resourceType string) int {
 func (m *memBackend) Create(_ context.Context, res *types.ResourceEnvelope) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.denyProvenanceCreate && res.ResourceType == "Provenance" {
+		return fmt.Errorf("provenance create denied")
+	}
 	k := m.key(res.ResourceType, res.ID)
 	if _, ok := m.resources[k]; ok {
 		return fmt.Errorf("resource already exists")

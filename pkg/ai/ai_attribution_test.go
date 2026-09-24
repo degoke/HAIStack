@@ -50,6 +50,40 @@ func TestExecutor_WriteAIAttribution(t *testing.T) {
 	if h.coreMem.countResourceType("Provenance") != 1 {
 		t.Fatalf("provenance count = %d", h.coreMem.countResourceType("Provenance"))
 	}
+	exts, _ := meta["extension"].([]any)
+	if len(exts) == 0 {
+		t.Fatal("expected ai-agent-context extension")
+	}
+}
+
+func TestExecutor_ProvenanceBestEffort(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:             true,
+		allowPatientWrite:    true,
+		enableAIAttribution:  true,
+		denyProvenanceCreate: true,
+	})
+	ctx := context.Background()
+	res, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName:       ai.ToolWriteFhirResource,
+		Actor:          "agent-1",
+		ConversationID: "conv-2",
+		Input: map[string]any{
+			"operation":    "create",
+			"resourceType": "Patient",
+			"fields":       map[string]any{"gender": "female"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("write should succeed when provenance is best-effort: %v", err)
+	}
+	data := dataMap(t, res.Data)
+	if data["provenanceWarning"] == "" {
+		t.Fatal("expected provenanceWarning in tool result data")
+	}
+	if h.coreMem.countResourceType("Patient") != 1 {
+		t.Fatal("patient should be persisted")
+	}
 }
 
 func hasAIAST(security []any) bool {

@@ -142,8 +142,9 @@ The harness sits on top of `Executor` tools so answers are tied to **read / sear
 | **Harness prompts** | `GroundingConfig` appends `DefaultFHIRGroundingSystemPrompt` (use tools for facts; no invented ids) |
 | **Post-checks** | `AnalyzeAnswerGrounding` warns when the answer cites `Resource/id` literals missing from `ChatResult.Citations` |
 | **Clinical values** | `AnalyzeClinicalValueGrounding` flags numbers/units (e.g. `142 mg/dL`) not present in tool JSON |
-| **Search params** | `PreflightSearchPolicy` runs before `search_fhir_resources`; `AnalyzeSearchParamGrounding` flags narrative search params not used in tool calls |
-| **Strict mode** | `GroundingMode: strict` returns `ErrUngroundedAnswer` on any grounding warning (missing tool evidence, uncited refs, hallucinated values, search param mismatch) |
+| **Search params** | `PreflightSearchPolicy` (strict) runs policy before `search_fhir_resources`; `AnalyzeSearchParamGrounding` flags narrative search params not used in tool calls (including when no search ran) |
+| **Strict mode** | `GroundingMode: strict` fails the turn if **any** `GroundingWarnings` entry is present after all checks (one final gate—not separate per-check returns) |
+| **Invocation replay** | Retries with the same `InvocationID` rebuild tool evidence from session events and run the same grounding checks |
 
 ```go
 Grounding: ai.GroundingConfig{Mode: ai.GroundingStandard}, // default
@@ -156,11 +157,13 @@ ToolContextFormat: ai.ToolContextMarkdown,
 
 `ChatResult.GroundingWarnings` lists non-fatal issues in standard mode. Writes still require host approval via `PendingApprovals` + `ExecuteHarnessTool` with `ApprovalToken`.
 
+**Preflight search (strict):** In `GroundingStrict`, the harness calls `policy.CheckSearch` before the executor so disallowed parameters surface as tool errors in the model loop. In standard mode only the executor enforces policy (no duplicate preflight).
+
 `HarnessGroundingGuardrails(hcfg)` complements `HarnessExecutorGuardrails` for wiring checks.
 
 ## Host confirmation before commit
 
-`CommitWrite` / `CommitWriteFromSession` execute `write_fhir_resource` through the executor. Enable an explicit host gate:
+All `write_fhir_resource` paths through the harness share the same gate: `Chat` tool execution, `ExecuteHarnessTool`, and `CommitWrite` / `CommitWriteFromSession`. Enable an explicit host callback:
 
 ```go
 h, _ := ai.NewHarness(ai.HarnessConfig{
@@ -180,10 +183,14 @@ Use `CommitWriteWithOptions(ctx, draft, ai.CommitWriteOptions{SkipHostConfirm: t
 When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated creates/updates:
 
 1. Stamp `meta.security` with **AIAST** (`http://terminology.hl7.org/CodeSystem/v3-ObservationValue`) per [AI Transparency requirements](https://build.fhir.org/ig/HL7/aitransparency-ig/en/requirements.html).
-2. Set `meta.source` to a conversation-scoped URN when `ConversationID` is present on the tool request.
-3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on).
+2. Add `meta.extension` (`urn:haistack:fhir:StructureDefinition:ai-agent-context`) with `conversationId` / `actor`—**does not overwrite** clinical `meta.source`.
+3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on). Provenance uses R4 `CodeableConcept` for `entity.role`.
 
-Wire attribution on the same executor used by the harness; pass `ConversationID` on `CommitWrite` via session (`Harness` sets it from the active session).
+**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true): the clinical write succeeds even if Provenance `Create` fails; audit outcome `provenance-failed` and `provenanceWarning` on the tool result. For atomic write+Provenance, use `core.ResourceService.ProcessTransactionBundle` in your deployment (not automatic on the executor path).
+
+Provenance is created via `Core.Create` (system side-effect, not `write_fhir_resource` policy). Ensure the core store allows `Provenance` creates for the executor principal.
+
+Wire attribution on the same executor used by the harness; pass `ConversationID` on writes via session (`Harness` sets it from the active session).
 
 ```go
 exec, _ := ai.NewExecutor(ai.Config{

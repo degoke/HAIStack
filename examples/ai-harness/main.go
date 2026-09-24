@@ -56,6 +56,10 @@ func run() error {
 		Policy:        policy,
 		Audit:         &ai.AuditStoreAdapter{Store: stack.DB.AuditStore()},
 		AuditRequired: true,
+		AIAttribution: ai.AIAttributionConfig{
+			Enabled:      true,
+			AgentDisplay: "ai-harness-example",
+		},
 	})
 	if err != nil {
 		return err
@@ -77,6 +81,11 @@ func run() error {
 		BlockDirectWriteTools:     true,
 		EnableProposeWriteHelper: true,
 		Grounding:                 ai.GroundingConfig{Mode: ai.GroundingStandard},
+		RequireCommitConfirmation: true,
+		CommitWriteConfirm: func(_ context.Context, draft ai.ResourceWriteDraft) error {
+			fmt.Printf("Host confirmed write: %s %s\n", draft.Operation, draft.ResourceType)
+			return nil
+		},
 	}
 	h, err := ai.NewHarness(cfg)
 	if err != nil {
@@ -102,6 +111,8 @@ func run() error {
 		BlockDirectWriteTools:     true,
 		EnableProposeWriteHelper: true,
 		Grounding:                 ai.GroundingConfig{Mode: ai.GroundingStandard},
+		RequireCommitConfirmation: true,
+		CommitWriteConfirm: func(_ context.Context, _ ai.ResourceWriteDraft) error { return nil },
 	})
 	if err != nil {
 		return err
@@ -119,6 +130,12 @@ func run() error {
 	fmt.Println("Citations:")
 	for _, c := range res.Citations {
 		fmt.Println(" -", c.Ref)
+	}
+	if len(res.GroundingWarnings) > 0 {
+		fmt.Println("Grounding warnings:")
+		for _, w := range res.GroundingWarnings {
+			fmt.Println(" -", w)
+		}
 	}
 	return nil
 }

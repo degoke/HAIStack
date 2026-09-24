@@ -150,6 +150,11 @@ func (h *Harness) PersistedEvents() []store.SessionEvent {
 // ExecuteHarnessTool runs a single executor tool with harness actor/subject/conversation defaults.
 // Use this to resume approval-gated writes with ApprovalToken after Chat surfaces PendingApprovals.
 func (h *Harness) ExecuteHarnessTool(ctx context.Context, req ToolRequest) (*ToolResult, error) {
+	return h.ExecuteHarnessToolWithOptions(ctx, req, CommitWriteOptions{})
+}
+
+// ExecuteHarnessToolWithOptions runs a harness tool with optional commit confirmation for writes.
+func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolRequest, commitOpts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
@@ -167,6 +172,11 @@ func (h *Harness) ExecuteHarnessTool(ctx context.Context, req ToolRequest) (*Too
 	}
 	if req.ConversationID == "" {
 		req.ConversationID = h.session.ConversationID
+	}
+	if req.ToolName == ToolWriteFhirResource {
+		if err := h.confirmBeforeWriteToolInput(ctx, req.Input, commitOpts); err != nil {
+			return nil, err
+		}
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, req)
 }
@@ -204,7 +214,8 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 	h.activeInvocationID = invocationID
 
 	if answer, done := invocationTerminalAnswer(h.persistedEvents, invocationID); done {
-		return h.finalizeChatResult(invocationID, userMessage, answer, nil, nil)
+		summaries, inputs := invocationToolGroundingContext(h.persistedEvents, invocationID, h.cfg.ToolContextFormat)
+		return h.finalizeChatResult(invocationID, userMessage, answer, summaries, inputs)
 	}
 
 	tools := h.chatTools()
@@ -301,6 +312,22 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				Subject:        h.cfg.Subject,
 				Input:          input,
 				ConversationID: h.session.ConversationID,
+			}
+			if tc.Name == ToolWriteFhirResource {
+				if confirmErr := h.confirmBeforeWriteToolInput(ctx, input, CommitWriteOptions{}); confirmErr != nil {
+					summary.Err = confirmErr
+					toolSummaries = append(toolSummaries, summary)
+					toolInputs = append(toolInputs, input)
+					errContent := toolErrorContent(confirmErr)
+					h.session.Messages = append(h.session.Messages, ChatMessage{
+						Role: ChatRoleTool, ToolCallID: tc.ID, Content: errContent,
+					})
+					if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, errContent)); err != nil {
+						h.activeInvocationID = ""
+						return nil, err
+					}
+					continue
+				}
 			}
 			if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
 				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {

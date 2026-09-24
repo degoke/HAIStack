@@ -206,20 +206,6 @@ func (h *Harness) finalizeChatResult(invocationID, userMessage, answer string, t
 	if gcfg.RequireToolEvidenceOnDataQuestions && looksLikeFHIRDataQuestion(userMessage) && !hasFHIREvidence(toolSummaries) {
 		msg := "FHIR data question answered without successful read/search/view tool evidence"
 		res.GroundingWarnings = append(res.GroundingWarnings, msg)
-		if gcfg.Mode == GroundingStrict {
-			return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, msg)
-		}
-	}
-	if gcfg.RejectUncitedResourceRefs && gcfg.Mode == GroundingStrict {
-		var refWarnings []string
-		for _, w := range res.GroundingWarnings {
-			if strings.Contains(w, "without a matching tool citation") {
-				refWarnings = append(refWarnings, w)
-			}
-		}
-		if len(refWarnings) > 0 {
-			return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, strings.Join(refWarnings, "; "))
-		}
 	}
 	if gcfg.Mode == GroundingStrict && len(res.GroundingWarnings) > 0 {
 		return nil, fmt.Errorf("%w: %s", ErrUngroundedAnswer, strings.Join(res.GroundingWarnings, "; "))

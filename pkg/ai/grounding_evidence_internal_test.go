@@ -2,6 +2,13 @@ package ai
 
 import "testing"
 
+func TestAnalyzeSearchParamGrounding_NoSearchTool(t *testing.T) {
+	warnings := AnalyzeSearchParamGrounding("We used birthdate search for the patient.", nil)
+	if len(warnings) == 0 {
+		t.Fatal("expected warning when narrating search without tool")
+	}
+}
+
 func TestAnalyzeSearchParamGrounding_UnknownParam(t *testing.T) {
 	records := toolCallRecords([]HarnessToolResult{{
 		ToolName: ToolSearchFhirResources,

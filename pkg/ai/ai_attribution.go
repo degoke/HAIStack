@@ -16,6 +16,8 @@ const (
 	AIASTCodeSystem = "http://terminology.hl7.org/CodeSystem/v3-ObservationValue"
 	AIASTCode       = "AIAST"
 	AIASTDisplay    = "Artificial Intelligence asserted"
+	// AIAgentContextExtensionURL stores harness/agent correlation on meta.extension (does not replace clinical meta.source).
+	AIAgentContextExtensionURL = "urn:haistack:fhir:StructureDefinition:ai-agent-context"
 )
 
 // AIAttributionConfig stamps AI transparency metadata on executor writes and optionally records Provenance.
@@ -28,6 +30,9 @@ type AIAttributionConfig struct {
 	AgentDisplay string
 	// ModelID is stored in Provenance.entity or agent extension when set.
 	ModelID string
+	// ProvenanceBestEffort when true (default), a Provenance create failure does not fail the clinical write.
+	// Atomic write+Provenance requires core.ProcessTransactionBundle; not used automatically here.
+	ProvenanceBestEffort *bool
 }
 
 func (c AIAttributionConfig) createProvenance() bool {
@@ -38,6 +43,13 @@ func (c AIAttributionConfig) createProvenance() bool {
 		return true
 	}
 	return *c.CreateProvenance
+}
+
+func (c AIAttributionConfig) provenanceBestEffort() bool {
+	if c.ProvenanceBestEffort == nil {
+		return true
+	}
+	return *c.ProvenanceBestEffort
 }
 
 func aiastCoding() map[string]any {
@@ -64,12 +76,8 @@ func mergeAIASTMeta(root map[string]any, conversationID, actor string) {
 		meta = map[string]any{}
 		root["meta"] = meta
 	}
-	if conversationID != "" {
-		src := strings.TrimSpace(fmt.Sprintf("urn:haistack:ai:conversation:%s", conversationID))
-		if actor != "" {
-			src = fmt.Sprintf("%s;actor=%s", src, actor)
-		}
-		meta["source"] = src
+	if conversationID != "" || actor != "" {
+		mergeAIAgentContextExtension(meta, conversationID, actor)
 	}
 	security, _ := meta["security"].([]any)
 	if security == nil {
@@ -81,17 +89,68 @@ func mergeAIASTMeta(root map[string]any, conversationID, actor string) {
 	meta["security"] = security
 }
 
-func hasAIASTCoding(security []any) bool {
-	for _, item := range security {
-		coding, ok := item.(map[string]any)
+func mergeAIAgentContextExtension(meta map[string]any, conversationID, actor string) {
+	exts, _ := meta["extension"].([]any)
+	if exts == nil {
+		exts = []any{}
+	}
+	for _, item := range exts {
+		ext, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		if coding["system"] == AIASTCodeSystem && coding["code"] == AIASTCode {
+		if ext["url"] == AIAgentContextExtensionURL {
+			return
+		}
+	}
+	inner := []any{}
+	if conversationID != "" {
+		inner = append(inner, map[string]any{
+			"url":         "conversationId",
+			"valueString": conversationID,
+		})
+	}
+	if actor != "" {
+		inner = append(inner, map[string]any{
+			"url":         "actor",
+			"valueString": actor,
+		})
+	}
+	exts = append(exts, map[string]any{
+		"url":       AIAgentContextExtensionURL,
+		"extension": inner,
+	})
+	meta["extension"] = exts
+}
+
+func hasAIASTCoding(security []any) bool {
+	for _, item := range security {
+		if codingHasAIAST(item) {
 			return true
 		}
 	}
 	return false
+}
+
+func codingHasAIAST(item any) bool {
+	switch v := item.(type) {
+	case map[string]any:
+		if codeMatchAIAST(v["system"], v["code"]) {
+			return true
+		}
+		if raw, ok := v["coding"].([]any); ok {
+			for _, c := range raw {
+				if codingHasAIAST(c) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func codeMatchAIAST(system, code any) bool {
+	return fmt.Sprint(system) == AIASTCodeSystem && fmt.Sprint(code) == AIASTCode
 }
 
 func (e *Executor) stampWriteJSONForAttribution(jsonData []byte, req ToolRequest) ([]byte, error) {
@@ -101,12 +160,30 @@ func (e *Executor) stampWriteJSONForAttribution(jsonData []byte, req ToolRequest
 	return mergeAIAttributionIntoResourceJSON(jsonData, req.ConversationID, req.Actor)
 }
 
-func (e *Executor) recordWriteProvenance(ctx context.Context, req ToolRequest, written *types.ResourceEnvelope) error {
+// ProvenanceRecordResult captures best-effort provenance side effects after a write.
+type ProvenanceRecordResult struct {
+	Err     error
+	Warning string
+}
+
+func (e *Executor) recordWriteProvenance(ctx context.Context, req ToolRequest, written *types.ResourceEnvelope) ProvenanceRecordResult {
 	cfg := e.cfg.AIAttribution
 	if !cfg.Enabled || written == nil || !cfg.createProvenance() {
-		return nil
+		return ProvenanceRecordResult{}
 	}
-	return e.createAIProvenance(ctx, req, written)
+	err := e.createAIProvenance(ctx, req, written)
+	if err == nil {
+		return ProvenanceRecordResult{}
+	}
+	if cfg.provenanceBestEffort() {
+		_ = e.logAudit(ctx, req, ToolWriteFhirResource, "provenance-failed", map[string]string{
+			"error":        err.Error(),
+			"resourceType": written.ResourceType,
+			"id":           written.ID,
+		})
+		return ProvenanceRecordResult{Err: err, Warning: err.Error()}
+	}
+	return ProvenanceRecordResult{Err: err}
 }
 
 func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, written *types.ResourceEnvelope) error {
@@ -156,7 +233,15 @@ func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, writ
 	if model := strings.TrimSpace(e.cfg.AIAttribution.ModelID); model != "" {
 		prov["entity"] = []any{
 			map[string]any{
-				"role": "source",
+				"role": map[string]any{
+					"coding": []any{
+						map[string]any{
+							"system":  "http://terminology.hl7.org/CodeSystem/provenance-entity-role",
+							"code":    "source",
+							"display": "Source",
+						},
+					},
+				},
 				"what": map[string]any{
 					"identifier": map[string]any{
 						"system": "urn:haistack:ai:model",

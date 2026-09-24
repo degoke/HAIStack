@@ -683,8 +683,9 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		}
 		return nil, nil, "", false, "", nil, err
 	}
-	if provErr := e.recordWriteProvenance(ctx, req, written); provErr != nil {
-		return nil, nil, "", false, "", nil, provErr
+	prov := e.recordWriteProvenance(ctx, req, written)
+	if prov.Err != nil && !e.cfg.AIAttribution.provenanceBestEffort() {
+		return nil, nil, "", false, "", nil, prov.Err
 	}
 
 	data := map[string]any{
@@ -692,6 +693,9 @@ func (e *Executor) execWrite(ctx context.Context, req ToolRequest, input map[str
 		"resourceType": written.ResourceType,
 		"id":           written.ID,
 		"versionId":    written.VersionID,
+	}
+	if prov.Warning != "" {
+		data["provenanceWarning"] = prov.Warning
 	}
 	citations := []Citation{e.cfg.Citations.WriteCitation(parsed.Operation, written.ResourceType, written.ID)}
 	return data, citations, "success", false, "", nil, nil

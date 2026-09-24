@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	clinicalQuantityInText = regexp.MustCompile(`(?i)\b(\d+(?:\.\d+)?)\s*(mg/dL|mmol/L|mmHg|bpm|kg|g|mL|U/L|mcg|µg|IU/L|%)\b`)
+	clinicalQuantityInText = regexp.MustCompile(`(?i)\b(\d+(?:\.\d+)?)\s*(mg/dL|mmol/L|mmHg|bpm|kg|mL|U/L|mcg|µg|IU/L|%)\b`)
 	plainNumberInText      = regexp.MustCompile(`\b(\d{2,}(?:\.\d+)?)\b`)
 	searchParamNameInText  = regexp.MustCompile(`(?i)\b(?:search(?:ed)?|filter(?:ed)?|query)\s+(?:for|by|on)\s+([a-z_][a-z0-9_-]*)\s*=`)
 )
@@ -46,12 +46,14 @@ func AnalyzeClinicalValueGrounding(answer string, toolSummaries []HarnessToolRes
 		if len(match) < 3 {
 			continue
 		}
-		token := strings.ToLower(strings.TrimSpace(match[1] + " " + match[2]))
+		num := strings.TrimSpace(match[1])
+		unit := strings.ToLower(strings.TrimSpace(match[2]))
+		token := num + " " + unit
 		if seen[token] {
 			continue
 		}
 		seen[token] = true
-		if !strings.Contains(evidenceLower, strings.ToLower(match[1])) {
+		if !clinicalQuantityInEvidence(evidenceLower, num, unit) {
 			warnings = append(warnings, fmt.Sprintf("answer mentions clinical value %q not found in tool results", strings.TrimSpace(match[0])))
 		}
 	}
@@ -61,7 +63,7 @@ func AnalyzeClinicalValueGrounding(answer string, toolSummaries []HarnessToolRes
 				continue
 			}
 			num := match[1]
-			if seen[num] {
+			if seen[num] || shouldSkipPlainClinicalNumber(num, answer) {
 				continue
 			}
 			seen[num] = true
@@ -72,6 +74,36 @@ func AnalyzeClinicalValueGrounding(answer string, toolSummaries []HarnessToolRes
 		}
 	}
 	return warnings
+}
+
+func clinicalQuantityInEvidence(evidenceLower, num, unit string) bool {
+	if !strings.Contains(evidenceLower, strings.ToLower(num)) {
+		return false
+	}
+	return strings.Contains(evidenceLower, unit)
+}
+
+func shouldSkipPlainClinicalNumber(num, answer string) bool {
+	// Avoid years and very small counts unless tied to a unit elsewhere in the answer.
+	if n, err := parseFloat(num); err == nil {
+		if n >= 1900 && n <= 2100 {
+			return true
+		}
+		if n < 10 {
+			return true
+		}
+	}
+	lower := strings.ToLower(answer)
+	if strings.Contains(lower, num+" years") || strings.Contains(lower, num+" year") {
+		return true
+	}
+	return false
+}
+
+func parseFloat(s string) (float64, error) {
+	var f float64
+	_, err := fmt.Sscanf(s, "%f", &f)
+	return f, err
 }
 
 func looksClinicalNumericAnswer(answer string) bool {
@@ -119,10 +151,19 @@ func AnalyzeSearchParamGrounding(answer string, records []toolCallRecord) []stri
 			used[k] = true
 		}
 	}
-	if len(used) == 0 {
-		return nil
-	}
 	var warnings []string
+	if len(used) == 0 {
+		mentioned := extractMentionedSearchParamNames(answer)
+		for _, match := range searchParamNameInText.FindAllStringSubmatch(answer, -1) {
+			if len(match) >= 2 {
+				mentioned[strings.ToLower(match[1])] = true
+			}
+		}
+		if len(mentioned) > 0 {
+			warnings = append(warnings, "answer references FHIR search parameters but no successful search_fhir_resources tool ran this turn")
+		}
+		return warnings
+	}
 	for token := range extractMentionedSearchParamNames(answer) {
 		if !used[token] {
 			warnings = append(warnings, fmt.Sprintf("answer mentions search parameter %q not used in search_fhir_resources calls this turn", token))
