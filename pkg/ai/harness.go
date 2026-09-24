@@ -49,8 +49,12 @@ type HarnessConfig struct {
 	Grounding GroundingConfig
 	// RequireCommitConfirmation requires CommitWriteConfirm before CommitWrite / CommitWriteFromSession.
 	RequireCommitConfirmation bool
-	// CommitWriteConfirm is invoked before executing FHIR write tools via CommitWrite.
+	// CommitWriteConfirm is invoked before CommitWrite when the plan has a single entry (unless CommitWritePlanConfirm is set).
 	CommitWriteConfirm func(ctx context.Context, draft ResourceWriteDraft) error
+	// CommitWritePlanConfirm is invoked before CommitWritePlan (multi-step or when set explicitly).
+	CommitWritePlanConfirm func(ctx context.Context, plan ResourceWritePlan) error
+	// EnableProposeWritePlanHelper exposes propose_write_plan in the harness tool list.
+	EnableProposeWritePlanHelper bool
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -177,6 +181,7 @@ func (h *Harness) ExecuteHarnessToolWithOptions(ctx context.Context, req ToolReq
 		if err := h.confirmBeforeWriteToolInput(ctx, req.ToolName, req.Input, commitOpts); err != nil {
 			return nil, err
 		}
+		return h.executeHarnessWriteTool(ctx, req.ToolName, req.Input)
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, req)
 }
@@ -289,6 +294,22 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				}
 				continue
 			}
+			if tc.Name == ToolProposeWritePlan {
+				content, proposeRes, proposeErr := h.handleProposeWritePlan(input)
+				summary.Err = proposeErr
+				if proposeRes != nil {
+					summary.Result = proposeRes
+				}
+				toolSummaries = append(toolSummaries, summary)
+				toolInputs = append(toolInputs, input)
+				toolMsg := ChatMessage{Role: ChatRoleTool, ToolCallID: tc.ID, Content: content}
+				h.session.Messages = append(h.session.Messages, toolMsg)
+				if err := h.appendSessionEvent(ctx, NewToolSessionEvent(tc.ID, content)); err != nil {
+					h.activeInvocationID = ""
+					return nil, err
+				}
+				continue
+			}
 			if tc.Name == ToolProposeWriteResource || tc.Name == ToolProposePatientCreate {
 				content, proposeRes, proposeErr := h.handleProposeWrite(input, tc.Name)
 				summary.Err = proposeErr
@@ -313,6 +334,8 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 				Input:          input,
 				ConversationID: h.session.ConversationID,
 			}
+			var res *ToolResult
+			var execErr error
 			if IsWriteTool(tc.Name) {
 				if confirmErr := h.confirmBeforeWriteToolInput(ctx, tc.Name, input, CommitWriteOptions{}); confirmErr != nil {
 					summary.Err = confirmErr
@@ -328,8 +351,8 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					}
 					continue
 				}
-			}
-			if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
+				res, execErr = h.executeHarnessWriteTool(ctx, tc.Name, input)
+			} else if tc.Name == ToolSearchFhirResources && h.groundingConfig().PreflightSearchPolicy {
 				if preflightErr := PreflightSearchPolicy(ctx, h.cfg.Executor.Policy(), toolReq, input); preflightErr != nil {
 					summary.Err = preflightErr
 					toolSummaries = append(toolSummaries, summary)
@@ -344,8 +367,10 @@ func (h *Harness) ChatWithOptions(ctx context.Context, opts ChatOptions) (*ChatR
 					}
 					continue
 				}
+				res, execErr = h.cfg.Executor.ExecuteTool(ctx, toolReq)
+			} else {
+				res, execErr = h.cfg.Executor.ExecuteTool(ctx, toolReq)
 			}
-			res, execErr := h.cfg.Executor.ExecuteTool(ctx, toolReq)
 			summary.Result = res
 			summary.Err = execErr
 			toolSummaries = append(toolSummaries, summary)
@@ -418,6 +443,9 @@ func (h *Harness) chatTools() []ChatTool {
 	if h.cfg.EnableProposeWriteHelper || h.cfg.EnablePatientCreateHelper {
 		descriptors = append(descriptors, ProposeWriteResourceToolDescriptor())
 	}
+	if h.cfg.EnableProposeWritePlanHelper {
+		descriptors = append(descriptors, ProposeWritePlanToolDescriptor())
+	}
 	return ChatToolsFromDescriptors(descriptors)
 }
 
@@ -479,7 +507,7 @@ func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (str
 		"status":     "proposal",
 		"tool":       execTool,
 		"input":      writeInput,
-		"commitHint": "Call Harness.CommitWrite with the same structured draft to execute policy + validation.",
+		"commitHint": "Call Harness.CommitWrite with the same structured draft; the host commits via transaction bundle and adds Provenance when configured.",
 	}
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -490,6 +518,55 @@ func (h *Harness) handleProposeWrite(input map[string]any, toolName string) (str
 		Data:     payload,
 		Context:  string(out),
 	}, nil
+}
+
+func (h *Harness) handleProposeWritePlan(input map[string]any) (string, *ToolResult, error) {
+	plan, err := ResourceWritePlanFromMap(input)
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	txInput, err := plan.ToTransactionInput()
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	payload := map[string]any{
+		"status":     "proposal",
+		"tool":       ToolExecuteFhirTransaction,
+		"input":      txInput,
+		"entryCount": len(plan.Entries),
+		"commitHint": "Call Harness.CommitWritePlan with the same entries; the host runs a transaction bundle and adds Provenance when configured.",
+	}
+	out, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return toolErrorContent(err), nil, err
+	}
+	return string(out), &ToolResult{
+		ToolName: ToolProposeWritePlan,
+		Data:     payload,
+		Context:  string(out),
+	}, nil
+}
+
+// executeHarnessWriteTool commits writes through a transaction bundle (Provenance appended by executor attribution).
+func (h *Harness) executeHarnessWriteTool(ctx context.Context, toolName string, input map[string]any) (*ToolResult, error) {
+	var plan ResourceWritePlan
+	var err error
+	switch toolName {
+	case ToolCreateFhirResource, ToolUpdateFhirResource:
+		draft, err := draftFromWriteToolInput(toolName, input)
+		if err != nil {
+			return nil, err
+		}
+		plan = ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}
+	case ToolExecuteFhirTransaction:
+		plan, err = ResourceWritePlanFromTransactionInput(input)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, toolName)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return h.executeCommitPlan(ctx, plan, CommitWriteOptions{SkipHostConfirm: true})
 }
 
 func (h *Harness) formatToolResultContent(toolName string, res *ToolResult, err error) string {

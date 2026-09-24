@@ -326,7 +326,7 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys
 - `PUT` — same shape as update (`id` and `patches` required).
 - `GET` — **batch only**: `resourceType` + `id` (read through policy).
 
-When `AIAttribution.Enabled` and Provenance creation are on, the executor appends one Provenance POST per clinical write. With `bundleType=transaction`, clinical writes and Provenance commit atomically; with `batch`, each entry is independent. Set `AtomicProvenance` on the executor to route single create/update through a transaction bundle.
+The **model never submits Provenance**; when `AIAttribution` is enabled the executor appends Provenance POSTs for clinical writes. **Harness** `CommitWrite` / `CommitWritePlan` always commit via `execute_fhir_transaction` (`bundleType=transaction`) so Provenance is included in that bundle. Direct executor calls (outside harness) still use create/update unless `AtomicProvenance` or the transaction tool is used. With `bundleType=batch`, entries are independent.
 
 ## Safety model
 

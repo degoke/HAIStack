@@ -34,7 +34,7 @@ App: model URL/provider + optional system prompt
 | Orchestration loop | `Harness.Chat`: user → model → tools → `ExecuteTool` → tool messages → repeat until text |
 | Tool protocol | **Native** function tools (`ToolCallProtocolNative`), **prompt JSON** (`ToolCallProtocolPromptJSON`), or **both** (`ToolCallProtocolBoth`) |
 | FHIR narration (markdown) | `ToolContextMarkdown` + `MarkdownContextBuilder` for read/search/view |
-| Structured writes (any resource) | `ResourceWriteDraft`, `propose_write_resource`, `CommitWrite` / `CommitWriteFromSession` (`PatientCreateDraft` is a convenience wrapper) |
+| Structured writes (any resource) | `ResourceWriteDraft`, `ResourceWritePlan`, `propose_write_resource`, `propose_write_plan`, `CommitWrite` / `CommitWritePlan` (transaction bundle; host adds Provenance, not the model) |
 | No arbitrary FHIR JSON commits | `BlockDirectWriteTools` hides write tools; **create** uses field maps, **update** uses FHIRPath `patches` only |
 | Policy + de-id + audit | Unchanged on `Executor`; use `HarnessExecutorGuardrails` when wiring production agents |
 | Approval-gated writes | `ChatResult.PendingApprovals`; resume with `ExecuteHarnessTool` + `ApprovalToken` |

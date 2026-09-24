@@ -179,25 +179,39 @@ type CommitWriteOptions struct {
 	SkipHostConfirm bool
 }
 
-// CommitWrite executes the appropriate write tool for a validated draft via Executor.
+// CommitWrite executes one write draft as a transaction bundle (host adds Provenance when configured).
 func (h *Harness) CommitWrite(ctx context.Context, draft ResourceWriteDraft) (*ToolResult, error) {
 	return h.CommitWriteWithOptions(ctx, draft, CommitWriteOptions{})
 }
 
-// CommitWriteWithOptions executes a write tool after optional host confirmation.
+// CommitWriteWithOptions commits one draft via CommitWritePlan (transaction bundle).
 func (h *Harness) CommitWriteWithOptions(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) (*ToolResult, error) {
+	return h.CommitWritePlanWithOptions(ctx, ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}, opts)
+}
+
+// CommitWritePlan commits multiple drafts in one atomic transaction (host adds Provenance when configured).
+func (h *Harness) CommitWritePlan(ctx context.Context, plan ResourceWritePlan) (*ToolResult, error) {
+	return h.CommitWritePlanWithOptions(ctx, plan, CommitWriteOptions{})
+}
+
+// CommitWritePlanWithOptions runs host confirmation then execute_fhir_transaction for the plan.
+func (h *Harness) CommitWritePlanWithOptions(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) (*ToolResult, error) {
 	if h == nil {
 		return nil, errors.New("ai: nil harness")
 	}
-	if err := h.confirmCommitWrite(ctx, draft, opts); err != nil {
+	return h.executeCommitPlan(ctx, plan, opts)
+}
+
+func (h *Harness) executeCommitPlan(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) (*ToolResult, error) {
+	if err := h.confirmCommitWritePlan(ctx, plan, opts); err != nil {
 		return nil, err
 	}
-	toolName, input, err := draft.ToExecutorToolInput()
+	input, err := plan.ToTransactionInput()
 	if err != nil {
 		return nil, err
 	}
 	return h.cfg.Executor.ExecuteTool(ctx, ToolRequest{
-		ToolName:       toolName,
+		ToolName:       ToolExecuteFhirTransaction,
 		Actor:          h.cfg.Actor,
 		TenantID:       h.cfg.TenantID,
 		Subject:        h.cfg.Subject,
@@ -226,6 +240,26 @@ func (h *Harness) CommitWriteFromSessionWithOptions(ctx context.Context, opts Co
 	return h.CommitWriteWithOptions(ctx, draft, opts)
 }
 
+// CommitWritePlanFromSession extracts a write_plan block and commits via transaction bundle.
+func (h *Harness) CommitWritePlanFromSession(ctx context.Context) (*ToolResult, error) {
+	return h.CommitWritePlanFromSessionWithOptions(ctx, CommitWriteOptions{})
+}
+
+// CommitWritePlanFromSessionWithOptions commits a session write_plan after optional host confirmation.
+func (h *Harness) CommitWritePlanFromSessionWithOptions(ctx context.Context, opts CommitWriteOptions) (*ToolResult, error) {
+	if h == nil {
+		return nil, errors.New("ai: nil harness")
+	}
+	if err := h.ensureSessionLoaded(ctx); err != nil {
+		return nil, err
+	}
+	plan, ok := ExtractResourceWritePlan(h.session.Messages)
+	if !ok {
+		return nil, fmt.Errorf("%w: no write_plan in session", ErrInvalidInput)
+	}
+	return h.CommitWritePlanWithOptions(ctx, plan, opts)
+}
+
 func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDraft, opts CommitWriteOptions) error {
 	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
 		return nil
@@ -236,16 +270,39 @@ func (h *Harness) confirmCommitWrite(ctx context.Context, draft ResourceWriteDra
 	return h.cfg.CommitWriteConfirm(ctx, draft)
 }
 
+func (h *Harness) confirmCommitWritePlan(ctx context.Context, plan ResourceWritePlan, opts CommitWriteOptions) error {
+	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation {
+		return nil
+	}
+	if h.cfg.CommitWritePlanConfirm != nil {
+		return h.cfg.CommitWritePlanConfirm(ctx, plan)
+	}
+	if len(plan.Entries) == 1 && h.cfg.CommitWriteConfirm != nil {
+		return h.cfg.CommitWriteConfirm(ctx, plan.Entries[0])
+	}
+	if h.cfg.CommitWriteConfirm == nil && h.cfg.CommitWritePlanConfirm == nil {
+		return ErrCommitNotConfirmed
+	}
+	return ErrCommitNotConfirmed
+}
+
 // confirmBeforeWriteToolInput applies the same host gate as CommitWrite for FHIR write tools.
 func (h *Harness) confirmBeforeWriteToolInput(ctx context.Context, toolName string, input map[string]any, opts CommitWriteOptions) error {
 	if opts.SkipHostConfirm || !h.cfg.RequireCommitConfirmation || !IsWriteTool(toolName) {
 		return nil
 	}
+	if toolName == ToolExecuteFhirTransaction {
+		plan, err := ResourceWritePlanFromTransactionInput(input)
+		if err != nil {
+			return err
+		}
+		return h.confirmCommitWritePlan(ctx, plan, opts)
+	}
 	draft, err := draftFromWriteToolInput(toolName, input)
 	if err != nil {
 		return err
 	}
-	return h.confirmCommitWrite(ctx, draft, opts)
+	return h.confirmCommitWritePlan(ctx, ResourceWritePlan{Entries: []ResourceWriteDraft{draft}}, opts)
 }
 
 func draftFromWriteToolInput(toolName string, input map[string]any) (ResourceWriteDraft, error) {

@@ -146,6 +146,9 @@ func parseBundleEntries(input map[string]any) ([]transactionEntrySpec, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: entries[%d]: %v", ErrInvalidInput, i, err)
 		}
+		if strings.EqualFold(strings.TrimSpace(rt), "Provenance") {
+			return nil, fmt.Errorf("%w: entries[%d]: Provenance must not be supplied by the model (added by the host)", ErrInvalidInput, i)
+		}
 		spec := transactionEntrySpec{
 			Method:       method,
 			ResourceType: rt,

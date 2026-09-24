@@ -62,7 +62,7 @@ func TestHarness_CommitPatientCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommitPatientCreate: %v", err)
 	}
-	if res.ToolName != ai.ToolCreateFhirResource {
+	if res.ToolName != ai.ToolExecuteFhirTransaction {
 		t.Fatalf("tool = %q", res.ToolName)
 	}
 }
