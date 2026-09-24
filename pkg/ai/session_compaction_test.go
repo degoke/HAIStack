@@ -47,7 +47,7 @@ func TestHarness_SessionCompactionAppendsCheckpoint(t *testing.T) {
 		TenantID: "t",
 		SessionService: svc,
 		SessionCompaction: ai.SessionCompactionConfig{
-			MaxContextChars:    200,
+			MaxContextTokens:   80,
 			RetainRecentEvents: 2,
 			MinEventsToCompact: 4,
 		},

@@ -175,7 +175,7 @@
 //
 // SessionService — agent sessions (Google ADK SessionService analogue):
 //
-//   - CreateSession, GetSession, ListSessions, DeleteSession, AppendEvent.
+//   - CreateSession, GetSession, ListEventsAfter, ListSessions, DeleteSession, AppendEvent.
 //   - Session-scoped state plus optional app:/user: prefixed state deltas on events.
 //   - Backed by hai_agent_session / hai_agent_session_event tables in SQLite and Postgres.
 //

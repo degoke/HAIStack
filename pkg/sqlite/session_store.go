@@ -67,6 +67,63 @@ func (s *SessionService) CreateSession(ctx context.Context, params store.CreateS
 	}, nil
 }
 
+// ListEventsAfter implements store.SessionService.
+func (s *SessionService) ListEventsAfter(ctx context.Context, params store.ListEventsAfterParams) ([]store.SessionEvent, error) {
+	tenant := s.tenantID
+	if params.TenantID != "" {
+		tenant = params.TenantID
+	}
+	afterID := strings.TrimSpace(params.AfterEventID)
+	if afterID == "" {
+		return nil, fmt.Errorf("list events after: missing after event id")
+	}
+	rows, err := s.exec.QueryContext(ctx, `
+		SELECT event_json FROM hai_agent_session_event
+		WHERE tenant_id = ? AND app_name = ? AND user_id = ? AND session_id = ?
+		  AND rowid > (
+		    SELECT rowid FROM hai_agent_session_event
+		    WHERE tenant_id = ? AND app_name = ? AND user_id = ? AND session_id = ? AND event_id = ?
+		  )
+		ORDER BY rowid ASC`,
+		tenant, params.AppName, params.UserID, params.SessionID,
+		tenant, params.AppName, params.UserID, params.SessionID, afterID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list events after: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var events []store.SessionEvent
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var ev store.SessionEvent
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		var found int
+		err = s.exec.QueryRowContext(ctx, `
+			SELECT 1 FROM hai_agent_session_event
+			WHERE tenant_id = ? AND app_name = ? AND user_id = ? AND session_id = ? AND event_id = ?`,
+			tenant, params.AppName, params.UserID, params.SessionID, afterID,
+		).Scan(&found)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, store.ErrSessionEventNotFound
+			}
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
 // GetSession implements store.SessionService.
 func (s *SessionService) GetSession(ctx context.Context, params store.GetSessionParams) (*store.AgentSession, error) {
 	tenant := s.tenantID

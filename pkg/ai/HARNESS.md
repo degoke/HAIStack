@@ -95,17 +95,22 @@ Invalid tool arguments produce a **tool** message (persisted and included in the
 
 ### Session compaction (append-only checkpoints)
 
-When `SessionCompaction.MaxContextChars` is set, the harness measures the **active** model context (latest checkpoint summary + events after it). If over the limit, it summarizes older active events using `ChatModel`, then appends a **`compaction` author** checkpoint event. Prior events remain in the database (append-only); `ChatMessagesFromSessionEvents` and `Harness.Session().Messages` only surface the checkpoint summary plus the retained tail.
+When `SessionCompaction.MaxContextTokens` is set, the harness estimates **tokens** for the active model context (latest checkpoint summary + events after it). If over the limit, it summarizes older active events (custom `Summarizer` or default `ChatModel`), then appends a **`compaction` author** checkpoint event. Prior events remain in the database (append-only); `ChatMessagesFromSessionEvents` and `Harness.Session().Messages` only surface the checkpoint summary plus the retained tail.
 
 ```go
 SessionCompaction: ai.SessionCompactionConfig{
-    MaxContextChars:    120_000,
+    MaxContextTokens:   100_000,
+    TokenCounter:       ai.EstimateChatMessagesTokens, // or a model-specific counter
+    Summarizer:         mySummarizer,                  // optional
+    OnMetric:           func(ev ai.CompactionMetricEvent) { /* telemetry */ },
     RetainRecentEvents: 12,
     MinEventsToCompact: 16,
 },
 ```
 
-Use `Harness.PersistedEvents()` for the full audit log including pre-checkpoint events.
+Use `Harness.PersistedEvents()` for the full audit log. Use `store.SessionService.ListEventsAfter` (or `Harness.ActiveEventsAfterCheckpoint`) to fetch tail events after the latest checkpoint id without scanning the full log in application code.
+
+`Harness.CompactionMetrics()` exposes cumulative check/skip/compact/failure counts for the harness instance.
 
 ## Tool-calling protocols
 

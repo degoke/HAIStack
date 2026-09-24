@@ -51,10 +51,11 @@ type HarnessConfig struct {
 // Executor, and session history (persisted via SessionService when configured).
 // It does not replace policy, audit, or FHIR validation on the executor path.
 type Harness struct {
-	cfg               HarnessConfig
-	session           Session
-	persistedEvents   []store.SessionEvent
+	cfg                HarnessConfig
+	session            Session
+	persistedEvents    []store.SessionEvent
 	activeInvocationID string
+	compactionMetrics  *compactionMetrics
 }
 
 // Session is the harness view of a stored agent session after load (or ephemeral test mode).

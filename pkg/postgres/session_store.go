@@ -59,6 +59,62 @@ func (s *SessionService) CreateSession(ctx context.Context, params store.CreateS
 	}, nil
 }
 
+// ListEventsAfter implements store.SessionService.
+func (s *SessionService) ListEventsAfter(ctx context.Context, params store.ListEventsAfterParams) ([]store.SessionEvent, error) {
+	tenant := s.tenantID
+	if params.TenantID != "" {
+		tenant = params.TenantID
+	}
+	afterID := strings.TrimSpace(params.AfterEventID)
+	if afterID == "" {
+		return nil, fmt.Errorf("list events after: missing after event id")
+	}
+	rows, err := s.exec.Query(ctx, `
+		SELECT e.event_json FROM hai_agent_session_event e
+		WHERE e.tenant_id = $1 AND e.app_name = $2 AND e.user_id = $3 AND e.session_id = $4
+		  AND (e.timestamp, e.event_id) > (
+		    SELECT c.timestamp, c.event_id FROM hai_agent_session_event c
+		    WHERE c.tenant_id = $1 AND c.app_name = $2 AND c.user_id = $3 AND c.session_id = $4 AND c.event_id = $5
+		  )
+		ORDER BY e.timestamp ASC, e.event_id ASC`,
+		tenant, params.AppName, params.UserID, params.SessionID, afterID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []store.SessionEvent
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var ev store.SessionEvent
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		var found int
+		err = s.exec.QueryRow(ctx, `
+			SELECT 1 FROM hai_agent_session_event
+			WHERE tenant_id = $1 AND app_name = $2 AND user_id = $3 AND session_id = $4 AND event_id = $5`,
+			tenant, params.AppName, params.UserID, params.SessionID, afterID,
+		).Scan(&found)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, store.ErrSessionEventNotFound
+			}
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
 // GetSession implements store.SessionService.
 func (s *SessionService) GetSession(ctx context.Context, params store.GetSessionParams) (*store.AgentSession, error) {
 	tenant := s.tenantID

@@ -10,6 +10,7 @@ import (
 
 	"github.com/degoke/haistack/pkg/ai"
 	"github.com/degoke/haistack/pkg/store"
+	"github.com/google/uuid"
 )
 
 type memSessionService struct {
@@ -56,6 +57,24 @@ func (m *memSessionService) ListSessions(context.Context, store.ListSessionsPara
 	return nil, nil
 }
 
+func (m *memSessionService) ListEventsAfter(_ context.Context, params store.ListEventsAfterParams) ([]store.SessionEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := sessionKey(params.TenantID, params.AppName, params.UserID, params.SessionID)
+	events := m.events[key]
+	idx := -1
+	for i, ev := range events {
+		if ev.ID == params.AfterEventID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, store.ErrSessionEventNotFound
+	}
+	return append([]store.SessionEvent(nil), events[idx+1:]...), nil
+}
+
 func (m *memSessionService) DeleteSession(context.Context, store.DeleteSessionParams) error {
 	return nil
 }
@@ -64,7 +83,12 @@ func (m *memSessionService) AppendEvent(_ context.Context, params store.AppendEv
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sessionKey(params.TenantID, params.AppName, params.UserID, params.SessionID)
-	m.events[key] = append(m.events[key], params.Event)
+	ev := params.Event
+	if strings.TrimSpace(ev.ID) == "" {
+		ev.ID = uuid.NewString()
+	}
+	m.events[key] = append(m.events[key], ev)
+	params.Event = ev
 	if rec, ok := m.sessions[key]; ok && len(params.Event.StateDelta) > 0 {
 		if rec.State == nil {
 			rec.State = map[string]any{}
@@ -76,7 +100,7 @@ func (m *memSessionService) AppendEvent(_ context.Context, params store.AppendEv
 			rec.State[k] = v
 		}
 	}
-	return &params.Event, nil
+	return &ev, nil
 }
 
 func (m *memSessionService) GetUserState(context.Context, string, string, string) (map[string]any, error) {

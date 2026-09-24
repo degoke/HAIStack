@@ -9,6 +9,9 @@ import (
 // ErrSessionNotFound indicates the session key does not exist in the tenant scope.
 var ErrSessionNotFound = errors.New("session not found")
 
+// ErrSessionEventNotFound indicates the referenced event id is not in the session.
+var ErrSessionEventNotFound = errors.New("session event not found")
+
 // SessionEventAuthor identifies who produced an event (ADK-style roles).
 const (
 	SessionAuthorUser       = "user"
@@ -26,6 +29,9 @@ const SessionMetadataCoveredEventCount = "coveredEventCount"
 
 // SessionMetadataLastCoveredEventID is the id of the last event included in the compaction summary.
 const SessionMetadataLastCoveredEventID = "lastCoveredEventId"
+
+// SessionMetadataActiveTokensEstimate records the estimated active context tokens after compaction.
+const SessionMetadataActiveTokensEstimate = "activeTokensEstimate"
 
 // SessionToolCall is a persisted tool invocation on a model event.
 type SessionToolCall struct {
@@ -122,10 +128,20 @@ type AppendEventParams struct {
 	Event     SessionEvent
 }
 
+// ListEventsAfterParams returns session events strictly after AfterEventID in append order.
+type ListEventsAfterParams struct {
+	TenantID     string
+	AppName      string
+	UserID       string
+	SessionID    string
+	AfterEventID string
+}
+
 // SessionService manages agent sessions and append-only event history (ADK SessionService).
 type SessionService interface {
 	CreateSession(ctx context.Context, params CreateSessionParams) (*AgentSession, error)
 	GetSession(ctx context.Context, params GetSessionParams) (*AgentSession, error)
+	ListEventsAfter(ctx context.Context, params ListEventsAfterParams) ([]SessionEvent, error)
 	ListSessions(ctx context.Context, params ListSessionsParams) ([]SessionSummary, error)
 	DeleteSession(ctx context.Context, params DeleteSessionParams) error
 	AppendEvent(ctx context.Context, params AppendEventParams) (*SessionEvent, error)
