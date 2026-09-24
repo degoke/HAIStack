@@ -295,9 +295,6 @@ func (s *SessionService) listEvents(ctx context.Context, tenant, appName, userID
 		args = append(args, formatTime(cfg.AfterTimestamp))
 	}
 	query += " ORDER BY timestamp ASC"
-	if cfg != nil && cfg.NumRecentEvents > 0 {
-		// fetch all then slice (sqlite limit on subquery is awkward for "last N")
-	}
 	rows, err := s.exec.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)

@@ -152,50 +152,6 @@ func ProposePatientCreateToolDescriptor() ToolDescriptor {
 	return d
 }
 
-func patientDraftFromWriteFields(fields map[string]any) (PatientCreateDraft, error) {
-	names := sliceOfMapsFromPatientFields(fields["name"])
-	if len(names) == 0 {
-		return PatientCreateDraft{}, fmt.Errorf("%w: patient name is required", ErrInvalidInput)
-	}
-	n := names[0]
-	given := stringSliceField(n, "given")
-	family := stringField(n, "family")
-	phone := ""
-	if telecom := sliceOfMapsFromPatientFields(fields["telecom"]); len(telecom) > 0 {
-		phone = stringField(telecom[0], "value")
-	}
-	return PatientCreateDraft{
-		Family:    family,
-		Given:     given,
-		Gender:    stringField(fields, "gender"),
-		BirthDate: stringField(fields, "birthDate"),
-		Phone:     phone,
-	}, nil
-}
-
-func sliceOfMapsFromPatientFields(raw any) []map[string]any {
-	if raw == nil {
-		return nil
-	}
-	if m, ok := raw.(map[string]any); ok {
-		return []map[string]any{m}
-	}
-	switch items := raw.(type) {
-	case []map[string]any:
-		return items
-	case []any:
-		out := make([]map[string]any, 0, len(items))
-		for _, item := range items {
-			if m, ok := item.(map[string]any); ok {
-				out = append(out, m)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
 func parseGivenNames(raw any) ([]string, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("%w: given is required", ErrInvalidInput)

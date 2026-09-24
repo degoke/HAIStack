@@ -296,7 +296,7 @@ func (h *Harness) defaultSummarizeForCompaction(ctx context.Context, in SessionC
 		if ev.Partial {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("[%s] %s\n", ev.Author, strings.TrimSpace(ev.Content)))
+		fmt.Fprintf(&b, "[%s] %s\n", ev.Author, strings.TrimSpace(ev.Content))
 	}
 	resp, err := h.cfg.Model.Chat(ctx, ChatRequest{
 		Messages:     []ChatMessage{{Role: ChatRoleUser, Content: b.String()}},

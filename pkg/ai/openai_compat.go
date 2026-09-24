@@ -120,7 +120,7 @@ func (a *OpenAICompatibleAdapter) Chat(ctx context.Context, req ChatRequest) (*C
 	if err != nil {
 		return nil, err
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	raw, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return nil, err

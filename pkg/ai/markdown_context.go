@@ -26,9 +26,6 @@ func NewMarkdownContextBuilder() *MarkdownContextBuilder {
 
 // FormatToolResult renders tool output for model consumption.
 func (b *MarkdownContextBuilder) FormatToolResult(toolName string, data any, citations []Citation) (string, error) {
-	if b == nil {
-		b = NewMarkdownContextBuilder()
-	}
 	switch toolName {
 	case ToolRunView, ToolGetPatientSummary, ToolGetUpcomingAppointments:
 		return formatViewMarkdown(data, citations)
@@ -91,7 +88,7 @@ func formatViewMarkdown(data any, citations []Citation) (string, error) {
 		writeMarkdownTable(&b, columns, rows)
 	}
 	if total, ok := intFromAny(m["total"]); ok {
-		b.WriteString(fmt.Sprintf("\n_Total rows: %d_\n", total))
+		fmt.Fprintf(&b, "\n_Total rows: %d_\n", total)
 	}
 	appendCitationLines(&b, citations)
 	return b.String(), nil
@@ -108,7 +105,7 @@ func formatSearchMarkdown(data any, citations []Citation) (string, error) {
 	b.WriteString(rt)
 	b.WriteByte('\n')
 	if total, ok := intFromAny(m["total"]); ok {
-		b.WriteString(fmt.Sprintf("Matches: %d\n\n", total))
+		fmt.Fprintf(&b, "Matches: %d\n\n", total)
 	}
 	resources := sliceOfMaps(m["resources"])
 	if len(resources) == 0 {
@@ -116,7 +113,7 @@ func formatSearchMarkdown(data any, citations []Citation) (string, error) {
 	} else {
 		for i, res := range resources {
 			id := stringField(res, "id")
-			b.WriteString(fmt.Sprintf("%d. **%s/%s**", i+1, rt, id))
+			fmt.Fprintf(&b, "%d. **%s/%s**", i+1, rt, id)
 			if name := humanNameLine(res["name"]); name != "" {
 				b.WriteString(" — ")
 				b.WriteString(name)
@@ -169,8 +166,8 @@ func formatWriteMarkdown(data any, citations []Citation) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("### Write committed\n")
-	b.WriteString(fmt.Sprintf("- **Operation:** %s\n", stringField(m, "operation")))
-	b.WriteString(fmt.Sprintf("- **Resource:** %s/%s\n", stringField(m, "resourceType"), stringField(m, "id")))
+	fmt.Fprintf(&b, "- **Operation:** %s\n", stringField(m, "operation"))
+	fmt.Fprintf(&b, "- **Resource:** %s/%s\n", stringField(m, "resourceType"), stringField(m, "id"))
 	appendCitationLines(&b, citations)
 	return b.String(), nil
 }

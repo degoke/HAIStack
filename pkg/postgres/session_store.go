@@ -154,7 +154,6 @@ func (s *SessionService) ListSessions(ctx context.Context, params store.ListSess
 	if params.UserID != "" {
 		query += fmt.Sprintf(" AND user_id = $%d", argN)
 		args = append(args, params.UserID)
-		argN++
 	}
 	query += " ORDER BY updated_at ASC"
 	if params.Limit > 0 {
@@ -281,7 +280,6 @@ func (s *SessionService) listEvents(ctx context.Context, tenant, appName, userID
 	if cfg != nil && !cfg.AfterTimestamp.IsZero() {
 		query += fmt.Sprintf(" AND timestamp >= $%d", argN)
 		args = append(args, cfg.AfterTimestamp)
-		argN++
 	}
 	query += " ORDER BY timestamp ASC"
 	rows, err := s.exec.Query(ctx, query, args...)

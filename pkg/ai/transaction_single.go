@@ -26,9 +26,6 @@ func (e *Executor) execSingleWriteViaAtomicTransaction(ctx context.Context, req 
 			}
 		}
 	}
-	if params.ID == "" && out["id"] == nil {
-		// Fall back: resource may still be readable when client assigned id in fields (disallowed) — id from tool input only.
-	}
 	citations = []Citation{e.cfg.Citations.WriteCitation(params.Operation, params.ResourceType, fmt.Sprint(out["id"]))}
 	return out, citations, "success", false, "", nil, nil
 }

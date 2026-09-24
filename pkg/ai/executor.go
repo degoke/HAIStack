@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -581,17 +580,6 @@ func (e *Executor) execView(ctx context.Context, req ToolRequest, input map[stri
 		result.ViewName, result.Version, result.Metadata.SourceResourceType, columnNames, result.Rows,
 	)
 	return data, citations, "success", redactions, nil
-}
-
-func mergeUpdateJSON(existing []byte, fields map[string]any) ([]byte, error) {
-	var root map[string]any
-	if err := json.Unmarshal(existing, &root); err != nil {
-		return nil, err
-	}
-	if err := applyFields(root, fields); err != nil {
-		return nil, err
-	}
-	return json.Marshal(root)
 }
 
 func filterAllowedFields(requested map[string]any, allowed []string) map[string]any {
