@@ -128,7 +128,7 @@ func TestOpenAICompatibleAdapter_InvokeLegacy(t *testing.T) {
 
 func TestChatToolsFromDescriptors(t *testing.T) {
 	tools := ai.ChatToolsFromDescriptors(ai.GenericToolDescriptors())
-	if len(tools) != 5 {
+	if len(tools) != 6 {
 		t.Fatalf("tools = %d", len(tools))
 	}
 	if tools[0].Name != ai.ToolReadFhirResource {

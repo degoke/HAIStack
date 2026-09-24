@@ -130,6 +130,12 @@ func (e *Executor) execPersistWrite(ctx context.Context, req ToolRequest, params
 		return nil, nil, "", false, "", nil, fmt.Errorf("%w: approval token supplied for a write that does not require approval", ErrInvalidInput)
 	}
 
+	if e.cfg.AIAttribution.atomicProvenance() && e.cfg.AIAttribution.createProvenance() {
+		atomicParams := params
+		atomicParams.Allowed = allowed
+		return e.execSingleWriteViaAtomicTransaction(ctx, req, atomicParams)
+	}
+
 	var written *types.ResourceEnvelope
 	switch params.Operation {
 	case WriteOperationCreate:

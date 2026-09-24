@@ -186,7 +186,7 @@ When `Executor` `Config.AIAttribution.Enabled` is true, successful AI-mediated c
 2. Add `meta.extension` (`urn:haistack:fhir:StructureDefinition:ai-agent-context`) with `conversationId` / `actor`—**does not overwrite** clinical `meta.source`.
 3. Create a **Provenance** resource targeting the written resource (optional via `CreateProvenance`, default on). Provenance uses R4 `CodeableConcept` for `entity.role`.
 
-**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true): the clinical write succeeds even if Provenance `Create` fails; audit outcome `provenance-failed` and `provenanceWarning` on the tool result. For atomic write+Provenance, use `core.ResourceService.ProcessTransactionBundle` in your deployment (not automatic on the executor path).
+**Provenance is best-effort by default** (`ProvenanceBestEffort`, default true): the clinical write succeeds even if Provenance `Create` fails unless `AtomicProvenance` is true. With `AtomicProvenance`, single create/update and `execute_fhir_transaction` commit clinical resources and Provenance in one `ProcessTransactionBundle` call.
 
 Provenance is created via `Core.Create` (system side-effect, not create/update tool policy). Ensure the core store allows `Provenance` creates for the executor principal.
 

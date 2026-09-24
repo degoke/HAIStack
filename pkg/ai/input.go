@@ -102,6 +102,54 @@ func parseCreateInput(input map[string]any) (CreateInput, error) {
 	return CreateInput{ResourceType: rt, ID: id, Fields: fields}, nil
 }
 
+func parseTransactionInput(input map[string]any) ([]transactionEntrySpec, error) {
+	raw, ok := input["entries"]
+	if !ok {
+		return nil, fmt.Errorf("%w: entries is required", ErrInvalidInput)
+	}
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return nil, fmt.Errorf("%w: entries must be a non-empty array", ErrInvalidInput)
+	}
+	out := make([]transactionEntrySpec, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: entries[%d] must be an object", ErrInvalidInput, i)
+		}
+		method, err := requireString(m, "method")
+		if err != nil {
+			return nil, fmt.Errorf("%w: entries[%d]: %v", ErrInvalidInput, i, err)
+		}
+		rt, err := requireString(m, "resourceType")
+		if err != nil {
+			return nil, fmt.Errorf("%w: entries[%d]: %v", ErrInvalidInput, i, err)
+		}
+		spec := transactionEntrySpec{
+			Method:       method,
+			ResourceType: rt,
+		}
+		if id, err := optionalStringValue(m, "id"); err != nil {
+			return nil, err
+		} else {
+			spec.ID = id
+		}
+		if fullURL, err := optionalStringValue(m, "fullUrl"); err != nil {
+			return nil, err
+		} else {
+			spec.FullURL = fullURL
+		}
+		if fields, err := parseFields(m["fields"]); err == nil && len(fields) > 0 {
+			spec.Fields = fields
+		}
+		if patches, err := parsePatches(m["patches"], rt); err == nil && len(patches) > 0 {
+			spec.Patches = patches
+		}
+		out = append(out, spec)
+	}
+	return out, nil
+}
+
 func parseUpdateInput(input map[string]any) (UpdateInput, error) {
 	if raw, ok := input["fields"]; ok && raw != nil {
 		return UpdateInput{}, fmt.Errorf("%w: updates must use %q with FHIRPath keys, not fields", ErrInvalidInput, "patches")

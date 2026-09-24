@@ -315,6 +315,26 @@ func TestCreateFhirResource_Success(t *testing.T) {
 	}
 }
 
+func TestUpdateFhirResource_ParentPolicyAllowsChildPatch(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		seedPatients: true,
+		withCore:     true,
+	})
+	h.policy.Write["Patient"] = ai.WriteTypePolicy{UpdateFields: []string{"name"}}
+	ctx := context.Background()
+	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName: ai.ToolUpdateFhirResource,
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"id":           "pat-jane",
+			"patches":      map[string]any{"name[0].family": "PrefixOK"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+}
+
 func TestUpdateFhirResource_Success(t *testing.T) {
 	h := newTestHarness(t, harnessOptions{
 		seedPatients:      true,
@@ -618,8 +638,8 @@ func TestAllowListPolicy_RequiresExactIncludeDirectives(t *testing.T) {
 
 func TestGenericToolDescriptors(t *testing.T) {
 	descriptors := ai.GenericToolDescriptors()
-	if len(descriptors) != 5 {
-		t.Fatalf("len = %d, want 5", len(descriptors))
+	if len(descriptors) != 6 {
+		t.Fatalf("len = %d, want 6", len(descriptors))
 	}
 	if descriptors[0].Name != ai.ToolReadFhirResource || !descriptors[0].Generic {
 		t.Fatalf("first descriptor = %#v", descriptors[0])
@@ -977,6 +997,30 @@ func TestWriteRejectsReservedFields(t *testing.T) {
 	})
 	if !errors.Is(err, ai.ErrInvalidInput) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestCreateFhirResource_AtomicProvenance(t *testing.T) {
+	h := newTestHarness(t, harnessOptions{
+		withCore:            true,
+		allowPatientWrite:   true,
+		enableAIAttribution: true,
+		atomicProvenance:    true,
+	})
+	ctx := context.Background()
+	_, err := h.exec.ExecuteTool(ctx, ai.ToolRequest{
+		ToolName: ai.ToolCreateFhirResource,
+		Actor:    "agent-1",
+		Input: map[string]any{
+			"resourceType": "Patient",
+			"fields":       map[string]any{"name": []map[string]string{{"family": "Txn"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTool: %v", err)
+	}
+	if h.coreMem.countResourceType("Provenance") != 1 {
+		t.Fatalf("provenance count = %d", h.coreMem.countResourceType("Provenance"))
 	}
 }
 

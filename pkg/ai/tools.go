@@ -15,7 +15,7 @@ type ToolDescriptor struct {
 	InputKeys   []string `json:"inputKeys,omitempty"`
 }
 
-// GenericToolDescriptors returns metadata for the five built-in generic tools.
+// GenericToolDescriptors returns metadata for the six built-in generic tools.
 func GenericToolDescriptors() []ToolDescriptor {
 	return []ToolDescriptor{
 		{
@@ -48,13 +48,19 @@ func GenericToolDescriptors() []ToolDescriptor {
 			Generic:     true,
 			InputKeys:   []string{"resourceType", "id", "patches"},
 		},
+		{
+			Name:        ToolExecuteFhirTransaction,
+			Description: "Execute a FHIR transaction bundle atomically (POST create entries with fields, PUT update entries with patches). When AI attribution is enabled, Provenance is included in the same transaction.",
+			Generic:     true,
+			InputKeys:   []string{"entries"},
+		},
 	}
 }
 
-// IsWriteTool reports whether name is a FHIR write tool (create or update).
+// IsWriteTool reports whether name is a FHIR write tool (create, update, or transaction).
 func IsWriteTool(name string) bool {
 	switch name {
-	case ToolCreateFhirResource, ToolUpdateFhirResource:
+	case ToolCreateFhirResource, ToolUpdateFhirResource, ToolExecuteFhirTransaction:
 		return true
 	default:
 		return false

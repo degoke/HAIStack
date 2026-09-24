@@ -9,8 +9,9 @@ const (
 	ToolReadFhirResource    = "read_fhir_resource"
 	ToolSearchFhirResources = "search_fhir_resources"
 	ToolRunView             = "run_view"
-	ToolCreateFhirResource = "create_fhir_resource"
-	ToolUpdateFhirResource = "update_fhir_resource"
+	ToolCreateFhirResource     = "create_fhir_resource"
+	ToolUpdateFhirResource     = "update_fhir_resource"
+	ToolExecuteFhirTransaction = "execute_fhir_transaction"
 )
 
 // Convenience tool names built on the generic core.

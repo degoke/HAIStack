@@ -31,8 +31,18 @@ type AIAttributionConfig struct {
 	// ModelID is stored in Provenance.entity or agent extension when set.
 	ModelID string
 	// ProvenanceBestEffort when true (default), a Provenance create failure does not fail the clinical write.
-	// Atomic write+Provenance requires core.ProcessTransactionBundle; not used automatically here.
+	// Ignored when AtomicProvenance is true (write + Provenance use ProcessTransactionBundle).
 	ProvenanceBestEffort *bool
+	// AtomicProvenance when true, clinical writes with CreateProvenance use a transaction bundle
+	// (resource + Provenance). execute_fhir_transaction is always atomic.
+	AtomicProvenance *bool
+}
+
+func (c AIAttributionConfig) atomicProvenance() bool {
+	if c.AtomicProvenance == nil {
+		return false
+	}
+	return *c.AtomicProvenance
 }
 
 func (c AIAttributionConfig) createProvenance() bool {
@@ -194,12 +204,30 @@ func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, writ
 	if e.cfg.Core == nil {
 		return fmt.Errorf("%w: core service required for provenance", ErrMissingDependency)
 	}
+	body, err := e.marshalAIProvenance(req, written.ResourceType+"/"+written.ID)
+	if err != nil {
+		return err
+	}
+	_, err = e.cfg.Core.Create(ctx, &types.ResourceEnvelope{
+		ResourceType: "Provenance",
+		JSON:         body,
+	})
+	return err
+}
+
+// marshalAIProvenance builds Provenance JSON targeting targetRef (ResourceType/id or urn:uuid:...).
+func (e *Executor) marshalAIProvenance(req ToolRequest, targetRef string) ([]byte, error) {
 	now := e.cfg.Now()
 	if now.IsZero() {
 		now = time.Now()
 	}
+	prov := buildAIProvenanceMap(e.cfg.AIAttribution, req, targetRef, now)
+	return json.Marshal(prov)
+}
+
+func buildAIProvenanceMap(cfg AIAttributionConfig, req ToolRequest, targetRef string, now time.Time) map[string]any {
 	agentWho := map[string]any{}
-	display := strings.TrimSpace(e.cfg.AIAttribution.AgentDisplay)
+	display := strings.TrimSpace(cfg.AgentDisplay)
 	if display == "" && req.Actor != "" {
 		display = req.Actor
 	}
@@ -215,7 +243,7 @@ func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, writ
 	prov := map[string]any{
 		"resourceType": "Provenance",
 		"target": []any{
-			map[string]any{"reference": written.ResourceType + "/" + written.ID},
+			map[string]any{"reference": targetRef},
 		},
 		"recorded": now.UTC().Format(time.RFC3339),
 		"agent": []any{
@@ -234,7 +262,7 @@ func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, writ
 		},
 		"reason": []any{aiastCoding()},
 	}
-	if model := strings.TrimSpace(e.cfg.AIAttribution.ModelID); model != "" {
+	if model := strings.TrimSpace(cfg.ModelID); model != "" {
 		prov["entity"] = []any{
 			map[string]any{
 				"role": map[string]any{
@@ -266,13 +294,5 @@ func (e *Executor) createAIProvenance(ctx context.Context, req ToolRequest, writ
 			},
 		}
 	}
-	body, err := json.Marshal(prov)
-	if err != nil {
-		return err
-	}
-	_, err = e.cfg.Core.Create(ctx, &types.ResourceEnvelope{
-		ResourceType: "Provenance",
-		JSON:         body,
-	})
-	return err
+	return prov
 }

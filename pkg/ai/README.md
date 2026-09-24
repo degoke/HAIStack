@@ -5,13 +5,14 @@ audited tools — not arbitrary FHIR server commands.
 
 ## What it does
 
-v1 centers on five generic tools that sit in front of the existing stack:
+v1 centers on six generic tools that sit in front of the existing stack:
 
 - `read_fhir_resource` — read one resource through policy allow-lists
 - `search_fhir_resources` — search with allow-listed parameters and bounded paging
 - `run_view` — execute a registered ViewDefinition for structured context
 - `create_fhir_resource` — structured create with field maps, validation, and optional approval
 - `update_fhir_resource` — updates via patch-path `patches` only (FHIR Patch path syntax such as `name[0].family`; not FHIRPath `.where()` expressions)
+- `execute_fhir_transaction` — atomic multi-entry writes (POST/PUT) with optional bundled Provenance when AI attribution is enabled
 
 Convenience wrappers (`get_patient_summary`, `get_upcoming_appointments`,
 `search_patient_by_phone`) delegate to these generic operations and are
@@ -314,6 +315,17 @@ res, err := exec.ExecuteTool(ctx, ai.ToolRequest{
 
 Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys cannot set `resourceType` or `id` (use tool arguments for those).
 
+### `execute_fhir_transaction`
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `entries` | yes | Array of `{method, resourceType, id?, fields?, patches?, fullUrl?}` |
+
+- `POST` — same shape as create (`fields` required).
+- `PUT` — same shape as update (`id` and `patches` required).
+
+When `AIAttribution.Enabled` and Provenance creation are on, the executor appends one Provenance entry per clinical write inside the same transaction. Set `AtomicProvenance` on the executor to use the same behavior for single create/update tools.
+
 ## Safety model
 
 `AllowListPolicy` denies by default:
@@ -322,7 +334,7 @@ Writes do not accept arbitrary full Resource JSON or PATCH documents. Patch keys
 - Unlisted views cannot be executed
 - Search requests containing any parameter not on the allow-list are denied
 - Search results expose only `resourceType`/`id` unless `AllowedFields` or `AllowAllFields` is configured
-- Write fields not on the allow-list are rejected; for updates each patch key must match an `UpdateFields` entry exactly (e.g. `name[0].family` ≠ `name.family`)
+- Write fields not on the allow-list are rejected; for updates an `UpdateFields` parent path allows descendant patch paths (e.g. `name` allows `name[0].family`)
 - `SearchTypePolicy.MaxCount` bounds page size
 - `_include` and `_revinclude` directives require exact policy allow-list entries
 

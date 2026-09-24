@@ -3,7 +3,7 @@
 //
 // # Scope
 //
-// v1 centers on five generic, policy-bounded tools rather than a large catalog of
+// v1 centers on six generic, policy-bounded tools rather than a large catalog of
 // hard-coded domain tools:
 //
 //   - read_fhir_resource
@@ -11,6 +11,7 @@
 //   - run_view
 //   - create_fhir_resource
 //   - update_fhir_resource
+//   - execute_fhir_transaction
 //
 // These are constrained, typed, audited operations in front of pkg/view,
 // pkg/search, pkg/core, and pkg/validate — not raw FHIR server passthroughs.

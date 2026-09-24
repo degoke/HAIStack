@@ -182,7 +182,8 @@ func newTestHarness(t *testing.T, opts harnessOptions) *testHarness {
 		Deidentify: deid,
 		Now:        clock.Now,
 		AIAttribution: ai.AIAttributionConfig{
-			Enabled: opts.enableAIAttribution,
+			Enabled:          opts.enableAIAttribution,
+			AtomicProvenance: boolPtr(opts.atomicProvenance),
 		},
 	})
 	if err != nil {
@@ -219,7 +220,16 @@ type harnessOptions struct {
 	writeRequiresApproval   bool
 	approvalGranted         bool
 	enableAIAttribution     bool
+	atomicProvenance        bool
 	denyProvenanceCreate    bool
+}
+
+func boolPtr(v bool) *bool {
+	if !v {
+		return nil
+	}
+	b := true
+	return &b
 }
 
 type memResourceStore struct {

@@ -218,6 +218,8 @@ func (e *Executor) ExecuteTool(ctx context.Context, req ToolRequest) (*ToolResul
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execCreateFhirResource(ctx, req, input)
 	case ToolUpdateFhirResource:
 		data, citations, outcome, approval, approvalToken, redactions, err = e.execUpdateFhirResource(ctx, req, input)
+	case ToolExecuteFhirTransaction:
+		data, citations, outcome, approval, approvalToken, redactions, err = e.execExecuteFhirTransaction(ctx, req, input)
 	default:
 		err = fmt.Errorf("%w: %s", ErrToolNotFound, req.ToolName)
 	}
@@ -544,13 +546,9 @@ func filterAllowedFields(requested map[string]any, allowed []string) map[string]
 	if len(allowed) == 0 {
 		return requested
 	}
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, f := range allowed {
-		allowedSet[f] = struct{}{}
-	}
 	out := make(map[string]any)
 	for k, v := range requested {
-		if _, ok := allowedSet[k]; ok {
+		if fieldMatchesAllowedPolicy(k, allowed) {
 			out[k] = v
 		}
 	}
