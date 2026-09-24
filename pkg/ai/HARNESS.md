@@ -32,7 +32,7 @@ App: model URL/provider + optional system prompt
 | Model seam: URL + provider | `OpenAICompatibleAdapter`, `ChatModel`, optional `ModelAdapterChatModel` bridge for local stubs |
 | Model routing hint | `HarnessConfig.ModelHint` → `ChatRequest.Hint`; `ModelRouter` still used via `Executor.InvokeModel` |
 | Orchestration loop | `Harness.Chat`: user → model → tools → `ExecuteTool` → tool messages → repeat until text |
-| Tool protocol | OpenAI-style **function tools** from `Registry.AllToolDescriptors` (`ChatToolsFromDescriptors`) |
+| Tool protocol | **Native** function tools (`ToolCallProtocolNative`), **prompt JSON** (`ToolCallProtocolPromptJSON`), or **both** (`ToolCallProtocolBoth`) |
 | FHIR narration (markdown) | `ToolContextMarkdown` + `MarkdownContextBuilder` for read/search/view |
 | Structured writes (any resource) | `ResourceWriteDraft`, `propose_write_resource`, `CommitWrite` / `CommitWriteFromSession` (`PatientCreateDraft` is a convenience wrapper) |
 | No arbitrary FHIR JSON commits | `BlockDirectWriteTools` hides `write_fhir_resource` from the model; commits go through validated maps |
@@ -42,7 +42,6 @@ App: model URL/provider + optional system prompt
 | Long-term chat storage | **Out of scope today** — see [Conversation storage](#conversation-storage) |
 | Free-form FHIR answer validation | **Out of scope** — see [Why not validate arbitrary FHIR JSON?](#why-not-validate-arbitrary-fhir-json) |
 | OAuth / SMART login | **Out of scope** — see [Why OAuth/SMART is outside the harness](#why-oauthsmart-is-outside-the-harness) |
-| Prompt-only JSON tool protocol | **Not implemented** — see [Tool-calling protocols](#tool-calling-protocols) |
 
 ## Conversation storage
 
@@ -50,34 +49,35 @@ App: model URL/provider + optional system prompt
 inside the process. `SetConversationID` / `AutoConversationID` correlate executor audit
 and policy checks; nothing is written to SQLite/Postgres by the harness itself.
 
-**Proposed v2 seam (not built yet):**
+**Proposed v2 seam (not built yet):** a small `ConversationStore` interface (`Load`/`Save`
+`Session` by `conversationID`). The **host app** implements it against its own database
+(tenant-scoped rows, encryption at rest, retention policy). The harness would **orchestrate
+only**: load session → `Chat` (append messages) → save session. It would not choose schema,
+encryption keys, or how long transcripts live — exactly like auth: the harness receives
+`Actor`/`Subject` from middleware that already ran OAuth; it does not perform login itself.
 
-```text
-type ConversationStore interface {
-    Load(ctx, conversationID) (Session, error)
-    Save(ctx, Session) error
-}
-```
-
-- Host app implements storage (tenant DB, encrypted blob store, etc.).
-- `NewHarnessWithSession` loads on turn 1; `Chat` appends and optionally `Save` after each turn.
-- Retention, encryption, and HIPAA boundaries stay in the app — same as OAuth.
-
-Until that interface lands, apps should persist `ChatResult.Messages` themselves if they
-need cross-request continuity beyond a single `Harness` instance.
+Until `ConversationStore` exists, apps can persist `ChatResult.Messages` after each turn
+or keep a live `Harness` in memory for the duration of one HTTP/WebSocket request.
 
 ## Tool-calling protocols
 
-**Native function tools (what we use now):** the model API exposes JSON-schema tools
-(`ChatToolsFromDescriptors` → OpenAI `/v1/chat/completions` `tools[]`). The provider
-parses structured `tool_calls` with names and JSON arguments. The harness executes
-those calls and returns `role: tool` messages.
+Set `HarnessConfig.ToolCallProtocol`:
 
-**Prompt-only JSON (future / alternate):** some local models have no tool channel. The
-app would instruct the model to emit a JSON blob in text (e.g. `{"tool":"read_fhir_resource",...}`),
-then the harness would parse that blob and run `ExecuteTool`. Same safety boundaries,
-different transport. We have not implemented that parser loop yet because OpenAI-compatible
-HTTP covers most deployment targets.
+| Value | Behavior |
+|-------|----------|
+| `native` (default) | OpenAI-style `tools[]` + `tool_calls` on the HTTP API |
+| `prompt_json` | Model emits `{"tool":"…","input":{…}}` in text; harness parses and runs `ExecuteTool` |
+| `both` | Use native `tool_calls` when present; otherwise parse prompt JSON |
+
+Prompt JSON instructions are appended to the system prompt via `AppendPromptJSONToolInstructions`.
+Parsed calls are validated against the same allow-listed tool names as native mode.
+
+```go
+h, _ := ai.NewHarness(ai.HarnessConfig{
+    ToolCallProtocol: ai.ToolCallProtocolPromptJSON,
+    // ...
+})
+```
 
 ## Why not validate arbitrary FHIR JSON?
 

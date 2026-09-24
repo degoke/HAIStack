@@ -35,6 +35,8 @@ type HarnessConfig struct {
 	BlockDirectWriteTools bool
 	// AutoConversationID assigns a UUID when Chat runs without SetConversationID (useful with RequireConversationID).
 	AutoConversationID bool
+	// ToolCallProtocol selects native function tools, prompt JSON in text, or both (default native).
+	ToolCallProtocol ToolCallProtocol
 }
 
 // Harness orchestrates conversation turns: model completions, tool execution via
@@ -158,25 +160,29 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 	for round := 0; round < h.cfg.MaxToolRounds; round++ {
 		resp, err := h.cfg.Model.Chat(ctx, ChatRequest{
 			Messages:     h.session.Messages,
-			Tools:        tools,
-			SystemPrompt: h.cfg.SystemPrompt,
+			Tools:        h.nativeToolsForModel(tools),
+			SystemPrompt: h.systemPromptForModel(tools),
 			Hint:         h.cfg.ModelHint,
 		})
 		if err != nil {
 			return nil, err
 		}
+		toolCalls, promptErr := h.resolveToolCalls(resp, tools)
+		if promptErr != nil {
+			return nil, promptErr
+		}
 		assistant := ChatMessage{
 			Role:      ChatRoleAssistant,
 			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
+			ToolCalls: toolCalls,
 		}
 		h.session.Messages = append(h.session.Messages, assistant)
 
-		if len(resp.ToolCalls) == 0 {
+		if len(toolCalls) == 0 {
 			return h.buildChatResult(resp.Content, toolSummaries), nil
 		}
 
-		for _, tc := range resp.ToolCalls {
+		for _, tc := range toolCalls {
 			summary := HarnessToolResult{ToolName: tc.Name}
 			input, parseErr := ParseToolArguments(tc.Arguments)
 			if parseErr != nil {
@@ -225,6 +231,50 @@ func (h *Harness) Chat(ctx context.Context, userMessage string) (*ChatResult, er
 	}
 
 	return nil, fmt.Errorf("ai: exceeded max tool rounds (%d)", h.cfg.MaxToolRounds)
+}
+
+func (h *Harness) toolCallProtocol() ToolCallProtocol {
+	if h == nil || h.cfg.ToolCallProtocol == "" {
+		return ToolCallProtocolNative
+	}
+	return h.cfg.ToolCallProtocol
+}
+
+func (h *Harness) nativeToolsForModel(tools []ChatTool) []ChatTool {
+	switch h.toolCallProtocol() {
+	case ToolCallProtocolPromptJSON:
+		return nil
+	default:
+		return tools
+	}
+}
+
+func (h *Harness) systemPromptForModel(tools []ChatTool) string {
+	switch h.toolCallProtocol() {
+	case ToolCallProtocolPromptJSON, ToolCallProtocolBoth:
+		return AppendPromptJSONToolInstructions(h.cfg.SystemPrompt, tools)
+	default:
+		return h.cfg.SystemPrompt
+	}
+}
+
+func (h *Harness) resolveToolCalls(resp *ChatResponse, tools []ChatTool) ([]ChatToolCall, error) {
+	if resp == nil {
+		return nil, nil
+	}
+	switch h.toolCallProtocol() {
+	case ToolCallProtocolNative:
+		return resp.ToolCalls, nil
+	case ToolCallProtocolPromptJSON:
+		return ParsePromptToolCalls(resp.Content, tools)
+	case ToolCallProtocolBoth:
+		if len(resp.ToolCalls) > 0 {
+			return resp.ToolCalls, nil
+		}
+		return ParsePromptToolCalls(resp.Content, tools)
+	default:
+		return resp.ToolCalls, nil
+	}
 }
 
 func (h *Harness) chatTools() []ChatTool {
