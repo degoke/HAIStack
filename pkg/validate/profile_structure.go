@@ -39,10 +39,6 @@ func validateProfileSnapshotStructure(ctx context.Context, obj map[string]interf
 	validateProfileSliceCardinality(ctx, obj, sd, state, issues)
 }
 
-func walkProfileStructure(ctx context.Context, node interface{}, path string, state *profileStructureState, issues *[]ValidationIssue) {
-	walkProfileStructureWithOptions(ctx, node, path, state, issues, profileWalkOptions{unknownElements: true, cardinality: true})
-}
-
 func walkProfileStructureWithOptions(ctx context.Context, node interface{}, path string, state *profileStructureState, issues *[]ValidationIssue, opts profileWalkOptions) {
 	if err := ctx.Err(); err != nil {
 		return
