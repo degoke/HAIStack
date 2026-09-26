@@ -7,13 +7,13 @@ import (
 	"unicode"
 )
 
-func validateProfileSlicing(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, issues *[]ValidationIssue) {
+func validateProfileSlicing(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, catalog ProfileCatalog, issues *[]ValidationIssue) {
+	walkProfileElementCardinality(ctx, obj, sd, catalog, issues)
 	state := newProfileStructureState(sd)
-	accumulateProfilePathCounts(obj, sd.Type, state.counts)
-	validateProfileSlicingWithCounts(ctx, obj, sd, state, issues)
+	validateProfileSliceCardinality(ctx, obj, sd, state, issues)
 }
 
-func validateProfileSlicingWithCounts(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, state *profileStructureState, issues *[]ValidationIssue) {
+func validateProfileSliceCardinality(ctx context.Context, obj map[string]interface{}, sd *StructureDefinition, state *profileStructureState, issues *[]ValidationIssue) {
 	sliceParents := state.sliceParents
 	for _, el := range sd.Elements {
 		if err := ctx.Err(); err != nil {
@@ -25,31 +25,23 @@ func validateProfileSlicingWithCounts(ctx context.Context, obj map[string]interf
 		if strings.Contains(el.Path, "[x]") {
 			continue
 		}
+		if el.SliceName == "" {
+			continue
+		}
 		parent, _ := splitElementPath(el.Path)
-		if parent != sd.Type && parent != "" {
-			if state.pathCount(parent) == 0 {
-				continue
-			}
-		}
-
-		if el.SliceName != "" {
-			count := countSliceMatches(obj, el, sd, sliceParents)
-			reportSliceCardinality(el, count, sd.URL, issues)
+		if parent != sd.Type && parent != "" && len(valuesAtPath(obj, parent)) == 0 {
 			continue
 		}
-		if _, sliced := sliceParents[el.Path]; sliced {
-			continue
-		}
-		count := state.pathCount(el.Path)
-		reportSliceCardinality(el, count, sd.URL, issues)
+		count := countSliceMatches(obj, el, sd, sliceParents)
+		reportSliceCardinality(el, count, count, sd.URL, issues)
 	}
 }
 
-func reportSliceCardinality(el ElementDefinition, count int, profileURL string, issues *[]ValidationIssue) {
-	if el.Min > 0 && count < el.Min {
+func reportSliceCardinality(el ElementDefinition, minCount, maxCount int, profileURL string, issues *[]ValidationIssue) {
+	if el.Min > 0 && minCount < el.Min {
 		*issues = append(*issues, issue(
 			"required",
-			fmt.Sprintf("%s: minimum required = %d, but only found %d (%s)", el.Path, el.Min, count, profileURL),
+			fmt.Sprintf("%s: minimum required = %d, but only found %d (%s)", el.Path, el.Min, minCount, profileURL),
 			[]string{el.Path},
 		))
 	}
@@ -62,10 +54,10 @@ func reportSliceCardinality(el ElementDefinition, count int, profileURL string, 
 		))
 		return
 	}
-	if bounded && count > max {
+	if bounded && maxCount > max {
 		*issues = append(*issues, issue(
 			"structure",
-			fmt.Sprintf("%s: max allowed = %d, but found %d (%s)", el.Path, max, count, profileURL),
+			fmt.Sprintf("%s: max allowed = %d, but found %d (%s)", el.Path, max, maxCount, profileURL),
 			[]string{el.Path},
 		))
 	}

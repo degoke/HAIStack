@@ -377,7 +377,7 @@ func (e *builtinEngine) validateProfiles(ctx context.Context, res *types.Resourc
 			))
 			continue
 		}
-		applyProfileValidation(ctx, res, obj, sd, e.fhirpath, opts, evaluatedConstraints, issues)
+		applyProfileValidation(ctx, res, obj, sd, catalog, e.fhirpath, opts, evaluatedConstraints, issues)
 	}
 }
 
@@ -388,12 +388,12 @@ func profileReferenceExpression(profileURL, resourceType string) string {
 	return "Resource.meta.profile"
 }
 
-func applyProfileValidation(ctx context.Context, res *types.ResourceEnvelope, obj map[string]interface{}, sd *StructureDefinition, engine fhirpath.Engine, opts ValidateOptions, evaluatedConstraints map[string]struct{}, issues *[]ValidationIssue) {
+func applyProfileValidation(ctx context.Context, res *types.ResourceEnvelope, obj map[string]interface{}, sd *StructureDefinition, catalog ProfileCatalog, engine fhirpath.Engine, opts ValidateOptions, evaluatedConstraints map[string]struct{}, issues *[]ValidationIssue) {
 	full := profileValidationFull(opts)
 	if sd.UseSnapshot {
-		validateProfileSnapshotStructure(ctx, obj, sd, issues)
+		validateProfileSnapshotStructure(ctx, obj, sd, catalog, issues)
 	} else {
-		validateProfileSlicing(ctx, obj, sd, issues)
+		validateProfileSlicing(ctx, obj, sd, catalog, issues)
 	}
 	if sd.UseSnapshot {
 		if opts.ProfileConstraints && engine != nil {

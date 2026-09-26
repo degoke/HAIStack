@@ -39,7 +39,8 @@
 //
 // Profile validation modes:
 //
-//   - Fast (default): slice cardinality, unknown elements on snapshot profiles,
+//   - Fast (default): element cardinality (per backbone instance, same tree walk as
+//     unknown-element checks), slice cardinality, unknown elements on snapshot profiles,
 //     optional FHIRPath invariants (opt-in via ProfileConstraints).
 //   - Full: adds SD terminology bindings (except preferred strength) and
 //     extension URL policy (including nested extensions).

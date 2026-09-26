@@ -142,6 +142,48 @@ func TestUnknownElementWhenParentPathUndefined(t *testing.T) {
 	}
 }
 
+func TestProfileCardinalityScopesWithinParentInstances(t *testing.T) {
+	catalog, err := validate.LoadProfileCatalogFromJSON([][]byte{[]byte(`{
+		"resourceType":"StructureDefinition",
+		"url":"http://hl7.org/fhir/StructureDefinition/Patient",
+		"type":"Patient",
+		"kind":"resource",
+		"snapshot":{"element":[
+			{"path":"Patient","min":0,"max":"*"},
+			{"path":"Patient.contact","min":0,"max":"*","type":[{"code":"BackboneElement"}]},
+			{"path":"Patient.contact.period","min":0,"max":"1","type":[{"code":"Period"}]},
+			{"path":"Patient.contact.period.end","min":0,"max":"1","type":[{"code":"dateTime"}]}
+		]}
+	}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := validate.NewEngine(validate.Config{ProfileCatalog: catalog})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		JSON: []byte(`{
+			"resourceType":"Patient",
+			"id":"p1",
+			"contact":[
+				{"period":{"end":"2020-01-01"}},
+				{"period":{"end":"2021-01-01"}}
+			]
+		}`),
+	}
+	result, err := eng.Validate(context.Background(), env, validate.ValidateOptions{EnforceBaseProfile: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iss := range result.Issues {
+		if iss.Code == "structure" && stringsContains(iss.Diagnostics, "Patient.contact.period.end") {
+			t.Fatalf("expected per-period end cardinality, got %+v", iss)
+		}
+	}
+}
+
 func TestInvalidMaxCardinalityReportsStructureIssue(t *testing.T) {
 	catalog, err := validate.LoadProfileCatalogFromJSON([][]byte{[]byte(`{
 		"resourceType":"StructureDefinition",

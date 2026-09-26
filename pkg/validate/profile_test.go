@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/degoke/haistack/pkg/types"
@@ -68,6 +69,35 @@ func TestProfileRejectsPatientMissingIdentifier(t *testing.T) {
 	outcome := validate.ToOperationOutcome(result)
 	if outcome == nil || len(outcome.Issue) == 0 || outcome.Issue[0].Code != "required" {
 		t.Fatalf("OperationOutcome = %+v", outcome)
+	}
+}
+
+func TestConstraintProfileDoesNotRejectUnlistedBaseFields(t *testing.T) {
+	eng, err := validate.NewEngine(validate.Config{ProfileCatalog: haiPatientCatalog(t)})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	env := &types.ResourceEnvelope{
+		ResourceType: "Patient",
+		JSON: []byte(`{
+			"resourceType":"Patient",
+			"id":"pat-1",
+			"meta":{"profile":["http://haistack.example.org/fhir/StructureDefinition/hai-patient"]},
+			"name":[{"family":"Doe"}],
+			"identifier":[{"system":"http://example.org/mrn","value":"1"}]
+		}`),
+	}
+	result, err := eng.Validate(context.Background(), env, validate.ValidateOptions{EnforceDeclaredProfiles: true})
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	for _, iss := range result.Issues {
+		if iss.Code == "unknown-element" && strings.Contains(iss.Diagnostics, "name") {
+			t.Fatalf("differential profile must not unknown-element base fields: %+v", iss)
+		}
+	}
+	if !result.Valid {
+		t.Fatalf("expected valid, got %+v", result.Issues)
 	}
 }
 
