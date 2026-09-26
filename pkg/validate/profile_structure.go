@@ -189,4 +189,3 @@ func isUnderOpaqueComplexType(sd *StructureDefinition, path string) bool {
 	children := sd.allowedChild[best]
 	return len(children) == 0
 }
-
